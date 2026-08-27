@@ -23,11 +23,13 @@ TypeScript + pnpm monorepo，三个包互不循环依赖：
 packages/
   core     @ai-duel/core     纯规则引擎（无渲染、无 IO、无网络）
   client   @ai-duel/client   Vite + React + GSAP（全部是 DOM，没有画布）
-  server   @ai-duel/server   socket.io 消息转发器
+  server   @ai-duel/server   socket.io 消息转发器 + 前端静态文件托管
 ```
 
 依赖方向只有一条：`client → core`。
 `server` 不依赖 `core`——它根本不需要知道游戏是什么。
+（线上 server 顺带用 express 托管 `client/dist`，那只是把文件发出去，
+不涉及代码依赖；见 `docs/deploy.md`。）
 
 三个包都**不经过 tsc 编译产出 JS**：`client` 交给 Vite，`server` 交给 tsx，
 `core` 的 `exports` 直接指向 `src/index.ts`，被前两者当源码消费。
@@ -152,6 +154,10 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 
 服务端不认识卡牌、不认识回合，所以**协议改了它也不用动**。
 
+除此之外它还兼职一件跟对局无关的事：用 express 把 `packages/client/dist` 发出去，
+外加一个给存活探针用的 `GET /healthz`。这样线上只有一个容器、一个端口、一个域名，
+前端和 socket 同源。部署细节见 `docs/deploy.md`。
+
 ## 5. client：全部是 React DOM + GSAP
 
 | 层 | 技术 | 负责 |
@@ -245,6 +251,9 @@ value { "ownedCards": ["..."], "wins": 3 }
 
 ```
 docs/architecture.md          本文档
+docs/deploy.md                部署（单容器、GHCR、ClawCloud）
+Dockerfile                    多阶段构建：前端产物 + server 源码 + tsx
+.github/workflows/deploy.yml  push main 自动构建镜像并滚动更新
 packages/core/
   src/types.ts                全部数据形状（状态、卡牌、指令、事件）
   src/cards.ts                卡牌数据 + 查表
@@ -262,7 +271,7 @@ packages/client/
   src/save.ts                 localStorage 存档（收藏 + 胜场）
   src/styles.css
 packages/server/
-  src/index.ts                转发器全部代码
+  src/index.ts                转发器全部代码 + 静态文件托管
 ```
 
 ## 7. 常用命令
@@ -276,6 +285,11 @@ pnpm dev                # 起客户端 (http://localhost:5173)
 pnpm dev:server         # 起转发器 (http://localhost:3001)
 pnpm --filter @ai-duel/client build
 ```
+
+开发时前端走 Vite 的 5173、转发器在 3001，两个端口分开；
+线上则是同一个端口（server 直接发 `packages/client/dist`）。
+想在本地复现线上那种同源形态，先 `pnpm --filter @ai-duel/client build` 再 `pnpm dev:server`，
+然后访问 http://localhost:3001 。完整部署链路见 `docs/deploy.md`。
 
 ## 8. 动手顺序
 

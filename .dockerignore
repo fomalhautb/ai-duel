@@ -1,0 +1,28 @@
+# 构建镜像时不需要、或者必须在镜像里重新生成的东西。
+# 尤其是 node_modules 和 dist：宿主机上的是 macOS 平台产物，带进去会覆盖镜像里装好的依赖。
+**/node_modules
+**/dist
+build/
+coverage/
+*.tsbuildinfo
+
+.git
+.github
+.gitignore
+.claude
+docs
+
+.DS_Store
+.idea/
+.vscode/
+
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+.env
+.env.local
+.env.*.local
+
+Dockerfile
+.dockerignore

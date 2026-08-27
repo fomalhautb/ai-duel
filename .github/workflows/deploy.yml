@@ -1,0 +1,71 @@
+name: 部署
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/fomalhautb/ai-duel
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ClawCloud 跑的是 x86 节点，这里固定 linux/amd64；
+      # 不加 platforms 的话在 arm 的 runner 上会构出跑不起来的镜像。
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # secrets 不能直接写在后续 step 的 if 里做比较，先在这里把"有没有配"变成一个普通输出。
+      - name: 检查是否配置了 kubeconfig
+        id: check
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.CLAWCLOUD_KUBECONFIG }}
+        run: |
+          if [ -n "$KUBECONFIG_CONTENT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "未配置 CLAWCLOUD_KUBECONFIG，跳过滚动更新。镜像已经推到 GHCR，配好 secret 后重跑本工作流即可部署。"
+          fi
+
+      - name: 滚动更新 ClawCloud 上的 Deployment
+        if: steps.check.outputs.ready == 'true'
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.CLAWCLOUD_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          # 直接从环境变量写文件，避免 kubeconfig 内容出现在命令行或日志里。
+          umask 077
+          printf '%s' "$KUBECONFIG_CONTENT" > "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          # 不指定 -n：ClawCloud 发的 kubeconfig 里 context 自带默认 namespace。
+          kubectl set image deployment/ai-duel "ai-duel=${IMAGE}:${GITHUB_SHA}"
+          kubectl rollout status deployment/ai-duel --timeout=5m

@@ -23,13 +23,13 @@ TypeScript + pnpm monorepo，三个包互不循环依赖：
 packages/
   core     @ai-duel/core     纯规则引擎（无渲染、无 IO、无网络）
   client   @ai-duel/client   Vite + React + GSAP（全部是 DOM，没有画布）
-  server   @ai-duel/server   socket.io 消息转发器
+  server   @ai-duel/server   Cloudflare Worker：消息转发器 + 前端静态资源托管
 ```
 
 依赖方向只有一条：`client → core`。
 `server` 不依赖 `core`——它根本不需要知道游戏是什么。
 
-三个包都**不经过 tsc 编译产出 JS**：`client` 交给 Vite，`server` 交给 tsx，
+三个包都**不经过 tsc 编译产出 JS**：`client` 交给 Vite，`server` 交给 wrangler（它自己打包上传 Worker），
 `core` 的 `exports` 直接指向 `src/index.ts`，被前两者当源码消费。
 `tsc` 在这个仓库里只当类型检查器（`pnpm typecheck`）。少一个构建步骤，改 core 立刻生效。
 
@@ -107,20 +107,22 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 **创建房间的那个客户端（房主）是唯一跑 core 状态机的地方。**
 
 ```
-房主客户端                    server                    客人客户端
+房主客户端                 Worker + Room DO                客人客户端
   │                             │                             │
-  ├── room:create ─────────────>│                             │
+  ├── GET /api/room ───────────>│                             │
   │<────────── 房间码 "4213" ───┤                             │
-  │                             │<──── room:join "4213" ──────┤
-  │<──── peer:joined ───────────┤                             │
+  ├─ WS /room/4213?role=host ──>│                             │
+  │<────────── #room:ok ────────┤                             │
+  │                             │<─ WS /room/4213?role=guest ─┤
+  │<──────── #peer:joined ──────┤                             │
   │                             │                             │
   │ createGame(seed, 双方牌组)  │                             │
-  ├── relay(events) ───────────>├──── relay(events) ─────────>│  播动画
+  ├── events ──────────────────>├─────────── >events ────────>│  播动画
   │                             │                             │
-  │                             │<──── relay(command) ────────┤  客人打出一张牌
-  │<── relay(command) ──────────┤                             │
+  │                             │<────────── command ─────────┤  客人打出一张牌
+  │<──────── >command ──────────┤                             │
   │ execute(state, command)     │                             │
-  ├── relay(events) ───────────>├──── relay(events) ─────────>│  播动画
+  ├── events ──────────────────>├─────────── >events ────────>│  播动画
 ```
 
 规则很简单：
@@ -141,19 +143,29 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 
 ### 4.4 server 做什么
 
-`packages/server` 只做三件事，全部加起来几十行：
+`packages/server` 是一个 Cloudflare Worker，只做三件事：
 
-1. `room:create` → 摇一个 4 位房间码，把发起者放进房间，回码。
-2. `room:join` → 检查房间存在且没满（上限 2 人），**先把这个人从他自己那间房里踢出去**，
-   再放进目标房间，通知房主 `peer:joined`。
-   踢出去这一步是必须的：客户端一进匹配房界面就先给自己开了房（好显示房间码），
-   不退的话他会同时待在两个房间里，转发串台，而且他那间空房还占着号能被第三个人进来。
-3. `relay` → 把 payload 原样转给房里的另一个人，**不看内容**。
+1. `GET /api/room` → 摇一个没人用的 4 位房间码，回给建房的人。
+2. `GET /room/:code?role=host|guest` → 升级成 WebSocket，把人放进房间（上限 2 人），
+   然后通知房里原本那个人 `#peer:joined`。
+3. 收到消息 → 原样转给房里的另一个人，**不看内容**。
 
-外加 `disconnect` 时给还在房里的人发 `peer:left`。
-房间的生命周期交给 socket.io 自己管（人走空了房间自动回收）。
+外加连接断开时给还剩下的人发 `#peer:left`。
 
-服务端不认识卡牌、不认识回合，所以**协议改了它也不用动**。
+**一个房间 = 一个 Durable Object 实例，房间码就是它的名字。**
+同一个码永远被路由到同一个实例，所以不需要维护一张全局房间表——
+"房里有谁"就是"这个实例上挂着哪几条连接"。
+
+这个结构顺带消掉了旧转发器上必须手工提防的一个坑：那时一条连接能同时待在两个房间里，
+客户端进别人的房前忘了退出自己那间就会转发串台、空房还占着号。
+现在一条连接绑定一个房间，换房就是换连接，同时占两间房这件事在结构上就不成立。
+
+连接用 **WebSocket Hibernation** 托管：闲置时 DO 可以休眠，但连接不断、也不计时长费用。
+这是免费档能长期挂着对局连接的前提。
+
+服务端发下来的每一帧带一个字符前缀区分两类消息：`#` 是控制消息，`>` 是原样转发的对端载荷。
+之所以不包一层 JSON，是因为**服务端绝不解析游戏载荷**——加前缀是纯字符串拼接。
+所以服务端不认识卡牌、不认识回合，**协议改了它也不用动**。
 
 ## 5. client：全部是 React DOM + GSAP
 
@@ -185,7 +197,8 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 
 不引 Next.js 是因为这里是纯客户端游戏：SSR、RSC、服务端数据获取一项都用不上，
 每个页面都得挂 `'use client'`，等于把 Next 当成一个启动更慢的 Vite。
-它也解决不了部署上的难题——socket.io 的长连接 Vercel 托不住，转发器无论如何都要单独跑。
+它也解决不了部署上的难题——WebSocket 长连接 Vercel 托不住，转发器无论如何都要另找地方跑
+（最后落在 Cloudflare Worker + Durable Object 上，见 `docs/deploy.md`）。
 
 **对局状态不放在路由上。** `MatchSessionProvider` 挂在 Router 外面，持有当前这局的 driver，
 房间页建好 driver 之后才跨得过跳到 `/match` 的那次卸载。它不写 localStorage，
@@ -462,7 +475,7 @@ packages/client/
   src/tutorial/levels.ts      三关的剧本数据
   src/net/
     protocol.ts               房主 ↔ 客人的消息格式
-    socket.ts                 socket.io 客户端封装（连服务器、建房、进房、转发）
+    socket.ts                 联机通道封装（原生 WebSocket：建房、进房、转发）
   src/ui/
     MatchStage.tsx            对局界面，只认一个 driver（目前是占位实现）
     HandFan.tsx               扇形手牌组件 + 卡面，通用
@@ -473,9 +486,10 @@ packages/client/
   src/styles.css
   test/tutorial.test.ts       把三关教程整段跑一遍
 packages/server/
-  src/relayServer.ts          转发器全部逻辑（工厂函数，不监听端口）
-  src/index.ts                启动入口
-  test/relayServer.test.ts    真开服务、真连 socket 的集成测试
+  src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
+  wrangler.jsonc              Worker 配置：静态资源、DO 绑定
+  worker-configuration.d.ts   wrangler 生成的 Env 类型
+  test/smoke.mjs              端到端冒烟测试（真起 wrangler dev、真连 WebSocket）
 ```
 
 依赖方向：`screens → match / ui / tutorial / save`，`match → net / core`，
@@ -486,18 +500,21 @@ packages/server/
 ```bash
 pnpm install
 pnpm typecheck          # 全仓类型检查
-pnpm test               # 三个包的测试：core 规则、教程剧本、转发器
+pnpm test               # 单元测试：core 规则、教程剧本
 pnpm dev                # 起客户端 (http://localhost:5173)
                         # 手牌动画演示页：http://localhost:5173/dev/hand
                         # 端口被占时用 PORT=5174 pnpm dev
-pnpm dev:server         # 起转发器 (http://localhost:3001)
+pnpm dev:server         # 起 Worker (http://localhost:8787)，同时发前端产物和 WebSocket
+                        # 转发器的端到端测试：先 build 前端，再 pnpm --filter @ai-duel/server smoke
 pnpm --filter @ai-duel/client build
 ```
 
 **两台电脑联机**：客户端已经监听了局域网（`server.host = true`），
 另一台用 `http://<你的局域网IP>:5173` 打开即可。
-socket 地址默认取当前页面的主机名（不是写死 localhost），所以局域网下自动对得上；
-要连别处的转发器就设 `VITE_SERVER_URL`。
+线上前端和转发器是同一个 Worker、同一个域名，联机地址默认就是当前页面的 origin，不用配。
+本地开发是两个进程（Vite 在 5173、`wrangler dev` 在 8787），页面 origin 指不到转发器，
+要在 `packages/client/.env.local` 里设 `VITE_SERVER_URL=http://<你的局域网IP>:8787` 指过去——
+写 localhost 的话另一台电脑会连到它自己身上。
 
 **静态部署**：路由用的是浏览器 history，直接把 `dist` 丢上静态托管需要配一条
 「所有路径回退到 index.html」的重写规则，否则刷新 `/room` 会 404。
@@ -511,7 +528,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 - `MatchDriver` 四个实现全写完，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
 - 教程三关能整段打通，通关送卡、写进度。
 - 存档 v2（收藏 + 胜场 + 教程进度）。
-- 联机协议、socket 封装、房主/客人两个 driver，转发器有集成测试守着。
+- 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
 
 **还没做的**，按建议顺序：
 

@@ -658,6 +658,20 @@ body,
 
 /* ---------- 手牌演示页 ---------- */
 
+/*
+ * .demo 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
+ * .hand-fan 是 position: fixed 钉在视口上的，而 fixed 元素本来就不受任何祖先的
+ * overflow 裁剪。手牌 hover 放大、拖拽出牌这些动作只要让它在某一帧比视口高一丁点，
+ * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且这页压根不需要滚动）。
+ * 用 :has() 只在这一页挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
+ */
+html:has(.demo),
+body:has(.demo) {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .demo {
   --demo-paper: #eee9dc;
   --demo-paper-shade: #e2dbc8;
@@ -671,6 +685,8 @@ body,
   grid-template-rows: 72px minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
   color: var(--demo-ink);
   background-color: var(--demo-paper);
   font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;

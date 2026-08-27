@@ -659,50 +659,396 @@ body,
 /* ---------- 手牌演示页 ---------- */
 
 .demo {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  --demo-paper: #eee9dc;
+  --demo-paper-shade: #e2dbc8;
+  --demo-line: #aaa391;
+  --demo-line-dark: #777465;
+  --demo-ink: #30313b;
+  --demo-ink-muted: #6d6b61;
+  --demo-navy: #253149;
+  --demo-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+  display: grid;
+  grid-template-rows: 72px minmax(0, 1fr);
   height: 100%;
-  padding: 16px;
-  background: url('/demo-hand-background.png') center / cover no-repeat;
+  overflow: hidden;
+  color: var(--demo-ink);
+  background-color: var(--demo-paper);
+  font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;
 }
 
-.demo__bar {
+/* ---------- 顶栏 ---------- */
+
+.battle-topbar {
+  position: relative;
+  z-index: 70;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(170px, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 0;
+  background-color: var(--demo-paper);
+  background-image:
+    linear-gradient(90deg, rgb(255 255 255 / 26%), transparent 36%, rgb(130 115 82 / 8%)),
+    var(--demo-grain);
+  background-blend-mode: normal, multiply;
+  box-shadow: 0 2px 8px rgb(45 42 34 / 18%);
+}
+
+.battle-topbar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(
+    to bottom,
+    var(--demo-line-dark) 0 1px,
+    transparent 1px 3px,
+    rgb(132 126 112 / 45%) 3px 4px
+  );
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.battle-topbar__brand {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  color: #9ca3af;
-  font-size: 13px;
+  gap: 10px;
+  min-width: 0;
+  padding-left: clamp(22px, 2.8vw, 46px);
+  color: #34343d;
+  white-space: nowrap;
 }
 
-.demo__title {
-  margin-right: 8px;
-  color: #38bdf8;
-  font-size: 15px;
+.battle-topbar__brand-cn {
+  font-family: 'Kaiti SC', KaiTi, STKaiti, serif;
+  font-size: 42px;
+  line-height: 1;
+  transform: rotate(-5deg);
+}
+
+.battle-topbar__brand-ai {
+  font-family: Georgia, serif;
+  font-size: 31px;
+  letter-spacing: 0.06em;
+}
+
+.battle-topbar__constellation {
+  width: 54px;
+  height: 30px;
+  margin-left: 4px;
+  overflow: visible;
+  color: #777b86;
+  opacity: 0.82;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 0.85;
+  filter: url('#ai-duel-rough-icon');
+}
+
+.battle-topbar__constellation path {
+  fill: none;
+}
+
+.battle-topbar__nav {
+  display: flex;
+  align-items: stretch;
+  gap: clamp(12px, 2vw, 38px);
+}
+
+.battle-topbar__tab {
+  position: relative;
+  min-width: 76px;
+  padding: 3px 14px 0;
+  border: 0;
+  background: transparent;
+  color: #53525a;
+  font: inherit;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  text-indent: 0.18em;
+  cursor: pointer;
+}
+
+.battle-topbar__tab::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  height: 2px;
+  background: var(--demo-ink);
+  box-shadow: 0 2px 0 rgb(255 255 255 / 55%);
+  transform: scaleX(0);
+  transition: transform 160ms ease;
+}
+
+.battle-topbar__tab:hover::after,
+.battle-topbar__tab.is-active::after {
+  transform: scaleX(1);
+}
+
+.battle-topbar__tab.is-active {
+  color: var(--demo-ink);
   font-weight: 600;
 }
 
-.demo__btn {
-  padding: 6px 12px;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  background: #161b22;
-  color: #e5e7eb;
+.battle-topbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  padding-right: clamp(20px, 2.4vw, 38px);
+}
+
+.battle-topbar__icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 40px;
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  color: #555761;
+  cursor: pointer;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.battle-topbar__icon-button:hover {
+  color: #242b3d;
+  transform: translateY(-1px);
+}
+
+.battle-topbar__icon-button svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+  filter: url('#ai-duel-rough-icon');
+}
+
+/* ---------- 可复用纸面雕花框 ---------- */
+
+.ornate-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+
+.ornate-frame__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.ornate-frame__line,
+.ornate-frame__corner {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.ornate-frame__line {
+  border: 1px solid var(--demo-line, #aaa391);
+}
+
+.ornate-frame__line--outer {
+  inset: 6px;
+  border-color: var(--demo-line-dark, #777465);
+}
+
+.ornate-frame__line--inner {
+  inset: 11px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 30%);
+}
+
+.ornate-frame__corner {
+  width: 38px;
+  height: 38px;
+  border-top: 1px solid var(--demo-line-dark, #777465);
+  border-left: 1px solid var(--demo-line-dark, #777465);
+}
+
+.ornate-frame__corner::before,
+.ornate-frame__corner::after {
+  content: '';
+  position: absolute;
+}
+
+.ornate-frame__corner::before {
+  top: 7px;
+  left: 7px;
+  width: 23px;
+  height: 23px;
+  border-top: 1px solid var(--demo-line, #aaa391);
+  border-left: 1px solid var(--demo-line, #aaa391);
+  transform: rotate(45deg);
+  transform-origin: 7px 7px;
+}
+
+.ornate-frame__corner::after {
+  top: 17px;
+  left: 17px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--demo-line-dark, #777465);
+  background: var(--demo-paper, #eee9dc);
+  transform: rotate(45deg);
+}
+
+.ornate-frame__corner--tl {
+  top: 6px;
+  left: 6px;
+}
+
+.ornate-frame__corner--tr {
+  top: 6px;
+  right: 6px;
+  transform: scaleX(-1);
+}
+
+.ornate-frame__corner--bl {
+  bottom: 6px;
+  left: 6px;
+  transform: scaleY(-1);
+}
+
+.ornate-frame__corner--br {
+  right: 6px;
+  bottom: 6px;
+  transform: scale(-1);
+}
+
+/* ---------- 主战场与侧栏 ---------- */
+
+.demo__layout {
+  display: grid;
+  grid-template-columns: clamp(210px, 18.3vw, 306px) minmax(420px, 1fr) clamp(225px, 18.6vw, 316px);
+  min-width: 0;
+  min-height: 0;
+}
+
+.demo__sidebar {
+  position: relative;
+  z-index: 30;
+  min-width: 0;
+  min-height: 0;
+  background-color: var(--demo-paper);
+  background-image:
+    radial-gradient(ellipse at 50% 38%, rgb(255 255 255 / 25%), rgb(129 111 75 / 12%) 100%),
+    var(--demo-grain);
+  background-blend-mode: normal, multiply;
+}
+
+.demo__sidebar--left {
+  box-shadow: 5px 0 12px rgb(14 20 35 / 16%);
+}
+
+.demo__sidebar--right {
+  box-shadow: -5px 0 12px rgb(14 20 35 / 16%);
+}
+
+.demo__sidebar--left::after,
+.demo__sidebar--right::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--demo-line-dark);
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.demo__sidebar--left::after {
+  right: 0;
+}
+
+.demo__sidebar--right::after {
+  left: 0;
+}
+
+.demo__sidebar-frame--actions .ornate-frame__content {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 32px 16px 94px;
+}
+
+.demo__battlefield {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: #26334c url('/demo-hand-background.png') center / cover no-repeat;
+  box-shadow: inset 0 0 24px rgb(5 11 24 / 36%);
+}
+
+.demo__bar {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 30px);
+  min-height: 38px;
+  padding: 5px 9px;
+  border: 1px solid rgb(170 163 145 / 60%);
+  border-radius: 3px;
+  background-color: rgb(238 233 220 / 90%);
+  background-image: var(--demo-grain);
+  background-blend-mode: multiply;
+  box-shadow: 0 3px 12px rgb(10 15 27 / 28%);
+  color: var(--demo-ink-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.demo__title {
+  margin: 0 2px 0 1px;
+  color: var(--demo-ink);
   font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.demo__btn {
+  min-width: 30px;
+  height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--demo-line-dark);
+  border-radius: 2px;
+  background: rgb(238 233 220 / 76%);
+  color: var(--demo-ink);
+  font: inherit;
   cursor: pointer;
 }
 
 .demo__btn:hover {
-  border-color: #38bdf8;
+  border-color: #5b6477;
+  background: #f4efe3;
 }
 
 .demo__slider {
-  width: 200px;
+  width: clamp(80px, 9vw, 150px);
+  accent-color: #67728a;
 }
 
 .demo__count {
-  min-width: 76px;
+  min-width: 34px;
+  color: var(--demo-ink);
+  text-align: center;
 }
 
 /*
@@ -715,12 +1061,13 @@ body,
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 12px;
-  min-height: 200px;
-  padding: 16px;
-  border: 1px dashed #30363d;
-  border-radius: 16px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 78px 24px 220px;
+  border: 0;
   transition:
-    border-color 0.2s ease,
+    box-shadow 0.2s ease,
     background-color 0.2s ease;
 }
 
@@ -730,18 +1077,130 @@ body,
  * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
  */
 .demo__board[data-drop-ready='true'] {
-  border-color: rgb(56 189 248 / 45%);
+  box-shadow: inset 0 0 0 2px rgb(205 194 166 / 28%);
 }
 
 .demo__board[data-drop-hot='true'] {
-  border-color: #38bdf8;
-  background: rgb(56 189 248 / 8%);
+  background: rgb(205 194 166 / 8%);
+  box-shadow: inset 0 0 0 2px rgb(226 209 171 / 70%);
 }
 
 .demo__board-hint {
   margin: auto;
-  color: #4b5563;
+  color: rgb(211 204 185 / 50%);
   font-size: 13px;
+  letter-spacing: 0.16em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+}
+
+/* ---------- 八角结束回合按钮 ---------- */
+
+.plaque-button {
+  --plaque-fill: #253149;
+  --plaque-edge: #77766f;
+  --plaque-line: rgb(174 168 151 / 62%);
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: min(224px, 100%);
+  height: 68px;
+  padding: 0 30px;
+  overflow: hidden;
+  border: 0;
+  background-color: var(--plaque-fill);
+  background-image:
+    radial-gradient(circle at 50% 30%, rgb(255 255 255 / 7%), transparent 60%),
+    var(--demo-grain);
+  background-blend-mode: screen;
+  clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
+  color: #e7e1d4;
+  font-family: inherit;
+  font-size: clamp(18px, 1.5vw, 24px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.25em;
+  text-indent: 0.25em;
+  cursor: pointer;
+  filter: drop-shadow(0 3px 4px rgb(60 50 30 / 25%));
+  transition: color 180ms ease, transform 80ms ease, filter 180ms ease;
+}
+
+.plaque-button__frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  filter: url('#ai-duel-rough-button');
+  pointer-events: none;
+}
+
+.hand-drawn-filter-defs {
+  position: absolute;
+  pointer-events: none;
+}
+
+.plaque-button__surface {
+  fill: transparent;
+  stroke: var(--plaque-edge);
+  stroke-width: 2;
+}
+
+.plaque-button__rim {
+  fill: none;
+  stroke: var(--plaque-line);
+  stroke-width: 1;
+}
+
+.plaque-button__corner {
+  fill: none;
+  stroke: rgb(143 139 128 / 50%);
+  stroke-width: 1;
+}
+
+.plaque-button__spark {
+  fill: #a59e8c;
+  opacity: 0.72;
+}
+
+.plaque-button__label {
+  position: relative;
+  z-index: 2;
+}
+
+.plaque-button__filter-defs {
+  position: absolute;
+  pointer-events: none;
+}
+
+.plaque-button:hover {
+  --plaque-fill: #2c3953;
+  --plaque-line: rgb(203 157 123 / 85%);
+  color: #ead0b9;
+  filter: drop-shadow(0 4px 5px rgb(60 50 30 / 32%));
+}
+
+.plaque-button:active {
+  transform: translateY(1px);
+  filter: drop-shadow(0 1px 2px rgb(60 50 30 / 22%));
+}
+
+.plaque-button:focus-visible,
+.battle-topbar button:focus-visible,
+.demo__btn:focus-visible {
+  outline: 2px solid #a56848;
+  outline-offset: 3px;
+}
+
+.plaque-button:disabled {
+  --plaque-fill: #676965;
+  --plaque-edge: #9b988d;
+  --plaque-line: rgb(224 220 207 / 30%);
+  color: #cfcabb;
+  cursor: not-allowed;
+  filter: saturate(0.25);
 }
 
 /* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */
@@ -774,4 +1233,49 @@ body,
   height: var(--card-h);
   transform: scale(var(--tile-scale));
   transform-origin: top left;
+}
+
+@media (max-width: 1080px) {
+  .demo__layout {
+    grid-template-columns: 170px minmax(360px, 1fr) 190px;
+  }
+
+  .battle-topbar {
+    grid-template-columns: minmax(180px, 1fr) auto minmax(120px, 1fr);
+  }
+
+  .battle-topbar__constellation {
+    display: none;
+  }
+
+  .battle-topbar__nav {
+    gap: 6px;
+  }
+
+  .battle-topbar__actions {
+    gap: 8px;
+  }
+
+  .demo__sidebar-frame--actions .ornate-frame__content {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
+@media (max-height: 660px) {
+  .demo {
+    grid-template-rows: 62px minmax(0, 1fr);
+  }
+
+  .battle-topbar__brand-cn {
+    font-size: 36px;
+  }
+
+  .battle-topbar__brand-ai {
+    font-size: 27px;
+  }
+
+  .demo__sidebar-frame--actions .ornate-frame__content {
+    padding-bottom: 42px;
+  }
 }

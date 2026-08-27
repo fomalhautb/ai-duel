@@ -15,6 +15,10 @@ import { HandCardFace, HandFan } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
+import { BattleTopBar } from '../ui/BattleTopBar'
+import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
+import { OrnateFrame } from '../ui/OrnateFrame'
+import { PlaqueButton } from '../ui/PlaqueButton'
 
 gsap.registerPlugin(useGSAP, Flip)
 
@@ -186,43 +190,61 @@ export function HandDemo() {
 
   return (
     <div className="demo">
-      <div className="demo__bar">
-        <span className="demo__title">手牌扇形动画演示</span>
-        <button type="button" className="demo__btn" onClick={() => resizeHand(hand.length - 1)}>
-          −1
-        </button>
-        <button type="button" className="demo__btn" onClick={() => resizeHand(hand.length + 1)}>
-          +1
-        </button>
-        <input
-          className="demo__slider"
-          type="range"
-          min={0}
-          max={MAX_HAND}
-          value={hand.length}
-          onChange={(event) => resizeHand(Number(event.target.value))}
-        />
-        <span className="demo__count">手牌 {hand.length} 张</span>
-        <button type="button" className="demo__btn" onClick={() => setBoard([])}>
-          清空战场
-        </button>
-      </div>
+      <HandDrawnFilterDefs />
+      <BattleTopBar />
 
-      <div className="demo__board" ref={boardRef}>
-        {board.length === 0 && (
-          <span className="demo__board-hint">战场占位区（把手牌拖进来打出）</span>
-        )}
-        {board.map((card) => (
-          <div key={card.id} className="demo__tile" data-flip-id={card.id}>
-            {/* tilt 层承接指针倾斜，tile 自己的 transform 留给 Flip 飞行，两层分开互不覆盖。 */}
-            <div className="demo__tile-tilt">
-              {/* 里面是整张 150×210 的卡面，靠缩放变成小卡，飞行途中和手牌里的卡长得一模一样。 */}
-              <div className="demo__tile-inner">
-                <HandCardFace card={card} />
-              </div>
-            </div>
+      <div className="demo__layout">
+        <aside className="demo__sidebar demo__sidebar--left" aria-label="左侧信息栏">
+          <OrnateFrame className="demo__sidebar-frame" />
+        </aside>
+
+        <main className="demo__battlefield">
+          <div className="demo__bar" aria-label="手牌演示控制">
+            <span className="demo__title">手牌演示</span>
+            <button type="button" className="demo__btn" onClick={() => resizeHand(hand.length - 1)}>
+              −1
+            </button>
+            <button type="button" className="demo__btn" onClick={() => resizeHand(hand.length + 1)}>
+              +1
+            </button>
+            <input
+              className="demo__slider"
+              aria-label="手牌数量"
+              type="range"
+              min={0}
+              max={MAX_HAND}
+              value={hand.length}
+              onChange={(event) => resizeHand(Number(event.target.value))}
+            />
+            <span className="demo__count">{hand.length} 张</span>
+            <button type="button" className="demo__btn" onClick={() => setBoard([])}>
+              清场
+            </button>
           </div>
-        ))}
+
+          <div className="demo__board" ref={boardRef}>
+            {board.length === 0 && (
+              <span className="demo__board-hint">将手牌拖入战场</span>
+            )}
+            {board.map((card) => (
+              <div key={card.id} className="demo__tile" data-flip-id={card.id}>
+                {/* tilt 层承接指针倾斜，tile 自己的 transform 留给 Flip 飞行，两层分开互不覆盖。 */}
+                <div className="demo__tile-tilt">
+                  {/* 里面是整张 150×210 的卡面，靠缩放变成小卡，飞行途中和手牌里的卡长得一模一样。 */}
+                  <div className="demo__tile-inner">
+                    <HandCardFace card={card} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </main>
+
+        <aside className="demo__sidebar demo__sidebar--right" aria-label="右侧信息栏">
+          <OrnateFrame className="demo__sidebar-frame demo__sidebar-frame--actions">
+            <PlaqueButton aria-label="结束当前回合">结束回合</PlaqueButton>
+          </OrnateFrame>
+        </aside>
       </div>
 
       <HandFan cards={hand} dropZoneRef={boardRef} onPlay={handlePlay} />

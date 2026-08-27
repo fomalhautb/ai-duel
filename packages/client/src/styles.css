@@ -3,6 +3,17 @@
   font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #e5e7eb;
   background: #0d1117;
+
+  /* 卡面基准尺寸。改这两个值必须同步改 HandFan.tsx 里的 CARD_WIDTH / CARD_HEIGHT：
+     那两个常量决定卡牌沉出视口的深度和 hover 放大的下限，
+     和这里对不上号，hover 防抖动的几何前提就不成立了（卡会开始抖）。 */
+  --card-w: 150px;
+  --card-h: 210px;
+  /* 战场上的小卡：宽 110，比例和卡面一样（110 / 150 = 0.733333，210 × 0.733333 = 154）。
+     比例必须一致，否则打出时的飞行会把卡面拉变形。 */
+  --tile-w: 110px;
+  --tile-h: 154px;
+  --tile-scale: 0.733333;
 }
 
 * {
@@ -21,15 +32,16 @@ body,
   height: 100%;
 }
 
-/* Pixi 画布铺满整个对局区，React 的界面盖在它上面。 */
+/* 对局区的深色底，React 的界面盖在它上面。 */
 .stage {
   position: absolute;
   inset: 0;
+  background: radial-gradient(circle at 50% 120%, #16212e 0%, #0d1117 60%);
 }
 
 /*
- * 覆盖层默认不吃鼠标事件，否则会挡住画布上的点击；
- * 需要交互的子元素自己把 pointer-events 打开。
+ * 界面层。以前底下是 Pixi 画布，这一层必须整片 pointer-events: none 才不挡画布；
+ * 现在 .stage 只是一层渐变背景、没有任何可点的东西，那条约定就不需要了。
  */
 .overlay {
   position: absolute;
@@ -38,7 +50,6 @@ body,
   flex-direction: column;
   justify-content: space-between;
   padding: 16px;
-  pointer-events: none;
 }
 
 .hud {
@@ -61,7 +72,6 @@ body,
   margin: 0;
   padding: 0;
   list-style: none;
-  pointer-events: auto;
 }
 
 .hand__card {
@@ -78,4 +88,261 @@ body,
 
 .hand__cost {
   color: #9ca3af;
+}
+
+/* ---------- 扇形手牌 ---------- */
+
+/*
+ * 高度为 0 的定位锚点：钉在视口底边中央，每张牌相对它绝对定位。
+ * 这样"卡牌底边贴着视口底边"就是坐标原点，GSAP 只要补间 x / y / rotation 就够了。
+ */
+.hand-fan {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.hand-fan__slot {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: var(--card-w);
+  height: var(--card-h);
+  margin-left: calc(var(--card-w) / -2);
+  /* 3D 透视给内层的翻转用；父层自己只做 2D 变换，不受影响。 */
+  perspective: 1000px;
+  pointer-events: auto;
+  cursor: pointer;
+  will-change: transform;
+}
+
+.hand-fan__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.hand-fan__face {
+  position: absolute;
+  inset: 0;
+  /* 转过去之后不显示自己的背面，正反两面才不会叠在一起。 */
+  backface-visibility: hidden;
+}
+
+.hand-fan__face--back {
+  transform: rotateY(180deg);
+}
+
+/* 问号：默认藏起来，只有卡牌被放大时才淡入（由 GSAP 的 autoAlpha 控制）。 */
+.hand-fan__help {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #38bdf8;
+  border-radius: 50%;
+  background: rgb(13 17 23 / 85%);
+  color: #38bdf8;
+  font-size: 13px;
+  line-height: 1;
+  cursor: help;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* ---------- 卡面 ---------- */
+
+.card-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: linear-gradient(160deg, #1b2430 0%, #11161d 60%, #0d1117 100%);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+  overflow: hidden;
+}
+
+.card-face--model {
+  --accent: #38bdf8;
+}
+
+.card-face--prompt {
+  --accent: #f59e0b;
+}
+
+.card-face__cost {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: #0b1220;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.card-face__art {
+  display: grid;
+  place-items: center;
+  height: 60px;
+  margin-top: 24px;
+  border-radius: 8px;
+  background: rgb(56 189 248 / 8%);
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: 6px;
+}
+
+.card-face__name {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.card-face__text {
+  flex: 1;
+  margin: 0;
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+.card-face__stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.card-back {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 12px;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #101922 0%, #0d1117 100%);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+}
+
+.card-back__title {
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.card-back__text {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ---------- 手牌演示页 ---------- */
+
+.demo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  padding: 16px;
+}
+
+.demo__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+.demo__title {
+  margin-right: 8px;
+  color: #38bdf8;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.demo__btn {
+  padding: 6px 12px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #e5e7eb;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.demo__btn:hover {
+  border-color: #38bdf8;
+}
+
+.demo__slider {
+  width: 200px;
+}
+
+.demo__count {
+  min-width: 76px;
+}
+
+/*
+ * 战场占位区。
+ * 故意不设 position/z-index：一旦它形成层叠上下文，
+ * 飞行中的卡就被关在里面，没法盖到手牌（z-index 20）上面去。
+ */
+.demo__board {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 12px;
+  min-height: 200px;
+  padding: 16px;
+  border: 1px dashed #30363d;
+  border-radius: 16px;
+}
+
+.demo__board-hint {
+  margin: auto;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+/* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */
+.demo__tile {
+  position: relative;
+  width: var(--tile-w);
+  height: var(--tile-h);
+  border-radius: 9px;
+  /* 里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来；
+     不裁掉的话它溢出的部分会把整页撑出滚动条。 */
+  overflow: hidden;
+}
+
+.demo__tile-inner {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--tile-scale));
+  transform-origin: top left;
 }

@@ -21,7 +21,7 @@ TypeScript + pnpm monorepo，三个包互不循环依赖：
 ```
 packages/
   core     @ai-duel/core     纯规则引擎（无渲染、无 IO、无网络）
-  client   @ai-duel/client   Vite + React + PixiJS v8 + GSAP
+  client   @ai-duel/client   Vite + React + GSAP（全部是 DOM，没有画布）
   server   @ai-duel/server   socket.io 消息转发器
 ```
 
@@ -91,7 +91,7 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 
 `random` 是外部传进来的 0-1 随机数，不是内部 `Math.random()`——
 和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
-实际的随机数和存档读写都在客户端（见 5.1）。
+实际的随机数和存档读写都在客户端（见 5.4）。
 
 ## 4. 联机：房主模式
 
@@ -151,26 +151,81 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 
 服务端不认识卡牌、不认识回合，所以**协议改了它也不用动**。
 
-## 5. client：Pixi 画布 + React 覆盖层
-
-分工按"哪种界面用哪种工具更省事"来切：
+## 5. client：全部是 React DOM + GSAP
 
 | 层 | 技术 | 负责 |
 |---|---|---|
-| 底层 | PixiJS v8 + GSAP | 对局画面：场上的模型、飞出去的卡牌、伤害数字、特效 |
-| 上层 | React DOM | 菜单、房间码输入、卡组编辑、状态栏、手牌信息、结算弹窗 |
+| 唯一一层 | React DOM + GSAP | 全部界面：手牌、场上的模型、飞出去的卡牌、伤害数字、菜单、状态栏、结算弹窗 |
 
-- 两层各画各的，**不互相渲染**：React 不去操作 Pixi 的显示对象树，Pixi 也不往 DOM 里塞东西。
-- 覆盖层默认 `pointer-events: none`，需要点击的子元素自己打开，否则会挡住画布上的操作。
-- Pixi v8 的 `Application.init()` 是异步的，而 React 严格模式会挂载两次，
-  所以挂画布的组件必须带取消标记（见 `src/DuelStage.tsx`）。
-- GSAP 的补间不归 Pixi 管，组件卸载时要单独 `kill()`，
-  否则它会继续去改一个已经销毁的对象。
+React 只负责"有哪些元素、它们在什么状态"，**位置和动画一律交给 GSAP 直接改 DOM**。
+不要用 CSS transition 做对局动画：一个元素同时被 React 的 class 和 GSAP 的补间改，
+两边会互相打断，节奏也没法精确控制。
 
 对局画面的接入方式是**消费 core 的事件流**：收到一个 `GameEvent` 就播一段动画，
 播完再取下一个。不要在客户端重算规则。
 
-### 5.1 存档
+### 5.1 为什么推翻了 Pixi
+
+早期版本用 PixiJS 画对局、React 盖一层覆盖层。实际动手之后换成纯 DOM，原因：
+
+- **对象量级根本用不上画布。** 场上加手牌撑死几十个元素，浏览器排版这点东西毫无压力。
+  Pixi 的价值在成千上万个精灵，这里付了复杂度却拿不到收益。
+- **中文卡面排版。** 卡牌上是几行中文描述，要自动换行、要省略号、要对齐。
+  DOM 里这是几行 CSS，Pixi 里得自己算换行和度量。
+- **CSS 3D 翻转是现成的。** 卡牌翻正反面用 `transform-style: preserve-3d` +
+  `backface-visibility: hidden` 就够了，Pixi 没有原生的 3D 翻面。
+- **省掉两层坐标的交接。** 覆盖层和画布各有一套坐标系，
+  想让一张牌"从 DOM 的手牌飞进画布的战场"就得手动换算。
+  全在 DOM 里之后，跨容器的位移直接用 GSAP 的 Flip 插件（FLIP 技术）补间，不用碰坐标。
+
+**将来要粒子特效怎么办**：在最上面加一层 `pointer-events: none` 的轻量 canvas，
+只画粒子，不参与布局和交互。需要的时候再加，现在不预留。
+
+### 5.2 动画约定
+
+- 补间统一用 `@gsap/react` 的 `useGSAP` 创建，它会在组件卸载时把这一片的补间和内联样式
+  一起清掉，也兼容 React 严格模式的两次挂载。
+  能圈定范围的组件顺手带上 `scope`；像跨容器 Flip 那种要同时够到两个容器的就不带
+  （`HandDemo` 就是这种）。
+- **稍后才执行的回调里新建的补间也要包 `contextSafe`**，不只是事件处理函数：
+  `contextSafe` 只在被它包住的那次同步执行期间生效，
+  所以 `setTimeout`、`resize` 监听这类回调必须自己再包一层，否则补间不归 context 管，
+  组件卸载时 revert 不掉，会继续去改已经脱离文档的节点。
+  `useGSAP` 的回调有第二个参数就是 `contextSafe`，在回调里包好存进 ref 最省事。
+- 同一个元素上可能有多个补间抢同一个属性（比如快速扫过手牌），
+  所有补间都带 `overwrite: 'auto'`，让新补间干净地接管旧的。
+- 跨容器移动（手牌 → 战场）用 `gsap/Flip`：改 React 状态**之前**先 `Flip.getState()`，
+  在 `useGSAP`（本质是 layout effect）里 `Flip.from()`。
+  两个容器里的元素靠 `data-flip-id` 对上号，所以那个 id 必须全局唯一。
+- **元素是被 React 销毁重建的（不是同一个节点挪了位置），`Flip.from()` 必须显式传 `targets`。**
+  不传的话 Flip 退回用 `state.targets`——那是截取状态时的旧节点，
+  此刻已经被 React 从 DOM 里摘掉了，补间会挂在这个脱离文档的节点上，新元素一动不动。
+  Flip 不会自己拿 `data-flip-id` 去全文档找新元素，`data-flip-id` 只用来把两份 state 对号。
+
+### 5.3 手牌组件
+
+`src/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）。
+`src/HandDemo.tsx` 是它的演示页，用占位数据跑各种边界，访问 `?demo=hand` 进入（见 `src/main.tsx`）。
+
+**接真对局不只是换 props**：`HandCardData` 目前还缺核心机制要用的两项——
+模型卡的六维弱点画像（`ModelCard.weaknesses`）和提示卡的目标维度（`PromptCard.targetWeakness`），
+而 150×210 的卡面上也没有给它们留版面。接的时候要一并扩字段、重排卡面，
+卡面尺寸一动，`--card-w/--card-h` 和 `HandFan.tsx` 里那对常量得同步改（见下）。
+
+hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡外面，于是缩回去，
+缩回去又被 hover 到，无限循环。这里靠两条几何约束根治：
+
+- 每张牌以**底边中点**为变换原点，hover 时只放大、只往上长，绝不往下移；
+  默认状态下卡牌本来就沉在视口底边以下一截（只露出 85%），hover 时卡底也还在视口外。
+- 放大倍数有下限。扇形两端的牌是斜的，斜着的卡角比正放时横向伸得更远
+  （倾角 θ 时伸到 `卡宽/2·cos θ + 卡高·sin θ`），放大后的卡半宽必须够到那里。
+  代码里这个下限由 `MAX_SPREAD_DEG` 和卡面尺寸算出来（`MIN_HOVER_SCALE`），
+  改扇形角度时自动跟着变，不用手工对表。
+
+两条凑齐，放大后的卡才真的盖住了原来那张卡**露在屏幕里的全部像素**，指针掉不出去。
+少了第二条，最外侧那张牌的外上角会露在放大后的卡外面，指针停在那一小块上就开始抖。
+
+### 5.4 存档
 
 `src/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
@@ -199,9 +254,10 @@ packages/core/
 packages/client/
   index.html
   vite.config.ts
-  src/main.tsx                入口
-  src/App.tsx                 外壳：Pixi 画布 + React 覆盖层
-  src/DuelStage.tsx           Pixi 画布挂载点（目前是占位实现）
+  src/main.tsx                入口（?demo=hand 时进手牌演示页）
+  src/App.tsx                 对局外壳（目前是占位实现）
+  src/HandFan.tsx             扇形手牌组件 + 卡面，通用，接真对局时只换 props
+  src/HandDemo.tsx            手牌动画演示页（占位数据 + 战场占位区）
   src/save.ts                 localStorage 存档（收藏 + 胜场）
   src/styles.css
 packages/server/
@@ -215,6 +271,7 @@ pnpm install
 pnpm typecheck          # 全仓类型检查
 pnpm test               # core 的单元测试
 pnpm dev                # 起客户端 (http://localhost:5173)
+                        # 手牌动画演示页：http://localhost:5173/?demo=hand
 pnpm dev:server         # 起转发器 (http://localhost:3001)
 pnpm --filter @ai-duel/client build
 ```
@@ -226,7 +283,7 @@ pnpm --filter @ai-duel/client build
 1. **补规则**（core）——攻击、随从交战、更多卡牌效果，配一批卡牌数据。
    全程用 Vitest 验证，不需要碰界面。
 2. **本地热座对战**（client）——一个页面上双方轮流操作，
-   把事件流接到 Pixi 上，先把出牌、受伤、崩坏这几段动画做出来。
+   把事件流接到 DOM 上，先把出牌、受伤、崩坏这几段动画做出来。
    **这一步做完游戏就能玩了**，是最重要的里程碑。
 3. **卡组和卡面**（client）——React 层的卡组选择、卡牌美术、状态栏，
    把结算画面接到 `recordWin()` 上，赢一局弹一张新卡。

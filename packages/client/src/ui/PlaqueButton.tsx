@@ -1,54 +1,20 @@
-import { useId, useState } from 'react'
-import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent } from 'react'
+import type { ButtonHTMLAttributes } from 'react'
 
 export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 
-/** 视觉稿里的墨蓝八角匾额按钮。SVG 轮廓套手绘滤镜，切角处仍能保持连续描边。 */
-export function PlaqueButton({
-  className = '',
-  children,
-  onPointerEnter,
-  ...props
-}: PlaqueButtonProps) {
-  const textFilterId = `plaque-text-${useId().replaceAll(':', '')}`
-  const [textFilterSeed, setTextFilterSeed] = useState(5)
-
-  const handlePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    setTextFilterSeed((current) => {
-      let next = current
-      while (next === current) next = Math.floor(Math.random() * 10_000) + 1
-      return next
-    })
-    onPointerEnter?.(event)
-  }
-
+/**
+ * 视觉稿里的墨蓝八角匾额按钮。SVG 轮廓套手绘滤镜，切角处仍能保持连续描边。
+ *
+ * 文字的手绘抖动直接用页面上公共的 #ai-duel-rough-icon（见 HandDrawnFilterDefs、
+ * styles.css 里的 .plaque-button__label），不再自带一份只有 seed 不同的私有滤镜：
+ * 参数完全一样，而换 seed 就意味着浏览器要作废已经算好的滤镜结果、
+ * 把 feTurbulence + feDisplacementMap 整条链重跑一遍（WebKit 上是 CPU 逐像素算）。
+ * 原本每次 hover 都换一次 seed，图的是"相邻按钮别抖成同一条线"，
+ * 但全项目只有一个匾额按钮，这个动机根本不成立。
+ */
+export function PlaqueButton({ className = '', children, ...props }: PlaqueButtonProps) {
   return (
-    <button
-      className={`plaque-button ${className}`.trim()}
-      type="button"
-      onPointerEnter={handlePointerEnter}
-      {...props}
-    >
-      <svg className="plaque-button__filter-defs" width="0" height="0" aria-hidden="true">
-        <defs>
-          <filter id={textFilterId} x="-20%" y="-20%" width="140%" height="140%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.05"
-              numOctaves="3"
-              seed={textFilterSeed}
-              result="noise"
-            />
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="noise"
-              scale="3.2"
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-          </filter>
-        </defs>
-      </svg>
+    <button className={`plaque-button ${className}`.trim()} type="button" {...props}>
       <svg
         className="plaque-button__frame"
         viewBox="0 0 224 68"
@@ -76,9 +42,7 @@ export function PlaqueButton({
           d="M14 25.5 16 31l5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Zm196 0 2 5.5 5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Z"
         />
       </svg>
-      <span className="plaque-button__label" style={{ filter: `url(#${textFilterId})` }}>
-        {children}
-      </span>
+      <span className="plaque-button__label">{children}</span>
     </button>
   )
 }

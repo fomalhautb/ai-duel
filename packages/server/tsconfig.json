@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "types": ["node"]
+    // Worker 跑在 workerd 里，不是 Node：没有 process、fs 这些东西，
+    // 有的是 WebSocketPair、DurableObject 这些运行时类型。
+    // worker-configuration.d.ts 是 `pnpm --filter @ai-duel/server types` 生成的，
+    // 里面是 wrangler.jsonc 那些绑定（ASSETS、ROOM）对应的 Env 接口。
+    "types": ["@cloudflare/workers-types", "./worker-configuration.d.ts"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "worker-configuration.d.ts"]
 }

@@ -16,7 +16,7 @@
       "runtimeArgs": [
         "dev:server"
       ],
-      "port": 3001,
+      "port": 8787,
       "autoPort": false
     }
   ]

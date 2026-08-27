@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-duel",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-27",
+
+  // 账户 ID 是标识符不是凭据——没有 API token 它什么也做不了，Cloudflare 官方示例
+  // 也是直接写在配置里的。写死在这里，CI 就只需要 CLOUDFLARE_API_TOKEN 一个 secret。
+  "account_id": "bc5fd400f5d0e8eb68fd03f019727972",
+
+  // 前端构建产物和 Worker 脚本部署成同一个 Worker、同一个域名，
+  // 所以客户端连 WebSocket 时用相对路径就行，不需要配跨域，也不需要第二个服务。
+  "assets": {
+    "directory": "../client/dist",
+    // 前端是单页应用：/room/1234 这种路径在磁盘上没有对应文件，回落到 index.html 交给前端路由。
+    "not_found_handling": "single-page-application",
+    // 给 Worker 一个手动取静态资源的入口。Worker 兜底处理没匹配上的请求时靠它回 index.html。
+    "binding": "ASSETS",
+    // 默认情况下静态资源层先响应、匹配不到才轮到 Worker；但 not_found_handling 是 SPA 时
+    // 「匹配不到」也会被资源层吃掉回 index.html，Worker 永远轮不上。
+    // 所以要 Worker 处理的路径必须在这里显式列出来，否则 /api/room 和 WebSocket 升级
+    // 都只会拿到一份 index.html（这是实测出来的，不是猜的）。
+    //
+    // /room/* 既是 WebSocket 端点又是前端路由，两种请求都会进 Worker，
+    // 不是升级请求时 Worker 会调 env.ASSETS.fetch() 把 index.html 发回去。
+    // 代价是每次打开对局页面多算一次 Worker 调用，免费档每天 10 万次请求，可以忽略。
+    "run_worker_first": ["/api/*", "/room/*"]
+  },
+
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+
+  // 新写法，取代已经是 legacy 的 migrations 数组。
+  // 免费档只支持 SQLite 后端的 Durable Object，storage 必须是 "sqlite"。
+  "exports": {
+    "Room": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

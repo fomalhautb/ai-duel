@@ -664,6 +664,7 @@ body,
   gap: 16px;
   height: 100%;
   padding: 16px;
+  background: url('/demo-hand-background.png') center / cover no-repeat;
 }
 
 .demo__bar {

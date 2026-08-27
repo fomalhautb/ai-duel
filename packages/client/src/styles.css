@@ -27,67 +27,334 @@ body,
   margin: 0;
 }
 
-.app {
-  position: relative;
-  height: 100%;
+/* ---------- 页面外壳 ---------- */
+
+/*
+ * 首页 / 匹配房 / 404 这类静态页共用的排版。
+ * 全是占位样式：这一版只保证信息看得清、按钮点得到，美术另做。
+ */
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
 }
 
-/* 对局区的深色底，React 的界面盖在它上面。 */
-.stage {
-  position: absolute;
-  inset: 0;
+.page h1 {
+  margin: 0 0 16px;
+  color: #38bdf8;
+}
+
+.page h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.page__lead {
+  line-height: 1.7;
+  color: #c9d1d9;
+}
+
+.page__cta {
+  margin: 24px 0;
+  padding: 14px 28px;
+  border: none;
+  border-radius: 10px;
+  background: #38bdf8;
+  color: #0d1117;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page__section {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid #21262d;
+}
+
+.page__section--dev {
+  opacity: 0.65;
+}
+
+.page__list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.page__muted {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.page__error {
+  color: #f87171;
+}
+
+.page button {
+  margin-right: 8px;
+  padding: 8px 14px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #e5e7eb;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.page button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.room__code {
+  margin: 8px 0;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #38bdf8;
+}
+
+.room__input {
+  width: 160px;
+  padding: 8px 12px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #0d1117;
+  color: #e5e7eb;
+  font-size: 20px;
+  letter-spacing: 0.16em;
+}
+
+/* ---------- 对局界面（占位） ---------- */
+
+/*
+ * MatchStage 的样式。同样是占位：没有卡面美术，也没有给 GSAP 动画留位置。
+ * 接真界面时这一整段会被换掉，接手牌用的是 .hand-fan / .card-face 那两套。
+ */
+.stage-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px 16px;
+  gap: 12px;
   background: radial-gradient(circle at 50% 120%, #16212e 0%, #0d1117 60%);
 }
 
-/*
- * 界面层。以前底下是 Pixi 画布，这一层必须整片 pointer-events: none 才不挡画布；
- * 现在 .stage 只是一层渐变背景、没有任何可点的东西，那条约定就不需要了。
- */
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 16px;
+.stage-root--waiting {
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
 }
 
-.hud {
+.stage-hud {
   display: flex;
-  gap: 24px;
+  gap: 16px;
   align-items: baseline;
   font-size: 14px;
   color: #9ca3af;
 }
 
-.hud__title {
-  font-size: 16px;
+.stage-hud__turn {
   font-weight: 600;
   color: #38bdf8;
 }
 
-.hand {
+.stage-hud__spacer {
+  flex: 1;
+}
+
+.stage-hud__level {
+  color: #c9d1d9;
+}
+
+.stage-side {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stage-side--mine {
+  margin-top: auto;
+}
+
+.stage-side__info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.stage-models {
+  display: flex;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
+  min-height: 72px;
 }
 
-.hand__card {
+.stage-models--empty {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
-  padding: 12px;
-  border: 1px solid #30363d;
-  border-radius: 10px;
-  background: rgb(22 27 34 / 90%);
+  align-items: center;
+  min-height: 72px;
+  color: #4b5563;
   font-size: 13px;
 }
 
-.hand__cost {
+.stage-model,
+.stage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  background: rgb(22 27 34 / 90%);
+  color: #e5e7eb;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage-card {
+  min-width: 150px;
+}
+
+.stage-model:disabled,
+.stage-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 能点 = 现在可以选它当目标 / 出这张牌，描边提示一下。 */
+.stage-model:not(:disabled),
+.stage-card:not(:disabled) {
+  border-color: #38bdf8;
+}
+
+.stage-model__weak,
+.stage-card__stat,
+.stage-card__cost {
   color: #9ca3af;
+}
+
+.stage-hint {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+  color: #fbbf24;
+}
+
+.stage-hint--error {
+  color: #f87171;
+}
+
+.stage-hand {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.stage-hand__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1;
+}
+
+.stage-end-turn,
+.stage-target-face {
+  padding: 10px 16px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #e5e7eb;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.stage-end-turn:disabled,
+.stage-target-face:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 教程的引导条。贴在底部手牌上方，不挡住场上的模型。 */
+.guide {
+  position: fixed;
+  left: 50%;
+  bottom: 200px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  max-width: 620px;
+  padding: 14px 20px;
+  border: 1px solid #38bdf8;
+  border-radius: 12px;
+  background: rgb(13 17 23 / 95%);
+}
+
+.guide__text {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.guide__next {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #38bdf8;
+  color: #0d1117;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 结算层。盖满整屏，所以下面的对局点不到了。 */
+.stage-result {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  background: rgb(13 17 23 / 92%);
+}
+
+.stage-result__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.stage-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.stage-actions button {
+  padding: 10px 20px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #e5e7eb;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 /* ---------- 扇形手牌 ---------- */

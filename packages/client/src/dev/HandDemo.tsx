@@ -10,8 +10,8 @@ import { useRef, useState } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { HandCardFace, HandFan } from './HandFan'
-import type { HandCardData } from './HandFan'
+import { HandCardFace, HandFan } from '../ui/HandFan'
+import type { HandCardData } from '../ui/HandFan'
 
 gsap.registerPlugin(useGSAP, Flip)
 

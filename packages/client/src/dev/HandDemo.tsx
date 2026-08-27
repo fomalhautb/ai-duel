@@ -76,6 +76,8 @@ function createCards(count: number): HandCardData[] {
 export function HandDemo() {
   const [hand, setHand] = useState<HandCardData[]>(() => createCards(INITIAL_HAND))
   const [board, setBoard] = useState<HandCardData[]>([])
+  /** 手牌上方的取消落点，只负责显示“放回手牌”的拖拽反馈。 */
+  const returnZoneRef = useRef<HTMLDivElement>(null)
   /**
    * 战场容器，一个 ref 两用：
    * 既是下面那段倾斜跟随的 useGSAP scope（用来查场上的 tile），
@@ -223,6 +225,10 @@ export function HandDemo() {
           </div>
 
           <div className="demo__board" ref={boardRef}>
+            <span className="demo__drop-cue demo__drop-cue--board" aria-hidden="true">
+              <strong>松手</strong>
+              放到场上
+            </span>
             {board.length === 0 && (
               <span className="demo__board-hint">将手牌拖入战场</span>
             )}
@@ -238,6 +244,13 @@ export function HandDemo() {
               </div>
             ))}
           </div>
+
+          <div className="demo__return-zone" ref={returnZoneRef} aria-hidden="true">
+            <span className="demo__drop-cue demo__drop-cue--return">
+              <strong>松手</strong>
+              放回手牌
+            </span>
+          </div>
         </main>
 
         <aside className="demo__sidebar demo__sidebar--right" aria-label="右侧信息栏">
@@ -247,7 +260,12 @@ export function HandDemo() {
         </aside>
       </div>
 
-      <HandFan cards={hand} dropZoneRef={boardRef} onPlay={handlePlay} />
+      <HandFan
+        cards={hand}
+        dropZoneRef={boardRef}
+        returnZoneRef={returnZoneRef}
+        onPlay={handlePlay}
+      />
     </div>
   )
 }

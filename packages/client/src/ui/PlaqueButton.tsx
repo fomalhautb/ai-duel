@@ -1,25 +1,86 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent } from 'react'
 
 export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
+
+/** 再快的点击也至少完整显示这么久的压入姿态，避免反馈强度取决于用户按键速度。 */
+const MIN_PRESS_MS = 70
 
 /** 视觉稿里的墨蓝八角匾额按钮。SVG 轮廓套手绘滤镜，切角处仍能保持连续描边。 */
 export function PlaqueButton({
   className = '',
   children,
   onPointerEnter,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
   ...props
 }: PlaqueButtonProps) {
   const textFilterId = `plaque-text-${useId().replaceAll(':', '')}`
   const [textFilterSeed, setTextFilterSeed] = useState(5)
+  const [isPressed, setIsPressed] = useState(false)
+  const pressStartedAtRef = useRef<number | null>(null)
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handlePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  useEffect(
+    () => () => {
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+    },
+    [],
+  )
+
+  const refreshTextFilter = () => {
     setTextFilterSeed((current) => {
       let next = current
       while (next === current) next = Math.floor(Math.random() * 10_000) + 1
       return next
     })
+  }
+
+  const handlePointerEnter = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    refreshTextFilter()
     onPointerEnter?.(event)
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    refreshTextFilter()
+    if (!props.disabled) {
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+      releaseTimerRef.current = null
+      pressStartedAtRef.current = Date.now()
+      setIsPressed(true)
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    onPointerDown?.(event)
+  }
+
+  const finishPress = () => {
+    const startedAt = pressStartedAtRef.current
+    if (startedAt === null) return
+
+    const remaining = Math.max(0, MIN_PRESS_MS - (Date.now() - startedAt))
+    if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+    releaseTimerRef.current = setTimeout(() => {
+      setIsPressed(false)
+      pressStartedAtRef.current = null
+      releaseTimerRef.current = null
+    }, remaining)
+  }
+
+  const handlePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerUp?.(event)
+  }
+
+  const handlePointerCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerCancel?.(event)
+  }
+
+  const handlePointerLeave = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerLeave?.(event)
   }
 
   return (
@@ -27,6 +88,11 @@ export function PlaqueButton({
       className={`plaque-button ${className}`.trim()}
       type="button"
       onPointerEnter={handlePointerEnter}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onPointerLeave={handlePointerLeave}
+      data-pressed={isPressed ? 'true' : undefined}
       {...props}
     >
       <svg className="plaque-button__filter-defs" width="0" height="0" aria-hidden="true">

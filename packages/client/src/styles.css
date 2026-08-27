@@ -985,6 +985,7 @@ body,
 }
 
 .demo__battlefield {
+  --demo-hand-zone-h: clamp(210px, 27vh, 250px);
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1052,37 +1053,50 @@ body,
 }
 
 /*
- * 战场占位区。
- * 故意不设 position/z-index：一旦它形成层叠上下文，
- * 飞行中的卡就被关在里面，没法盖到手牌（z-index 20）上面去。
+ * 真正的战场落点只占手牌上方这块区域，不能再铺满整个中央画面：
+ * 否则拖回底部的卡也会被 isInsideDropZone 判成打出。
+ *
+ * absolute 本身不会形成层叠上下文；这里刻意不设 z-index / isolation，
+ * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面。
  */
 .demo__board {
+  position: absolute;
+  inset: 68px clamp(16px, 2vw, 28px) var(--demo-hand-zone-h);
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 12px;
-  width: 100%;
-  height: 100%;
   min-height: 0;
-  padding: 78px 24px 220px;
-  border: 0;
+  padding: 62px 24px 24px;
+  border: 1px dashed transparent;
+  border-radius: 18px;
   transition:
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
 }
 
 /*
- * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZone）：
+ * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZones）：
  * data-drop-ready 表示"手上正拖着一张牌"，把落点区标出来；
  * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
  */
 .demo__board[data-drop-ready='true'] {
-  box-shadow: inset 0 0 0 2px rgb(205 194 166 / 28%);
+  border-color: rgb(229 213 174 / 72%);
+  background: rgb(19 27 45 / 26%);
+  box-shadow:
+    inset 0 0 0 2px rgb(229 213 174 / 14%),
+    inset 0 0 40px rgb(9 15 28 / 36%),
+    0 0 24px rgb(222 194 133 / 12%);
 }
 
 .demo__board[data-drop-hot='true'] {
-  background: rgb(205 194 166 / 8%);
-  box-shadow: inset 0 0 0 2px rgb(226 209 171 / 70%);
+  border-color: rgb(255 229 164 / 96%);
+  background: rgb(222 194 133 / 16%);
+  box-shadow:
+    inset 0 0 0 3px rgb(255 229 164 / 46%),
+    inset 0 0 58px rgb(255 213 121 / 18%),
+    0 0 30px rgb(255 220 141 / 30%);
 }
 
 .demo__board-hint {
@@ -1091,6 +1105,106 @@ body,
   font-size: 13px;
   letter-spacing: 0.16em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+}
+
+/*
+ * 手牌取消区与战场落点首尾相接。它只是视觉热区，不接指针事件；
+ * 真正拖拽仍由 pointer capture 送回 HandFan，松在战场外一律取消。
+ */
+.demo__return-zone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
+  height: var(--demo-hand-zone-h);
+  border-top: 2px solid transparent;
+  background: linear-gradient(to bottom, transparent, rgb(10 20 39 / 0%));
+  pointer-events: none;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.demo__return-zone[data-drop-ready='true'] {
+  border-color: rgb(177 202 235 / 58%);
+  background: linear-gradient(to bottom, rgb(84 126 180 / 12%), rgb(13 27 49 / 36%));
+  box-shadow: inset 0 22px 42px -34px rgb(170 207 255 / 50%);
+}
+
+.demo__return-zone[data-drop-hot='true'] {
+  border-color: rgb(196 222 255 / 96%);
+  background: linear-gradient(to bottom, rgb(101 153 219 / 23%), rgb(19 42 74 / 54%));
+  box-shadow:
+    inset 0 3px 0 rgb(205 228 255 / 28%),
+    inset 0 30px 58px -38px rgb(177 215 255 / 82%);
+}
+
+.demo__drop-cue {
+  --demo-cue-x: -50%;
+  position: absolute;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  min-width: 154px;
+  padding: 8px 18px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  background: rgb(22 29 43 / 84%);
+  box-shadow: 0 4px 18px rgb(4 9 19 / 38%);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--demo-cue-x), 7px) scale(0.94);
+  transition:
+    color 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.demo__drop-cue strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+.demo__drop-cue--board {
+  top: 14px;
+  color: rgb(238 220 177 / 88%);
+}
+
+.demo__drop-cue--return {
+  --demo-cue-x: 0;
+  top: 18px;
+  right: clamp(18px, 3vw, 42px);
+  left: auto;
+  color: rgb(198 220 248 / 88%);
+}
+
+[data-drop-ready='true'] > .demo__drop-cue {
+  opacity: 1;
+  transform: translate(var(--demo-cue-x), 0) scale(1);
+}
+
+[data-drop-hot='true'] > .demo__drop-cue {
+  color: #fff4d5;
+  box-shadow:
+    0 0 0 3px rgb(255 238 197 / 16%),
+    0 6px 24px rgb(4 9 19 / 48%);
+  transform: translate(var(--demo-cue-x), 0) scale(1.08);
+}
+
+.demo__return-zone[data-drop-hot='true'] > .demo__drop-cue {
+  color: #e9f4ff;
+  box-shadow:
+    0 0 0 3px rgb(207 231 255 / 20%),
+    0 6px 24px rgb(4 9 19 / 48%);
 }
 
 /* ---------- 八角结束回合按钮 ---------- */
@@ -1124,7 +1238,28 @@ body,
   text-indent: 0.25em;
   cursor: pointer;
   filter: drop-shadow(0 3px 4px rgb(60 50 30 / 25%));
-  transition: color 180ms ease, transform 80ms ease, filter 180ms ease;
+  transform: translateY(0) scaleY(1);
+  transform-origin: center bottom;
+  transition:
+    color 180ms ease,
+    transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1),
+    filter 220ms cubic-bezier(0.16, 1.2, 0.35, 1);
+  will-change: transform, filter;
+}
+
+.plaque-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 7%), transparent 34%);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 8%),
+    inset 0 -7px 9px rgb(4 8 15 / 28%);
+  pointer-events: none;
+  transition:
+    background-color 180ms ease,
+    box-shadow 220ms cubic-bezier(0.16, 1.2, 0.35, 1);
 }
 
 .plaque-button__frame {
@@ -1134,7 +1269,10 @@ body,
   width: 100%;
   height: 100%;
   filter: url('#ai-duel-rough-button');
+  transform: scale(1);
+  transform-origin: center;
   pointer-events: none;
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
 }
 
 .hand-drawn-filter-defs {
@@ -1168,6 +1306,8 @@ body,
 .plaque-button__label {
   position: relative;
   z-index: 2;
+  transform: translateY(0);
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
 }
 
 .plaque-button__filter-defs {
@@ -1182,9 +1322,36 @@ body,
   filter: drop-shadow(0 4px 5px rgb(60 50 30 / 32%));
 }
 
-.plaque-button:active {
-  transform: translateY(1px);
-  filter: drop-shadow(0 1px 2px rgb(60 50 30 / 22%));
+.plaque-button:not(:disabled):active,
+.plaque-button[data-pressed='true'] {
+  transform: translateY(6px) scaleY(0.96);
+  filter: drop-shadow(0 0 0 rgb(60 50 30 / 0%));
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active::before,
+.plaque-button[data-pressed='true']::before {
+  background-color: rgb(9 15 27 / 28%);
+  box-shadow:
+    inset 0 7px 13px rgb(4 8 15 / 58%),
+    inset 0 -2px 0 rgb(212 168 126 / 30%);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active .plaque-button__frame,
+.plaque-button[data-pressed='true'] .plaque-button__frame {
+  transform: scale(0.985, 0.94);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active .plaque-button__label,
+.plaque-button[data-pressed='true'] .plaque-button__label {
+  transform: translateY(2px);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
 .plaque-button:focus-visible,
@@ -1201,6 +1368,15 @@ body,
   color: #cfcabb;
   cursor: not-allowed;
   filter: saturate(0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plaque-button,
+  .plaque-button::before,
+  .plaque-button__frame,
+  .plaque-button__label {
+    transition-duration: 1ms;
+  }
 }
 
 /* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */

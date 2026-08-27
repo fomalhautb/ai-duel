@@ -1,21 +1,146 @@
 /**
- * 主网站：介绍游戏 + 一键开始。
+ * 首页。
  *
- * 文案全是占位，重点是"一键开始"的分流：
- * 教程没通关完就接着打教程，通关完了直接进匹配房。
+ * 整页是照着一张 1672×941 的设计稿复原的，做法是把它当成一个固定宽高比的"舞台"塞进视口居中，
+ * 舞台内所有尺寸都用 cqi（1cqi = 舞台宽的 1%）。这样窗口怎么变都只是整体等比缩放，
+ * 不用为各种分辨率写断点，也不会出现"字大了图小了"的错位。
+ *
+ * 画面由三张切好的整幅图叠成（夜空底 → 桌面弧 → 前景道具），中间夹一层人物占位方块——
+ * 人物抠图还没做，先用方块占住位置，被上面两层挡掉一部分正是设计稿里的效果。
+ *
+ * 功能上仍然只有"一键开始"的分流：教程没通关完就接着打教程，通关完了直接进匹配房。
  */
 
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useLocation } from 'wouter'
-import { CARD_POOL } from '@ai-duel/core'
+import { useGSAP } from '@gsap/react'
+import gsap from 'gsap'
+import { HandCardFace } from '../ui/HandFan'
+import type { HandCardData } from '../ui/HandFan'
+import { attachCardTilt } from '../ui/cardTilt'
+import type { CardTiltHandle } from '../ui/cardTilt'
 import { loadSave, resetSave } from '../save/save'
-import { TUTORIAL_LEVELS, TUTORIAL_LEVEL_COUNT } from '../tutorial/levels'
+import { TUTORIAL_LEVEL_COUNT } from '../tutorial/levels'
+
+gsap.registerPlugin(useGSAP)
+
+/** 卡面内部是写死的 150px 排版，缩放比例要按它算。必须和 styles.css 的 --card-w 一致。 */
+const CARD_FACE_WIDTH = 150
+/** 首页展示卡的目标宽度，单位 cqi（舞台宽的百分之几）。改它就等于改整组卡的大小。 */
+const CARD_WIDTH_CQI = 11
+/**
+ * hover 时卡牌上浮的距离，写成卡高的百分比。
+ *
+ * 设计上想要的是"抬起约 1.5cqi"，但 GSAP 的 y 只认 px 和 %，不认 cqi；
+ * 换算成卡自身高度的百分比（1.5 / 15.4 ≈ 9.7%）就和单位无关了，缩放到任何窗口都一样高。
+ */
+const CARD_LIFT_PERCENT = -9.7
+/** 卡面跟着指针倾斜的最大角度。和手牌里的大卡取同一档。 */
+const CARD_TILT_DEG = 10
+/** hover 上浮 / 落回的时长，两边一致，来回扫动时不会一边快一边慢。 */
+const CARD_HOVER_DUR = 0.28
+
+interface Seat {
+  card: HandCardData
+  /** 卡牌中心在舞台里的横向位置，占舞台宽的百分比。 */
+  x: number
+  /** 卡牌中心在舞台里的纵向位置，占舞台高的百分比。 */
+  y: number
+  /** 静止时的倾角。写在卡槽上（见 styles.css），GSAP 只负责 hover 时把它转回正。 */
+  rot: number
+}
+
+/**
+ * 首页橱窗里的四张卡：卡面数据是纯占位（不是真卡池里的东西），
+ * 位置和倾角照着设计稿量。注意两端的卡不是抬起而是**沉下去**一点（y 差约 1.6%），弧口朝上。
+ */
+const SEATS: Seat[] = [
+  {
+    x: 36.6,
+    y: 49.7,
+    rot: -9,
+    card: {
+      id: 'home-chatgpt',
+      kind: 'model',
+      name: 'ChatGPT',
+      cost: 4,
+      power: 7,
+      integrity: 6,
+      text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+    },
+  },
+  {
+    x: 45.5,
+    y: 48.1,
+    rot: -3,
+    card: {
+      id: 'home-claude',
+      kind: 'model',
+      name: 'Claude',
+      cost: 5,
+      power: 6,
+      integrity: 8,
+      text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
+      backText: '占位背面：稀有度 ★★★ · 这里之后会放模型的六维弱点画像。',
+    },
+  },
+  {
+    x: 54.5,
+    y: 48.1,
+    rot: 3,
+    card: {
+      id: 'home-deepseek',
+      kind: 'model',
+      name: 'DeepSeek',
+      cost: 3,
+      power: 8,
+      integrity: 5,
+      text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+    },
+  },
+  {
+    x: 63.4,
+    y: 49.7,
+    rot: 9,
+    card: {
+      id: 'home-gemini',
+      kind: 'model',
+      name: 'Gemini',
+      cost: 4,
+      power: 7,
+      integrity: 7,
+      text: '占位描述：看得见听得见，就是记性差了点。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+    },
+  },
+]
+
+/**
+ * 七个人物的占位方块，位置是照着设计稿目测量的（单位都是舞台宽/高的百分比）。
+ *
+ * 数组顺序就是叠放顺序，后面的盖住前面的，所以站在前排的人排在后面。
+ * 方块本身会被桌面弧和前景道具挡掉下半截，这和设计稿里人物半身埋在桌后是一致的。
+ */
+const CAST: Array<{ id: string; left: number; top: number; width: number; height: number }> = [
+  { id: 'left-back', left: 14.5, top: 22.0, width: 13.0, height: 38.0 },
+  { id: 'left-officer', left: 1.5, top: 26.0, width: 15.5, height: 62.0 },
+  { id: 'left-front', left: 18.0, top: 41.0, width: 14.5, height: 44.0 },
+  { id: 'right-glasses', left: 82.0, top: 21.5, width: 14.5, height: 45.0 },
+  { id: 'right-laugh', left: 69.0, top: 18.5, width: 15.5, height: 57.0 },
+  { id: 'right-classic', left: 64.0, top: 42.5, width: 11.0, height: 50.0 },
+  { id: 'right-front', left: 76.0, top: 44.5, width: 20.0, height: 52.0 },
+]
 
 export function HomeScreen() {
   const [, navigate] = useLocation()
   // 进这个界面时读一次就够：任何会改存档的操作（打教程、赢一局）都在别的界面，
   // 回到首页时组件会重新挂载，自然读到新的。
   const [save, setSave] = useState(loadSave)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const cardsRef = useRef<HTMLDivElement>(null)
 
   const tutorialDone = save.tutorialDone
   const nextLevel = Math.min(tutorialDone + 1, TUTORIAL_LEVEL_COUNT)
@@ -25,54 +150,225 @@ export function HomeScreen() {
     navigate(finishedTutorial ? '/room' : `/tutorial/${nextLevel}`)
   }
 
+  // 卡面里的字号、内边距全是写死的像素，只能整张按比例缩。
+  // 而 scale() 只吃无单位数字，CSS 里又没法把 cqi 换算成数字，所以这个比例只能在这儿量。
+  // 用 layout effect 是为了赶在首帧绘制之前把值写进去，否则会先闪一下原始大小的卡。
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    if (stage === null) return
+    const sync = () => {
+      const target = (stage.clientWidth * CARD_WIDTH_CQI) / 100
+      stage.style.setProperty('--home-card-scale', String(target / CARD_FACE_WIDTH))
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
+
+  useGSAP(
+    () => {
+      const root = cardsRef.current
+      if (root === null) return
+      const slots = Array.from(root.querySelectorAll<HTMLElement>('.home__card'))
+      const tilts: CardTiltHandle[] = []
+      const unbinds: Array<() => void> = []
+
+      slots.forEach((slot, index) => {
+        const lift = slot.querySelector<HTMLElement>('.home__card-lift')
+        const seat = SEATS[index]
+        if (lift === null || seat === undefined) return
+        // 倾斜写在最里面那层：上浮/放大/回正归 GSAP 写在 lift 上，
+        // 两者共用一个 transform 的话会互相覆盖（cardTilt.ts 开头说明了这一点）。
+        tilts.push(attachCardTilt(slot, { tiltLayer: '.home__card-tilt', maxTilt: CARD_TILT_DEG }))
+
+        // 静止的倾角在卡槽的 CSS 上，这里补的是"相对卡槽再转多少"：
+        // 转 -rot 正好抵消卡槽的倾角，卡就立正了。
+        const straighten = -seat.rot
+        const enter = () => {
+          gsap.set(slot, { zIndex: 2 })
+          gsap.to(lift, {
+            yPercent: CARD_LIFT_PERCENT,
+            scale: 1.06,
+            rotation: straighten,
+            duration: CARD_HOVER_DUR,
+            ease: 'power2.out',
+            overwrite: 'auto',
+          })
+        }
+        const leave = () => {
+          gsap.to(lift, {
+            yPercent: 0,
+            scale: 1,
+            rotation: 0,
+            duration: CARD_HOVER_DUR,
+            ease: 'power2.out',
+            overwrite: 'auto',
+            // 层级要等落回原位才撤。中途撤的话，还在半路的卡会突然钻到邻居底下闪一下。
+            onComplete: () => gsap.set(slot, { clearProps: 'zIndex' }),
+          })
+        }
+
+        slot.addEventListener('pointerenter', enter)
+        slot.addEventListener('pointerleave', leave)
+        unbinds.push(() => {
+          slot.removeEventListener('pointerenter', enter)
+          slot.removeEventListener('pointerleave', leave)
+        })
+      })
+
+      return () => {
+        for (const handle of tilts) handle.detach()
+        for (const unbind of unbinds) unbind()
+      }
+    },
+    { scope: cardsRef },
+  )
+
   return (
-    <main className="page page--home">
-      <h1>斗AI</h1>
-      <p className="page__lead">
-        一款以「AI 模型的弱点」为核心机制的卡牌对战游戏。
-        每张卡牌是一个 AI 模型，属性来自它真实的软肋：偏见、幻觉、误判、过度自信、上下文遗忘……
-      </p>
-      <p className="page__lead">
-        提示卡指定一个弱点维度，伤害 = 卡面基础伤害 + 目标在该维度上的暴露程度。
-        赢法不是比谁数值大，而是读懂对手的画像，挑它最脆的那一维打。
-      </p>
+    <div className="home">
+      <div className="home__stage" ref={stageRef}>
+        <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
 
-      <button type="button" className="page__cta" onClick={handleStart}>
-        {finishedTutorial ? '开始对战' : tutorialDone === 0 ? '开始游戏' : `继续教程（第 ${nextLevel} 关）`}
-      </button>
-
-      <section className="page__section">
-        <h2>你的进度</h2>
-        <p>
-          教程 {tutorialDone}/{TUTORIAL_LEVEL_COUNT} · 收藏 {save.ownedCards.length}/{CARD_POOL.length} ·
-          胜场 {save.wins}
-        </p>
-        <ul className="page__list">
-          {TUTORIAL_LEVELS.map((level) => (
-            <li key={level.level}>
-              <button type="button" onClick={() => navigate(`/tutorial/${level.level}`)}>
-                {level.title}
-                {level.level <= tutorialDone ? '（已通关）' : ''}
-              </button>
-              <span className="page__muted"> {level.summary}</span>
-            </li>
+        <div className="home__cast">
+          {CAST.map((figure) => (
+            <div
+              key={figure.id}
+              className="home__figure"
+              style={{
+                left: `${figure.left}%`,
+                top: `${figure.top}%`,
+                width: `${figure.width}%`,
+                height: `${figure.height}%`,
+              }}
+            >
+              人物占位
+            </div>
           ))}
-        </ul>
-      </section>
+        </div>
 
-      <section className="page__section page__section--dev">
-        <h2>调试入口</h2>
-        <p className="page__muted">这一块是给开发和演示用的，正式版会去掉。</p>
-        <button type="button" onClick={() => navigate('/room')}>
-          直接进匹配房
+        <img className="home__layer" src="/home/home-table.png" alt="" draggable={false} />
+        <img className="home__layer" src="/home/home-props.png" alt="" draggable={false} />
+
+        {/*
+          感叹号用半角而不是全角「！」：宋体把全角标点画在字身框左侧、右边空出大半格，
+          那半格算进行宽里，整行看上去就偏左了。半角号配一段 padding 自己撑出设计稿里
+          「I」和「!」之间的空当，行宽和视觉重心才对得上。
+        */}
+        <h1 className="home__title">
+          出牌吧，AI<span className="home__title-bang">!</span>
+        </h1>
+
+        <p className="home__subtitle">
+          <span className="home__flourish" aria-hidden="true">
+            <i className="home__flourish-line" />
+            <Sparkle className="home__flourish-star" />
+          </span>
+          <span className="home__subtitle-text">这题你ai会吗？</span>
+          <span className="home__flourish home__flourish--right" aria-hidden="true">
+            <Sparkle className="home__flourish-star" />
+            <i className="home__flourish-line" />
+          </span>
+        </p>
+
+        <div className="home__cards" ref={cardsRef}>
+          {SEATS.map((seat) => (
+            <div
+              key={seat.card.id}
+              className="home__card"
+              style={
+                {
+                  left: `${seat.x}%`,
+                  top: `${seat.y}%`,
+                  '--home-card-rot': `${seat.rot}deg`,
+                } as CSSProperties
+              }
+            >
+              <div className="home__card-lift">
+                <div className="home__card-tilt">
+                  {/* 里面是整张 150×210 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
+                  <div className="home__card-inner">
+                    <HandCardFace card={seat.card} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button type="button" className="home__start" onClick={handleStart}>
+          <span className="home__start-label">
+            {finishedTutorial ? '开始对战' : tutorialDone === 0 ? '开始游戏' : `继续教程（第 ${nextLevel} 关）`}
+          </span>
         </button>
-        <button type="button" onClick={() => navigate('/dev/hand')}>
-          手牌动画演示页
-        </button>
-        <button type="button" onClick={() => setSave(resetSave())}>
-          重置存档
-        </button>
-      </section>
-    </main>
+
+        {/*
+          英雄 / 牌组 / 图鉴还没有对应页面。这里刻意不用 <button> 或 <a>：
+          做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+        */}
+        <nav className="home__nav" aria-label="主菜单">
+          <span className="home__nav-item" title="敬请期待">
+            英雄
+          </span>
+          <Sparkle className="home__nav-dot" />
+          <span className="home__nav-item" title="敬请期待">
+            牌组
+          </span>
+          <Sparkle className="home__nav-dot" />
+          <span className="home__nav-item" title="敬请期待">
+            图鉴
+          </span>
+        </nav>
+
+        <span className="home__settings" title="敬请期待">
+          <GearIcon />
+          设置
+        </span>
+
+        {/* 开发期入口，压到角落里：这两个功能正式版不留，但现在天天要用。 */}
+        <div className="home__dev">
+          <button type="button" className="home__dev-link" onClick={() => navigate('/dev/hand')}>
+            手牌演示
+          </button>
+          <button type="button" className="home__dev-link" onClick={() => setSave(resetSave())}>
+            重置存档
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 四角星装饰。设计稿里那颗星的边是内凹的，字符 ✦ 是直边、还得指望系统装了对应字体，
+ * 所以自己画一条路径更稳。
+ */
+function Sparkle({ className }: { className: string }) {
+  return (
+    <svg className={className} viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+      <path
+        d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+/** 描边风格的齿轮。路径是按 8 齿等分算出来的，圆心 (12,12)，齿顶半径 10.4、齿根 8。 */
+function GearIcon() {
+  return (
+    <svg
+      className="home__gear"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M10.1 1.77 A10.4 10.4 0 0 1 13.9 1.77 L13.94 4.24 A8 8 0 0 1 16.12 5.14 L17.89 3.43 A10.4 10.4 0 0 1 20.57 6.11 L18.86 7.88 A8 8 0 0 1 19.76 10.06 L22.23 10.1 A10.4 10.4 0 0 1 22.23 13.9 L19.76 13.94 A8 8 0 0 1 18.86 16.12 L20.57 17.89 A10.4 10.4 0 0 1 17.89 20.57 L16.12 18.86 A8 8 0 0 1 13.94 19.76 L13.9 22.23 A10.4 10.4 0 0 1 10.1 22.23 L10.06 19.76 A8 8 0 0 1 7.88 18.86 L6.11 20.57 A10.4 10.4 0 0 1 3.43 17.89 L5.14 16.12 A8 8 0 0 1 4.24 13.94 L1.77 13.9 A10.4 10.4 0 0 1 1.77 10.1 L4.24 10.06 A8 8 0 0 1 5.14 7.88 L3.43 6.11 A10.4 10.4 0 0 1 6.11 3.43 L7.88 5.14 A8 8 0 0 1 10.06 4.24 Z" />
+      <circle cx="12" cy="12" r="3.5" />
+    </svg>
   )
 }

@@ -1,0 +1,81 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #e5e7eb;
+  background: #0d1117;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+}
+
+/* Pixi 画布铺满整个对局区，React 的界面盖在它上面。 */
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+/*
+ * 覆盖层默认不吃鼠标事件，否则会挡住画布上的点击；
+ * 需要交互的子元素自己把 pointer-events 打开。
+ */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.hud {
+  display: flex;
+  gap: 24px;
+  align-items: baseline;
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.hud__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+.hand {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: auto;
+}
+
+.hand__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 12px;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  background: rgb(22 27 34 / 90%);
+  font-size: 13px;
+}
+
+.hand__cost {
+  color: #9ca3af;
+}

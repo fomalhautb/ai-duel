@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // vite.config.ts 跑在 Node 里，和浏览器代码共用一份配置，所以两边的全局类型都要带上；
+    // vite/client 提供 import './xx.css' 这类资源导入的类型声明。
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

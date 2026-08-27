@@ -1,0 +1,22 @@
+{
+  "name": "@ai-duel/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "pure-rand": "^8.4.2"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}

@@ -124,8 +124,12 @@ const MIN_HOVER_SCALE =
   ((CARD_WIDTH / 2) * Math.cos(MAX_TILT_RAD) + CARD_HEIGHT * Math.sin(MAX_TILT_RAD)) / (CARD_WIDTH / 2)
 /** hover 放大的倍数：想要 1.75，但不能低于上面那条几何下限（40° 时下限约 1.9）。 */
 const HOVER_SCALE = Math.max(1.75, MIN_HOVER_SCALE)
-/** 邻牌让位的幅度，按到 hover 卡的距离衰减；超出这个数组长度的牌不动。 */
-const NEIGHBOR_PUSH = [60, 30, 12]
+/**
+ * 邻牌让位之后，和放大的那张牌之间还要留出的横向余量。
+ *
+ * 纯观感：卡边贴着卡边擦过去像是"差点撞上"，留出几个像素才看得出是主动让开的。
+ */
+const NEIGHBOR_CLEARANCE = 8
 /** 重排（加牌/减牌/改窗口大小）的时长。 */
 const LAYOUT_DUR = 0.4
 /** hover 进出的时长，要比重排更干脆。 */
@@ -234,6 +238,43 @@ function fanTransform(index: number, count: number, viewportWidth: number): Slot
 }
 
 /**
+ * 算出 hover 某张牌时，其余每张牌要横向让开多少（下标和 laid 一致，正数向右）。
+ *
+ * 让位幅度是"刚好挪出放大卡的轮廓"算出来的，不是按距离衰减的固定值：
+ * 放大卡以底边中点为轴放大，横向半宽就是 CARD_WIDTH / 2 * HOVER_SCALE；
+ * 邻牌是斜的，朝放大卡那一侧伸得最远的是**底边**那个角，伸出 (CARD_WIDTH / 2) * cos(倾角)
+ * （上面那个角被旋转甩向了扇形外侧，够不到中间来）。两者加上余量不重叠，就是下面的式子。
+ *
+ * 关键是从 hover 卡往外一张张推，每张牌至少要让开和内侧那张一样多（Math.max / Math.min 那一步）：
+ * 只按各自的需求算的话，被推开的内侧牌会直接怼到外侧牌身上叠成一坨。
+ * 这样整侧牌是"被推着走"的，彼此间距不变，越靠外让得越少，够远的牌一动不动。
+ */
+function neighborPushes(hoverIndex: number, count: number, viewportWidth: number): number[] {
+  const pushes = new Array<number>(count).fill(0)
+  if (hoverIndex < 0) return pushes
+
+  const hovered = fanTransform(hoverIndex, count, viewportWidth)
+  const half = (CARD_WIDTH / 2) * HOVER_SCALE + NEIGHBOR_CLEARANCE
+  // 一张牌朝扇形中间伸出多远：底边那个角，随倾角变小。
+  const reachOf = (index: number) =>
+    (CARD_WIDTH / 2) * Math.cos((fanTransform(index, count, viewportWidth).rotation * Math.PI) / 180)
+
+  let carry = 0
+  for (let i = hoverIndex - 1; i >= 0; i -= 1) {
+    const base = fanTransform(i, count, viewportWidth)
+    carry = Math.min(carry, hovered.x - half - reachOf(i) - base.x)
+    pushes[i] = carry
+  }
+  carry = 0
+  for (let i = hoverIndex + 1; i < count; i += 1) {
+    const base = fanTransform(i, count, viewportWidth)
+    carry = Math.max(carry, hovered.x + half + reachOf(i) - base.x)
+    pushes[i] = carry
+  }
+  return pushes
+}
+
+/**
  * 翻面：转动 inner 的 rotationY，同时在补间途中按当前角度硬切正反两面的 opacity。
  * 所有会动 inner 的 rotationY 的地方都必须走这个函数，漏一处那张牌就会卡在正反都显示的样子。
  *
@@ -269,17 +310,6 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
   const hoverRef = useRef<string | null>(null)
-  /** 上一次被 hover 的牌，用来让它缩回去的过程中先别掉到邻牌下面。 */
-  const prevHoverRef = useRef<string | null>(null)
-  /**
-   * 正在飞回扇形的牌（拖拽取消、或者出牌被拒），返程途中同样要压在邻牌上方。
-   *
-   * 不跟 hover 共用 prevHoverRef 那个单槽：返程要飞 LAYOUT_DUR 那么久，
-   * 而 applyLayout 末尾会把单槽改写成当前 hover 的牌，返程中途只要发生一次重排
-   * （移到别的牌上、resize、加减牌）就会把这张牌打回自己那一层，被邻牌盖住。
-   * 取消拖拽之后用户几乎必然会动鼠标，所以那是常态而不是边角情况。
-   */
-  const returningRef = useRef(new Set<string>())
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
   const placedRef = useRef(new Set<string>())
   /**
@@ -337,8 +367,6 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
       if (hoverRef.current !== null && !ids.has(hoverRef.current)) hoverRef.current = null
       for (const id of placedRef.current) if (!ids.has(id)) placedRef.current.delete(id)
       for (const id of playedRef.current) if (!ids.has(id)) playedRef.current.delete(id)
-      // 返程途中被拿走的牌不会再有补间跑完，它的 onComplete 也就不会来清这条记录。
-      for (const id of returningRef.current) if (!ids.has(id)) returningRef.current.delete(id)
     }
 
     // 拖出来的牌从队里摘掉，剩下的按"少了一张"重算扇形，手牌会自己合拢（炉石就是这样）。
@@ -348,6 +376,9 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
 
     const hoveredId = hoverRef.current
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
+    // 邻牌要让到这张牌的轮廓之外，所以先把它放大前的基准位算出来（放大不改 x）。
+    const hoveredBase = hoverIndex >= 0 ? fanTransform(hoverIndex, count, viewportWidth) : null
+    const pushes = neighborPushes(hoverIndex, count, viewportWidth)
 
     laid.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
@@ -371,20 +402,15 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
         })
       }
 
-      // 邻牌往远离 hover 卡的方向让开，幅度随距离衰减。
-      let push = 0
-      if (hoverIndex >= 0 && !isHovered) {
-        const distance = Math.abs(index - hoverIndex)
-        const amount = NEIGHBOR_PUSH[distance - 1] ?? 0
-        push = index < hoverIndex ? -amount : amount
-      }
+      const push = pushes[index] ?? 0
 
-      // 右边的牌压住左边的（和炉石一致），hover 的牌置顶。
-      const baseZ = index + 1
-      // 两种牌算"正在归位"：刚被取消 hover 的，和正飞回扇形的（见 returningRef）。
-      const isLeaving =
-        !isHovered && (prevHoverRef.current === card.id || returningRef.current.has(card.id))
-      gsap.set(slot, { zIndex: isHovered ? 999 : isLeaving ? 900 : baseZ })
+      // 层级永远只有"右边的牌压住左边的"这一个固定顺序（和炉石一致），hover 和返程都不改它。
+      //
+      // 早先的做法是把放大的牌顶到最上层、缩回去的时候再放回原来那层。但 zIndex 没法补间，
+      // 这个"放回去"必然是瞬间完成的，而且正好落在牌已经缩回原位、和邻牌重叠面积最大的那一帧，
+      // 看着就是闪一下。把切换挪到别的时刻、或者拆成多次小切换都只是把闪烁挪个地方而已。
+      // 现在改成靠位置解决遮挡：邻牌让到放大卡的轮廓外边去，谁也压不着谁，层级就不用动了。
+      gsap.set(slot, { zIndex: index + 1 })
 
       const vars: gsap.TweenVars = isHovered
         ? { x: base.x, y: HOVER_BOTTOM, rotation: 0, scale: HOVER_SCALE }
@@ -394,16 +420,6 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
       // 快速扫过多张牌时，旧补间要被新补间干净地接管，不能各改各的。
       vars.overwrite = 'auto'
       if (isNew) vars.opacity = 1
-      // 归位的过程中先顶在高层，落位了再掉回自己那一层，免得中途被邻牌盖住一下。
-      // 归位途中再来一次重排也不怕：新补间照样算出 isLeaving，接着挂一份同样的收尾。
-      // 这里只挂 onComplete 不挂 onInterrupt：上面的 overwrite 会先杀旧补间再跑新补间，
-      // onInterrupt 会在刚设好的 900 之后把 zIndex 打回 baseZ，正好帮了倒忙。
-      if (isLeaving) {
-        vars.onComplete = () => {
-          returningRef.current.delete(card.id)
-          gsap.set(slot, { zIndex: baseZ })
-        }
-      }
       gsap.to(slot, vars)
 
       const helpParts = helpPartsOf(card.id)
@@ -420,7 +436,6 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
       }
     })
 
-    prevHoverRef.current = hoveredId
   }
 
   /**
@@ -480,8 +495,6 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
         endDrag()
         detachTilts()
         placedRef.current.clear()
-        returningRef.current.clear()
-        prevHoverRef.current = null
       }
     },
     { scope: rootRef, dependencies: [cards] },
@@ -602,9 +615,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
   }
 
   /** 让一张牌补间回扇形里自己的位置（拖拽取消、或者出牌被父组件拒了）。 */
-  const returnToFan = (id: string) => {
-    // 登记成"正在返程"：飞回去的一路上压在邻牌上方，落位了才回到自己那一层。
-    returningRef.current.add(id)
+  const returnToFan = () => {
     // 用 layoutRef 而不是直接调 applyLayout：这个函数也会在 requestAnimationFrame
     // 回调里被调到，那时已经出了 contextSafe 的同步区间，补间得靠它才能归到 context 里。
     layoutRef.current('reflow')
@@ -633,7 +644,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
       // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
       if (!slotsRef.current.has(id)) continue
       playedRef.current.delete(id)
-      returnToFan(id)
+      returnToFan()
     }
   }, [disabled])
 
@@ -746,7 +757,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     if (!wasActive) return
     // 落在别处（包括拖回手牌上方）就是取消；拖到一半才被 disabled 的也按取消算。
     if (disabled || !inZone) {
-      returnToFan(id)
+      returnToFan()
       return
     }
     playedRef.current.add(id)
@@ -763,7 +774,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
       if (!slotsRef.current.has(id)) return
       if (disabledRef.current) return
       playedRef.current.delete(id)
-      returnToFan(id)
+      returnToFan()
     })
   })
 
@@ -778,7 +789,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     if (drag === null || drag.id !== id) return
     const wasActive = drag.active
     endDrag()
-    if (wasActive) returnToFan(id)
+    if (wasActive) returnToFan()
   })
 
   return (

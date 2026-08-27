@@ -60,6 +60,13 @@ export interface HandFanProps {
    */
   dropZoneRef: RefObject<HTMLElement | null>
   /**
+   * 可选的取消落点，只负责给“放回手牌”之类的 UI 打高亮，不改变拖拽规则：
+   * 只要没落进 dropZoneRef，卡牌仍然都会回到手牌。
+   *
+   * 拖拽期间会和战场一样收到 data-drop-ready / data-drop-hot，父组件可以据此显示提示。
+   */
+  returnZoneRef?: RefObject<HTMLElement | null>
+  /**
    * 玩家把某张牌拖进落点区并松手了。父组件负责把这张牌从手牌里移走。
    *
    * 同步受理（当场改手牌数组）的话最省心：这张牌立刻从 DOM 里消失，什么都不用管。
@@ -305,7 +312,13 @@ function flipTo(inner: HTMLElement, rotationY: number, duration: number) {
   gsap.to(inner, { rotationY, duration, ease: 'power2.inOut', overwrite: 'auto', onUpdate: syncFaces })
 }
 
-export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFanProps) {
+export function HandFan({
+  cards,
+  dropZoneRef,
+  returnZoneRef,
+  onPlay,
+  disabled = false,
+}: HandFanProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
@@ -550,27 +563,44 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     if (inner) flipTo(inner, 0, 0.4)
   })
 
-  /** 指针是不是落在落点区里。每次移动现算：读一次 rect 的开销比缓存失效的坑小得多。 */
-  const isInsideDropZone = (clientX: number, clientY: number) => {
-    const zone = dropZoneRef.current
-    if (zone === null) return false
+  /** 指针是不是落在指定区域里。每次移动现算：读一次 rect 的开销比缓存失效的坑小得多。 */
+  const isInsideZone = (
+    zoneRef: RefObject<HTMLElement | null> | undefined,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const zone = zoneRef?.current
+    if (zone === null || zone === undefined) return false
     const rect = zone.getBoundingClientRect()
     return (
       clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
     )
   }
 
+  const isInsideDropZone = (clientX: number, clientY: number) =>
+    isInsideZone(dropZoneRef, clientX, clientY)
+
   /**
-   * 落点区的两级高亮，都由这里打在落点元素上（样式见 styles.css 的 .demo__board）：
+   * 两块落点的两级高亮，都由这里打在对应元素上（样式见 styles.css）：
    * ready = 正在拖牌，hot = 指针已经进到区域里、这时松手就打出去了。
+   * “放回手牌”区的 hot 只描述取消结果，不参与出牌判定。
    */
-  const markDropZone = (ready: boolean, hot: boolean) => {
-    const zone = dropZoneRef.current
-    if (zone === null) return
+  const markZone = (
+    zoneRef: RefObject<HTMLElement | null> | undefined,
+    ready: boolean,
+    hot: boolean,
+  ) => {
+    const zone = zoneRef?.current
+    if (zone === null || zone === undefined) return
     if (ready) zone.dataset.dropReady = 'true'
     else delete zone.dataset.dropReady
     if (hot) zone.dataset.dropHot = 'true'
     else delete zone.dataset.dropHot
+  }
+
+  const markDropZones = (ready: boolean, dropHot: boolean, returnHot: boolean) => {
+    markZone(dropZoneRef, ready, dropHot)
+    markZone(returnZoneRef, ready, returnHot)
   }
 
   /**
@@ -604,7 +634,7 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     const drag = dragRef.current
     if (drag === null) return null
     dragRef.current = null
-    markDropZone(false, false)
+    markDropZones(false, false, false)
     // 用 drag.slot 而不是回 slotsRef 里查：最需要收尾的那条路径（拖到一半被父组件
     // 从 cards 里拿掉）上，slotsRef 里的记录在 commit 阶段就被删了，查出来是 undefined，
     // 跟随补间会一直挂在已经脱离文档的节点上，直到组件卸载才被 revert 掉。
@@ -636,7 +666,10 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     disabledRef.current = disabled
     const drag = dragRef.current
     if (drag !== null && drag.active) {
-      markDropZone(!disabled, !disabled && isInsideDropZone(drag.lastX, drag.lastY))
+      const dropHot = !disabled && isInsideDropZone(drag.lastX, drag.lastY)
+      const returnHot =
+        !disabled && !dropHot && isInsideZone(returnZoneRef, drag.lastX, drag.lastY)
+      markDropZones(!disabled, dropHot, returnHot)
     }
     if (disabled) return
     for (const id of playedRef.current) {
@@ -698,7 +731,10 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
 
     applyLayout('hover')
     // 按下之后、走够阈值之前 disabled 有可能被翻开，那就一开始就别亮。
-    markDropZone(!disabled, false)
+    const dropHot = !disabled && isInsideDropZone(drag.lastX, drag.lastY)
+    const returnHot =
+      !disabled && !dropHot && isInsideZone(returnZoneRef, drag.lastX, drag.lastY)
+    markDropZones(!disabled, dropHot, returnHot)
   }
 
   const handlePointerDown = contextSafe((id: string, event: ReactPointerEvent<HTMLDivElement>) => {
@@ -744,7 +780,10 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     drag.moveY?.(target.y)
     // disabled 期间松手一律按取消算，那就一点都别亮：亮成 hot 却打不出去，
     // 等于骗玩家"现在松手就能打"，牌却直接飞回手里。
-    markDropZone(!disabled, !disabled && isInsideDropZone(event.clientX, event.clientY))
+    const dropHot = !disabled && isInsideDropZone(event.clientX, event.clientY)
+    const returnHot =
+      !disabled && !dropHot && isInsideZone(returnZoneRef, event.clientX, event.clientY)
+    markDropZones(!disabled, dropHot, returnHot)
   })
 
   const handlePointerUp = contextSafe((id: string, event: ReactPointerEvent<HTMLDivElement>) => {

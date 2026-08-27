@@ -116,8 +116,17 @@ body,
   /* 3D 透视给内层的翻转用；父层自己只做 2D 变换，不受影响。 */
   perspective: 1000px;
   pointer-events: auto;
-  cursor: pointer;
+  /* 出牌靠拖，光标也照着说：抓手而不是手指。 */
+  cursor: grab;
+  /* 拖拽全程按着鼠标在卡面上划，不禁掉选中的话会拖出一片蓝色选区。 */
+  user-select: none;
   will-change: transform;
+}
+
+/* 抓着的时候换成握拳。用 data 属性而不是 :active：pointerdown 里调了 preventDefault，
+   浏览器不一定还会给这个元素 :active 状态。这个属性由 HandFan 在拖拽期间打上。 */
+.hand-fan__slot[data-dragging='true'] {
+  cursor: grabbing;
 }
 
 .hand-fan__inner {
@@ -321,6 +330,23 @@ body,
   padding: 16px;
   border: 1px dashed #30363d;
   border-radius: 16px;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+/*
+ * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZone）：
+ * data-drop-ready 表示"手上正拖着一张牌"，把落点区标出来；
+ * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
+ */
+.demo__board[data-drop-ready='true'] {
+  border-color: rgb(56 189 248 / 45%);
+}
+
+.demo__board[data-drop-hot='true'] {
+  border-color: #38bdf8;
+  background: rgb(56 189 248 / 8%);
 }
 
 .demo__board-hint {

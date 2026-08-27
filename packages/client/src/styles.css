@@ -78,15 +78,6 @@ body,
   opacity: 0.65;
 }
 
-.page__list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .page__muted {
   color: #6b7280;
   font-size: 13px;
@@ -167,10 +158,6 @@ body,
 
 .stage-hud__spacer {
   flex: 1;
-}
-
-.stage-hud__level {
-  color: #c9d1d9;
 }
 
 .stage-side {
@@ -288,39 +275,6 @@ body,
 .stage-target-face:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* 教程的引导条。贴在底部手牌上方，不挡住场上的模型。 */
-.guide {
-  position: fixed;
-  left: 50%;
-  bottom: 200px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  max-width: 620px;
-  padding: 14px 20px;
-  border: 1px solid #38bdf8;
-  border-radius: 12px;
-  background: rgb(13 17 23 / 95%);
-}
-
-.guide__text {
-  margin: 0;
-  line-height: 1.6;
-  font-size: 14px;
-}
-
-.guide__next {
-  flex-shrink: 0;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 8px;
-  background: #38bdf8;
-  color: #0d1117;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 /* 结算层。盖满整屏，所以下面的对局点不到了。 */

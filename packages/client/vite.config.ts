@@ -4,8 +4,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    // 优先读 PORT 环境变量：多个 worktree 同时开 dev server 时 5173 会被占用，
-    // 预览工具会通过 PORT 分配一个空闲端口（见 .claude/launch.json 的 autoPort）。
-    port: Number(process.env.PORT) || 5173,
+    // 默认 5173；同时开着多个工作树时端口会撞，用 PORT 换一个即可。
+    port: Number(process.env.PORT ?? 5173),
+    // 黑客松是两台电脑联机，另一台要用局域网 IP 打开这个页面，所以不能只监听 localhost。
+    host: true,
   },
 })

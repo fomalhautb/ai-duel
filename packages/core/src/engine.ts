@@ -29,6 +29,11 @@ export interface PlayerSetup {
   name: string
   /** 牌组，元素是卡牌定义 id，可以重复。 */
   deck: CardId[]
+  /**
+   * 起始完整度，不填就是 STARTING_INTEGRITY。
+   * 教程关卡靠它把血量压到几点，好在三五个回合内演到 GAME_OVER。
+   */
+  integrity?: number
 }
 
 export interface GameSetup {
@@ -56,7 +61,7 @@ export function createGame(setup: GameSetup): ExecuteResult {
     return {
       id,
       name: config.name,
-      integrity: STARTING_INTEGRITY,
+      integrity: config.integrity ?? STARTING_INTEGRITY,
       compute: 0,
       computeMax: 0,
       hand: [],
@@ -67,6 +72,7 @@ export function createGame(setup: GameSetup): ExecuteResult {
   }
 
   // 先手固定为 0 号座位：黑客松不做随机先后手，谁建房谁先手，规则更好解释。
+  // 要让某一方先手（教程第 2 关就要）就把他排到 0 号座位上，不需要再开一个开关。
   const startingPlayer: PlayerId = 0
   const state: GameState = {
     turn: 0,

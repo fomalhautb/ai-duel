@@ -92,7 +92,7 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 
 `random` 是外部传进来的 0-1 随机数，不是内部 `Math.random()`——
 和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
-实际的随机数和存档读写都在客户端（见 5.4）。
+实际的随机数和存档读写都在客户端（见 5.8）。
 
 ## 4. 联机：房主模式
 
@@ -144,7 +144,10 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 `packages/server` 只做三件事，全部加起来几十行：
 
 1. `room:create` → 摇一个 4 位房间码，把发起者放进房间，回码。
-2. `room:join` → 检查房间存在且没满（上限 2 人），放人进去，通知房主 `peer:joined`。
+2. `room:join` → 检查房间存在且没满（上限 2 人），**先把这个人从他自己那间房里踢出去**，
+   再放进目标房间，通知房主 `peer:joined`。
+   踢出去这一步是必须的：客户端一进匹配房界面就先给自己开了房（好显示房间码），
+   不退的话他会同时待在两个房间里，转发串台，而且他那间空房还占着号能被第三个人进来。
 3. `relay` → 把 payload 原样转给房里的另一个人，**不看内容**。
 
 外加 `disconnect` 时给还在房里的人发 `peer:left`。
@@ -165,7 +168,75 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 对局画面的接入方式是**消费 core 的事件流**：收到一个 `GameEvent` 就播一段动画，
 播完再取下一个。不要在客户端重算规则。
 
-### 5.1 为什么推翻了 Pixi
+### 5.1 界面与路由
+
+五个界面，路由用 wouter（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
+
+```
+/                主网站：介绍 + 「一键开始」
+/tutorial/:level 教程关卡（1..3）
+/room            匹配房：自己的 4 位房间码 + 输入对方房间码
+/match           联机对局
+/dev/hand        手牌动画调试页
+```
+
+**「一键开始」的分流**只看存档里的 `tutorialDone`：没通关完就接着打下一关教程，
+通关完了直接进匹配房。判断不看胜场，重玩教程也不会把进度往回退。
+
+不引 Next.js 是因为这里是纯客户端游戏：SSR、RSC、服务端数据获取一项都用不上，
+每个页面都得挂 `'use client'`，等于把 Next 当成一个启动更慢的 Vite。
+它也解决不了部署上的难题——socket.io 的长连接 Vercel 托不住，转发器无论如何都要单独跑。
+
+**对局状态不放在路由上。** `MatchSessionProvider` 挂在 Router 外面，持有当前这局的 driver，
+房间页建好 driver 之后才跨得过跳到 `/match` 的那次卸载。它不写 localStorage，
+所以刷新 `/match` 会读不到 driver，直接跳回首页——和「不存对局」是一致的。
+
+### 5.2 MatchDriver：对局的四种来源
+
+教程、本地热座、联机房主、联机客人，**界面完全一样**，区别只在于指令交给谁执行、局面从哪来。
+这层差异收进 `src/match/driver.ts` 的 `MatchDriver` 接口：
+
+```ts
+subscribe(fn)        // 局面变了，配 useSyncExternalStore
+getSnapshot()        // MatchView：state / seat / status / lastRejection
+subscribeEvents(fn)  // 每批新事件，给动画层
+send(command)
+dispose()
+```
+
+| 实现 | 谁跑 `execute` | 对手指令来自 |
+|---|---|---|
+| `localDriver` | 本地 | 同一个页面（热座，`seat: 'active'` 时视角跟着行动方走） |
+| `tutorialDriver` | 本地 | 关卡脚本 |
+| `hostDriver` | 本地 | socket relay |
+| `guestDriver` | 不跑 | 房主 relay 过来的事件流 |
+
+`MatchStage` 只认 driver，不知道自己在打教程还是联机。**接联机时对局界面一行都不用改。**
+
+两条订阅分开是有意的：`getSnapshot` 给的是「事件全部应用完」的结果，负责渲染；
+事件流是「过程」，负责播动画。两者节奏不同，混在一起会互相牵制。
+事件订阅者只允许一个，换来的性质是**没人订阅时事件会攒着，等第一个订阅者来了补发**——
+driver 在构造函数里就把开局事件发出来了，而 React 要等 effect 里才订阅得上，
+不攒着的话发牌动画必然丢。
+
+### 5.3 教程
+
+三关，全是写死的剧本。**两头都定死**才敢在引导文案里写「伤害 = 2 + 2 = 4，一击就碎」这种实数：
+
+- **对手**按 `src/tutorial/levels.ts` 里的脚本出牌（`opponentTurns`）。
+- **玩家**被界面锁住：`MatchStage` 的 `restriction` 每一步只放行引导指定的那一个动作，
+  别的牌点不动、目标也选不了。
+
+引导步骤全部走完即通关，不另设胜利条件——每一步都被锁死了，走完就等于达成了教学目标。
+
+关卡数据有个关键技巧：**每关的牌组只用一两种卡，而且整副都是同一张**。
+这样洗牌洗成什么顺序都无所谓，起手一定是那张卡，剧本不必去反推 seed 洗出了什么。
+谁先手也不是单独的开关，而是靠把玩家排在 0 号还是 1 号座位决定的（引擎固定 0 号先手）。
+
+卡池一改，剧本会**静默**失效，表现为玩家卡死在某一步点不动。
+`packages/client/test/tutorial.test.ts` 把三关整段跑一遍守着这件事。
+
+### 5.4 为什么推翻了 Pixi
 
 早期版本用 PixiJS 画对局、React 盖一层覆盖层。实际动手之后换成纯 DOM，原因：
 
@@ -173,8 +244,9 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
   Pixi 的价值在成千上万个精灵，这里付了复杂度却拿不到收益。
 - **中文卡面排版。** 卡牌上是几行中文描述，要自动换行、要省略号、要对齐。
   DOM 里这是几行 CSS，Pixi 里得自己算换行和度量。
-- **CSS 3D 翻转是现成的。** 卡牌翻正反面用 `transform-style: preserve-3d` +
-  `backface-visibility: hidden` 就够了，Pixi 没有原生的 3D 翻面。
+- **CSS 3D 翻转是现成的。** 卡牌翻正反面用 `transform-style: preserve-3d` 加一条
+  `rotateY` 补间就够了，Pixi 没有原生的 3D 翻面。
+  （正反两面谁可见另有讲究，不用 `backface-visibility`，见 5.7。）
 - **省掉两层坐标的交接。** 覆盖层和画布各有一套坐标系，
   想让一张牌"从 DOM 的手牌飞进画布的战场"就得手动换算。
   全在 DOM 里之后，跨容器的位移直接用 GSAP 的 Flip 插件（FLIP 技术）补间，不用碰坐标。
@@ -182,7 +254,7 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 **将来要粒子特效怎么办**：在最上面加一层 `pointer-events: none` 的轻量 canvas，
 只画粒子，不参与布局和交互。需要的时候再加，现在不预留。
 
-### 5.2 动画约定
+### 5.5 动画约定
 
 - 补间统一用 `@gsap/react` 的 `useGSAP` 创建，它会在组件卸载时把这一片的补间和内联样式
   一起清掉，也兼容 React 严格模式的两次挂载。
@@ -203,10 +275,10 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
   此刻已经被 React 从 DOM 里摘掉了，补间会挂在这个脱离文档的节点上，新元素一动不动。
   Flip 不会自己拿 `data-flip-id` 去全文档找新元素，`data-flip-id` 只用来把两份 state 对号。
 
-### 5.3 手牌组件
+### 5.6 手牌组件
 
-`src/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）。
-`src/HandDemo.tsx` 是它的演示页，用占位数据跑各种边界，访问 `?demo=hand` 进入（见 `src/main.tsx`）。
+`src/ui/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）。
+`src/dev/HandDemo.tsx` 是它的演示页，用占位数据跑各种边界，访问 `/dev/hand` 进入。
 
 **接真对局不只是换 props**：`HandCardData` 目前还缺核心机制要用的两项——
 模型卡的六维弱点画像（`ModelCard.weaknesses`）和提示卡的目标维度（`PromptCard.targetWeakness`），
@@ -240,18 +312,121 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 - 落点区的高亮由 `HandFan` 打两个 data 属性在落点元素上：
   `data-drop-ready`（正在拖牌）和 `data-drop-hot`（指针已经进来了），样式在 `styles.css` 里。
 - 拖出来的那张牌不参与扇形排布，剩下的牌按"少了一张"重排，手牌会合拢。
+- **拖拽期间倾斜自动失效**，靠的是 5.7 那个 `enabled` 回调而不是额外的开关：
+  它判的是"这张牌是不是当前 hover 的那张"，而进入拖拽的第一件事就是把 hover 清空，
+  于是 `attachCardTilt` 只会归零收手、不再往倾斜层写角度。抓起来那一下还会主动调一次
+  `reset()`：hover 时攒下的倾斜留着不管的话，拖着一张歪的牌满屏找落点观感很差，
+  而指针已经被 capture，等不到 `pointerleave` 自己来归零。
 
-### 5.4 存档
+### 5.7 卡面的倾斜跟随和高光
 
-`src/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
+`src/ui/cardTilt.ts` 提供 `attachCardTilt(el, opts)`：指针在卡面上移动时，
+卡跟着指针做小幅三维倾斜，同时一小块白色高光跟着指针跑（模拟覆膜反光）。
+手牌里只有 hover 放大的那张启用（扇形里的小卡本身是斜的，再叠倾斜会乱），
+战场小卡则一直启用，幅度稍大一点补偿它显示得小。
+
+**关键是 transform 分层**。一个元素只有一个 `transform`，几件事挤在一层就是互相覆盖，
+所以每层只负责一件事：
+
+| 手牌 | 战场小卡 | 负责 |
+|---|---|---|
+| `.hand-fan__slot` | `.demo__tile` | 摆位：扇形的 x / y / rotation / scale；小卡这边是 Flip 飞行 |
+| `.hand-fan__tilt` | `.demo__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY |
+| `.hand-fan__inner` | — | 翻到背面的 3D 翻转：rotationY 180° |
+
+倾斜层和翻转层都要 `transform-style: preserve-3d`，否则翻转层会被压成一张平面图片再倾斜。
+透视（`perspective`）加在最外层，对下面几层一起生效，不用逐层加。
+小卡的倾斜层同时承担裁剪（`overflow: hidden` + 圆角）：裁切边跟着卡一起转，
+放在不动的 `.demo__tile` 上的话，倾斜时卡角会被一条直边削掉。
+
+**翻面：立体感靠 `rotationY`，正反互斥靠角度驱动的 opacity 硬切，不用 `backface-visibility`。**
+所有会动 `.hand-fan__inner` 的 `rotationY` 的地方都必须走 `HandFan.tsx` 里的 `flipTo()`
+（现在有三处：hover 问号翻过去、离开问号翻回来、离开整张牌时 `applyLayout` 兜底翻回正面），
+漏一处那张牌就会卡在正反都显示的样子。它在补间的 `onUpdate` 里每帧读 inner 当前的角度，
+归一到 `[0, 360)` 后落在 `(90°, 270°)` 就把背面的 opacity 写成 1、正面写成 0，否则反过来。
+硬切不做过渡：90° 时卡正好侧对观察者、投影宽度趋近于零，切换那一瞬间看不见。
+判断读的是**元素当前的实际角度**而不是补间进度，所以翻过去和翻回来共用同一套逻辑，
+`overwrite: 'auto'` 让新补间接管旧补间时也不用额外记状态。静止时的初始值（正面 1、背面 0）
+写在 CSS 里，不靠 JS 首帧补。
+
+之所以不用 `backface-visibility`，是因为 Chrome 实测它**在逐帧 JS 动画期间对合成层的朝向
+判断不可靠**：静止时正确，一旦补间跑起来，转过 90° 之后正面并不消失，连同水平镜像一起
+继续显示，直到补间结束那一刻才突然切成背面——"全程正面、结尾闪一下"。
+卡面里那些被提成独立图层的子元素（`absolute` + `z-index` 的问号圆圈、
+`absolute` + `mix-blend-mode` 的高光层）逃出所在 face 的拍扁、翻面后镜像漏在另一面上，
+也是同一族问题。逐个元素补一份 `backface-visibility` 补不完，而且补上之后动画途中的误判
+还会和 opacity 打架造成闪烁，所以这些声明现在一条都不留。
+
+**手牌右上角的问号：视觉和热区是两个元素**，因为两者对翻面的要求正好相反。
+
+- 看得见的圆圈（`.hand-fan__help-mark`）在翻转层**里**，正反两面各一个，
+  倾斜和翻面都跟着卡一起转；正面那个放在 `.hand-fan__face--front` 里、`HandCardFace` 旁边，
+  不放进 `HandCardFace`——那个组件被战场小卡复用，小卡没有翻面这回事，不该长出一个问号。
+  背面那个放在 `.card-back` 里同样的位置，翻过去之后指针底下仍然压着一个问号，视觉是连续的。
+  它们 `pointer-events: none`，不参与交互。
+  两个圆圈（和同样分正反两份的 `.card-glare`）都不需要自己管朝向：
+  该显示哪一面由所在 `.hand-fan__face` 的 opacity 决定，隐藏的那一面整层都是 0，漏不出来。
+- 触发翻面的热区（`.hand-fan__help`）是一个**完全透明**的按钮，留在翻转层**外**、倾斜层里，
+  位置尺寸都不动。热区绝对不能跟着翻面：跟着转的话，牌一翻到背面按钮就转到了指针够不着的
+  地方，`pointerleave` 立刻把牌翻回正面，翻回来又被 hover 到，来回抖个没完。
+  它靠倾斜层当绝对定位的基准，所以那一层的 `position` 不能去掉。
+
+**命中几何只留 slot 和热区两处**：翻转层 `.hand-fan__inner` 整棵是 `pointer-events: none`，
+卡面纯粹是画面。否则翻面途中 150px 宽的卡面绕 Y 轴扫出前后各 ±75px 的深度，中途会扫到热区
+前面、在 `preserve-3d` 的三维命中测试里抢走指针：热区收到 `pointerleave` → 牌翻回去 →
+卡面又扫回来触发 `pointerenter`，指针停着不动牌却自己来回翻。
+这和 5.6 里 hover 放大要盖住原位是同一条原则——参与命中的形状不能在动画中途变形。
+
+三个元素由 `applyLayout` 一起用 `autoAlpha` 淡入淡出（只有放大的那张牌才亮）。
+必须一起，否则会出现"看得见问号却点不动"之类的错位；`autoAlpha` 归零时顺带关掉
+`visibility`，没放大的手牌上那块热区也就不吃指针事件，指针扫过右上角不会误触发翻面。
+
+高光是一层 `.card-glare`（正反两面各一层，正面在 `HandCardFace` 里，所以小卡自带），
+`radial-gradient` 的圆心读 `--glare-x / --glare-y` 两个 CSS 变量（存的是指针的镜像位置，
+见本节末尾），由 `gsap.quickSetter` 写在最外层上、靠继承传下去。混合模式用 `soft-light`：
+卡面底色很深，`overlay` 在深色底上只是把原亮度翻一倍、仍然看不见。
+卡面要 `isolation: isolate`，不然混合会拿卡背后的东西当底，高光溢出卡面。
+渐变半径要写死（`circle 200px`），不写的话默认是 `farthest-corner`，
+半径跟着指针到最远那个角的距离变，指针挪到卡角时反光会胀到两倍大。
+半径比卡面对角线的一半（≈129px）大一截，指针挪到任何一角渐变都还没衰减完就出了卡面，
+边缘不会被切出一道亮圈；代价是中间那道色标得压暗一点，否则整张卡会被提亮成一片。
+背面那层直接沿用同一份 `--glare-x / --glare-y` 就行：`.hand-fan__face--back`
+自带的 `rotateY(180deg)` 单看是镜像，但背面只有在 `.hand-fan__inner` 也转过 90° 之后
+才显示，两个 180° 正好抵消。
+
+**倾斜方向和高光位置是一套物理模型，改一边就得改另一边。**
+倾斜是"指针在哪边、哪边就往屏幕里陷下去"，像用手指把卡牌那一角按住往下按——
+反过来（指针那一角朝观察者抬起）也做过，用户实际体验后确认按下去这版手感更对。
+高光跟着这个模型走，落在**指针的镜像位置**（对角）：被按下去那一角的对角翘向观察者、
+正对光源，最亮的自然是它，而不是正往屏幕里陷的那一块。
+
+`attachCardTilt` 必须在 `useGSAP` 的回调里调用：它把所有补间（`quickTo` 的内部补间、
+归零补间）装在一个子 `gsap.context` 里，这个子 context 要挂到外层的 context 上，
+卸载时才会被一起 revert。补间都在挂载那一刻建好，
+指针回调里只给这些补间喂新值、不新建补间，所以那些回调不需要再包 `contextSafe`。
+返回的 handle 有 `detach()`（摘监听 + 归零）
+和 `reset()`（出牌时快速收手：出牌被拒绝的话卡还在原地，不主动归零它会僵在倾斜的样子）。
+
+调用方（`HandFan` / `HandDemo`）都是**按元素增量挂/摘**，手牌或战场一变不能整批重挂：
+`detach()` 会把倾斜和高光硬切回零，而指针很可能正停在一张没有离场的卡上，
+它的倾斜会突然弹平、高光凭空消失，指针不动就不再有 `pointermove`，也就再也回不来。
+另外依赖数组非空时 `useGSAP` 只在**卸载**时 revert，清理函数在依赖变化时不会跑，
+所以离场元素必须在回调里自己摘掉，否则监听会一直留着。
+
+### 5.8 存档
+
+`src/save/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
 ```
-key   ai-duel-save-v1
-value { "ownedCards": ["..."], "wins": 3 }
+key   ai-duel-save-v2
+value { "ownedCards": ["..."], "wins": 3, "tutorialDone": 2 }
 ```
 
-- `loadSave()` 读，`recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
-- key 带版本号，结构要改就换 `v2`，旧数据读不到自动当新号，不写迁移代码。
+- `loadSave()` 读；`recordWin()` 记一场胜利，`completeTutorialLevel(n)` 记一关教程通关，
+  两者都顺手用 `drawNewCard` 抽一张新卡再写回。
+- `tutorialDone` 是已通关的关卡数（0..3），首页的「一键开始」就靠它分流。
+  它用 `max` 而不是 `+1` 更新，所以重玩已通关的关卡既不会把进度退回去，也不会越刷越高。
+- key 带版本号，结构要改就换 `v3`，旧数据读不到自动当新号，不写迁移代码。
 - 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
   `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
 - 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
@@ -265,47 +440,92 @@ packages/core/
   src/cards.ts                卡牌数据 + 查表
   src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/engine.ts               createGame / execute
-  test/engine.test.ts         Vitest
-  test/collection.test.ts
+  test/                       Vitest
 packages/client/
   index.html
   vite.config.ts
-  src/main.tsx                入口（?demo=hand 时进手牌演示页）
-  src/App.tsx                 对局外壳（目前是占位实现）
-  src/HandFan.tsx             扇形手牌组件 + 卡面，通用，接真对局时只换 props
-  src/HandDemo.tsx            手牌动画演示页（占位数据 + 战场占位区）
-  src/save.ts                 localStorage 存档（收藏 + 胜场）
+  src/main.tsx                入口，只负责挂 <App>
+  src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
+  src/screens/                一个界面一个文件
+    HomeScreen.tsx            主网站：介绍 + 一键开始（按 tutorialDone 分流）
+    TutorialScreen.tsx        教程关卡：对局 + 分步引导 + 通关结算
+    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房
+    MatchScreen.tsx           联机对局：从 MatchSession 取 driver
+  src/match/                  对局驱动层
+    driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
+    localDriver.ts            本地热座
+    tutorialDriver.ts         本地 + 脚本对手
+    hostDriver.ts             联机房主（唯一跑 execute 的一方）
+    guestDriver.ts            联机客人（只发指令）
+    useMatch.ts               把 driver 接进 React（useSyncExternalStore）
+    MatchSession.tsx          持有当前对局的 driver，跨得过路由切换
+  src/tutorial/levels.ts      三关的剧本数据
+  src/net/
+    protocol.ts               房主 ↔ 客人的消息格式
+    socket.ts                 socket.io 客户端封装（连服务器、建房、进房、转发）
+  src/ui/
+    MatchStage.tsx            对局界面，只认一个 driver（目前是占位实现）
+    HandFan.tsx               扇形手牌组件 + 卡面，通用
+    cardTilt.ts               卡面跟指针的倾斜 + 微高光，手牌和战场小卡共用
+    labels.ts                 六个弱点维度的中文名
+  src/dev/HandDemo.tsx        手牌动画演示页（/dev/hand）
+  src/save/save.ts            localStorage 存档（收藏 + 胜场 + 教程进度）
   src/styles.css
+  test/tutorial.test.ts       把三关教程整段跑一遍
 packages/server/
-  src/index.ts                转发器全部代码
+  src/relayServer.ts          转发器全部逻辑（工厂函数，不监听端口）
+  src/index.ts                启动入口
+  test/relayServer.test.ts    真开服务、真连 socket 的集成测试
 ```
+
+依赖方向：`screens → match / ui / tutorial / save`，`match → net / core`，
+`ui` 谁也不依赖（只认自己的 props），`server` 不依赖 `core`。
 
 ## 7. 常用命令
 
 ```bash
 pnpm install
 pnpm typecheck          # 全仓类型检查
-pnpm test               # core 的单元测试
+pnpm test               # 三个包的测试：core 规则、教程剧本、转发器
 pnpm dev                # 起客户端 (http://localhost:5173)
-                        # 手牌动画演示页：http://localhost:5173/?demo=hand
+                        # 手牌动画演示页：http://localhost:5173/dev/hand
+                        # 端口被占时用 PORT=5174 pnpm dev
 pnpm dev:server         # 起转发器 (http://localhost:3001)
 pnpm --filter @ai-duel/client build
 ```
 
-## 8. 动手顺序
+**两台电脑联机**：客户端已经监听了局域网（`server.host = true`），
+另一台用 `http://<你的局域网IP>:5173` 打开即可。
+socket 地址默认取当前页面的主机名（不是写死 localhost），所以局域网下自动对得上；
+要连别处的转发器就设 `VITE_SERVER_URL`。
 
-按这个顺序推进，每一步都能单独验证，不会卡在"全都做完才能跑"上：
+**静态部署**：路由用的是浏览器 history，直接把 `dist` 丢上静态托管需要配一条
+「所有路径回退到 index.html」的重写规则，否则刷新 `/room` 会 404。
+Vite 的 dev server 自带这个回退，开发时不用管。
 
-1. **补规则**（core）——攻击、随从交战、更多卡牌效果，配一批卡牌数据。
+## 8. 现在做到哪了
+
+已经就位（骨架，UI 全是占位）：
+
+- 五个界面、路由、按存档分流的「一键开始」。
+- `MatchDriver` 四个实现全写完，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
+- 教程三关能整段打通，通关送卡、写进度。
+- 存档 v2（收藏 + 胜场 + 教程进度）。
+- 联机协议、socket 封装、房主/客人两个 driver，转发器有集成测试守着。
+
+**还没做的**，按建议顺序：
+
+1. **对局界面接真 UI**（client）——把 `MatchStage` 里那堆按钮换成 `HandFan` + 战场，
+   把事件流接到 GSAP 上，播出牌、受伤、崩坏这几段动画。
+   接 `HandFan` 前要先给 `HandCardData` 补上弱点画像和目标维度两项，
+   并给它们在卡面上腾出版面（见 5.6）。
+2. **补规则和卡牌数据**（core）——攻击、随从交战、更多卡牌效果。
    全程用 Vitest 验证，不需要碰界面。
-2. **本地热座对战**（client）——一个页面上双方轮流操作，
-   把事件流接到 DOM 上，先把出牌、受伤、崩坏这几段动画做出来。
-   **这一步做完游戏就能玩了**，是最重要的里程碑。
-3. **卡组和卡面**（client）——React 层的卡组选择、卡牌美术、状态栏，
-   把结算画面接到 `recordWin()` 上，赢一局弹一张新卡。
-4. **接联机**（client + server）——建房/进房界面，把第 2 步的本地对局
-   改成"房主跑 execute、客人发指令"，server 已经就位不用改。
+   **改卡牌数值时记得跑 `pnpm test`**：教程剧本依赖具体的费用和伤害，
+   改坏了测试会红，不改的话玩家会卡死在教程里。
+3. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
+4. **联机端到端实测**——协议和转发器都有测试，但没有在两台真机上跑过完整一局。
 5. **打磨**——音效、特效、结算画面。
 
 如果时间不够，砍的顺序是倒过来的：4 和 5 都可以不要，
-只要第 2 步做完就有一个能演示的游戏。
+只要第 1 步做完就有一个能演示的游戏。

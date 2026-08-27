@@ -650,6 +650,9 @@ export function HandFan({ cards, dropZoneRef, onPlay, disabled = false }: HandFa
     hoverRef.current = null
     // 抓起来之前把 hover 期间攒下的倾斜快速归零：拖着一张歪的牌满屏找落点观感很差，
     // 而且指针已经被 capture，光靠 cardTilt 自己的 pointerleave 等不到归零。
+    // 注意这一下总是踩在一条刚被重启的跟随补间上：cardTilt 的 pointermove 是直接挂在 slot 上的，
+    // 而 React 的 onPointerMove 走根容器委托，所以越过阈值那一帧一定是它先跟随、这里才归零。
+    // 归零能压住跟随，靠的是 cardTilt 在 settle 里先把跟随补间停掉（原因见那里）。
     tiltsRef.current.get(drag.id)?.reset()
     gsap.killTweensOf(slot)
     // 顺手把 opacity 补满：上面是无差别全杀，新牌进场那条 opacity 0→1 的补间也在里面，

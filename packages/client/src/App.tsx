@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { CARD_POOL, createGame, getCard, STARTER_DECK } from '@ai-duel/core'
-import { DuelStage } from './DuelStage'
 import { loadSave } from './save'
 
 /**
- * 骨架版外壳：底下是 Pixi 画布，上面盖一层 React DOM。
- * 这层 DOM 覆盖层负责菜单、手牌信息、状态栏这类"文字多、交互常规"的界面，
- * 对局本身的动画交给 Pixi，两边不互相渲染。
+ * 骨架版外壳：一层深色底 + 一层 React 覆盖层，全部是 DOM。
+ * 对局画面（手牌、战场、特效）也走 DOM + GSAP，不再有画布。
+ * 这里的 HUD 和手牌列表还是最早的占位实现，等接上 HandFan 和事件流时再换掉。
  */
 export function App() {
   // 先开一局本地对局，纯粹是为了验证 core 接得通；正式流程会由房间/菜单驱动。
@@ -27,7 +26,7 @@ export function App() {
 
   return (
     <div className="app">
-      <DuelStage />
+      <div className="stage" />
       <div className="overlay">
         <header className="hud">
           <span className="hud__title">AI Duel · 斗AI</span>

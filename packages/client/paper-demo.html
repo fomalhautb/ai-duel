@@ -54,7 +54,8 @@
      multiply + opacity = 「以 alpha 的比例混入相乘结果」，
      这正是我们要的强度调节；而同一个元素上的多个 background
      图层没法各自设 opacity。代价是 .grain 宿主的 ::before 被占用，
-     所以卡牌 / 卡背 / 按钮的内框细线改成真实的 <i class="frame">。
+     所以卡牌 / 卡背的内框改成真实的 <i class="frame">；
+     切角更复杂的按钮则用内联 SVG 画框。
 
      第 1 层 --tex-mottle：大尺度纸浆斑驳。
      低频柏林噪声（baseFrequency 0.0059 ≈ 170px 一团）当高度场，
@@ -169,7 +170,7 @@ section { margin-top: 52px; }
    border-radius: inherit 让它跟随宿主圆角，不会漏出直角。
 
    注意：用了 .grain 的元素不能再自己占用 ::before / ::after，
-   内框细线一律改用 <i class="frame"> 这个真实元素。 */
+   简单内框改用 <i class="frame">，复杂轮廓改用内联 SVG。 */
 .grain { position: relative; isolation: isolate; }
 .grain::before,
 .grain::after {
@@ -252,49 +253,70 @@ section { margin-top: 52px; }
 .btn-row { display: flex; gap: 26px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
 
 .btn-plaque {
+  --plaque-fill: #253149;
+  --plaque-edge: #77766f;
+  --plaque-line: rgba(174,168,151,.62);
   position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 208px; height: 62px;
-  padding: 0 30px;
-  border: 1px solid var(--line-dark);
-  border-radius: 10px;
-  background-color: var(--navy);        /* 表面纹理走 .grain.on-dark */
-  color: var(--paper);
+  width: 224px; min-width: 224px; height: 68px;
+  padding: 0 36px;
+  border: 0;
+  border-radius: 0;
+  clip-path: path("M 12 0 H 212 Q 216 0 219 4 L 221 6 Q 224 9 224 13 V 55 Q 224 59 221 62 L 219 64 Q 216 68 212 68 H 12 Q 8 68 5 64 L 3 62 Q 0 59 0 55 V 13 Q 0 9 3 6 L 5 4 Q 8 0 12 0 Z");
+  background-color: var(--plaque-fill); /* 表面纹理走 .grain.on-dark */
+  color: #e7e1d4;
   font-family: var(--font);
-  font-size: 21px; font-weight: 600;
-  letter-spacing: 0.34em;
-  text-indent: 0.34em;                  /* 抵消 letter-spacing 末尾多出的一格 */
+  font-size: 24px; font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;                  /* 抵消 letter-spacing 末尾多出的一格 */
+  text-shadow:
+    0 -1px 0 rgba(255,255,255,.28),
+    1px 2px 1px rgba(4,8,15,.82),
+    0 0 5px rgba(228,218,195,.14);
   cursor: pointer;
-  transition: background-color .18s ease, color .18s ease, transform .08s ease, box-shadow .18s ease;
-  box-shadow: 0 2px 6px rgba(60,50,30,.18);
+  transition: color .18s ease, transform .08s ease, filter .18s ease;
+  filter: drop-shadow(0 2px 3px rgba(60,50,30,.22));
 }
-/* 第二道内线：内缩 3px 的 1px 细线。
-   写成真实元素而不是 ::before，因为 ::before 让给纸纹叠加层了。 */
-.btn-plaque .frame {
+/* 参考图的外轮廓不是普通圆角矩形：两侧收成八角匾额，框内还有两道
+   不完全重合的旧金属细线。用内联 SVG 保留圆润切角和角部折线，
+   也避免 clip-path 无法沿斜边正确描边的问题。 */
+.btn-plaque__frame {
   position: absolute;
-  inset: 3px;
-  border: 1px solid rgba(240,236,223,.42);
-  border-radius: 7px;
+  inset: 0;
+  z-index: 1;
+  width: 100%; height: 100%;
   pointer-events: none;
-  transition: border-color .18s ease;
 }
+.btn-plaque__surface { fill: var(--plaque-fill); stroke: var(--plaque-edge); stroke-width: 2; }
+.btn-plaque__rim { fill: none; stroke: var(--plaque-line); stroke-width: 1; }
+.btn-plaque__corner { fill: none; stroke: rgba(143,139,128,.5); stroke-width: 1; }
+.btn-plaque__spark { fill: #a59e8c; opacity: .72; }
+.btn-plaque__label { position: relative; z-index: 2; }
 .btn-plaque:hover {
-  background-color: #2a3856;
+  --plaque-fill: #2b3852;
+  --plaque-line: rgba(203,157,123,.85);
   color: #e8c9ae;                        /* 文字转暖 */
 }
-.btn-plaque:hover .frame { border-color: rgba(192,122,82,.85); }  /* 内线转赭红 */
-.btn-plaque:active { transform: translateY(1px); box-shadow: 0 1px 3px rgba(60,50,30,.2); }
+.btn-plaque:active { transform: translateY(1px); filter: drop-shadow(0 1px 2px rgba(60,50,30,.2)); }
 
 .btn-plaque:disabled,
 .btn-plaque.is-disabled {
-  background-color: #6f6d68;
+  --plaque-fill: #676965;
+  --plaque-edge: #9b988d;
+  --plaque-line: rgba(224,220,207,.3);
   color: #cfcabb;
-  border-color: var(--line);
   cursor: not-allowed;
-  box-shadow: none;
+  filter: saturate(.25);
+  text-shadow: 0 1px 1px rgba(20,20,18,.45);
+}
+.btn-plaque:disabled:hover,
+.btn-plaque.is-disabled:hover {
+  --plaque-fill: #676965;
+  --plaque-line: rgba(224,220,207,.3);
+  color: #cfcabb;
   filter: saturate(.25);
 }
-.btn-plaque.is-disabled .frame { border-color: rgba(240,236,223,.28); }
 
 /* ============================================================
    3. 手绘图标
@@ -800,8 +822,8 @@ section { margin-top: 52px; }
       平铺时看不出网格。纹理做成可复用的 <code>.grain</code>，两层分别铺在 <code>::before</code>（压在内容下）
       和 <code>::after</code>（盖在文字上），各自有独立的 <code>opacity</code>；
       <code>pointer-events: none</code> 不影响点击、<code>border-radius: inherit</code> 自动贴合宿主圆角。
-      因为 <code>::before</code> 被纹理占用了，卡牌 / 卡背 / 按钮的内框细线改成真实的
-      <code>&lt;i class="frame"&gt;</code>。
+      因为 <code>::before</code> 被纹理占用了，卡牌 / 卡背的简单内框改成真实的
+      <code>&lt;i class="frame"&gt;</code>，结束回合按钮的复杂切角框则改用内联 SVG。
       <br>
       纹理层是 <code>position: absolute</code> 铺满整篇文档，跟着内容一起滚；只有暗角还留在视口级别
       （<code>background-attachment: fixed</code>）——暗角是打在纸上的灯光，钉住反而自然。
@@ -816,12 +838,30 @@ section { margin-top: 52px; }
   <section>
     <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">二 · 结束回合按钮</span><span class="ln"></span><i class="dia"></i></h2>
     <div class="btn-row">
-      <button class="btn-plaque grain on-dark"><i class="frame"></i>结束回合</button>
-      <button class="btn-plaque grain on-dark is-disabled" disabled><i class="frame"></i>结束回合</button>
+      <button class="btn-plaque grain on-dark">
+        <svg class="btn-plaque__frame" viewBox="0 0 224 68" preserveAspectRatio="none" aria-hidden="true">
+          <path class="btn-plaque__surface" d="M12 1.5h200c3 0 5 1 7 3l2 2c2 2 2.5 4 2.5 7v41c0 3-.5 5-2.5 7l-2 2c-2 2-4 3-7 3H12c-3 0-5-1-7-3l-2-2c-2-2-2.5-4-2.5-7v-41c0-3 .5-5 2.5-7l2-2c2-2 4-3 7-3Z" />
+          <path class="btn-plaque__rim" d="M12 4.5h199c3 0 4.5.75 6.5 2.75l1.25 1.25c1.75 1.75 2.25 3.5 2.25 6v39c0 2.5-.5 4.25-2.25 6l-1.25 1.25c-2 2-3.5 2.75-6.5 2.75H12c-3 0-4.5-.75-6.5-2.75L4.25 59.5C2.5 57.75 2 56 2 53.5v-39c0-2.5.5-4.25 2.25-6L5.5 7.25c2-2 3.5-2.75 6.5-2.75Z" />
+          <path class="btn-plaque__rim" d="M14 8h196c2.5 0 4 .75 5.5 2.25l.25.25c1.5 1.5 2 3 2 5.5v36c0 2.5-.5 4-2 5.5l-.25.25C214 59.25 212.5 60 210 60H14c-2.5 0-4-.75-5.5-2.25l-.25-.25c-1.5-1.5-2-3-2-5.5V16c0-2.5.5-4 2-5.5l.25-.25C10 8.75 11.5 8 14 8Z" />
+          <path class="btn-plaque__corner" d="M4 15V11l7-7h8M10 6v8H3m11-9v8M220 15v-4l-7-7h-8m9 2v8h7m-11-9v8M4 53v4l7 7h8m-9-2v-8H3m11 9v-8M220 53v4l-7 7h-8m9-2v-8h7m-11 9v-8" />
+          <path class="btn-plaque__spark" d="M14 25.5 16 31l5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Zm196 0 2 5.5 5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Z" />
+        </svg>
+        <span class="btn-plaque__label">结束回合</span>
+      </button>
+      <button class="btn-plaque grain on-dark is-disabled" disabled>
+        <svg class="btn-plaque__frame" viewBox="0 0 224 68" preserveAspectRatio="none" aria-hidden="true">
+          <path class="btn-plaque__surface" d="M12 1.5h200c3 0 5 1 7 3l2 2c2 2 2.5 4 2.5 7v41c0 3-.5 5-2.5 7l-2 2c-2 2-4 3-7 3H12c-3 0-5-1-7-3l-2-2c-2-2-2.5-4-2.5-7v-41c0-3 .5-5 2.5-7l2-2c2-2 4-3 7-3Z" />
+          <path class="btn-plaque__rim" d="M12 4.5h199c3 0 4.5.75 6.5 2.75l1.25 1.25c1.75 1.75 2.25 3.5 2.25 6v39c0 2.5-.5 4.25-2.25 6l-1.25 1.25c-2 2-3.5 2.75-6.5 2.75H12c-3 0-4.5-.75-6.5-2.75L4.25 59.5C2.5 57.75 2 56 2 53.5v-39c0-2.5.5-4.25 2.25-6L5.5 7.25c2-2 3.5-2.75 6.5-2.75Z" />
+          <path class="btn-plaque__rim" d="M14 8h196c2.5 0 4 .75 5.5 2.25l.25.25c1.5 1.5 2 3 2 5.5v36c0 2.5-.5 4-2 5.5l-.25.25C214 59.25 212.5 60 210 60H14c-2.5 0-4-.75-5.5-2.25l-.25-.25c-1.5-1.5-2-3-2-5.5V16c0-2.5.5-4 2-5.5l.25-.25C10 8.75 11.5 8 14 8Z" />
+          <path class="btn-plaque__corner" d="M4 15V11l7-7h8M10 6v8H3m11-9v8M220 15v-4l-7-7h-8m9 2v8h7m-11-9v8M4 53v4l7 7h8m-9-2v-8H3m11 9v-8M220 53v4l-7 7h-8m9-2v-8h7m-11 9v-8" />
+          <path class="btn-plaque__spark" d="M14 25.5 16 31l5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Zm196 0 2 5.5 5 3-5 3-2 5.5-2-5.5-5-3 5-3 2-5.5Z" />
+        </svg>
+        <span class="btn-plaque__label">结束回合</span>
+      </button>
       <span class="note" style="margin:0">← 常态（可 hover / 按下） · 禁用态</span>
     </div>
     <p class="note">
-      深墨蓝匾额：外层 1px 边框，<code>.frame</code> 做内缩 3px 的第二道细线。
+      深墨蓝八角匾额：内联 SVG 画圆润切角、三道旧金属细线、四角折线和左右星芒，文字增加轻微压印阴影。
       表面纹理走 <code>.grain.on-dark</code>：跟纸面用的是同两张图，只是先 <code>invert</code> 再
       <code>screen</code>——screen 只能提亮，纤维就从压暗的丝缕翻成微微发亮的丝缕，
       深色底上不会出现一块块黑斑。

@@ -2,8 +2,9 @@
  * 炉石式扇形手牌：纯 DOM + GSAP，没有画布。
  *
  * 组件只管"一排牌怎么摆、怎么 hover、怎么拖"，不关心牌从哪来、打出去之后发生什么。
- * 出牌只有拖拽这一条路：把牌拖进 dropZoneRef 指的那块区域再松手才算打出，
- * 组件在松手那一刻喊一声 onPlay 就完事；打出的卡要飞到哪个容器由父组件决定
+ * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者直接点一下
+ * （按下、原地松手，没有拖动过阈值）——两条路殊途同归，都在松手那一刻喊一声 onPlay，
+ * 组件自己不区分是哪种触发的。打出的卡要飞到哪个容器由父组件决定
  * （见 HandDemo 里的 Flip 用法），因为跨容器的 FLIP 必须由同时看得见
  * "手牌"和"战场"的那一层来做。
  *
@@ -67,7 +68,7 @@ export interface HandFanProps {
    */
   returnZoneRef?: RefObject<HTMLElement | null>
   /**
-   * 玩家把某张牌拖进落点区并松手了。父组件负责把这张牌从手牌里移走。
+   * 玩家打出了某张牌（拖进落点区松手，或者原地点一下）。父组件负责把这张牌从手牌里移走。
    *
    * 同步受理（当场改手牌数组）的话最省心：这张牌立刻从 DOM 里消失，什么都不用管。
    *
@@ -792,8 +793,23 @@ export function HandFan({
     const wasActive = drag.active
     const inZone = isInsideDropZone(event.clientX, event.clientY)
     endDrag()
-    // 没过阈值就是一次普通点击：不出牌，牌也保持原样（多半正 hover 着）。
-    if (!wasActive) return
+    // 没过阈值就是原地点了一下，等价于直接打出这张牌——不用真的拖进战场。
+    // 这时 slot 还停在点击前的扇形/hover 位置，onPlay 里查 DOM 拿到的就是这个位置当飞行起点，
+    // 不需要专门归位，也不存在"落在别处"的取消场景。
+    if (!wasActive) {
+      if (disabled || playedRef.current.has(id)) return
+      playedRef.current.add(id)
+      onPlay(id)
+      // 同下面拖拽分支：出牌没被受理的话，这张牌下一帧还会在手牌里，得把占用记录还回去，
+      // 否则之后再点它会被 playedRef 的防重复挡住，怎么点都没反应。
+      // 点击没有挪动过 slot，原地就是正确位置，不用像拖拽分支那样再 returnToFan。
+      requestAnimationFrame(() => {
+        if (!slotsRef.current.has(id)) return
+        if (disabledRef.current) return
+        playedRef.current.delete(id)
+      })
+      return
+    }
     // 落在别处（包括拖回手牌上方）就是取消；拖到一半才被 disabled 的也按取消算。
     if (disabled || !inZone) {
       returnToFan()

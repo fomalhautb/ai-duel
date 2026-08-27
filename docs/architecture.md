@@ -8,7 +8,8 @@
 - **不做服务器权威**：服务端不跑规则、不存对局状态，改客户端就能作弊。
 - **不做防作弊**：同上，双方看得见彼此的手牌也无所谓（见 4.3）。
 - **不做匹配系统**：只有"建房 / 输房间码进房"，没有排队、没有段位、没有大厅。
-- **不做账号、存档、战绩**：刷新页面 = 这局没了。
+- **不做账号**：存档只有浏览器 localStorage（卡牌收藏 + 胜场），换个浏览器就是新号。
+- **不存对局**：刷新页面 = 这局没了，只有收藏和胜场留得下来。
 - **不做向后兼容**：协议、卡牌数据、状态结构随时可以推倒重来，不留迁移层。
 
 需求变化时优先砍功能，而不是加抽象层。
@@ -82,6 +83,15 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 - `Card` 是卡牌**定义**（同一张卡在牌组里可以有多份），
   `CardInstance` / `ModelInstance` 是**实例**，带独立的 `instanceId`。
   上场后的数值从定义拷贝一份到实例上，因为增益/削弱会改它。
+
+### 3.5 收藏与抽卡
+
+`src/collection.ts` 定义完整卡池和新玩家的初始收藏，
+并提供 `drawNewCard(owned, random)`：从未拥有的卡里等概率抽一张，全部集齐时返回 `null`。
+
+`random` 是外部传进来的 0-1 随机数，不是内部 `Math.random()`——
+和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
+实际的随机数和存档读写都在客户端（见 5.1）。
 
 ## 4. 联机：房主模式
 
@@ -160,6 +170,21 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 对局画面的接入方式是**消费 core 的事件流**：收到一个 `GameEvent` 就播一段动画，
 播完再取下一个。不要在客户端重算规则。
 
+### 5.1 存档
+
+`src/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
+
+```
+key   ai-duel-save-v1
+value { "ownedCards": ["..."], "wins": 3 }
+```
+
+- `loadSave()` 读，`recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
+- key 带版本号，结构要改就换 `v2`，旧数据读不到自动当新号，不写迁移代码。
+- 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
+  `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
+- 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
+
 ## 6. 目录结构
 
 ```
@@ -167,14 +192,17 @@ docs/architecture.md          本文档
 packages/core/
   src/types.ts                全部数据形状（状态、卡牌、指令、事件）
   src/cards.ts                卡牌数据 + 查表
+  src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/engine.ts               createGame / execute
   test/engine.test.ts         Vitest
+  test/collection.test.ts
 packages/client/
   index.html
   vite.config.ts
   src/main.tsx                入口
   src/App.tsx                 外壳：Pixi 画布 + React 覆盖层
   src/DuelStage.tsx           Pixi 画布挂载点（目前是占位实现）
+  src/save.ts                 localStorage 存档（收藏 + 胜场）
   src/styles.css
 packages/server/
   src/index.ts                转发器全部代码
@@ -200,7 +228,8 @@ pnpm --filter @ai-duel/client build
 2. **本地热座对战**（client）——一个页面上双方轮流操作，
    把事件流接到 Pixi 上，先把出牌、受伤、崩坏这几段动画做出来。
    **这一步做完游戏就能玩了**，是最重要的里程碑。
-3. **卡组和卡面**（client）——React 层的卡组选择、卡牌美术、状态栏。
+3. **卡组和卡面**（client）——React 层的卡组选择、卡牌美术、状态栏，
+   把结算画面接到 `recordWin()` 上，赢一局弹一张新卡。
 4. **接联机**（client + server）——建房/进房界面，把第 2 步的本地对局
    改成"房主跑 execute、客人发指令"，server 已经就位不用改。
 5. **打磨**——音效、特效、结算画面。

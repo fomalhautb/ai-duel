@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { createGame, getCard, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, createGame, getCard, STARTER_DECK } from '@ai-duel/core'
 import { DuelStage } from './DuelStage'
+import { loadSave } from './save'
 
 /**
  * 骨架版外壳：底下是 Pixi 画布，上面盖一层 React DOM。
@@ -18,6 +19,9 @@ export function App() {
       ],
     }),
   )
+  // 本地存档只在挂载时读一次。结算界面还没做，所以暂时没有更新它的入口，
+  // 等接上胜负判定后用 recordWin 的返回值 setState 即可。
+  const [save] = useState(loadSave)
   const state = game.state
   const me = state.players[0]
 
@@ -32,6 +36,9 @@ export function App() {
           </span>
           <span>
             算力 {me.compute}/{me.computeMax} · 完整度 {me.integrity}
+          </span>
+          <span>
+            收藏 {save.ownedCards.length}/{CARD_POOL.length} · 胜场 {save.wins}
           </span>
         </header>
         <ul className="hand">

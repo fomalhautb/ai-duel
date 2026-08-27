@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>古典星图 / 铜版画风格 · 元素验证 Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   设计 token
+   ------------------------------------------------------------
+   全页只允许通过这些变量取色；组件内部的主题色一律读 --accent，
+   由外层容器覆盖，这样换主题只需要改一个属性。
+   ============================================================ */
+:root {
+  /* 纸张 */
+  --paper:        #f0ecdf;
+  --paper-shade:  #e4ddc9;   /* 纸面暗部：凹槽、次级底 */
+  /* 线 */
+  --line:         #b9b19e;   /* 常规细线 / 内框 */
+  --line-dark:    #8a8270;   /* 外框、需要咬住视线的线 */
+  /* 字 */
+  --ink:          #2e2e38;
+  --ink-2:        #6b6a5f;   /* 次级文字、说明文字 */
+  /* 深色面 */
+  --night:        #323d57;   /* 战场底 / 头像框内的星空 */
+  --navy:         #232f4b;   /* 卡背、按钮的墨蓝 */
+  /* 主题色（低饱和水彩感） */
+  --c-green:      #8a9a78;
+  --c-rust:       #c07a52;
+  --c-blue:       #5a72a0;
+  --c-purple:     #9186bd;
+  --c-gold:       #d9a441;
+  --c-life:       #b23f33;
+
+  --accent: var(--c-blue);   /* 默认主题色，组件可就地覆盖 */
+
+  /* 数字优先落在 Garamond 上：它排在中文字体前面，
+     中文字符 Garamond 没有对应字形，会自动回退到 Noto Serif SC。 */
+  --font: 'EB Garamond', 'Noto Serif SC', serif;
+
+  /* ------------------------------------------------------------
+     纸纹：两层噪声，都烘焙成 data URI 背景图
+     ------------------------------------------------------------
+     两张图都是「接近白的灰度图」，靠 multiply 压在底色上：
+     值 1.0 = 完全不改变底色，值越低压得越暗。这样同一张图
+     换个混合模式就能用在深色面上（见 .grain.on-dark）。
+
+     两层各自铺在一个独立的叠加层上（body::before / body::after，
+     以及 .grain::before / .grain::after），而不是塞进同一个
+     background-image 列表里。原因是每层要有独立的不透明度：
+     multiply + opacity = 「以 alpha 的比例混入相乘结果」，
+     这正是我们要的强度调节；而同一个元素上的多个 background
+     图层没法各自设 opacity。代价是 .grain 宿主的 ::before 被占用，
+     所以卡牌 / 卡背 / 按钮的内框细线改成真实的 <i class="frame">。
+
+     第 1 层 --tex-mottle：大尺度纸浆斑驳。
+     低频柏林噪声（baseFrequency 0.0059 ≈ 170px 一团）当高度场，
+     feDiffuseLighting 打一束斜光，把高度差转成明暗——这是纸纤维
+     凹凸浮雕感的来源，比直接把噪声当灰度铺上去「纸」得多。
+     打光很贵，所以整块 rect 连 filter 一起烘进 data URI，
+     浏览器只在首次解码时算一次，之后就是一张普通位图。
+     feComponentTransfer 把打光结果线性拉到 0.89~1.0，并且故意让
+     上四分之一顶到 1.0 被截断——受光面就是底色本身，只有背光的
+     纤维才真的压暗。这一步很关键：不截断的话整张纸会均匀发灰，
+     看着像皮革而不是纸；截断后平均只掉 2% 亮度，纸色不跑掉。
+     三个通道斜率不同（B 最陡），所以暗部偏暖，像旧纸的黄斑。
+     图块 900px：太小会看出平铺网格；stitchTiles 让噪声在图块
+     边界首尾相接，接缝处不会突然断开。 */
+  --tex-mottle: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'900'%20height%3D'900'%3E%3Cfilter%20id%3D'm'%20x%3D'0'%20y%3D'0'%20width%3D'900'%20height%3D'900'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.0059'%20numOctaves%3D'2'%20seed%3D'17'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20lighting-color%3D'%23ffffff'%20surfaceScale%3D'15'%20diffuseConstant%3D'1'%3E%3CfeDistantLight%20azimuth%3D'45'%20elevation%3D'56'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.47'%20intercept%3D'0.591'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.52'%20intercept%3D'0.548'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.60'%20intercept%3D'0.478'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'900'%20height%3D'900'%20filter%3D'url(%23m)'%2F%3E%3C%2Fsvg%3E");
+
+  /* 第 2 层 --tex-fiber：细颗粒，补 1~5px 的纸面粗糙度。
+     高频噪声不需要打光（那个尺度上光影就是噪点本身），
+     feColorMatrix 把 RGB 三通道平均成灰、alpha 填满，
+     再线性压到 0.87~1.0，截断点正好落在中位数上：一半颗粒不改变
+     底色，另一半往下压，颗粒因此只表现为暗点，不会把纸洗白。
+     图块 240px 就够，颗粒太细看不出重复。 */
+  --tex-fiber: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%3E%3Cfilter%20id%3D'f'%20x%3D'0'%20y%3D'0'%20width%3D'240'%20height%3D'240'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.63'%20numOctaves%3D'3'%20seed%3D'5'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200%200%200%200%201'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'240'%20height%3D'240'%20filter%3D'url(%23f)'%2F%3E%3C%2Fsvg%3E");
+
+  /* 两层各自的强度。1 = 图像原样相乘，0 = 完全不起作用。
+     右上角调参面板拖不透明度滑条时只改这两个变量，
+     不用重新生成 data URI（feTurbulence 900px 那张重算一次不便宜）。
+     斑驳收到 0.70：打光出来的浮雕本身够重，全量叠上去纸会「起皱」；
+     细颗粒几乎全留（0.92），它本来就只是薄薄一层砂面。 */
+  --mottle-alpha: 0.70;
+  --fiber-alpha:  0.92;
+
+  /* 纸张暗角：范围很大、很淡，只是让四周比中间稍微沉一点。
+     浓度单独拆成变量，调参面板直接改它。
+     0.189 = 面板里的「暗角强度 0.63」× 上限系数 0.30。 */
+  --vignette-alpha: 0.189;
+  --vignette: radial-gradient(ellipse 130% 100% at 50% 42%,
+                rgba(0,0,0,0) 45%, rgba(122,106,74,var(--vignette-alpha)) 100%);
+}
+
+/* ============================================================
+   基础排版
+   ============================================================ */
+* { box-sizing: border-box; }
+
+/* html 必须自己有底色：否则浏览器会把 body 的背景「上交」给整个画布，
+   body 就成了没有背景的空盒子，下面 body::before 的 multiply 就没东西可乘。 */
+html { background-color: var(--paper); }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  position: relative;   /* 给下面两层纸纹当定位参照，让它们覆盖整篇文档 */
+  font-family: var(--font);
+  color: var(--ink);
+  background-color: var(--paper);
+  /* body 自己只画暗角。暗角是「打在纸上的灯光」，钉在视口里反而自然，
+     所以只有它保留 fixed；纸纹必须随内容滚动，见下面两个伪元素。 */
+  background-image: var(--vignette);
+  background-attachment: fixed;
+  isolation: isolate;   /* 把纸纹的混合限制在 body 内部，不影响画布 */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 全局纸纹：absolute + inset 0，跟着 body 一起长，随内容滚动。
+   以前用的是 position: fixed，滚动时内容在纹理上滑过去，
+   像隔了一层脏玻璃；现在颗粒和文字保持相对静止。
+   两层分开是为了各自有 opacity，见 :root 里的说明。 */
+body::before,
+body::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  z-index: 0;
+}
+body::before { background-image: var(--tex-mottle); opacity: var(--mottle-alpha); }
+body::after  { background-image: var(--tex-fiber);  opacity: var(--fiber-alpha); }
+
+.page { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 56px 32px 96px; }
+
+.page-title { font-size: 34px; font-weight: 600; letter-spacing: 0.12em; text-align: center; margin: 0 0 6px; }
+.page-sub   { text-align: center; color: var(--ink-2); font-size: 15px; letter-spacing: 0.08em; margin: 0 0 20px; }
+
+section { margin-top: 52px; }
+
+.note {
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+  margin: 18px 0 0;
+  max-width: 780px;
+}
+/* 说明文字里的技术名词：保持衬线，只用底色和字距跟正文区分，
+   避免默认等宽字体破坏整页的铜版画调子。 */
+.note code {
+  font-family: var(--font);
+  font-size: 0.96em;
+  color: var(--ink);
+  background: rgba(138,130,112,.13);
+  border-radius: 2px;
+  padding: 0 4px;
+}
+
+/* 可复用纸纹叠加层：给任何元素加 .grain 即可，两个伪元素各铺一层。
+   ::before 排在宿主的子元素之前，所以大斑驳压在内容底下；
+   ::after 排在之后，细颗粒盖在文字上——正是想要的层次。
+   isolation: isolate 把 multiply 关在宿主内部——否则它会一路乘到
+   页面背景上，卡片边缘会出现一圈比周围深的「影子」。
+   border-radius: inherit 让它跟随宿主圆角，不会漏出直角。
+
+   注意：用了 .grain 的元素不能再自己占用 ::before / ::after，
+   内框细线一律改用 <i class="frame"> 这个真实元素。 */
+.grain { position: relative; isolation: isolate; }
+.grain::before,
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.grain::before { background-image: var(--tex-mottle); opacity: var(--mottle-alpha); }
+.grain::after  { background-image: var(--tex-fiber);  opacity: var(--fiber-alpha); }
+
+/* 深色面（墨蓝按钮、卡背）：同样两张图，先 invert 再 screen。
+   screen 只能提亮，于是原本压暗的纤维反过来变成微微发亮的丝缕，
+   深色底上就不会出现一块块黑斑。再乘 0.55，
+   因为反相后的图有个不为 0 的均值，直接叠会把墨蓝整体洗淡。 */
+.grain.on-dark::before,
+.grain.on-dark::after {
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+.grain.on-dark::before { opacity: calc(var(--mottle-alpha) * 0.55); }
+.grain.on-dark::after  { opacity: calc(var(--fiber-alpha)  * 0.55); }
+
+/* 只想要其中一层时用的修饰类（第一区块的分层演示在用）：
+   直接把另一层的伪元素关掉。 */
+.grain.tex-mottle::after  { display: none; }
+.grain.tex-fiber::before   { display: none; }
+
+/* ============================================================
+   区块标题装饰（同时也是游戏里「卡牌详情」那种小标题）
+   文字两侧各一段细线，线的外端点是一个小菱形。
+   ============================================================ */
+.orn-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin: 0;
+}
+/* 细线用 span，菱形用 i；两者顺序在 HTML 里写死为
+   菱形 — 线 — 文字 — 线 — 菱形，菱形落在线的外端点。 */
+.orn-title .ln { flex: 1; height: 1px; background: var(--line); }
+.orn-title .dia {
+  width: 6px; height: 6px;
+  background: var(--line-dark);
+  transform: rotate(45deg);
+  flex: none;
+}
+.orn-title .tx { flex: none; white-space: nowrap; text-indent: 0.16em; }
+.orn-title.sm { font-size: 15px; letter-spacing: 0.2em; }
+.orn-title.sm .tx { text-indent: 0.2em; }
+
+/* ============================================================
+   1. 纸纹理演示
+   ============================================================ */
+.swatches { display: flex; gap: 20px; margin-top: 22px; flex-wrap: wrap; }
+.swatch {
+  width: 236px; height: 170px;
+  border: 1px solid var(--line-dark);
+  border-radius: 4px;
+  background-color: var(--paper);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 10px;
+  font-size: 13px; letter-spacing: 0.08em; color: var(--ink-2);
+  overflow: hidden;
+}
+/* 四块色板要能互相对照，所以都取纹理图上同一块区域；
+   偏移量是挑出来的——图块左上角那片太平，看不出斑驳。 */
+.swatch.grain::before,
+.swatch.grain::after { background-position: -250px -330px; }
+.swatch.s-vignette { background-image: var(--vignette); }
+
+/* ============================================================
+   2. 结束回合按钮
+   ============================================================ */
+.btn-row { display: flex; gap: 26px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
+
+.btn-plaque {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 208px; height: 62px;
+  padding: 0 30px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background-color: var(--navy);        /* 表面纹理走 .grain.on-dark */
+  color: var(--paper);
+  font-family: var(--font);
+  font-size: 21px; font-weight: 600;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;                  /* 抵消 letter-spacing 末尾多出的一格 */
+  cursor: pointer;
+  transition: background-color .18s ease, color .18s ease, transform .08s ease, box-shadow .18s ease;
+  box-shadow: 0 2px 6px rgba(60,50,30,.18);
+}
+/* 第二道内线：内缩 3px 的 1px 细线。
+   写成真实元素而不是 ::before，因为 ::before 让给纸纹叠加层了。 */
+.btn-plaque .frame {
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(240,236,223,.42);
+  border-radius: 7px;
+  pointer-events: none;
+  transition: border-color .18s ease;
+}
+.btn-plaque:hover {
+  background-color: #2a3856;
+  color: #e8c9ae;                        /* 文字转暖 */
+}
+.btn-plaque:hover .frame { border-color: rgba(192,122,82,.85); }  /* 内线转赭红 */
+.btn-plaque:active { transform: translateY(1px); box-shadow: 0 1px 3px rgba(60,50,30,.2); }
+
+.btn-plaque:disabled,
+.btn-plaque.is-disabled {
+  background-color: #6f6d68;
+  color: #cfcabb;
+  border-color: var(--line);
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: saturate(.25);
+}
+.btn-plaque.is-disabled .frame { border-color: rgba(240,236,223,.28); }
+
+/* ============================================================
+   3. 手绘图标
+   ============================================================ */
+.ico { width: 48px; height: 48px; display: block; color: inherit; }
+.ico.sm { width: 20px; height: 20px; }
+.ico.xs { width: 15px; height: 15px; }
+
+.icon-grid { display: flex; gap: 40px; margin-top: 22px; flex-wrap: wrap; }
+.icon-cell { text-align: center; font-size: 13px; color: var(--ink-2); letter-spacing: .06em; }
+.icon-cell .pair { display: flex; gap: 14px; margin-bottom: 8px; }
+.ink-color   { color: var(--ink); }
+.accent-color{ color: var(--accent); }
+
+.filter-compare { display: flex; gap: 34px; margin-top: 26px; align-items: flex-end; }
+.filter-compare .cell { text-align: center; font-size: 12.5px; color: var(--ink-2); }
+.filter-compare .big { width: 84px; height: 84px; }
+.no-rough { filter: none !important; }
+
+/* ============================================================
+   4. 卡牌
+   ============================================================ */
+.card-row { display: flex; gap: 26px; margin-top: 26px; align-items: flex-end; flex-wrap: wrap; }
+
+.card {
+  position: relative;
+  width: 150px; height: 210px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background-color: var(--paper);
+  display: flex; flex-direction: column;
+  padding: 9px 9px 0;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  box-shadow: 0 1px 3px rgba(80,68,44,.16);
+}
+/* 内框：比外框内缩一圈的第二道细线。
+   真实元素而非 ::before —— ::before 让给纸纹叠加层了。 */
+.card .frame {
+  position: absolute; inset: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+/* 四角小菱形花饰 */
+.card .corner {
+  position: absolute;
+  width: 5px; height: 5px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  opacity: .85;
+}
+.card .corner.tl { top: 8px;    left: 8px; }
+.card .corner.tr { top: 8px;    right: 8px; }
+.card .corner.bl { bottom: 8px; left: 8px; }
+.card .corner.br { bottom: 8px; right: 8px; }
+
+/* 费用：细线圆底座 + 衬线大数字 */
+.card-cost {
+  position: absolute;
+  top: 12px; left: 12px;
+  width: 30px; height: 30px;
+  border: 1px solid var(--line-dark);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 600; line-height: 1;
+  background: var(--paper);
+  z-index: 2;
+}
+.card-cost::before {   /* 双线：圆环内再一道 */
+  content: '';
+  position: absolute; inset: 2px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  opacity: .5;
+}
+
+/* 卡面画区：放射线底纹 + 中央 logo 占位 */
+.card-art {
+  position: relative;
+  height: 104px;
+  margin: 26px 4px 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+}
+.card-rays { position: absolute; inset: 0; margin: auto; width: 104px; height: 104px; opacity: .5; }
+.card-logo { position: relative; width: 44px; height: 44px; }
+
+/* 名称 + 上方带菱形装饰的细分隔线 */
+.card-name-wrap { margin: 4px 10px 0; }
+.card-divider {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--line);
+}
+.card-divider::before, .card-divider::after {
+  content: ''; flex: 1; height: 1px; background: currentColor;
+}
+.card-divider i { width: 4px; height: 4px; background: var(--accent); transform: rotate(45deg); }
+.card-name {
+  text-align: center;
+  font-size: 14.5px; font-weight: 600;
+  letter-spacing: .12em;
+  text-indent: .12em;
+  margin-top: 5px;
+  line-height: 1.25;
+}
+
+/* 底部攻防栏：左攻右防，中间一道竖细线 */
+.card-stats {
+  margin-top: auto;
+  height: 34px;
+  margin-left: 4px; margin-right: 4px;
+  border-top: 1px solid var(--line);
+  display: flex; align-items: center;
+}
+.card-stats .stat {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-size: 16px; font-weight: 600;
+}
+.card-stats .stat.atk { color: var(--ink); }
+.card-stats .stat.def { color: var(--ink); }
+.card-stats .sep { width: 1px; align-self: stretch; margin: 6px 0; background: var(--line); }
+
+/* 选中态：赭红加粗描边 + 上移 + 柔和投影 */
+.card.is-selected {
+  border-color: var(--c-rust);
+  border-width: 2px;
+  padding: 8px 8px 0;              /* 补偿多出的 1px 边框，内部不位移 */
+  transform: translateY(-14px);
+  box-shadow: 0 12px 22px rgba(90,66,44,.26);
+}
+.card.is-selected .frame { border-color: rgba(192,122,82,.55); }
+
+/* ============================================================
+   5. 卡背 / 空槽
+   ============================================================ */
+.back {
+  position: relative;
+  width: 150px; height: 210px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background-color: var(--navy);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--paper);
+  box-shadow: 0 1px 3px rgba(80,68,44,.16);
+}
+.back .frame {
+  position: absolute; inset: 5px;
+  border: 1px solid rgba(240,236,223,.4);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.back .compass { width: 108px; height: 108px; opacity: .62; }
+.back .corner {
+  position: absolute; width: 4px; height: 4px;
+  background: rgba(240,236,223,.55); transform: rotate(45deg);
+}
+.back .corner.tl { top: 10px; left: 10px; }
+.back .corner.tr { top: 10px; right: 10px; }
+.back .corner.bl { bottom: 10px; left: 10px; }
+.back .corner.br { bottom: 10px; right: 10px; }
+
+/* 空槽：跟卡背同一套结构，只是整体退到「几乎不存在」 */
+.back.is-slot {
+  background-color: rgba(35,47,75,.07);
+  border-color: var(--line);
+  border-style: dashed;
+  box-shadow: none;
+  color: var(--line-dark);
+}
+.back.is-slot .frame { border-color: rgba(185,177,158,.7); border-style: dashed; }
+.back.is-slot .compass { opacity: .28; }
+.back.is-slot .corner { background: var(--line); }
+
+/* ============================================================
+   6. 结构层小件
+   ============================================================ */
+/* 小件演示用三列网格，避免宽度不一的条目乱换行留大空洞 */
+.bits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 46px; margin-top: 26px; align-items: start; }
+.bit-label { font-size: 12.5px; color: var(--ink-2); letter-spacing: .1em; margin-bottom: 12px; }
+
+/* 法力计 */
+.mana-meter { display: flex; align-items: center; gap: 12px; }
+.mana-num { font-size: 24px; font-weight: 600; letter-spacing: .04em; }
+.mana-num .max { color: var(--ink-2); font-size: 18px; }
+.pips { display: flex; gap: 5px; }
+.pip { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line-dark); }
+.pip.on { background: #7d8a5f; border-color: #5f6a45; }   /* 绿褐色实心 */
+
+/* 回合徽章：一条横贯细线，中间嵌深蓝小匾 */
+.turn-line { display: flex; align-items: center; width: 100%; max-width: 320px; color: var(--line); }
+.turn-line::before, .turn-line::after { content: ''; flex: 1; height: 1px; background: currentColor; }
+.turn-badge {
+  margin: 0 10px;
+  padding: 5px 16px;
+  border-radius: 6px;
+  background: var(--navy);
+  color: var(--paper);
+  font-size: 14px; letter-spacing: .14em; text-indent: .14em;
+  border: 1px solid var(--line-dark);
+  white-space: nowrap;
+}
+.turn-badge b { color: var(--c-rust); font-weight: 700; font-size: 16px; }
+
+/* 拱窗头像框 */
+.portrait-wrap { width: 140px; }
+.portrait {
+  position: relative;
+  width: 140px; height: 180px;
+  border: 1px solid var(--line-dark);
+  border-radius: 70px 70px 6px 6px;
+  background: var(--night);
+  overflow: hidden;
+}
+.portrait::before {
+  content: '';
+  position: absolute; inset: 4px;
+  border: 1px solid rgba(240,236,223,.55);
+  border-radius: 66px 66px 4px 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+.portrait .stars { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.nameplate {
+  position: relative;
+  margin: -18px auto 0;
+  width: 118px;
+  padding: 5px 0;
+  text-align: center;
+  background: var(--paper);
+  border: 1px solid var(--line-dark);
+  border-radius: 4px;
+  font-size: 15px; font-weight: 600; letter-spacing: .1em; text-indent: .1em;
+  z-index: 3;
+  box-shadow: 0 1px 3px rgba(80,68,44,.2);
+}
+.nameplate::before {
+  content: '';
+  position: absolute; inset: 2px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.portrait-stats {
+  display: flex; justify-content: center; gap: 18px;
+  margin-top: 9px;
+  font-size: 15px; font-weight: 600;
+}
+.portrait-stats span { display: inline-flex; align-items: center; gap: 4px; }
+.portrait-stats .hp { color: var(--c-life); }
+.portrait-stats .mp { color: var(--c-blue); }
+
+/* 顶栏 tab */
+.tabs { display: flex; gap: 30px; }
+.tab {
+  position: relative;
+  padding-bottom: 10px;
+  font-size: 17px; letter-spacing: .18em; text-indent: .18em;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tab.is-active { color: var(--ink); font-weight: 600; }
+/* 当前项下方：短横线，两端各一颗小菱形。
+   横线是 .ul 本身，两颗菱形是它的 ::before / ::after，
+   所以菱形永远贴在线的两个端点上，不会跑到中间。 */
+.tab .ul { display: none; }
+.tab.is-active .ul {
+  display: block;
+  position: absolute; left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  width: 44px; height: 1px;
+  background: var(--c-rust);
+}
+.tab.is-active .ul::before,
+.tab.is-active .ul::after {
+  content: '';
+  position: absolute; top: 50%;
+  width: 5px; height: 5px;
+  background: var(--c-rust);
+  transform: translateY(-50%) rotate(45deg);
+}
+.tab.is-active .ul::before { left: -4px; }
+.tab.is-active .ul::after  { right: -4px; }
+
+.tone-row { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+.tone { width: 74px; height: 42px; border: 1px solid var(--line-dark); border-radius: 3px;
+        display: flex; align-items: flex-end; justify-content: center; font-size: 11px;
+        color: var(--paper); padding-bottom: 3px; letter-spacing: .04em; }
+
+/* ============================================================
+   纸纹调参面板（开发工具，不是页面的一部分）
+   ------------------------------------------------------------
+   它是工具所以用 position: fixed 钉在视口右上角，不跟着滚。
+   自身不叠 .grain：滑条和数字要保持清晰，纹理会干扰读数；
+   纸质调性靠底色、双线框和衬线字来传达。
+   ============================================================ */
+.tuner {
+  position: fixed;
+  top: 14px; right: 14px;
+  z-index: 200;
+  width: 274px;
+  max-height: calc(100vh - 28px);
+  display: flex; flex-direction: column;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-dark);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(70,58,38,.22);
+}
+.tuner-hd {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+/* 收起后只剩标题栏，下边框就多余了；同时把宽度收成内容宽，
+   这样它缩成右上角一个小标签，不会继续压住页面内容。 */
+.tuner.is-collapsed { width: auto; }
+.tuner.is-collapsed .tuner-hd { border-bottom: none; }
+.tuner-title { font-size: 14px; font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
+.tuner-bd { overflow-y: auto; padding: 4px 12px 12px; }
+.tuner.is-collapsed .tuner-bd { display: none; }
+
+.tuner-group {
+  font-size: 11.5px; letter-spacing: .12em;
+  color: var(--ink-2);
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.tuner-row { margin: 7px 0; }
+.tuner-row .lb {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px; letter-spacing: .02em; color: var(--ink-2);
+}
+.tuner-row .lb b { color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.tuner-row input[type=range] {
+  width: 100%; margin: 2px 0 0; height: 16px;
+  accent-color: var(--c-rust);   /* 够用了，不值得为一个调参工具重写滑条样式 */
+  cursor: pointer;
+}
+.tuner-seed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
+.tuner-seed span { font-size: 12px; color: var(--ink-2); }
+.tuner-seed b { color: var(--ink); }
+
+.tbtn {
+  font-family: var(--font);
+  font-size: 12.5px; letter-spacing: .08em;
+  color: var(--ink);
+  background: var(--paper-shade);
+  border: 1px solid var(--line-dark);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.tbtn:hover { background: #d8d0b9; }
+.tbtn.primary { background: var(--navy); color: var(--paper); border-color: var(--navy); }
+.tbtn.primary:hover { background: #2a3856; color: #e8c9ae; }
+.tbtn.sm { padding: 2px 8px; font-size: 11.5px; }
+
+/* 参数摘要：要能整段选中复制，所以用等宽换行的纯文本块 */
+.tuner-summary {
+  margin-top: 14px;
+  padding: 8px 9px;
+  font-size: 11px; line-height: 1.7; letter-spacing: .01em;
+  color: var(--ink-2);
+  background: rgba(138,130,112,.12);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.tuner-acts { display: flex; gap: 8px; margin-top: 12px; }
+.tuner-acts .tbtn { flex: 1; }
+/* 复制成功的一次性提示，靠 JS 加 class 触发 */
+.tuner-toast {
+  margin-top: 8px;
+  font-size: 11.5px; color: var(--c-green);
+  min-height: 16px;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     全页共用的 SVG 定义：手绘歪扭 filter + 图标 symbol
+     宽高为 0，只作定义用，不占布局空间。
+     各处 feTurbulence 的 seed 特意错开，
+     否则所有元素会歪成一模一样的形状，反而更假。
+     ============================================================ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="rough-1" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="2" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="3.2" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-2" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="11" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="3.6" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-3" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="23" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="3.0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-4" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="37" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="3.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <!-- 放射线 / 罗盘用的：图形本身更大，scale 相对小一点才不会「融化」 -->
+    <filter id="rough-rays" x="-15%" y="-15%" width="130%" height="130%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="53" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-compass" x="-15%" y="-15%" width="130%" height="130%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" seed="71" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+
+    <!-- 图标：全部 stroke=currentColor，fill 用主题色低透明度做「水彩没涂满」；
+         每个图标叠了第二条略微偏移的浅描边，模拟运笔时的重描。 -->
+    <symbol id="i-sword" viewBox="0 0 48 48">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M24 4.5 L28.5 12.5 L27.5 30 L20.5 30 L19.5 12.5 Z" fill="currentColor" fill-opacity="0.16"/>
+        <path d="M24.4 5.6 L28.9 13 L27.9 29.4" opacity="0.4" stroke-width="1.2"/>
+        <path d="M13 31 L35 31"/>
+        <path d="M13.4 32.2 L34.6 32.1" opacity="0.35" stroke-width="1.1"/>
+        <path d="M24 31 L24 39.5"/>
+        <circle cx="24" cy="42" r="2.6" fill="currentColor" fill-opacity="0.16"/>
+      </g>
+    </symbol>
+
+    <symbol id="i-shield" viewBox="0 0 48 48">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M24 4.5 L40 10.8 L40 24 C40 34 33 40.5 24 43.5 C15 40.5 8 34 8 24 L8 10.8 Z"
+              fill="currentColor" fill-opacity="0.15"/>
+        <path d="M24.6 5.8 L39 11.6 L39 23.8" opacity="0.38" stroke-width="1.2"/>
+        <path d="M24 11 L24 36" opacity="0.5" stroke-width="1.3"/>
+        <path d="M11.5 19.5 L36.5 19.5" opacity="0.5" stroke-width="1.3"/>
+      </g>
+    </symbol>
+
+    <symbol id="i-heart" viewBox="0 0 48 48">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M24 41.5 C24 41.5 6.5 30 6.5 18.5 C6.5 12 11.5 7.5 16.8 7.5 C20.3 7.5 23 9.7 24 12.4
+                 C25 9.7 27.7 7.5 31.2 7.5 C36.5 7.5 41.5 12 41.5 18.5 C41.5 30 24 41.5 24 41.5 Z"
+              fill="currentColor" fill-opacity="0.17"/>
+        <path d="M24.8 40.2 C29 37 39.6 28.6 40.2 18.8" opacity="0.35" stroke-width="1.2"/>
+      </g>
+    </symbol>
+
+    <symbol id="i-mana" viewBox="0 0 48 48">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="24" cy="24" r="16.5" fill="currentColor" fill-opacity="0.12"/>
+        <circle cx="24" cy="24" r="10.5" opacity="0.55" stroke-width="1.3"/>
+        <!-- 中央四角星 -->
+        <path d="M24 11 C25.1 20 27.9 22.9 37 24 C27.9 25.1 25.1 27.9 24 37
+                 C22.9 27.9 20.1 25.1 11 24 C20.1 22.9 22.9 20 24 11 Z"
+              fill="currentColor" fill-opacity="0.28" stroke-width="1.4"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<main class="page">
+
+  <h1 class="page-title">古典星图 · 铜版画 · 水彩纸</h1>
+  <p class="page-sub">纯 CSS / 内联 SVG 元素验证 —— 人物肖像与水彩 logo 另由 AI 生图</p>
+
+  <!-- ========== 1. 纸纹理 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">一 · 米色纸纹理</span><span class="ln"></span><i class="dia"></i></h2>
+    <div class="swatches">
+      <div class="swatch">① 纯底色 --paper</div>
+      <div class="swatch grain tex-mottle">② + 大尺度斑驳</div>
+      <div class="swatch grain">③ + 细颗粒</div>
+      <div class="swatch grain s-vignette">④ + 暗角（完整）</div>
+    </div>
+    <p class="note">
+      整页背景就是第四块的做法，两层噪声都烘焙成 data URI 背景图，用 multiply 压在底色上。
+      <br>
+      ② <b>大尺度斑驳</b>：低频柏林噪声 <code>fractalNoise</code>（baseFrequency 0.0059 ≈ 一团 170px、
+      numOctaves 2）当高度场，交给 <code>feDiffuseLighting</code> 打一束斜光
+      （surfaceScale 15、方位角 45°、仰角 56°）。光是照在噪声的起伏上，出来的是纸纤维的凹凸浮雕，
+      比把噪声直接当灰度铺上去「纸」得多。<code>feComponentTransfer</code> 把打光结果线性压到 0.89～1.0，
+      并且故意让上四分之一顶到 1.0 被截断：受光面就是底色本身，只有背光的纤维才真的压暗。
+      不截断的话整张纸会均匀发灰，看着像皮革；截断后平均只掉 2% 亮度，纸色不跑掉。
+      三个通道斜率不同（B 最陡）所以暗部偏暖，像旧纸的黄斑。
+      这一层整体只叠 70%（<code>--mottle-alpha</code>）：浮雕本身够重，全量压上去纸会显得「起皱」。
+      <br>
+      ③ <b>细颗粒</b>：高频噪声（baseFrequency 0.63 / numOctaves 3）压到 0.87～1.0，
+      截断点落在中位数上，颗粒只往下压不往上提，补 1～5px 的纸面粗糙度。
+      这个尺度上光影就是噪点本身，不需要再打光。它只是薄薄一层砂面，所以几乎全留（0.92）。
+      <br>
+      ④ <b>暗角</b>：一层超大范围的 radial-gradient（rgba 浓度 0.189），只是让四周比中间稍沉一点。
+      <br>
+      打光很贵，所以是整块 rect 连 filter 一起烘进 data URI（浏览器只在首次解码时算一次），
+      而不是当成实时的 CSS filter。图块 900px 并开 <code>stitchTiles</code>，噪声在图块边界首尾相接，
+      平铺时看不出网格。纹理做成可复用的 <code>.grain</code>，两层分别铺在 <code>::before</code>（压在内容下）
+      和 <code>::after</code>（盖在文字上），各自有独立的 <code>opacity</code>；
+      <code>pointer-events: none</code> 不影响点击、<code>border-radius: inherit</code> 自动贴合宿主圆角。
+      因为 <code>::before</code> 被纹理占用了，卡牌 / 卡背 / 按钮的内框细线改成真实的
+      <code>&lt;i class="frame"&gt;</code>。
+      <br>
+      纹理层是 <code>position: absolute</code> 铺满整篇文档，跟着内容一起滚；只有暗角还留在视口级别
+      （<code>background-attachment: fixed</code>）——暗角是打在纸上的灯光，钉住反而自然。
+      <br>
+      右上角的<b>调参面板</b>可以实时改这两层的参数：拖滑条会按当前值重新生成两个 data URI 写回
+      <code>:root</code>，全页（背景、卡面、按钮、卡背）一起变；不透明度和暗角浓度是独立 CSS 变量，
+      拖它们不重算噪声。选好之后按「复制当前参数」，得到一段可以直接粘进 <code>:root</code> 的完整 CSS。
+    </p>
+  </section>
+
+  <!-- ========== 2. 结束回合按钮 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">二 · 结束回合按钮</span><span class="ln"></span><i class="dia"></i></h2>
+    <div class="btn-row">
+      <button class="btn-plaque grain on-dark"><i class="frame"></i>结束回合</button>
+      <button class="btn-plaque grain on-dark is-disabled" disabled><i class="frame"></i>结束回合</button>
+      <span class="note" style="margin:0">← 常态（可 hover / 按下） · 禁用态</span>
+    </div>
+    <p class="note">
+      深墨蓝匾额：外层 1px 边框，<code>.frame</code> 做内缩 3px 的第二道细线。
+      表面纹理走 <code>.grain.on-dark</code>：跟纸面用的是同两张图，只是先 <code>invert</code> 再
+      <code>screen</code>——screen 只能提亮，纤维就从压暗的丝缕翻成微微发亮的丝缕，
+      深色底上不会出现一块块黑斑。
+      hover 时内线转赭红、文字转暖白并轻微提亮底色；active 下压 1px。
+      禁用态用灰底 + <code>saturate(.25)</code> 一次性去色。
+    </p>
+  </section>
+
+  <!-- ========== 3. 手绘图标 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">三 · 手绘质感图标</span><span class="ln"></span><i class="dia"></i></h2>
+
+    <div class="icon-grid">
+      <div class="icon-cell" style="--accent: var(--c-rust)">
+        <div class="pair">
+          <span class="ink-color"><svg class="ico" style="filter:url(#rough-1)"><use href="#i-sword"/></svg></span>
+          <span class="accent-color"><svg class="ico" style="filter:url(#rough-2)"><use href="#i-sword"/></svg></span>
+        </div>
+        剑 · 攻击
+      </div>
+      <div class="icon-cell" style="--accent: var(--c-blue)">
+        <div class="pair">
+          <span class="ink-color"><svg class="ico" style="filter:url(#rough-2)"><use href="#i-shield"/></svg></span>
+          <span class="accent-color"><svg class="ico" style="filter:url(#rough-3)"><use href="#i-shield"/></svg></span>
+        </div>
+        盾 · 防御
+      </div>
+      <div class="icon-cell" style="--accent: var(--c-life)">
+        <div class="pair">
+          <span class="ink-color"><svg class="ico" style="filter:url(#rough-3)"><use href="#i-heart"/></svg></span>
+          <span class="accent-color"><svg class="ico" style="filter:url(#rough-4)"><use href="#i-heart"/></svg></span>
+        </div>
+        心 · 生命
+      </div>
+      <div class="icon-cell" style="--accent: var(--c-purple)">
+        <div class="pair">
+          <span class="ink-color"><svg class="ico" style="filter:url(#rough-4)"><use href="#i-mana"/></svg></span>
+          <span class="accent-color"><svg class="ico" style="filter:url(#rough-1)"><use href="#i-mana"/></svg></span>
+        </div>
+        法力珠
+      </div>
+    </div>
+
+    <div class="filter-compare" style="--accent: var(--c-green)">
+      <div class="cell">
+        <span class="ink-color"><svg class="ico big no-rough"><use href="#i-shield"/></svg></span>
+        无 filter（几何感）
+      </div>
+      <div class="cell">
+        <span class="ink-color"><svg class="ico big" style="filter:url(#rough-2)"><use href="#i-shield"/></svg></span>
+        有 filter（手绘感）
+      </div>
+      <div class="cell">
+        <span class="accent-color"><svg class="ico big no-rough"><use href="#i-mana"/></svg></span>
+        无 filter
+      </div>
+      <div class="cell">
+        <span class="accent-color"><svg class="ico big" style="filter:url(#rough-4)"><use href="#i-mana"/></svg></span>
+        有 filter
+      </div>
+    </div>
+
+    <p class="note">
+      图标全部写成 <code>&lt;symbol&gt;</code> 放页顶，用 <code>&lt;use&gt;</code> 复用；
+      描边写 <code>currentColor</code>，所以外层容器改 <code>color</code> 就换色（这里由 <code>--accent</code> 驱动）。
+      手绘感来自两层：一是 feTurbulence + feDisplacementMap（scale 3～3.6）让边缘轻微歪扭，
+      二是每个图标都叠了第二条略偏移、更细更淡的描边模拟重描，fill 用 currentColor 加 12%～28% 透明度做水彩没涂满的效果。
+      scale 再大就从「手绘」变成「融化」，3～4 是这个尺寸下的安全区。
+    </p>
+  </section>
+
+  <!-- ========== 4. 卡牌 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">四 · 卡牌框架</span><span class="ln"></span><i class="dia"></i></h2>
+
+    <div class="card-row">
+
+      <!-- 绿 -->
+      <div class="card grain" style="--accent: var(--c-green)">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="card-cost">2</div>
+        <div class="card-art">
+          <svg class="card-rays" viewBox="0 0 120 120" style="filter:url(#rough-rays)">
+            <g stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.75">
+              <path d="M74 60 L114 60"/><path d="M72.93 65.36 L109.89 80.67"/>
+              <path d="M69.9 69.9 L98.18 98.18"/><path d="M65.36 72.93 L80.67 109.89"/>
+              <path d="M60 74 L60 114"/><path d="M54.64 72.93 L39.33 109.89"/>
+              <path d="M50.1 69.9 L21.82 98.18"/><path d="M47.07 65.36 L10.11 80.67"/>
+              <path d="M46 60 L6 60"/><path d="M47.07 54.64 L10.11 39.33"/>
+              <path d="M50.1 50.1 L21.82 21.82"/><path d="M54.64 47.07 L39.33 10.11"/>
+              <path d="M60 46 L60 6"/><path d="M65.36 47.07 L80.67 10.11"/>
+              <path d="M69.9 50.1 L98.18 21.82"/><path d="M72.93 54.64 L109.89 39.33"/>
+            </g>
+          </svg>
+          <svg class="card-logo" style="filter:url(#rough-1)"><use href="#i-shield"/></svg>
+        </div>
+        <div class="card-name-wrap">
+          <div class="card-divider"><i></i></div>
+          <div class="card-name">苔原守望</div>
+        </div>
+        <div class="card-stats">
+          <span class="stat atk"><svg class="ico sm" style="filter:url(#rough-2)"><use href="#i-sword"/></svg>2</span>
+          <i class="sep"></i>
+          <span class="stat def"><svg class="ico sm" style="filter:url(#rough-3)"><use href="#i-shield"/></svg>5</span>
+        </div>
+      </div>
+
+      <!-- 赭红 · 选中态 -->
+      <div class="card grain is-selected" style="--accent: var(--c-rust)">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="card-cost">4</div>
+        <div class="card-art">
+          <svg class="card-rays" viewBox="0 0 120 120" style="filter:url(#rough-rays)">
+            <g stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.75">
+              <path d="M74 60 L114 60"/><path d="M72.93 65.36 L109.89 80.67"/>
+              <path d="M69.9 69.9 L98.18 98.18"/><path d="M65.36 72.93 L80.67 109.89"/>
+              <path d="M60 74 L60 114"/><path d="M54.64 72.93 L39.33 109.89"/>
+              <path d="M50.1 69.9 L21.82 98.18"/><path d="M47.07 65.36 L10.11 80.67"/>
+              <path d="M46 60 L6 60"/><path d="M47.07 54.64 L10.11 39.33"/>
+              <path d="M50.1 50.1 L21.82 21.82"/><path d="M54.64 47.07 L39.33 10.11"/>
+              <path d="M60 46 L60 6"/><path d="M65.36 47.07 L80.67 10.11"/>
+              <path d="M69.9 50.1 L98.18 21.82"/><path d="M72.93 54.64 L109.89 39.33"/>
+            </g>
+          </svg>
+          <svg class="card-logo" style="filter:url(#rough-2)"><use href="#i-sword"/></svg>
+        </div>
+        <div class="card-name-wrap">
+          <div class="card-divider"><i></i></div>
+          <div class="card-name">赤铜之刃</div>
+        </div>
+        <div class="card-stats">
+          <span class="stat atk"><svg class="ico sm" style="filter:url(#rough-3)"><use href="#i-sword"/></svg>6</span>
+          <i class="sep"></i>
+          <span class="stat def"><svg class="ico sm" style="filter:url(#rough-4)"><use href="#i-shield"/></svg>3</span>
+        </div>
+      </div>
+
+      <!-- 蓝 -->
+      <div class="card grain" style="--accent: var(--c-blue)">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="card-cost">3</div>
+        <div class="card-art">
+          <svg class="card-rays" viewBox="0 0 120 120" style="filter:url(#rough-rays)">
+            <g stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.75">
+              <path d="M74 60 L114 60"/><path d="M72.93 65.36 L109.89 80.67"/>
+              <path d="M69.9 69.9 L98.18 98.18"/><path d="M65.36 72.93 L80.67 109.89"/>
+              <path d="M60 74 L60 114"/><path d="M54.64 72.93 L39.33 109.89"/>
+              <path d="M50.1 69.9 L21.82 98.18"/><path d="M47.07 65.36 L10.11 80.67"/>
+              <path d="M46 60 L6 60"/><path d="M47.07 54.64 L10.11 39.33"/>
+              <path d="M50.1 50.1 L21.82 21.82"/><path d="M54.64 47.07 L39.33 10.11"/>
+              <path d="M60 46 L60 6"/><path d="M65.36 47.07 L80.67 10.11"/>
+              <path d="M69.9 50.1 L98.18 21.82"/><path d="M72.93 54.64 L109.89 39.33"/>
+            </g>
+          </svg>
+          <svg class="card-logo" style="filter:url(#rough-3)"><use href="#i-mana"/></svg>
+        </div>
+        <div class="card-name-wrap">
+          <div class="card-divider"><i></i></div>
+          <div class="card-name">子夜观星</div>
+        </div>
+        <div class="card-stats">
+          <span class="stat atk"><svg class="ico sm" style="filter:url(#rough-4)"><use href="#i-sword"/></svg>3</span>
+          <i class="sep"></i>
+          <span class="stat def"><svg class="ico sm" style="filter:url(#rough-1)"><use href="#i-shield"/></svg>4</span>
+        </div>
+      </div>
+
+      <!-- 紫 -->
+      <div class="card grain" style="--accent: var(--c-purple)">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="card-cost">6</div>
+        <div class="card-art">
+          <svg class="card-rays" viewBox="0 0 120 120" style="filter:url(#rough-rays)">
+            <g stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.75">
+              <path d="M74 60 L114 60"/><path d="M72.93 65.36 L109.89 80.67"/>
+              <path d="M69.9 69.9 L98.18 98.18"/><path d="M65.36 72.93 L80.67 109.89"/>
+              <path d="M60 74 L60 114"/><path d="M54.64 72.93 L39.33 109.89"/>
+              <path d="M50.1 69.9 L21.82 98.18"/><path d="M47.07 65.36 L10.11 80.67"/>
+              <path d="M46 60 L6 60"/><path d="M47.07 54.64 L10.11 39.33"/>
+              <path d="M50.1 50.1 L21.82 21.82"/><path d="M54.64 47.07 L39.33 10.11"/>
+              <path d="M60 46 L60 6"/><path d="M65.36 47.07 L80.67 10.11"/>
+              <path d="M69.9 50.1 L98.18 21.82"/><path d="M72.93 54.64 L109.89 39.33"/>
+            </g>
+          </svg>
+          <svg class="card-logo" style="filter:url(#rough-4)"><use href="#i-heart"/></svg>
+        </div>
+        <div class="card-name-wrap">
+          <div class="card-divider"><i></i></div>
+          <div class="card-name">紫垣秘祝</div>
+        </div>
+        <div class="card-stats">
+          <span class="stat atk"><svg class="ico sm" style="filter:url(#rough-1)"><use href="#i-sword"/></svg>5</span>
+          <i class="sep"></i>
+          <span class="stat def"><svg class="ico sm" style="filter:url(#rough-2)"><use href="#i-shield"/></svg>7</span>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="note">
+      150×210 纸白卡：外框 + <code>.frame</code> 内框构成双线，四角是旋转 45° 的小方块当菱形花饰。
+      费用是细线圆底座（圆环内还有一道主题色细圆）。中央放射线是 16 根内联 SVG 细线，
+      染 <code>currentColor</code> 走主题色、套 <code>#rough-rays</code> 歪扭，中间那个图标是水彩 logo 的占位。
+      名称上方的分隔线中间嵌一颗主题色小菱形。底部攻防栏用剑/盾图标 + 一道竖细线分隔。
+      整张卡叠 <code>.grain</code>。第二张是选中态：赭红加粗描边、上移 14px、柔和投影；
+      加粗时同步把 padding 减 1px，避免内部元素跟着位移。
+      全卡换色只需要改容器上的 <code>--accent</code>。
+    </p>
+  </section>
+
+  <!-- ========== 5. 卡背 / 空槽 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">五 · 卡背 / 空卡槽</span><span class="ln"></span><i class="dia"></i></h2>
+
+    <div class="card-row">
+      <div class="back grain on-dark">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <svg class="compass" viewBox="0 0 120 120" style="filter:url(#rough-compass)">
+          <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <circle cx="60" cy="60" r="47" stroke-width="1"/>
+            <circle cx="60" cy="60" r="42" stroke-width="0.7" opacity="0.7"/>
+            <circle cx="60" cy="60" r="26" stroke-width="0.8" opacity="0.85"/>
+            <!-- 十字刻度 -->
+            <path d="M60 6 L60 20 M60 100 L60 114 M6 60 L20 60 M100 60 L114 60" stroke-width="1"/>
+            <!-- 斜向短刻度 -->
+            <g stroke-width="0.7" opacity="0.75">
+              <path d="M22 22 L31 31"/><path d="M98 22 L89 31"/>
+              <path d="M22 98 L31 89"/><path d="M98 98 L89 89"/>
+            </g>
+            <!-- 中央四角星 -->
+            <path d="M60 26 C62.5 51 69 57.5 94 60 C69 62.5 62.5 69 60 94
+                     C57.5 69 51 62.5 26 60 C51 57.5 57.5 51 60 26 Z"
+                  stroke-width="1" fill="currentColor" fill-opacity="0.13"/>
+          </g>
+        </svg>
+      </div>
+
+      <div class="back is-slot">
+        <i class="frame"></i>
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <svg class="compass" viewBox="0 0 120 120" style="filter:url(#rough-compass)">
+          <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <circle cx="60" cy="60" r="47" stroke-width="1"/>
+            <circle cx="60" cy="60" r="42" stroke-width="0.7" opacity="0.7"/>
+            <circle cx="60" cy="60" r="26" stroke-width="0.8" opacity="0.85"/>
+            <path d="M60 6 L60 20 M60 100 L60 114 M6 60 L20 60 M100 60 L114 60" stroke-width="1"/>
+            <g stroke-width="0.7" opacity="0.75">
+              <path d="M22 22 L31 31"/><path d="M98 22 L89 31"/>
+              <path d="M22 98 L31 89"/><path d="M98 98 L89 89"/>
+            </g>
+            <path d="M60 26 C62.5 51 69 57.5 94 60 C69 62.5 62.5 69 60 94
+                     C57.5 69 51 62.5 26 60 C51 57.5 57.5 51 60 26 Z"
+                  stroke-width="1" fill="currentColor" fill-opacity="0.13"/>
+          </g>
+        </svg>
+      </div>
+
+      <span class="note" style="margin:0">← 实体卡背（墨蓝、纹样明显） · 空槽（同结构，虚线框 + 整体压淡）</span>
+    </div>
+
+    <p class="note">
+      卡背和空槽是同一套 DOM 结构，只靠一个 <code>.is-slot</code> 修饰类切换：
+      背景换成近乎透明的墨蓝、边框改虚线、罗盘不透明度从 0.62 降到 0.28。
+      罗盘纹样是内联 SVG 的同心圆 + 十字刻度 + 斜向短刻度 + 中央四角星，
+      全部 <code>currentColor</code>（米色），套 <code>#rough-compass</code>（scale 2.0，比图标小，
+      因为线更长、更细，位移放大后容易断）。
+    </p>
+  </section>
+
+  <!-- ========== 6. 其余结构层小件 ========== -->
+  <section>
+    <h2 class="orn-title"><i class="dia"></i><span class="ln"></span><span class="tx">六 · 结构层小件</span><span class="ln"></span><i class="dia"></i></h2>
+
+    <div class="bits">
+
+      <div>
+        <div class="bit-label">法力计</div>
+        <div class="mana-meter">
+          <span class="mana-num">9<span class="max"> / 12</span></span>
+          <span class="pips">
+            <i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>
+            <i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>
+            <i class="pip on"></i><i class="pip on"></i><i class="pip on"></i>
+            <i class="pip"></i><i class="pip"></i><i class="pip"></i>
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <div class="bit-label">顶栏 tab</div>
+        <div class="tabs">
+          <span class="tab is-active">对战<i class="ul"></i></span>
+          <span class="tab">牌组<i class="ul"></i></span>
+          <span class="tab">图鉴<i class="ul"></i></span>
+        </div>
+      </div>
+
+      <div>
+        <div class="bit-label">小标题装饰（卡牌详情）</div>
+        <h3 class="orn-title sm" style="width: 250px"><i class="dia"></i><span class="ln"></span><span class="tx">卡牌详情</span><span class="ln"></span><i class="dia"></i></h3>
+      </div>
+
+    </div>
+
+    <div class="bits" style="margin-top: 40px">
+
+      <div>
+        <div class="bit-label">回合徽章（战场中线）</div>
+        <div class="turn-line">
+          <span class="turn-badge">第 <b>6</b> 回合</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="bit-label">拱窗头像框</div>
+        <div class="portrait-wrap">
+          <div class="portrait">
+            <!-- 星空占位：正式项目里换成 AI 生成的人物肖像 -->
+            <svg class="stars" viewBox="0 0 140 180" preserveAspectRatio="xMidYMid slice">
+              <g fill="#e8e2cf">
+                <circle cx="28"  cy="34"  r="1.5" opacity="0.9"/>
+                <circle cx="104" cy="26"  r="1.1" opacity="0.7"/>
+                <circle cx="62"  cy="18"  r="1.8" opacity="0.85"/>
+                <circle cx="118" cy="66"  r="1.3" opacity="0.6"/>
+                <circle cx="20"  cy="88"  r="1"   opacity="0.55"/>
+                <circle cx="86"  cy="52"  r="1.2" opacity="0.75"/>
+                <circle cx="46"  cy="70"  r="0.9" opacity="0.5"/>
+                <circle cx="112" cy="118" r="1.4" opacity="0.7"/>
+                <circle cx="34"  cy="132" r="1.1" opacity="0.6"/>
+                <circle cx="74"  cy="104" r="1"   opacity="0.5"/>
+              </g>
+              <g stroke="#e8e2cf" stroke-width="0.5" opacity="0.35" fill="none">
+                <path d="M28 34 L62 18 L86 52 L28 34"/>
+                <path d="M112 118 L74 104 L34 132"/>
+              </g>
+            </svg>
+          </div>
+          <div class="nameplate">李飞飞</div>
+          <div class="portrait-stats">
+            <span class="hp"><svg class="ico xs" style="filter:url(#rough-3)"><use href="#i-heart"/></svg>23</span>
+            <span class="mp"><svg class="ico xs" style="filter:url(#rough-1)"><use href="#i-mana"/></svg>6</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="bit-label">主题色（低饱和水彩）</div>
+        <div class="tone-row" style="width: 260px">
+          <span class="tone" style="background: var(--c-green)">绿</span>
+          <span class="tone" style="background: var(--c-rust)">赭红</span>
+          <span class="tone" style="background: var(--c-blue)">蓝</span>
+          <span class="tone" style="background: var(--c-purple)">紫</span>
+          <span class="tone" style="background: var(--c-gold)">黄</span>
+          <span class="tone" style="background: var(--c-life)">生命红</span>
+          <span class="tone" style="background: var(--night)">星图蓝</span>
+          <span class="tone" style="background: var(--navy)">墨蓝</span>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="note">
+      法力计：Garamond 数字 + 12 个 pip，实心/描线只差一个 <code>.on</code>。
+      回合徽章：flex 两侧 <code>::before/::after</code> 拉出横线，中间夹一个深蓝小匾，数字用赭红强调。
+      拱窗头像框：上两角 70px 圆角做成拱形，双线框跟着圆角内缩；内部先铺星图蓝 + 几颗星点和连线占位，
+      名牌横幅用负 margin 压在框底，本身也是纸白双线小匾。
+      顶栏 tab：当前项下方一条赭红短横线，<code>::before</code> 旋转 45° 做端点小菱形。
+      小标题装饰复用了本页每个区块的标题样式，正式项目里直接当「卡牌详情」标题用。
+    </p>
+  </section>
+
+</main>
+
+<!-- ============================================================
+     纸纹调参面板：拖滑条实时重算两层噪声，选定后用「复制当前参数」
+     把结果搬进正式项目。纯开发工具，正式项目里不要带上。
+     ============================================================ -->
+<aside class="tuner" id="tuner">
+  <div class="tuner-hd">
+    <span class="tuner-title">纸纹调参</span>
+    <button type="button" class="tbtn sm" id="tunerToggle" aria-expanded="true" aria-controls="tunerBody">收起</button>
+  </div>
+  <div class="tuner-bd" id="tunerBody">
+    <div id="tunerRows"></div>
+    <div class="tuner-summary" id="tunerSummary"></div>
+    <div class="tuner-acts">
+      <button type="button" class="tbtn" id="tunerReset">重置</button>
+      <button type="button" class="tbtn primary" id="tunerCopy">复制当前参数</button>
+    </div>
+    <div class="tuner-toast" id="tunerToast"></div>
+  </div>
+</aside>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ----------------------------------------------------------
+     参数状态
+     ----------------------------------------------------------
+     初始值必须和 :root 里烘死的那两个 data URI 完全一致，
+     否则页面一加载纹理就会「跳」一下。 */
+  var DEFAULTS = {
+    mBf: 0.0059, mOct: 2, mSurf: 15, mElev: 56, mSeed: 17, mAlpha: 0.7,
+    fBf: 0.63,   fOct: 3, fSeed: 5,  fAlpha: 0.92,
+    vig: 0.63
+  };
+  var state = {};
+
+  /* 暗角滑条 0~1 是「强度」，不是 alpha 本身，乘这个上限才是写进 rgba 的值。
+     拆成两个数是为了让滑条 0~1 的整个行程都落在「看得出变化」的区间里，
+     直接把 alpha 摊到 0~1 的话超过 0.3 就已经黑得不像纸了。 */
+  var VIG_MAX_ALPHA = 0.30;
+
+  var MOTTLE_TILE = 900;   /* 图块尺寸不开放调节：改了它 stitchTiles 的接缝对不上，
+                              而且和 .swatch 里挑好的 background-position 也会错位 */
+  var FIBER_TILE  = 240;
+
+  /* ----------------------------------------------------------
+     两张噪声图的生成
+     ----------------------------------------------------------
+     整个 SVG 交给 encodeURIComponent 统一转义，不手写 %23 之类。
+     它会把 # < > " 都编码掉，剩下没编码的 ' ( ) 在
+     url("...") 的双引号里是合法字符，所以拼出来一定能用。 */
+  function toUrl(svg) {
+    return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+  }
+
+  function buildMottle(s) {
+    var n = MOTTLE_TILE;
+    return toUrl(
+      "<svg xmlns='http://www.w3.org/2000/svg' width='" + n + "' height='" + n + "'>" +
+      "<filter id='m' x='0' y='0' width='" + n + "' height='" + n + "' filterUnits='userSpaceOnUse' color-interpolation-filters='sRGB'>" +
+      "<feTurbulence type='fractalNoise' baseFrequency='" + s.mBf + "' numOctaves='" + s.mOct + "' seed='" + s.mSeed + "' stitchTiles='stitch'/>" +
+      "<feDiffuseLighting lighting-color='#ffffff' surfaceScale='" + s.mSurf + "' diffuseConstant='1'>" +
+      "<feDistantLight azimuth='45' elevation='" + s.mElev + "'/>" +
+      "</feDiffuseLighting>" +
+      "<feComponentTransfer>" +
+      "<feFuncR type='linear' slope='0.47' intercept='0.591'/>" +
+      "<feFuncG type='linear' slope='0.52' intercept='0.548'/>" +
+      "<feFuncB type='linear' slope='0.60' intercept='0.478'/>" +
+      "</feComponentTransfer>" +
+      "</filter>" +
+      "<rect width='" + n + "' height='" + n + "' filter='url(#m)'/>" +
+      "</svg>"
+    );
+  }
+
+  function buildFiber(s) {
+    var n = FIBER_TILE;
+    return toUrl(
+      "<svg xmlns='http://www.w3.org/2000/svg' width='" + n + "' height='" + n + "'>" +
+      "<filter id='f' x='0' y='0' width='" + n + "' height='" + n + "' filterUnits='userSpaceOnUse' color-interpolation-filters='sRGB'>" +
+      "<feTurbulence type='fractalNoise' baseFrequency='" + s.fBf + "' numOctaves='" + s.fOct + "' seed='" + s.fSeed + "' stitchTiles='stitch'/>" +
+      "<feColorMatrix type='matrix' values='0.34 0.33 0.33 0 0 0.34 0.33 0.33 0 0 0.34 0.33 0.33 0 0 0 0 0 0 1'/>" +
+      "<feComponentTransfer>" +
+      "<feFuncR type='linear' slope='0.34' intercept='0.83'/>" +
+      "<feFuncG type='linear' slope='0.34' intercept='0.83'/>" +
+      "<feFuncB type='linear' slope='0.34' intercept='0.83'/>" +
+      "</feComponentTransfer>" +
+      "</filter>" +
+      "<rect width='" + n + "' height='" + n + "' filter='url(#f)'/>" +
+      "</svg>"
+    );
+  }
+
+  function vignetteCss() {
+    return 'radial-gradient(ellipse 130% 100% at 50% 42%,\n' +
+           '                rgba(0,0,0,0) 45%, rgba(122,106,74,' + vigAlpha() + ') 100%)';
+  }
+  function vigAlpha() {
+    /* 三位小数够用，避免 0.5*0.3 这种浮点尾巴写进 CSS */
+    return +(state.vig * VIG_MAX_ALPHA).toFixed(3);
+  }
+
+  /* ----------------------------------------------------------
+     写回 CSS 变量：rAF 合并
+     ----------------------------------------------------------
+     900px 的 feTurbulence + feDiffuseLighting 解码一次要几十毫秒，
+     range 的 input 事件一秒能来上百次，不合并会直接拖死。 */
+  var dirtyMottle = false, dirtyFiber = false, rafId = 0;
+
+  function schedule(layer) {
+    if (layer === 'mottle') dirtyMottle = true;
+    if (layer === 'fiber')  dirtyFiber = true;
+    if (rafId) return;
+    rafId = requestAnimationFrame(flush);
+  }
+
+  function flush() {
+    rafId = 0;
+    var root = document.documentElement.style;
+    if (dirtyMottle) { root.setProperty('--tex-mottle', buildMottle(state)); dirtyMottle = false; }
+    if (dirtyFiber)  { root.setProperty('--tex-fiber',  buildFiber(state));  dirtyFiber = false; }
+    /* 这三个是纯变量改动，零成本，每次都写一遍省得再做脏标记 */
+    root.setProperty('--mottle-alpha', String(state.mAlpha));
+    root.setProperty('--fiber-alpha',  String(state.fAlpha));
+    root.setProperty('--vignette-alpha', String(vigAlpha()));
+    renderSummary();
+  }
+
+  /* ----------------------------------------------------------
+     面板 DOM
+     ---------------------------------------------------------- */
+  var ROWS = [
+    { type: 'group', text: '大尺度斑驳 · --tex-mottle' },
+    { type: 'range', key: 'mBf',    label: 'baseFrequency',  min: 0.002, max: 0.05, step: 0.0001, dec: 4, layer: 'mottle' },
+    { type: 'range', key: 'mOct',   label: 'numOctaves',     min: 1,     max: 6,    step: 1,      dec: 0, layer: 'mottle' },
+    { type: 'range', key: 'mSurf',  label: 'surfaceScale',   min: 1,     max: 30,   step: 0.5,    dec: 1, layer: 'mottle' },
+    { type: 'range', key: 'mElev',  label: '光照 elevation', min: 20,    max: 90,   step: 1,      dec: 0, layer: 'mottle' },
+    { type: 'range', key: 'mAlpha', label: '图层不透明度',   min: 0,     max: 1,    step: 0.01,   dec: 2, layer: null },
+    { type: 'seed',  key: 'mSeed',  label: 'seed',           layer: 'mottle' },
+
+    { type: 'group', text: '细颗粒 · --tex-fiber' },
+    { type: 'range', key: 'fBf',    label: 'baseFrequency',  min: 0.3,   max: 1.2,  step: 0.01,   dec: 2, layer: 'fiber' },
+    { type: 'range', key: 'fOct',   label: 'numOctaves',     min: 1,     max: 4,    step: 1,      dec: 0, layer: 'fiber' },
+    { type: 'range', key: 'fAlpha', label: '图层不透明度',   min: 0,     max: 1,    step: 0.01,   dec: 2, layer: null },
+    { type: 'seed',  key: 'fSeed',  label: 'seed',           layer: 'fiber' },
+
+    { type: 'group', text: '暗角 · --vignette' },
+    { type: 'range', key: 'vig',    label: '暗角强度',       min: 0,     max: 1,    step: 0.01,   dec: 2, layer: null }
+  ];
+
+  var inputs = {};   /* key -> { row, el, out } ，重置时要回填 */
+
+  function fmt(row, v) { return row.dec === 0 ? String(v) : v.toFixed(row.dec); }
+
+  function buildPanel() {
+    var host = document.getElementById('tunerRows');
+    ROWS.forEach(function (row) {
+      if (row.type === 'group') {
+        var g = document.createElement('div');
+        g.className = 'tuner-group';
+        g.textContent = row.text;
+        host.appendChild(g);
+        return;
+      }
+      if (row.type === 'seed') {
+        var sd = document.createElement('div');
+        sd.className = 'tuner-seed';
+        var lab = document.createElement('span');
+        lab.textContent = row.label + '：';
+        var val = document.createElement('b');
+        lab.appendChild(val);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tbtn sm';
+        btn.textContent = '随机';
+        btn.addEventListener('click', function () {
+          state[row.key] = Math.floor(Math.random() * 9999) + 1;
+          val.textContent = state[row.key];
+          schedule(row.layer);
+        });
+        sd.appendChild(lab);
+        sd.appendChild(btn);
+        host.appendChild(sd);
+        inputs[row.key] = { row: row, out: val };
+        return;
+      }
+      var wrap = document.createElement('div');
+      wrap.className = 'tuner-row';
+      var lb = document.createElement('div');
+      lb.className = 'lb';
+      var name = document.createElement('span');
+      name.textContent = row.label;
+      var out = document.createElement('b');
+      lb.appendChild(name);
+      lb.appendChild(out);
+      var el = document.createElement('input');
+      el.type = 'range';
+      el.min = row.min; el.max = row.max; el.step = row.step;
+      el.addEventListener('input', function () {
+        state[row.key] = parseFloat(el.value);
+        out.textContent = fmt(row, state[row.key]);
+        schedule(row.layer);
+      });
+      wrap.appendChild(lb);
+      wrap.appendChild(el);
+      host.appendChild(wrap);
+      inputs[row.key] = { row: row, el: el, out: out };
+    });
+  }
+
+  /* 把 state 回填到控件上（初始化和重置都走这里） */
+  function syncInputs() {
+    Object.keys(inputs).forEach(function (k) {
+      var it = inputs[k];
+      if (it.el) {
+        it.el.value = state[k];
+        it.out.textContent = fmt(it.row, state[k]);
+      } else {
+        it.out.textContent = state[k];
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------
+     参数摘要 + 复制
+     ---------------------------------------------------------- */
+  function summaryText() {
+    return '斑驳  bf ' + state.mBf + ' · oct ' + state.mOct + ' · surf ' + state.mSurf +
+           ' · elev ' + state.mElev + ' · seed ' + state.mSeed + ' · α ' + state.mAlpha + '\n' +
+           '颗粒  bf ' + state.fBf + ' · oct ' + state.fOct + ' · seed ' + state.fSeed +
+           ' · α ' + state.fAlpha + '\n' +
+           '暗角  强度 ' + state.vig + ' → rgba α ' + vigAlpha();
+  }
+
+  function renderSummary() {
+    document.getElementById('tunerSummary').textContent = summaryText();
+  }
+
+  /* 拼出可以整段替换 :root 里对应几行的 CSS */
+  function exportCss() {
+    return '/* 纸纹参数\n' +
+           '   ' + summaryText().replace(/\n/g, '\n   ') + ' */\n' +
+           ':root {\n' +
+           '  --tex-mottle: ' + buildMottle(state) + ';\n\n' +
+           '  --tex-fiber: ' + buildFiber(state) + ';\n\n' +
+           '  --mottle-alpha: ' + state.mAlpha + ';\n' +
+           '  --fiber-alpha:  ' + state.fAlpha + ';\n\n' +
+           '  --vignette-alpha: ' + vigAlpha() + ';\n' +
+           '  --vignette: ' + vignetteCss() + ';\n' +
+           '}\n';
+  }
+
+  function toast(msg, ok) {
+    var el = document.getElementById('tunerToast');
+    el.textContent = msg;
+    el.style.color = ok ? 'var(--c-green)' : 'var(--c-life)';
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.textContent = ''; }, 2600);
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { toast('已复制，可直接粘进 :root', true); },
+        function () { legacyCopy(text); }
+      );
+      return;
+    }
+    legacyCopy(text);
+  }
+
+  /* 非安全上下文（比如某些 file:// 场景）没有 clipboard API，退回老办法 */
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    toast(ok ? '已复制，可直接粘进 :root' : '复制失败，请手动选中摘要', ok);
+  }
+
+  /* ----------------------------------------------------------
+     启动
+     ---------------------------------------------------------- */
+  function reset() {
+    Object.keys(DEFAULTS).forEach(function (k) { state[k] = DEFAULTS[k]; });
+    syncInputs();
+    schedule('mottle');
+    schedule('fiber');
+  }
+
+  buildPanel();
+  /* 初始就整个重算一遍：如果生成器和 :root 里烘死的字符串对不上，
+     加载瞬间就会看出来，等于每次开页面都自检一次。 */
+  reset();
+
+  document.getElementById('tunerReset').addEventListener('click', function () {
+    reset();
+    toast('已恢复初始参数', true);
+  });
+  document.getElementById('tunerCopy').addEventListener('click', function () {
+    copyText(exportCss());
+  });
+
+  var panel = document.getElementById('tuner');
+  var toggle = document.getElementById('tunerToggle');
+  toggle.addEventListener('click', function () {
+    var collapsed = panel.classList.toggle('is-collapsed');
+    toggle.textContent = collapsed ? '展开' : '收起';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  });
+})();
+</script>
+
+</body>
+</html>

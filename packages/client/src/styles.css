@@ -78,15 +78,6 @@ body,
   opacity: 0.65;
 }
 
-.page__list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .page__muted {
   color: #6b7280;
   font-size: 13px;
@@ -167,10 +158,6 @@ body,
 
 .stage-hud__spacer {
   flex: 1;
-}
-
-.stage-hud__level {
-  color: #c9d1d9;
 }
 
 .stage-side {
@@ -288,39 +275,6 @@ body,
 .stage-target-face:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* 教程的引导条。贴在底部手牌上方，不挡住场上的模型。 */
-.guide {
-  position: fixed;
-  left: 50%;
-  bottom: 200px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  max-width: 620px;
-  padding: 14px 20px;
-  border: 1px solid #38bdf8;
-  border-radius: 12px;
-  background: rgb(13 17 23 / 95%);
-}
-
-.guide__text {
-  margin: 0;
-  line-height: 1.6;
-  font-size: 14px;
-}
-
-.guide__next {
-  flex-shrink: 0;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 8px;
-  background: #38bdf8;
-  color: #0d1117;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 /* 结算层。盖满整屏，所以下面的对局点不到了。 */
@@ -671,6 +625,20 @@ body,
 
 /* ---------- 手牌演示页 ---------- */
 
+/*
+ * .demo 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
+ * .hand-fan 是 position: fixed 钉在视口上的，而 fixed 元素本来就不受任何祖先的
+ * overflow 裁剪。手牌 hover 放大、拖拽出牌这些动作只要让它在某一帧比视口高一丁点，
+ * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且这页压根不需要滚动）。
+ * 用 :has() 只在这一页挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
+ */
+html:has(.demo),
+body:has(.demo) {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .demo {
   --demo-paper: #eee9dc;
   --demo-paper-shade: #e2dbc8;
@@ -684,6 +652,8 @@ body,
   grid-template-rows: 72px minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
   color: var(--demo-ink);
   background-color: var(--demo-paper);
   font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;
@@ -998,6 +968,7 @@ body,
 }
 
 .demo__battlefield {
+  --demo-hand-zone-h: clamp(210px, 27vh, 250px);
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1065,37 +1036,50 @@ body,
 }
 
 /*
- * 战场占位区。
- * 故意不设 position/z-index：一旦它形成层叠上下文，
- * 飞行中的卡就被关在里面，没法盖到手牌（z-index 20）上面去。
+ * 真正的战场落点只占手牌上方这块区域，不能再铺满整个中央画面：
+ * 否则拖回底部的卡也会被 isInsideDropZone 判成打出。
+ *
+ * absolute 本身不会形成层叠上下文；这里刻意不设 z-index / isolation，
+ * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面。
  */
 .demo__board {
+  position: absolute;
+  inset: 68px clamp(16px, 2vw, 28px) var(--demo-hand-zone-h);
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 12px;
-  width: 100%;
-  height: 100%;
   min-height: 0;
-  padding: 78px 24px 220px;
-  border: 0;
+  padding: 62px 24px 24px;
+  border: 1px dashed transparent;
+  border-radius: 18px;
   transition:
-    box-shadow 0.2s ease,
-    background-color 0.2s ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
 }
 
 /*
- * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZone）：
+ * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZones）：
  * data-drop-ready 表示"手上正拖着一张牌"，把落点区标出来；
  * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
  */
 .demo__board[data-drop-ready='true'] {
-  box-shadow: inset 0 0 0 2px rgb(205 194 166 / 28%);
+  border-color: rgb(229 213 174 / 72%);
+  background: rgb(19 27 45 / 26%);
+  box-shadow:
+    inset 0 0 0 2px rgb(229 213 174 / 14%),
+    inset 0 0 40px rgb(9 15 28 / 36%),
+    0 0 24px rgb(222 194 133 / 12%);
 }
 
 .demo__board[data-drop-hot='true'] {
-  background: rgb(205 194 166 / 8%);
-  box-shadow: inset 0 0 0 2px rgb(226 209 171 / 70%);
+  border-color: rgb(255 229 164 / 96%);
+  background: rgb(222 194 133 / 16%);
+  box-shadow:
+    inset 0 0 0 3px rgb(255 229 164 / 46%),
+    inset 0 0 58px rgb(255 213 121 / 18%),
+    0 0 30px rgb(255 220 141 / 30%);
 }
 
 .demo__board-hint {
@@ -1104,6 +1088,106 @@ body,
   font-size: 13px;
   letter-spacing: 0.16em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+}
+
+/*
+ * 手牌取消区与战场落点首尾相接。它只是视觉热区，不接指针事件；
+ * 真正拖拽仍由 pointer capture 送回 HandFan，松在战场外一律取消。
+ */
+.demo__return-zone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
+  height: var(--demo-hand-zone-h);
+  border-top: 2px solid transparent;
+  background: linear-gradient(to bottom, transparent, rgb(10 20 39 / 0%));
+  pointer-events: none;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.demo__return-zone[data-drop-ready='true'] {
+  border-color: rgb(177 202 235 / 58%);
+  background: linear-gradient(to bottom, rgb(84 126 180 / 12%), rgb(13 27 49 / 36%));
+  box-shadow: inset 0 22px 42px -34px rgb(170 207 255 / 50%);
+}
+
+.demo__return-zone[data-drop-hot='true'] {
+  border-color: rgb(196 222 255 / 96%);
+  background: linear-gradient(to bottom, rgb(101 153 219 / 23%), rgb(19 42 74 / 54%));
+  box-shadow:
+    inset 0 3px 0 rgb(205 228 255 / 28%),
+    inset 0 30px 58px -38px rgb(177 215 255 / 82%);
+}
+
+.demo__drop-cue {
+  --demo-cue-x: -50%;
+  position: absolute;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  min-width: 154px;
+  padding: 8px 18px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  background: rgb(22 29 43 / 84%);
+  box-shadow: 0 4px 18px rgb(4 9 19 / 38%);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--demo-cue-x), 7px) scale(0.94);
+  transition:
+    color 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.demo__drop-cue strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+.demo__drop-cue--board {
+  top: 14px;
+  color: rgb(238 220 177 / 88%);
+}
+
+.demo__drop-cue--return {
+  --demo-cue-x: 0;
+  top: 18px;
+  right: clamp(18px, 3vw, 42px);
+  left: auto;
+  color: rgb(198 220 248 / 88%);
+}
+
+[data-drop-ready='true'] > .demo__drop-cue {
+  opacity: 1;
+  transform: translate(var(--demo-cue-x), 0) scale(1);
+}
+
+[data-drop-hot='true'] > .demo__drop-cue {
+  color: #fff4d5;
+  box-shadow:
+    0 0 0 3px rgb(255 238 197 / 16%),
+    0 6px 24px rgb(4 9 19 / 48%);
+  transform: translate(var(--demo-cue-x), 0) scale(1.08);
+}
+
+.demo__return-zone[data-drop-hot='true'] > .demo__drop-cue {
+  color: #e9f4ff;
+  box-shadow:
+    0 0 0 3px rgb(207 231 255 / 20%),
+    0 6px 24px rgb(4 9 19 / 48%);
 }
 
 /* ---------- 八角结束回合按钮 ---------- */
@@ -1138,11 +1222,31 @@ body,
   cursor: pointer;
   /* 这里刻意没有 drop-shadow：filter 的结果会被同一个元素上的 clip-path 再裁一遍
      （裁剪发生在滤镜之后），投影全落在八角形之外、一个像素都留不下，
-     只白白换来每次 hover 一整轮离屏滤镜。
-     transition 也只留 transform：color / filter 过渡意味着接下来的十来帧里
-     label 上那条 SVG 手绘滤镜要一帧不落地重跑（WebKit 上是逐像素 CPU 计算），
-     换色改成瞬切，滤镜只需要算一次。 */
-  transition: transform 80ms ease;
+     只白白换来每次 hover / 按压一整轮离屏滤镜。
+     transition 也只留 transform：label 上挂着 SVG 手绘滤镜，一旦让 color 参与过渡，
+     接下来的十来帧里这条滤镜就要一帧不落地重跑（WebKit 上是逐像素 CPU 计算），
+     所以换色改成瞬切，滤镜只需要算一次。
+     will-change 同理只声明 transform——:disabled 上那条 saturate 是静态的，不参与动画。 */
+  transform: translateY(0) scaleY(1);
+  /* 压入以底边为支点，看着像匾额被按进墙里而不是整体平移。 */
+  transform-origin: center bottom;
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
+  will-change: transform;
+}
+
+.plaque-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 7%), transparent 34%);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 8%),
+    inset 0 -7px 9px rgb(4 8 15 / 28%);
+  pointer-events: none;
+  transition:
+    background-color 180ms ease,
+    box-shadow 220ms cubic-bezier(0.16, 1.2, 0.35, 1);
 }
 
 .plaque-button__frame {
@@ -1152,7 +1256,10 @@ body,
   width: 100%;
   height: 100%;
   filter: url('#ai-duel-rough-button');
+  transform: scale(1);
+  transform-origin: center;
   pointer-events: none;
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
 }
 
 .hand-drawn-filter-defs {
@@ -1189,6 +1296,8 @@ body,
   /* 和框线共用页面上那份公共滤镜。参数和按钮原来自带的私有滤镜完全一致（只差 seed），
      共用之后浏览器只需要为这个 id 算一次噪声。 */
   filter: url('#ai-duel-rough-icon');
+  transform: translateY(0);
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
 }
 
 .plaque-button:hover {
@@ -1197,8 +1306,37 @@ body,
   color: #ead0b9;
 }
 
-.plaque-button:active {
-  transform: translateY(1px);
+/* :active 之外还认 data-pressed，是为了让 PlaqueButton 里的最短按压时长能撑住这个姿态：
+   点得再快也要按满 MIN_PRESS_MS 才松开。 */
+.plaque-button:not(:disabled):active,
+.plaque-button[data-pressed='true'] {
+  transform: translateY(6px) scaleY(0.96);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active::before,
+.plaque-button[data-pressed='true']::before {
+  background-color: rgb(9 15 27 / 28%);
+  box-shadow:
+    inset 0 7px 13px rgb(4 8 15 / 58%),
+    inset 0 -2px 0 rgb(212 168 126 / 30%);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active .plaque-button__frame,
+.plaque-button[data-pressed='true'] .plaque-button__frame {
+  transform: scale(0.985, 0.94);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.plaque-button:not(:disabled):active .plaque-button__label,
+.plaque-button[data-pressed='true'] .plaque-button__label {
+  transform: translateY(2px);
+  transition-duration: 70ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
 .plaque-button:focus-visible,
@@ -1215,6 +1353,15 @@ body,
   color: #cfcabb;
   cursor: not-allowed;
   filter: saturate(0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plaque-button,
+  .plaque-button::before,
+  .plaque-button__frame,
+  .plaque-button__label {
+    transition-duration: 1ms;
+  }
 }
 
 /* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */

@@ -1,20 +1,92 @@
-import type { ButtonHTMLAttributes } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent } from 'react'
 
 export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 
+/** 再快的点击也至少完整显示这么久的压入姿态，避免反馈强度取决于用户按键速度。 */
+const MIN_PRESS_MS = 70
+
 /**
  * 视觉稿里的墨蓝八角匾额按钮。SVG 轮廓套手绘滤镜，切角处仍能保持连续描边。
+ * 按下时整块匾额会压入一小段（见 styles.css 里 data-pressed / :active 那几条规则）。
  *
  * 文字的手绘抖动直接用页面上公共的 #ai-duel-rough-icon（见 HandDrawnFilterDefs、
  * styles.css 里的 .plaque-button__label），不再自带一份只有 seed 不同的私有滤镜：
  * 参数完全一样，而换 seed 就意味着浏览器要作废已经算好的滤镜结果、
  * 把 feTurbulence + feDisplacementMap 整条链重跑一遍（WebKit 上是 CPU 逐像素算）。
- * 原本每次 hover 都换一次 seed，图的是"相邻按钮别抖成同一条线"，
+ * 原本每次 hover / pointerdown 都换一次 seed，图的是"相邻按钮别抖成同一条线"，
  * 但全项目只有一个匾额按钮，这个动机根本不成立。
  */
-export function PlaqueButton({ className = '', children, ...props }: PlaqueButtonProps) {
+export function PlaqueButton({
+  className = '',
+  children,
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onPointerLeave,
+  ...props
+}: PlaqueButtonProps) {
+  const [isPressed, setIsPressed] = useState(false)
+  const pressStartedAtRef = useRef<number | null>(null)
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+    },
+    [],
+  )
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!props.disabled) {
+      if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+      releaseTimerRef.current = null
+      pressStartedAtRef.current = Date.now()
+      setIsPressed(true)
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    onPointerDown?.(event)
+  }
+
+  const finishPress = () => {
+    const startedAt = pressStartedAtRef.current
+    if (startedAt === null) return
+
+    const remaining = Math.max(0, MIN_PRESS_MS - (Date.now() - startedAt))
+    if (releaseTimerRef.current !== null) clearTimeout(releaseTimerRef.current)
+    releaseTimerRef.current = setTimeout(() => {
+      setIsPressed(false)
+      pressStartedAtRef.current = null
+      releaseTimerRef.current = null
+    }, remaining)
+  }
+
+  const handlePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerUp?.(event)
+  }
+
+  const handlePointerCancel = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerCancel?.(event)
+  }
+
+  const handlePointerLeave = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    finishPress()
+    onPointerLeave?.(event)
+  }
+
   return (
-    <button className={`plaque-button ${className}`.trim()} type="button" {...props}>
+    <button
+      className={`plaque-button ${className}`.trim()}
+      type="button"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onPointerLeave={handlePointerLeave}
+      data-pressed={isPressed ? 'true' : undefined}
+      {...props}
+    >
       <svg
         className="plaque-button__frame"
         viewBox="0 0 224 68"

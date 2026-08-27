@@ -1,29 +1,19 @@
 /**
  * 主网站：介绍游戏 + 一键开始。
  *
- * 文案全是占位，重点是"一键开始"的分流：
- * 教程没通关完就接着打教程，通关完了直接进匹配房。
+ * 文案全是占位。新手教程还没做，先放一句占位文案；"一键开始"直接进匹配房。
  */
 
 import { useState } from 'react'
 import { useLocation } from 'wouter'
 import { CARD_POOL } from '@ai-duel/core'
 import { loadSave, resetSave } from '../save/save'
-import { TUTORIAL_LEVELS, TUTORIAL_LEVEL_COUNT } from '../tutorial/levels'
 
 export function HomeScreen() {
   const [, navigate] = useLocation()
-  // 进这个界面时读一次就够：任何会改存档的操作（打教程、赢一局）都在别的界面，
+  // 进这个界面时读一次就够：任何会改存档的操作（赢一局）都在别的界面，
   // 回到首页时组件会重新挂载，自然读到新的。
   const [save, setSave] = useState(loadSave)
-
-  const tutorialDone = save.tutorialDone
-  const nextLevel = Math.min(tutorialDone + 1, TUTORIAL_LEVEL_COUNT)
-  const finishedTutorial = tutorialDone >= TUTORIAL_LEVEL_COUNT
-
-  function handleStart(): void {
-    navigate(finishedTutorial ? '/room' : `/tutorial/${nextLevel}`)
-  }
 
   return (
     <main className="page page--home">
@@ -37,27 +27,16 @@ export function HomeScreen() {
         赢法不是比谁数值大，而是读懂对手的画像，挑它最脆的那一维打。
       </p>
 
-      <button type="button" className="page__cta" onClick={handleStart}>
-        {finishedTutorial ? '开始对战' : tutorialDone === 0 ? '开始游戏' : `继续教程（第 ${nextLevel} 关）`}
+      <button type="button" className="page__cta" onClick={() => navigate('/room')}>
+        开始对战
       </button>
 
       <section className="page__section">
         <h2>你的进度</h2>
         <p>
-          教程 {tutorialDone}/{TUTORIAL_LEVEL_COUNT} · 收藏 {save.ownedCards.length}/{CARD_POOL.length} ·
-          胜场 {save.wins}
+          收藏 {save.ownedCards.length}/{CARD_POOL.length} · 胜场 {save.wins}
         </p>
-        <ul className="page__list">
-          {TUTORIAL_LEVELS.map((level) => (
-            <li key={level.level}>
-              <button type="button" onClick={() => navigate(`/tutorial/${level.level}`)}>
-                {level.title}
-                {level.level <= tutorialDone ? '（已通关）' : ''}
-              </button>
-              <span className="page__muted"> {level.summary}</span>
-            </li>
-          ))}
-        </ul>
+        <p className="page__muted">新手教程</p>
       </section>
 
       <section className="page__section page__section--dev">

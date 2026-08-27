@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@ai-duel/core": "workspace:*",
@@ -15,7 +17,8 @@
     "gsap": "^3.15.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "wouter": "^3.10.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
@@ -23,6 +26,7 @@
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }

@@ -4,8 +4,20 @@
     {
       "name": "client",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
-      "port": 5173
+      "runtimeArgs": [
+        "dev"
+      ],
+      "port": 5173,
+      "autoPort": true
+    },
+    {
+      "name": "relay",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:server"
+      ],
+      "port": 3001,
+      "autoPort": false
     }
   ]
 }

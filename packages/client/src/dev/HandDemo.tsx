@@ -1,5 +1,5 @@
 /**
- * 手牌动画演示页（访问 ?demo=hand 进入）。
+ * 手牌动画演示页（访问 /dev/hand 进入）。
  *
  * 这页不接规则引擎，只用占位数据把 HandFan 的各种边界跑一遍：
  * 0 张、1 张、20 张、动画播到一半再加减牌。
@@ -10,10 +10,10 @@ import { useRef, useState } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { HandCardFace, HandFan } from './HandFan'
-import type { HandCardData } from './HandFan'
-import { attachCardTilt } from './cardTilt'
-import type { CardTiltHandle } from './cardTilt'
+import { HandCardFace, HandFan } from '../ui/HandFan'
+import type { HandCardData } from '../ui/HandFan'
+import { attachCardTilt } from '../ui/cardTilt'
+import type { CardTiltHandle } from '../ui/cardTilt'
 
 gsap.registerPlugin(useGSAP, Flip)
 

@@ -7,5 +7,5 @@
     // vite/client 提供 import './xx.css' 这类资源导入的类型声明。
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "test", "vite.config.ts"]
 }

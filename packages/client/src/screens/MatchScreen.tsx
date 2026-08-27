@@ -1,0 +1,62 @@
+/**
+ * 联机对局界面。
+ *
+ * driver 是房间页建好之后放进 MatchSession 的——放在路由之上才跨得过那次跳转。
+ * 直接刷新 /match 会读不到 driver（这局本来就不存盘），这时跳回首页。
+ */
+
+import { useEffect, useRef } from 'react'
+import { useLocation } from 'wouter'
+import { useMatchSession } from '../match/MatchSession'
+import { useMatch } from '../match/useMatch'
+import type { MatchDriver } from '../match/driver'
+import { MatchStage } from '../ui/MatchStage'
+import { recordWin } from '../save/save'
+
+export function MatchScreen() {
+  const [, navigate] = useLocation()
+  const { driver } = useMatchSession()
+
+  useEffect(() => {
+    if (!driver) navigate('/', { replace: true })
+  }, [driver, navigate])
+
+  if (!driver) return null
+  return <OnlineMatch driver={driver} />
+}
+
+function OnlineMatch({ driver }: { driver: MatchDriver }) {
+  const [, navigate] = useLocation()
+  const { end } = useMatchSession()
+  const view = useMatch(driver)
+  /** 一局只记一次胜场，否则结算界面每重渲染一次就多抽一张卡。 */
+  const recorded = useRef(false)
+
+  const won = view.status === 'finished' && view.state?.winner === view.seat
+  useEffect(() => {
+    if (!won || recorded.current) return
+    recorded.current = true
+    recordWin()
+  }, [won])
+
+  function leave(to: string): void {
+    end()
+    navigate(to)
+  }
+
+  return (
+    <MatchStage
+      driver={driver}
+      resultActions={
+        <>
+          <button type="button" onClick={() => leave('/room')}>
+            再来一局
+          </button>
+          <button type="button" onClick={() => leave('/')}>
+            回首页
+          </button>
+        </>
+      }
+    />
+  )
+}

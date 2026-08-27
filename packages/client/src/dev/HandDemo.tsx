@@ -3,7 +3,8 @@
  *
  * 这页不接规则引擎，只用占位数据把 HandFan 的各种边界跑一遍：
  * 0 张、1 张、20 张、动画播到一半再加减牌。
- * 中间那块虚线区是"战场"的占位——之后接真对局时，它就是真正的战场容器。
+ * 中间那块虚线区是"战场"的占位，同时也是拖拽出牌的落点区（把 ref 交给 HandFan）——
+ * 之后接真对局时，它就是真正的战场容器。
  */
 
 import { useRef, useState } from 'react'
@@ -71,6 +72,11 @@ function createCards(count: number): HandCardData[] {
 export function HandDemo() {
   const [hand, setHand] = useState<HandCardData[]>(() => createCards(INITIAL_HAND))
   const [board, setBoard] = useState<HandCardData[]>([])
+  /**
+   * 战场容器，一个 ref 两用：
+   * 既是下面那段倾斜跟随的 useGSAP scope（用来查场上的 tile），
+   * 也是交给 HandFan 的拖拽落点区——指针在它的矩形范围里松手才算打出。
+   */
   const boardRef = useRef<HTMLDivElement>(null)
   /**
    * 战场上每张小卡的倾斜跟随，按 tile 元素存着。
@@ -79,7 +85,7 @@ export function HandDemo() {
    */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
   /**
-   * 点击那一刻记下的卡牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。
+   * 松手那一刻记下的卡牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。
    * 连 id 一起存：手牌那个节点马上就没了，之后只能靠 id 去战场里找新元素。
    */
   const flipStateRef = useRef<{ state: Flip.FlipState; id: string } | null>(null)
@@ -106,7 +112,7 @@ export function HandDemo() {
   const handlePlay = (id: string) => {
     const card = hand.find((item) => item.id === id)
     if (!card) return
-    // 此刻手牌那张卡还在 DOM 里、还是放大的样子，正好当飞行的起点。
+    // 此刻手牌那张卡还在 DOM 里、还停在松手那一刻的拖拽位置，正好当飞行的起点。
     // 查询限定在 .hand-fan 里：战场上的小卡用的是同一套 data-flip-id，
     // 而且 .demo__board 在 DOM 里排在手牌前面，不限定的话将来"退回手牌"之类的
     // 复用场景会抓错元素。
@@ -203,7 +209,9 @@ export function HandDemo() {
       </div>
 
       <div className="demo__board" ref={boardRef}>
-        {board.length === 0 && <span className="demo__board-hint">战场占位区（点手牌打出）</span>}
+        {board.length === 0 && (
+          <span className="demo__board-hint">战场占位区（把手牌拖进来打出）</span>
+        )}
         {board.map((card) => (
           <div key={card.id} className="demo__tile" data-flip-id={card.id}>
             {/* tilt 层承接指针倾斜，tile 自己的 transform 留给 Flip 飞行，两层分开互不覆盖。 */}
@@ -217,7 +225,7 @@ export function HandDemo() {
         ))}
       </div>
 
-      <HandFan cards={hand} onPlay={handlePlay} />
+      <HandFan cards={hand} dropZoneRef={boardRef} onPlay={handlePlay} />
     </div>
   )
 }

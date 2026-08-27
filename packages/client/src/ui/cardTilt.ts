@@ -35,7 +35,8 @@ export interface CardTiltHandle {
   detach(): void
   /**
    * 立刻收手：倾斜快速转回 0、高光淡出。
-   * 打出卡牌时用——出牌被父组件拒绝的话卡还留在原地，不归零它会一直僵在倾斜的样子。
+   * 抓起牌开始拖拽时用——指针那时已经被 capture，等不到 pointerleave 自己来归零，
+   * 不归零就会拖着一张歪的牌满屏找落点。
    */
   reset(): void
 }
@@ -134,6 +135,13 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
     following = false
     fadeGlare?.(0)
     if (fast) {
+      // 归零之前必须先停掉跟随补间。跟随和归零写的是同一层的 rotationX / rotationY，
+      // 谁都没开 overwrite，所以两条补间会同时活着；而跟随长一倍多（0.35s vs 0.15s），
+      // 归零跑完被 GSAP 摘掉之后，还剩半程的跟随立刻把角度拉回它自己的目标并停在那，
+      // 画面上就是"先摆正一下、随即歪回去"，归零等于白做。
+      // 停了不用手动恢复：下一次 follow 调的 resetTo 开头就会把暂停的补间重新播放。
+      tiltX.tween.pause()
+      tiltY.tween.pause()
       // invalidate 是必需的：这条补间被复用，不清掉上一轮记下的起始角度，
       // 它会从上一次的角度开始转，而不是从现在这个角度。
       zeroTilt.invalidate().restart()

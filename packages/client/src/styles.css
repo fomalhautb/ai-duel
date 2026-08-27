@@ -383,8 +383,17 @@ body,
   /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。 */
   perspective: 1000px;
   pointer-events: auto;
-  cursor: pointer;
+  /* 出牌靠拖，光标也照着说：抓手而不是手指。 */
+  cursor: grab;
+  /* 拖拽全程按着鼠标在卡面上划，不禁掉选中的话会拖出一片蓝色选区。 */
+  user-select: none;
   will-change: transform;
+}
+
+/* 抓着的时候换成握拳。用 data 属性而不是 :active：pointerdown 里调了 preventDefault，
+   浏览器不一定还会给这个元素 :active 状态。这个属性由 HandFan 在拖拽期间打上。 */
+.hand-fan__slot[data-dragging='true'] {
+  cursor: grabbing;
 }
 
 /*
@@ -408,7 +417,8 @@ body,
  * 少了这条，翻面途中 150px 宽的卡面绕 Y 轴扫出前后各 ±75px 的深度，
  * 中途会扫到热区（挂在 tilt 上、不跟着翻）前面，在 preserve-3d 的三维命中测试里抢走指针：
  * 热区收到 pointerleave → 牌翻回去 → 卡面又扫回来触发 pointerenter → 指针明明没动，牌自己来回翻。
- * 卡面纯粹是画面：hover 和点击绑在 slot 上，翻面绑在热区上，没有任何交互要靠卡面接指针。
+ * 卡面纯粹是画面：hover 和拖拽（pointerdown / move / up）绑在 slot 上，翻面绑在热区上，
+ * 没有任何交互要靠卡面接指针。
  * 于是命中几何只剩 slot（一个固定矩形）和热区两处，谁都不会在动画中途变形，
  * 和扇形 hover 防抖那条「命中区域必须盖住原位、不能动」的原则是一回事。
  */
@@ -710,6 +720,23 @@ body,
   padding: 16px;
   border: 1px dashed #30363d;
   border-radius: 16px;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+/*
+ * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZone）：
+ * data-drop-ready 表示"手上正拖着一张牌"，把落点区标出来；
+ * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
+ */
+.demo__board[data-drop-ready='true'] {
+  border-color: rgb(56 189 248 / 45%);
+}
+
+.demo__board[data-drop-hot='true'] {
+  border-color: #38bdf8;
+  background: rgb(56 189 248 / 8%);
 }
 
 .demo__board-hint {

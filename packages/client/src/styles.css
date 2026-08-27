@@ -113,31 +113,81 @@ body,
   width: var(--card-w);
   height: var(--card-h);
   margin-left: calc(var(--card-w) / -2);
-  /* 3D 透视给内层的翻转用；父层自己只做 2D 变换，不受影响。 */
+  /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。 */
   perspective: 1000px;
   pointer-events: auto;
   cursor: pointer;
   will-change: transform;
 }
 
-.hand-fan__inner {
+/*
+ * 倾斜层：夹在扇形摆位（slot）和 3D 翻转（inner）中间，只写 rotationX / rotationY。
+ * 单开一层是因为倾斜和翻转都要动 rotationY，写在同一个元素上就是两边抢一个属性。
+ * preserve-3d 是必需的：少了它，翻转层会被压成一张平面图片再做倾斜，
+ * 翻到背面之后的立体感就没了。
+ * position 也不能去掉：问号的透明热区就挂在这一层里，靠它当绝对定位的基准
+ * （这里 inset: 0，和卡面同一个框，所以热区的 top / right 落在卡面右上角）。
+ */
+.hand-fan__tilt {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
 }
 
+/*
+ * 翻面层：只负责绕 Y 轴转 180° 把背面转过来。
+ *
+ * pointer-events: none 会顺着继承传给整棵卡面子树，让卡面彻底退出命中测试。
+ * 少了这条，翻面途中 150px 宽的卡面绕 Y 轴扫出前后各 ±75px 的深度，
+ * 中途会扫到热区（挂在 tilt 上、不跟着翻）前面，在 preserve-3d 的三维命中测试里抢走指针：
+ * 热区收到 pointerleave → 牌翻回去 → 卡面又扫回来触发 pointerenter → 指针明明没动，牌自己来回翻。
+ * 卡面纯粹是画面：hover 和点击绑在 slot 上，翻面绑在热区上，没有任何交互要靠卡面接指针。
+ * 于是命中几何只剩 slot（一个固定矩形）和热区两处，谁都不会在动画中途变形，
+ * 和扇形 hover 防抖那条「命中区域必须盖住原位、不能动」的原则是一回事。
+ */
+.hand-fan__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/*
+ * 正反两面。两层完全重叠，靠 opacity 互斥：同一时刻只有一面是 1，另一面是 0。
+ *
+ * 这里没有 backface-visibility，是故意的——Chrome 在逐帧补间期间对合成层的朝向判断不可靠，
+ * 翻面途中正面不消失、结束才闪一下（详见 HandFan.tsx 里 flipTo 的说明）。
+ * 翻面途中的切换由 flipTo 每帧按当前角度写 opacity 完成；下面这两条只管静止时的初始值，
+ * 不能指望 JS 首帧补上：牌还没翻过，正面就该是亮的。
+ */
 .hand-fan__face {
   position: absolute;
   inset: 0;
-  /* 转过去之后不显示自己的背面，正反两面才不会叠在一起。 */
-  backface-visibility: hidden;
+}
+
+.hand-fan__face--front {
+  opacity: 1;
 }
 
 .hand-fan__face--back {
   transform: rotateY(180deg);
+  opacity: 0;
 }
 
-/* 问号：默认藏起来，只有卡牌被放大时才淡入（由 GSAP 的 autoAlpha 控制）。 */
+/*
+ * 问号分成两个元素：这里是**只管交互的透明热区**，看得见的圆圈是下面的 .hand-fan__help-mark。
+ *
+ * 拆开是因为两者对翻面的要求正好相反：圆圈必须跟着卡翻过去（不然翻到背面它还端端正正
+ * 贴在原处），而热区绝对不能翻——热区跟着转的话，牌一翻到背面按钮就转到了指针够不着的
+ * 地方，pointerleave 立刻把牌翻回正面，翻回来又被 hover 到，来回抖个没完。
+ * 所以热区留在 .hand-fan__tilt 里（只跟倾斜），位置和尺寸都不动，指针始终停在触发区内。
+ *
+ * 默认藏起来，只有卡牌被放大时才和那两个圆圈一起淡入（GSAP 的 autoAlpha）。
+ * autoAlpha 到 0 会把 visibility 也关掉，于是没放大的牌上这块热区不吃指针事件。
+ *
+ * 不用把它沿 Z 轴抬起来跟卡面抢命中：整棵卡面已经 pointer-events: none
+ * （见 .hand-fan__inner），翻面途中卡面扫到热区前面也抢不走指针。
+ */
 .hand-fan__help {
   position: absolute;
   top: 8px;
@@ -146,13 +196,42 @@ body,
   width: 22px;
   height: 22px;
   padding: 0;
+  border: 0;
+  background: none;
+  cursor: help;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/*
+ * 看得见的那个问号圆圈：纯展示，pointer-events: none，交互全归上面那块透明热区。
+ * 正反两面各放一个，都在 .hand-fan__inner 里面，所以倾斜和翻面都会带着它一起转。
+ *
+ * z-index 是为了盖在卡面内容之上：它和卡面（.card-face / .card-back 里的东西）是兄弟或
+ * 同层节点，不抬一下会被卡面的背景压住。所在的 .hand-fan__face 本身不是 preserve-3d，
+ * 这一层里按普通的 2D 层叠算，不需要 translateZ。
+ *
+ * 不用给它写 backface-visibility：翻面时该显示哪一面由 .hand-fan__face 那层的 opacity 决定，
+ * 圆圈跟着所在的面一起隐藏。以前这里补过一份，是因为 absolute + z-index 会让浏览器
+ * 把它提成独立图层、逃出 face 的拍扁，翻过去之后正面这个问号会镜像漏在背面左上角；
+ * 现在正面整层的 opacity 就是 0，漏不出来，反而是留着那份会和 opacity 打架闪烁。
+ */
+.hand-fan__help-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
   border: 1px solid #38bdf8;
   border-radius: 50%;
   background: rgb(13 17 23 / 85%);
   color: #38bdf8;
   font-size: 13px;
   line-height: 1;
-  cursor: help;
+  pointer-events: none;
   opacity: 0;
   visibility: hidden;
 }
@@ -172,6 +251,9 @@ body,
   background: linear-gradient(160deg, #1b2430 0%, #11161d 60%, #0d1117 100%);
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
+  /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
+     （相邻的牌、战场底色）当混合底，高光会溢出卡面边缘。 */
+  isolation: isolate;
 }
 
 .card-face--model {
@@ -234,6 +316,7 @@ body,
 }
 
 .card-back {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -244,6 +327,9 @@ body,
   border-radius: 12px;
   background: linear-gradient(160deg, #101922 0%, #0d1117 100%);
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+  /* 和 .card-face 一样：裁掉高光层溢出的部分，并把混合关在这张卡里面。 */
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .card-back__title {
@@ -257,6 +343,42 @@ body,
   color: #9ca3af;
   font-size: 11px;
   line-height: 1.6;
+}
+
+/*
+ * 跟着指针跑的微高光，模拟卡牌覆膜的那一小块反光。
+ *
+ * 圆心落在指针的**镜像位置**，不是指针底下：指针把卡按下去，翘向观察者、正对光源的是
+ * 对角那一块，所以最亮的在那儿（方向和倾斜是一套物理模型，见 cardTilt.ts）。
+ *
+ * --glare-x / --glare-y 由 cardTilt.ts 写在外层（slot 或 tile）上，靠继承传到这里；
+ * 没人写的时候退回卡面中央，配上默认的 opacity: 0，这一层就完全不存在。
+ * 淡入淡出交给 GSAP 改 opacity，不用 CSS transition：卡上的动画统一归 GSAP 管，
+ * 两边一起改同一个属性会互相打断。
+ *
+ * 混合模式选 soft-light 而不是 overlay：卡面底色很深（≈#11161d），
+ * overlay 在深色底上只是把原亮度翻一倍，仍然是黑的，高光几乎看不见；
+ * soft-light 会把深色往上提一截，更接近覆膜那种"哑光反光"。
+ */
+.card-glare {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: soft-light;
+  /* 半径必须写死。不写的话默认是 farthest-corner——半径跟着指针到最远那个角的距离变，
+     指针从卡中心挪到卡角，这块反光会一路胀到两倍大再糊满半张卡，不像一块跟着滑动的反光。
+     200px 是照着"想要多大一块反光"直接定的，比卡面对角线的一半（≈129px）还大一截，
+     所以指针挪到任何一角，渐变都还没衰减完就已经出了卡面，边缘不会被切出一道亮圈。
+     中间那道色标同时从 16% 压到 12%：面积翻了两倍多，不压一下整张卡会被提亮成一片，
+     就不是"覆膜上的一小块反光"了。最亮的核心仍是 40%，不然会从反光变成发光。 */
+  background: radial-gradient(
+    circle 200px at var(--glare-x, 50%) var(--glare-y, 50%),
+    rgb(255 255 255 / 40%) 0%,
+    rgb(255 255 255 / 12%) 22%,
+    rgb(255 255 255 / 0%) 60%
+  );
 }
 
 /* ---------- 手牌演示页 ---------- */
@@ -334,9 +456,23 @@ body,
   position: relative;
   width: var(--tile-w);
   height: var(--tile-h);
+  /* 3D 透视给里面的倾斜层用。数值按卡宽等比缩小（大卡 150px 配 1000px，小卡 110px 约 700px），
+     这样大小两种卡在同样的倾角下"凸出来"的程度看着一致。 */
+  perspective: 700px;
+}
+
+/*
+ * 战场小卡的倾斜层。tile 自己的 transform 留给 Flip 飞行，倾斜只写在这一层。
+ *
+ * 裁剪（overflow + border-radius）也放在这里而不是 tile 上：这一层跟着卡一起倾斜，
+ * 裁切边就跟着一起转；留在 tile 上的话，倾斜时卡角会被一条不动的直边削掉。
+ * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
+ * 不裁掉溢出的部分会把整页撑出滚动条。
+ */
+.demo__tile-tilt {
+  position: absolute;
+  inset: 0;
   border-radius: 9px;
-  /* 里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来；
-     不裁掉的话它溢出的部分会把整页撑出滚动条。 */
   overflow: hidden;
 }
 

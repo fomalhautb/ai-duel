@@ -13,9 +13,10 @@
  * 必须在 useGSAP 的 context 里调用（Flip 的 onComplete 要用 contextSafe 包一层），
  * 否则这里建的补间不归 context 管，组件卸载时 revert 不掉。
  *
- * 注意：眼下没有任何页面调用它。原来调用它的 /dev/hand 演示页已经删掉，
- * MatchStage 的出牌流程还没接上场特效。类名已经从演示页的 .demo__* 换成对局界面的
- * .battle__*，接的时候战场那边补上 .battle__tile-edge / .battle__smoke-layer 两个节点即可。
+ * 调用方是 MatchStage 里两段落场飞行的 onComplete：我方从手牌飞到战场那段，
+ * 以及对方的牌强制展示完从展示位飞到战场那段。它依赖战场里的两个节点——
+ * 每张小卡内的 .battle__tile-edge（追光）和战场容器里的 .battle__smoke-layer（烟尘），
+ * 少了哪个就只是少播对应的一样，不会报错。
  */
 
 import gsap from 'gsap'

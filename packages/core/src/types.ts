@@ -170,6 +170,11 @@ export type GameEvent =
       type: 'PROMPT_RESOLVED'
       player: PlayerId
       cardId: CardId
+      /**
+       * 打出的那张手牌的实例 id。
+       * 客户端靠它在对手手牌里定位起飞的那张牌（对手出牌要从他手里飞到屏幕中央展示）。
+       */
+      instanceId: InstanceId
       weakness: WeaknessKind
       /** 命中的模型；打本体时为 null。 */
       targetInstanceId: InstanceId | null

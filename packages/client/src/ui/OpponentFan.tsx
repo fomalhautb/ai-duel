@@ -15,9 +15,10 @@
  * 对手的牌本来就不该让玩家看清楚，放大和翻面都无从谈起；
  * 只留一点朝屏幕中心的抬起，表示这张牌是可以点的。
  *
- * 注意：眼下没有任何页面用它。原来渲染它的 /dev/hand 演示页已经删掉，
- * 对局界面（MatchStage）现在用的是自己那条简化的对方手牌条（.battle__foe-hand），
- * 还没换成这个倒扇形。留着是等对局界面来接。
+ * 正式对局（MatchStage）把它渲染成恒 disabled 的一排：玩家点不动对手的手牌，
+ * 这排扇形只干两件事——显示对手有几张牌，以及当对手出牌时强制展示的起飞点
+ * （靠每张 slot 上的 data-flip-id 对号，见 MatchStage 的 startReveal）。
+ * 能点的那条路眼下没有调用方，留着是因为它是这个组件本来的交互形态。
  */
 
 import { useEffect, useRef } from 'react'
@@ -182,7 +183,8 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
   })
 
   return (
-    <div className="opponent-fan" ref={rootRef}>
+    // data-disabled 只影响光标形状（见 styles.css）：点不动的牌不该给手指光标。
+    <div className="opponent-fan" ref={rootRef} data-disabled={disabled ? 'true' : undefined}>
       {cards.map((card) => (
         <div
           key={card.id}

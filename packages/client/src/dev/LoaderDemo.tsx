@@ -38,7 +38,7 @@ export function LoaderDemo() {
     <div className="loader-demo">
       <section className="loader-demo__hero">
         <CardLoader />
-        <p className="loader-demo__hint">加载中…</p>
+        <p className="page-loader__text">加载中…</p>
       </section>
 
       <section>

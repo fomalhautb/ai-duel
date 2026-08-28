@@ -224,11 +224,18 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 ```
 
 后三个是开发页，直接敲地址进，正式流程里没有入口；首页角落的 dev 区留了几个快捷方式。
-`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 是要给真实加载场景用的
-（`index.html` 的首屏 loader 已经是同一套视觉），短路径方便随手打开对着调，
-也方便之后直接拿它当「正在加载」的空页。
+`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 就是真实加载场景在用的那一套：
+`index.html` 的首屏 loader 和首页等图时的整屏加载页（`ui/LoadingScreen.tsx`）都是同一副样子，
+短路径方便随手打开对着调。
 
 首页的**「开始游戏」**直接进匹配房，没有分流——教程还没做（见 5.3）。
+
+首页那张画是十几张整幅切图叠出来的，加起来约 2.5MB。这些图**全部**加载完之前首页不上场，
+中途只显示加载动画，免得玩家看着夜空、人物、桌子、道具一层层往上冒。
+两头各做了一件事：`index.html` 里给这些图写了 `<link rel="preload">`，下载和 JS bundle 并行；
+`HomeScreen` 用 `ui/preloadAssets.ts` 的 `useAssetsReady` 等它们解码完（顺带等字体，
+免得标题先用兜底宋体画一遍再跳）。等待有 10 秒超时兜底，图取不到也进得去首页。
+`index.html` 那份清单和 `HomeScreen` 里的 `HOME_ASSETS` 要对得上——两边都改，或者都不改。
 
 `/design` 把纸张、图标、卡牌、卡背这些视觉元件连同"为什么调成这个值"的说明摆在一页上，
 用的就是 `src/ui/paper` 下的正式组件，所以组件改坏了这一页第一个看得出来。
@@ -522,7 +529,8 @@ packages/client/
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
     HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
-                              角落 dev 区有测试对局 / 加载动画 / 重置存档
+                              角落 dev 区有测试对局 / 加载动画 / 重置存档；
+                              整页的图先加载完再一次性亮出来，之前只显示加载动画
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
@@ -550,6 +558,8 @@ packages/client/
     playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份（暂无调用方）
     cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
+    LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
+    preloadAssets.ts          等一批图片（和字体）就绪的 useAssetsReady，带超时兜底，绝不卡死
     BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
                               （除「对战」外都还没有对应页面，是占位）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层

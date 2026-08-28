@@ -12,7 +12,7 @@
  * 压在卡牌上面的那三层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
  * 人物抠图还没做，先用方块占住位置，下半截被桌面弧和道具挡掉正是设计稿里的效果。
  *
- * 功能上仍然只有"一键开始"的分流：教程没通关完就接着打教程，通关完了直接进匹配房。
+ * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
  */
 
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -25,7 +25,6 @@ import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { loadSave, resetSave } from '../save/save'
-import { TUTORIAL_LEVEL_COUNT } from '../tutorial/levels'
 
 gsap.registerPlugin(useGSAP)
 
@@ -141,19 +140,10 @@ const CAST: Array<{ id: string; left: number; top: number; width: number; height
 
 export function HomeScreen() {
   const [, navigate] = useLocation()
-  // 进这个界面时读一次就够：任何会改存档的操作（打教程、赢一局）都在别的界面，
-  // 回到首页时组件会重新挂载，自然读到新的。
-  const [save, setSave] = useState(loadSave)
+  // 首页现在不展示任何存档数据，留着 state 只是为了"重置存档"后触发一次重渲染。
+  const [, setSave] = useState(loadSave)
   const stageRef = useRef<HTMLDivElement>(null)
   const cardsRef = useRef<HTMLDivElement>(null)
-
-  const tutorialDone = save.tutorialDone
-  const nextLevel = Math.min(tutorialDone + 1, TUTORIAL_LEVEL_COUNT)
-  const finishedTutorial = tutorialDone >= TUTORIAL_LEVEL_COUNT
-
-  function handleStart(): void {
-    navigate(finishedTutorial ? '/room' : `/tutorial/${nextLevel}`)
-  }
 
   // 卡面里的字号、内边距全是写死的像素，只能整张按比例缩。
   // 而 scale() 只吃无单位数字，CSS 里又没法把 cqi 换算成数字，所以这个比例只能在这儿量。
@@ -300,10 +290,8 @@ export function HomeScreen() {
           </span>
         </p>
 
-        <button type="button" className="home__start" onClick={handleStart}>
-          <span className="home__start-label">
-            {finishedTutorial ? '开始对战' : tutorialDone === 0 ? '开始游戏' : `继续教程（第 ${nextLevel} 关）`}
-          </span>
+        <button type="button" className="home__start" onClick={() => navigate('/room')}>
+          <span className="home__start-label">开始游戏</span>
         </button>
 
         {/*

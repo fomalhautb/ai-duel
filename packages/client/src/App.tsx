@@ -11,7 +11,6 @@
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { HomeScreen } from './screens/HomeScreen'
-import { TutorialScreen } from './screens/TutorialScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { HandDemo } from './dev/HandDemo'
@@ -21,9 +20,6 @@ export function App() {
     <MatchSessionProvider>
       <Switch>
         <Route path="/" component={HomeScreen} />
-        <Route path="/tutorial/:level">
-          {(params) => <TutorialScreen level={Number(params.level)} />}
-        </Route>
         <Route path="/room" component={RoomScreen} />
         <Route path="/match" component={MatchScreen} />
         {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}

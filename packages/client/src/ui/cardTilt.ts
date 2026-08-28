@@ -52,6 +52,24 @@ const RESET_DUR = 0.15
 const GLARE_FADE = 0.2
 const DEFAULT_MAX_TILT = 6
 
+/**
+ * 缓存的元素矩形最多用多久（毫秒），过期就重读一次。
+ *
+ * 选 120ms 是拿"最短的一段会让 rect 变化的动画"来卡的：手牌 hover 放大是 0.28s，
+ * 期间最多用到 120ms 前的旧尺寸，算出来的位置比例偏差和下面 onMove 注释里
+ * 说的"卡还没转正"是同一量级，看不出来。
+ */
+const RECT_MAX_AGE_MS = 120
+
+/**
+ * 高光位置写进 CSS 变量前量化到的步长（百分比）。
+ *
+ * 0.5% 在放大后约 285px 宽的卡上不到 1.5px，而高光是个 400px 半径的软渐变，
+ * 挪这么点距离肉眼分辨不出来；换来的是指针亚像素抖动时整条
+ * "样式失效→渐变重画→混合"的链路可以直接不跑。
+ */
+const GLARE_STEP = 0.5
+
 const NOOP_HANDLE: CardTiltHandle = { detach() {}, reset() {} }
 
 /**
@@ -74,8 +92,36 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
 
   // 高光位置走 CSS 变量，不进补间：它得和指针一样跟手（只是位置取的是镜像点），
   // 插值反而会糊。
-  const setGlareX = gsap.quickSetter(el, '--glare-x', '%') as (value: number) => void
-  const setGlareY = gsap.quickSetter(el, '--glare-y', '%') as (value: number) => void
+  //
+  // 变量直接写在 .card-glare 这些叶子节点上，不写在 el（slot / tile）上靠继承往下传：
+  // 自定义属性是可继承的，写在祖先上等于宣告整棵子树（一张卡约十几个节点）的样式全部作废、
+  // 每个节点都要重算一遍，而指针每移动一次就要写一次。写在叶子上只作废这一两个高光节点。
+  const setGlarePos =
+    glares.length > 0
+      ? {
+          x: gsap.quickSetter(glares, '--glare-x', '%') as (value: number) => void,
+          y: gsap.quickSetter(glares, '--glare-y', '%') as (value: number) => void,
+        }
+      : null
+
+  /** 上一次真正写下去的高光位置（已量化）。NaN 表示还没写过，第一次一定会写。 */
+  let lastGlareX = Number.NaN
+  let lastGlareY = Number.NaN
+
+  /**
+   * 把高光位置量化后写进 CSS 变量；量化后和上次一样就整个跳过。
+   * 没有高光层时什么都不做，调用方不用判空。
+   */
+  const writeGlare = (x: number, y: number) => {
+    if (setGlarePos === null) return
+    const stepX = Math.round(x / GLARE_STEP) * GLARE_STEP
+    const stepY = Math.round(y / GLARE_STEP) * GLARE_STEP
+    if (stepX === lastGlareX && stepY === lastGlareY) return
+    lastGlareX = stepX
+    lastGlareY = stepY
+    setGlarePos.x(stepX)
+    setGlarePos.y(stepY)
+  }
 
   let tiltX!: gsap.QuickToFunc
   let tiltY!: gsap.QuickToFunc
@@ -109,6 +155,14 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
   /** 当前是否正在跟随。用它挡住重复的淡入淡出，免得高光每帧都重新开始淡入。 */
   let following = false
   /**
+   * 等高光淡完之后摘掉 data-glare 的定时器（null 表示当前没有排队的摘除）。
+   *
+   * 不用 GSAP 的补间回调：quickTo 每次改目标值走的是 resetTo 重启这条路，
+   * 实测（gsap 3.15）这条路径不会触发 onComplete——值正常跑完，回调一次都不来，
+   * 于是属性永远摘不掉。所以退回到平台自己的定时器来计时。
+   */
+  let removeGlareTimer: ReturnType<typeof setTimeout> | null = null
+  /**
    * 下一次跟随要不要先读一遍元素上真实的角度。
    *
    * quickTo 默认拿"它自己补间到哪了"当起点，而 zeroTilt 是另一条补间，
@@ -116,6 +170,10 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
    * 归零之后打上这个标记，下一次跟随显式把当前角度当起点，就接得上了。
    */
   let needsResync = true
+
+  /** 上一次读到的 el 矩形，和读它的时刻（performance.now 的毫秒数）。 */
+  let cachedRect: DOMRect | null = null
+  let cachedRectAt = 0
 
   const follow = (rotationX: number, rotationY: number) => {
     if (needsResync) {
@@ -134,6 +192,19 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
     if (!following && !fast) return
     following = false
     fadeGlare?.(0)
+    // 等淡出跑完再摘 data-glare，不在这里立刻摘：还没淡完的高光一旦失去 soft-light，
+    // 会当场变成普通的白色半透明叠加、亮度跳一下，看着就是消失前先闪一下。
+    // 多等的 100ms 是给淡出补间掉帧时留的余量。晚一点摘没有代价：
+    // 回调跑的时候高光早就看不见了，摘这一下只是把混合模式关掉。
+    // 没有高光层时没有属性要摘，也就不用排这个定时器。
+    if (glares.length > 0) {
+      if (removeGlareTimer !== null) clearTimeout(removeGlareTimer)
+      removeGlareTimer = setTimeout(() => {
+        removeGlareTimer = null
+        // 这段时间里指针可能又回到卡上了，那就别摘。
+        if (!following) el.removeAttribute('data-glare')
+      }, GLARE_FADE * 1000 + 100)
+    }
     if (fast) {
       // 归零之前必须先停掉跟随补间。跟随和归零写的是同一层的 rotationX / rotationY，
       // 谁都没开 overwrite，所以两条补间会同时活着；而跟随长一倍多（0.35s vs 0.15s），
@@ -156,26 +227,49 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       settle(false)
       return
     }
-    // 祖先有缩放时 rect 已经是缩放后的值，按比例算出来的仍是卡面上的相对位置，不用额外换算。
+    // 矩形是缓存着用的，不是每次移动都量。
+    //
+    // 上一帧 GSAP 刚往这棵子树里写过 transform，紧接着调 getBoundingClientRect 就是
+    // "写→读→写"：浏览器为了给出准确答案必须当场把样式和布局全算完，帧时间大半耗在这一步。
+    // 所以只有两种时候才真去量：刚开始跟随的那一次（位置可能整个变了），
+    // 以及缓存超过 RECT_MAX_AGE_MS。稳态 hover 下 slot 的位置尺寸根本不动，缓存一直是准的。
+    //
+    // 即便量到的是"过期"的矩形，误差也在这里本来就接受的范围内：
+    // 祖先有缩放时 rect 已经是缩放后的值，按比例算出来的仍是卡面上的相对位置，不用额外换算；
     // 祖先有旋转时 rect 会变成外接矩形、比例就偏小。手牌是有这么一小段的：hover 的头几帧
     // 卡还在往正位转（HandFan 里 0.28s 的回正补间，最外侧那张起手 20°，
     // 外接矩形约有卡宽的 1.4 倍），这期间指针压在卡边缘只算得出 0.7 上下的比例。
     // 倾斜幅度本来就只有十度上下，这一小会儿的偏差看不出来，所以不为此推迟启用；
     // opts.enabled 挡的是"根本没被放大的那些牌"，不是"还没转正的那几帧"。
-    const rect = el.getBoundingClientRect()
+    const now = performance.now()
+    if (cachedRect === null || !following || now - cachedRectAt > RECT_MAX_AGE_MS) {
+      cachedRect = el.getBoundingClientRect()
+      cachedRectAt = now
+    }
+    const rect = cachedRect
     if (rect.width === 0 || rect.height === 0) return
     const ratioX = (event.clientX - rect.left) / rect.width
     const ratioY = (event.clientY - rect.top) / rect.height
 
     if (!following) {
       following = true
+      // 打开高光那一层的 mix-blend-mode，只在跟随期间开着（见 styles.css 的 [data-glare='on']）：
+      // 非 normal 的混合模式会让 WebKit 无条件给元素单独提一层、每帧离屏合成，
+      // 满屏二十张牌就是四十层常驻开销，而不跟随时高光 opacity 是 0，本来就看不见。
+      //
+      // 先撤掉上一轮排着的摘除：指针离开又马上回来时，那个定时器还在倒计时，
+      // 让它跑到就会把刚打开的属性摘掉。
+      if (removeGlareTimer !== null) {
+        clearTimeout(removeGlareTimer)
+        removeGlareTimer = null
+      }
+      el.setAttribute('data-glare', 'on')
       fadeGlare?.(1)
     }
     // 高光放在指针的镜像位置（对角），不是指针底下。
     // 配合下面的倾斜方向：指针把卡按下去，翘起来正对观察者、也正对光源的是对角那一块，
     // 最亮的自然就是它。两者是同一个物理模型的两半，改一边就得改另一边。
-    setGlareX((1 - ratioX) * 100)
-    setGlareY((1 - ratioY) * 100)
+    writeGlare((1 - ratioX) * 100, (1 - ratioY) * 100)
     // 倾斜方向：指针在哪边，哪边就往屏幕里陷下去，像用手指把卡牌那一角按住往下按。
     // 反过来（指针那一角朝观察者抬起）也做过，用户实际体验后确认按下去这版手感更对。
     // 符号：正的 rotationX 让上沿往后倒、正的 rotationY 让右沿往后倒，
@@ -198,6 +292,12 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       el.removeEventListener('pointerleave', onLeave)
       el.removeEventListener('pointercancel', onLeave)
       following = false
+      // 摘除的定时器要是还排着，回调会去碰一个已经卸载的元素，所以撤掉它、这里直接摘。
+      if (removeGlareTimer !== null) {
+        clearTimeout(removeGlareTimer)
+        removeGlareTimer = null
+      }
+      el.removeAttribute('data-glare')
       // 卸载路径上不留补间：这几条补间的目标元素马上就要离开文档，
       // 让它们继续跑就是在改一个没人看的节点。直接杀掉再把值写死。
       ctx.kill()

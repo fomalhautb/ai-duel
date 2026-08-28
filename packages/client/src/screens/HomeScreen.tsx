@@ -14,6 +14,8 @@
  * 而地球仪、望远镜这些道具又摆在桌沿上。
  * 压在卡牌上面的那几层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
  *
+ * 整页的图会先全部加载完再一次性亮出来，中途只显示加载动画（见下面的 HomeScreen）。
+ *
  * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
  */
 
@@ -27,6 +29,9 @@ import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
+import { placeholderArtFor } from '../ui/cardArt'
+import { LoadingScreen } from '../ui/LoadingScreen'
+import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -147,7 +152,43 @@ const CAST = [
   'cast-right-front',
 ] as const
 
+/**
+ * 首页要用到的全部图片：舞台各层 + 匾额按钮的背景图 + 四张展示卡的插画。
+ * 全部加载完之前首页不上场（见紧跟其后的 HomeScreen）。
+ *
+ * 卡面插画走 placeholderArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
+ * 四张卡有两张会分到同一张图，Set 去重一下，别为同一个地址排两次队。
+ *
+ * index.html 里给 /home/ 下这几张写了 <link rel="preload">，那份清单要跟这里对得上：
+ * 少写了只是晚一点开始下载，多写了会白下一张用不上的图。
+ */
+const HOME_ASSETS = Array.from(
+  new Set([
+    '/home/home-bg.jpg',
+    ...CAST.map((figure) => `/home/${figure}.webp`),
+    '/home/home-table.png',
+    '/home/home-props.png',
+    // 匾额是「开始游戏」按钮的 CSS 背景图（见 styles.css 的 .home__start），
+    // 页面里没有对应的 <img>，但同样得等它，否则按钮会先空着一块。
+    '/home/home-plaque.png',
+    ...SEATS.map((seat) => placeholderArtFor(seat.card.id)),
+  ]),
+)
+
+/**
+ * 首页的加载闸门。
+ *
+ * 图没齐就只显示加载动画，不显示半张画面。做成两个组件而不是在一个组件里写条件渲染，
+ * 是因为下面 HomeStage 的 GSAP 绑定和量卡牌缩放的 ResizeObserver 都只在挂载时跑一次，
+ * 必须等真实 DOM 就位再挂；同一个组件里"先渲染 loader 再切成首页"的话，
+ * 那些 effect 会在没有 DOM 的第一帧就跑掉，之后不会再补跑。
+ */
 export function HomeScreen() {
+  const ready = useAssetsReady(HOME_ASSETS)
+  return ready ? <HomeStage /> : <LoadingScreen />
+}
+
+function HomeStage() {
   const [, navigate] = useLocation()
   // 首页在 MatchSessionProvider 里面，所以 dev 入口可以直接建一局测试对局再跳过去。
   const session = useMatchSession()

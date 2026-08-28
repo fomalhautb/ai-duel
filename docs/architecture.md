@@ -224,11 +224,18 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 ```
 
 后三个是开发页，直接敲地址进，正式流程里没有入口；首页角落的 dev 区留了几个快捷方式。
-`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 是要给真实加载场景用的
-（`index.html` 的首屏 loader 已经是同一套视觉），短路径方便随手打开对着调，
-也方便之后直接拿它当「正在加载」的空页。
+`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 就是真实加载场景在用的那一套：
+`index.html` 的首屏 loader 和首页等图时的整屏加载页（`ui/LoadingScreen.tsx`）都是同一副样子，
+短路径方便随手打开对着调。
 
 首页的**「开始游戏」**直接进匹配房，没有分流——教程还没做（见 5.3）。
+
+首页那张画是十几张整幅切图叠出来的，加起来约 2.5MB。这些图**全部**加载完之前首页不上场，
+中途只显示加载动画，免得玩家看着夜空、人物、桌子、道具一层层往上冒。
+两头各做了一件事：`index.html` 里给这些图写了 `<link rel="preload">`，下载和 JS bundle 并行；
+`HomeScreen` 用 `ui/preloadAssets.ts` 的 `useAssetsReady` 等它们解码完（顺带等字体，
+免得标题先用兜底宋体画一遍再跳）。等待有 10 秒超时兜底，图取不到也进得去首页。
+`index.html` 那份清单和 `HomeScreen` 里的 `HOME_ASSETS` 要对得上——两边都改，或者都不改。
 
 `/design` 把纸张、图标、卡牌、卡背这些视觉元件连同"为什么调成这个值"的说明摆在一页上，
 用的就是 `src/ui/paper` 下的正式组件，所以组件改坏了这一页第一个看得出来。
@@ -395,12 +402,32 @@ GSAP 接管一层的 transform 之后会往内联样式里写死 `translate/rota
 | 手牌 | 战场小卡 | 负责 |
 |---|---|---|
 | `.hand-fan__slot` | `.battle__tile` | 摆位：扇形的 x / y / rotation / scale；小卡这边是 Flip 飞行 |
-| `.hand-fan__tilt` | `.battle__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY（小卡的 hover 放大也在这一层） |
+| `.hand-fan__tilt` | `.battle__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY（手牌这一层还挂着 `zoom`，见下；小卡的 hover 放大也在这一层） |
 | `.hand-fan__inner` | — | 翻到背面的 3D 翻转：rotationY 180° |
 | — | `.battle__tile-inner` | 写死在 CSS 里的一条 `scale`，把整张 150×210 的卡面缩到小卡尺寸 |
 
 战场小卡多出来的那一层是为了**整张卡等比缩小**，而不是重画一套小卡面：
 卡面组件（`HandCardFace`）和手牌共用同一份，字号内边距全按大卡写死，缩放交给这一层。
+
+**手牌的 hover 放大不能靠 transform 撑大**，否则放大后的卡面是糊的。
+Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整棵子树栅格化成一张贴图，
+再把贴图贴到三维平面上。倾斜一生效（实测 0.3° 就够），靠外层 `scale` 放大的卡就是
+那张 150×210 的贴图被拉伸 1.9 倍，字和插画都发虚。
+
+所以手牌反过来做：`.hand-fan__slot` 的盒子直接按放大到顶的尺寸布局
+（`--card-w/--card-h` 乘 `--hand-card-zoom`），`.hand-fan__tilt` 用 `zoom` 把卡面内部那套
+照 150×210 写死的 px 一起放大成真实布局，静置时再由 slot 的 `scale` 缩回去
+（`HandFan` 的 `slotScale`：传进去的是"想让人看到多大"，出来的是写给 GSAP 的值）。
+于是放大到顶那一刻卡面的 `scale` 正好是 1，按 285×399 排版也按这个尺寸栅格化。
+
+两个配套约束：
+
+- `--hand-card-zoom` 由 `HandFan` 写在 `.hand-fan` 上，值就是 `HOVER_SCALE`
+  （按扇形最大倾角算出来的，见 5.6），CSS 里不能再写死一份。
+- `zoom` 只能落在倾斜层或更里面。slot 上的 `x / y` 平移会被 `zoom` 乘一遍，
+  扇形摆位的坐标就全错位了；倾斜层上 GSAP 只写角度，才轮得到它。
+  同理，扇形几何（`fanMath` 的 `CARD_WIDTH/CARD_HEIGHT`、拖拽跟随的偏移）
+  用的一律是**显示尺寸**那套口径，和 slot 盒子实际有多大无关。
 它必须独立于上面两层——`scale` 混进 Flip 飞行那一层会被飞行补间覆盖掉，
 混进倾斜层则会被 cardTilt 每帧写的旋转覆盖掉。
 
@@ -555,7 +582,8 @@ packages/client/
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
     HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
-                              角落 dev 区有测试对局 / 加载动画 / 重置存档
+                              角落 dev 区有测试对局 / 加载动画 / 重置存档；
+                              整页的图先加载完再一次性亮出来，之前只显示加载动画
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
@@ -584,6 +612,8 @@ packages/client/
     playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份
     cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
+    LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
+    preloadAssets.ts          等一批图片（和字体）就绪的 useAssetsReady，带超时兜底，绝不卡死
     BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
                               （除「对战」外都还没有对应页面，是占位）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层

@@ -604,12 +604,12 @@ function HomeStage() {
         </button>
 
         {/*
-          英雄 / 牌组 / 图鉴还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
-            英雄
+            图鉴
           </span>
           <Sparkle className="home__nav-dot" />
           <span className="home__nav-item" title="敬请期待">
@@ -617,7 +617,7 @@ function HomeStage() {
           </span>
           <Sparkle className="home__nav-dot" />
           <span className="home__nav-item" title="敬请期待">
-            图鉴
+            信息
           </span>
         </nav>
 
@@ -654,7 +654,7 @@ function HomeStage() {
           aria-hidden 是有意的：整块内容只有 hover 得到的人看得见，读屏和键盘用户本来就到不了，
           留在无障碍树里只会变成一段没有上下文、还会随指针来回出现的游离文字。
           TODO：角色文案从占位换成真设定之后，这些信息就不能只挂在 hover 上了，
-          得另给一个可聚焦、触屏也点得到的入口（比如"英雄"页），那时再把这里接进无障碍树。
+          得另给一个可聚焦、触屏也点得到的入口（比如"图鉴"页），那时再把这里接进无障碍树。
         */}
         {castPanel !== null && (
           <aside

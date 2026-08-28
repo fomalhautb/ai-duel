@@ -1297,7 +1297,6 @@ body:has(.battle) {
   position: relative;
   z-index: 70;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto minmax(170px, 1fr);
   align-items: stretch;
   min-width: 0;
   border-bottom: 0;
@@ -1326,13 +1325,8 @@ body:has(.battle) {
   pointer-events: none;
 }
 
-/* 空占位：撑住三栏网格的左列宽度，让中间那块保持视觉居中（见 BattleTopBar.tsx 里的说明） */
-.battle-topbar__brand {
-  min-width: 0;
-}
-
 /*
- * 顶栏正中的「第几轮 + 比分」。
+ * 顶栏正中的「第几轮 + 比分」，也是顶栏里唯一的一块，铺满整条顶栏后靠自身居中。
  * 用 grid 而不是 flex：两块字号差得多（比分数字 30px、轮次 18px），要按基线对齐才不歪，
  * 而 flex 的 align-items: baseline 会把整行顶到顶栏上沿；grid 的 align-content 和
  * align-items 各管一件事，才能同时做到「整块垂直居中」和「块之间按基线对齐」。
@@ -1399,43 +1393,6 @@ body:has(.battle) {
   color: var(--battle-ink-muted);
   font-size: 22px;
   letter-spacing: normal;
-}
-
-.battle-topbar__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 18px;
-  padding-right: clamp(20px, 2.4vw, 38px);
-}
-
-.battle-topbar__icon-button {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 40px;
-  padding: 3px;
-  border: 0;
-  background: transparent;
-  color: #555761;
-  cursor: pointer;
-  transition: color 160ms ease, transform 160ms ease;
-}
-
-.battle-topbar__icon-button:hover {
-  color: #242b3d;
-  transform: translateY(-1px);
-}
-
-.battle-topbar__icon-button svg {
-  width: 28px;
-  height: 28px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.35;
-  filter: url('#ai-duel-rough-icon');
 }
 
 /* ---------- 可复用纸面雕花框 ---------- */
@@ -2190,7 +2147,6 @@ body:has(.battle) {
 }
 
 .plaque-button:focus-visible,
-.battle-topbar button:focus-visible,
 .battle-dev__btn:focus-visible,
 .battle-dev__toggle:focus-visible {
   outline: 2px solid #a56848;
@@ -3139,10 +3095,6 @@ body:has(.battle) {
     grid-template-columns: 170px minmax(360px, 1fr) 190px;
   }
 
-  .battle-topbar {
-    grid-template-columns: minmax(180px, 1fr) auto minmax(120px, 1fr);
-  }
-
   .battle-topbar__status {
     gap: 12px;
   }
@@ -3150,10 +3102,6 @@ body:has(.battle) {
   .battle-topbar__score-num {
     margin: 0 5px;
     font-size: 26px;
-  }
-
-  .battle-topbar__actions {
-    gap: 8px;
   }
 
   .battle__sidebar-frame--actions .ornate-frame__content {

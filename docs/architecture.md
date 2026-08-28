@@ -522,7 +522,10 @@ packages/client/
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
     HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
-                              角落 dev 区有测试对局 / 加载动画 / 重置存档
+                              角落 dev 区有测试对局 / 加载动画 / 重置存档；
+                              人物 hover 出金边高亮和介绍卡片
+    castHitTest.ts            首页人物抠图的逐像素 alpha 命中检测（人物图层不收指针事件，
+                              hover 只能在舞台级采样判定）
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
@@ -564,6 +567,7 @@ packages/client/
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
   test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
+  test/castHitTest.test.ts    首页人物命中检测的纯函数：包围盒换算、前后遮挡、羽化边缘不算命中
 packages/server/
   src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
   wrangler.jsonc              Worker 配置：静态资源、DO 绑定

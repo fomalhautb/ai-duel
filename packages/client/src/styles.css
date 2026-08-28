@@ -201,8 +201,11 @@ body,
 }
 
 /*
- * 所有整幅切图（夜空底、七张人物抠图、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
+ * 所有整幅切图（夜空底、七张人物抠图及其发光副本、桌面弧、前景道具）都只是画面，
+ * 绝不能吃掉按钮和卡牌的点击。
  * 人物、桌面弧、前景道具那几张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。
+ * 人物自己的 hover 高亮不走指针事件，是在舞台上监听 pointermove 再查抠图的 alpha 通道判出来的，
+ * 所以这条约束和人物高亮并不冲突（见 HomeScreen.tsx 与 castHitTest.ts）。
  *
  * 四条边用 mask 羽化，让图片边缘渐隐进下面的纸底（见 .home 的 background-color）。
  * 起因是切图四条边的角落亮度并不均匀（左上偏亮、右下偏暗），下面是一整片纯色，怎么校准都对不齐每个角，
@@ -245,6 +248,131 @@ body,
     );
   mask-composite: intersect;
   pointer-events: none;
+}
+
+/*
+ * 人物 hover 时的金色高亮。
+ *
+ * 它是人物抠图的一份副本，垫在本人下面一层（为什么放这个位置见 HomeScreen.tsx 里的注释）。
+ * 滤镜分两段：先用四个模糊为 0、沿四个对角各偏一点的 drop-shadow 叠出一圈实描边——
+ * 单张 drop-shadow 只能往一个方向投，四个方向凑齐才是"描边"而不是"偏影"；
+ * 再叠两层带模糊的投影做外扩的光晕，一近一远，近的亮、远的散。
+ * 因为副本垫在本人身下，这些光只有轮廓外那一圈露得出来，正好成了描边。
+ */
+.home__cast-glow {
+  filter:
+    drop-shadow(0.18cqi 0.18cqi 0 #fbe6c4) drop-shadow(-0.18cqi 0.18cqi 0 #fbe6c4)
+    drop-shadow(0.18cqi -0.18cqi 0 #fbe6c4) drop-shadow(-0.18cqi -0.18cqi 0 #fbe6c4)
+    drop-shadow(0 0 0.6cqi rgb(251 230 196 / 95%)) drop-shadow(0 0 1.6cqi rgb(232 198 159 / 70%));
+  opacity: 0;
+  /*
+   * 光靠 opacity: 0 不够：七份整幅大图常驻在 DOM 里，每份都挂着六道 drop-shadow，
+   * 浏览器并不保证会跳过全透明元素的绘制（有的实现照样把滤镜算完再乘 alpha）。
+   * visibility: hidden 是明确的"不参与绘制"，不 hover 时这七层就真的不花钱。
+   * 代价是 visibility 不能和 opacity 同时过渡，得让它延迟到淡出结束再切——就是下面这个写法。
+   */
+  visibility: hidden;
+  transition:
+    opacity 0.22s ease,
+    visibility 0s linear 0.22s;
+}
+
+.home__cast-glow.is-lit {
+  opacity: 1;
+  visibility: visible;
+  /* 淡入时 visibility 要立刻生效，所以延迟归零。 */
+  transition:
+    opacity 0.22s ease,
+    visibility 0s linear 0s;
+}
+
+/*
+ * 人物介绍卡片。左右位置由 HomeScreen 按人物的 alpha 包围盒现算，这里只管长相。
+ * 调子对着首页夜空走：深蓝底 + 米金细线，双线内衬呼应战场的 .ornate-frame，但换成首页色板。
+ */
+.home__cast-panel {
+  position: absolute;
+  width: 23cqi;
+  padding: 1.5cqi;
+  border: 1px solid rgb(232 198 159 / 55%);
+  border-radius: 0.4cqi;
+  /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
+  background: linear-gradient(to bottom, rgb(24 31 40 / 94%), rgb(18 23 31 / 92%));
+  box-shadow: 0 0.6cqi 1.6cqi rgb(8 12 18 / 55%);
+  color: var(--home-ink);
+  text-align: center;
+  /* 卡片纯展示，不能挡住下面任何东西的 hover——尤其它就浮在人物和展示卡上方。 */
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.6cqi);
+  /* 和发光层同一套 visibility 配方，理由见上面。 */
+  visibility: hidden;
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease,
+    visibility 0s linear 0.24s;
+}
+
+.home__cast-panel.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease,
+    visibility 0s linear 0s;
+}
+
+/* 内衬的第二条线，比外框内缩一圈：双线是这套设计里"正式文书"的标志。 */
+.home__cast-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0.35cqi;
+  border: 1px solid rgb(232 198 159 / 30%);
+  border-radius: 0.2cqi;
+}
+
+.home__cast-panel-kicker {
+  display: block;
+  color: rgb(232 198 159 / 65%);
+  font-size: 0.95cqi;
+  /* 字距拉得很开，配合小字号做成"档案标签"的样子。末字后面多出的一格照例收掉。 */
+  margin-right: -0.42em;
+  letter-spacing: 0.42em;
+}
+
+.home__cast-panel-name {
+  display: block;
+  margin-top: 0.6cqi;
+  color: var(--home-ink-lit);
+  font-size: 2.2cqi;
+  line-height: 1.2;
+}
+
+/*
+ * 分隔线：两端淡出的细线中间嵌一颗四角星，直接复用副标题那组 .home__flourish 零件，
+ * 只把线和星按卡片的尺度调小一档（三个变量的定义见 .home__flourish）。
+ */
+.home__cast-panel-rule {
+  --home-flourish-line-w: 4.5cqi;
+  --home-flourish-star-size: 1.1cqi;
+  --home-flourish-star-color: rgb(232 198 159 / 80%);
+  justify-content: center;
+  margin: 0.8cqi 0;
+}
+
+.home__cast-panel-title {
+  display: block;
+  color: rgb(232 198 159 / 85%);
+  font-size: 1.15cqi;
+  letter-spacing: 0.12em;
+}
+
+.home__cast-panel-blurb {
+  margin: 0.9cqi 0 0;
+  color: rgb(232 198 159 / 72%);
+  font-size: 1.25cqi;
+  line-height: 1.7;
 }
 
 /* top 配 translateY(-50%) 是让文字**行盒的中心**落在这个高度上，
@@ -300,6 +428,12 @@ body,
   letter-spacing: 0.5em;
 }
 
+/*
+ * 细线 + 四角星的花饰，副标题两侧和人物介绍卡片的分隔线共用一套。
+ * 尺寸和星的颜色留成三个变量，用的地方在**容器上**覆盖即可（见 .home__cast-panel-rule）；
+ * 默认值写在 var() 的兜底位而不是这里，是因为介绍卡片那个节点同时挂着两个类，
+ * 默认值写在这条规则上会因为排在后面而盖掉容器自己设的值。
+ */
 .home__flourish {
   display: flex;
   align-items: center;
@@ -308,18 +442,20 @@ body,
 
 /* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
 .home__flourish-line {
-  width: 5.4cqi;
+  width: var(--home-flourish-line-w, 5.4cqi);
   height: 1px;
   background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
-.home__flourish--right .home__flourish-line {
+/* 摆在星右边的那条线，渐变要反过来才是"往外侧淡出"。 */
+.home__flourish-line--right {
   background: linear-gradient(to left, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
 .home__flourish-star {
-  width: 1.5cqi;
-  height: 1.5cqi;
+  width: var(--home-flourish-star-size, 1.5cqi);
+  height: var(--home-flourish-star-size, 1.5cqi);
+  color: var(--home-flourish-star-color, currentcolor);
 }
 
 .home__cards {
@@ -327,6 +463,20 @@ body,
   inset: 0;
   /* 这层只是铺满舞台的定位框，本身不该是命中目标：指针事件只留给卡槽，
      指针落在卡与卡之间的空隙时就当没碰到卡。 */
+  pointer-events: none;
+}
+
+/*
+ * 指针压在人物像素上时，把整组展示卡的命中关掉。
+ * 人物在视觉上站在卡前面，指针明明落在人身上，被他挡住的那张卡却抬起来，看着就像穿模。
+ * 只是关命中，不动任何动画：指针离开人物后这条规则失效，卡自己就恢复正常 hover。
+ *
+ * 已知的滞后（两个方向都有）：这个类的加和解都发生在 React 重渲染时，而重渲染只由 pointermove 触发。
+ * 指针刚停到人身上就不动，底下那张卡会保持抬起；指针刚离开人物、卡的命中恢复了，
+ * 卡也要等指针再动一下才收得到 pointerenter。浏览器在样式变更后是否补一次命中测试各家不一致，
+ * 不能指望它替我们补事件。眼下这点滞后指针一动就自愈，先不为它加代码。
+ */
+.home__stage.is-cast-hover .home__cards {
   pointer-events: none;
 }
 
@@ -549,6 +699,23 @@ body,
 
   .home__start {
     animation: none;
+  }
+
+  /*
+   * 高亮和介绍卡片改成直接出现／消失，不淡入也不位移。
+   * visibility 那条不能一起压成 1ms：它本来就是 0s 时长、靠延迟排在淡出之后的，
+   * 淡出没了，它的延迟也得归零，否则隐藏会莫名慢半拍。
+   */
+  .home__cast-glow,
+  .home__cast-glow.is-lit,
+  .home__cast-panel,
+  .home__cast-panel.is-open {
+    transition: none;
+  }
+
+  .home__cast-panel,
+  .home__cast-panel.is-open {
+    transform: none;
   }
 }
 

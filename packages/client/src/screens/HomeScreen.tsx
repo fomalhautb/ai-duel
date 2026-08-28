@@ -659,7 +659,8 @@ function HomeStage() {
           >
             <span className="home__cast-panel-kicker">角色档案</span>
             <span className="home__cast-panel-name">{CAST[castPanel.index]?.name}</span>
-            {/* 分隔线和副标题两侧那组花饰共用 .home__flourish 的零件，只是把线改短一档。 */}
+            {/* 分隔线和副标题两侧那组花饰共用 .home__flourish 的零件，只是把线和星改小一档、
+                星色调淡（覆盖的三个变量见 styles.css 的 .home__cast-panel-rule）。 */}
             <span className="home__flourish home__cast-panel-rule">
               <i className="home__flourish-line" />
               <Sparkle className="home__flourish-star" />

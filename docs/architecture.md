@@ -182,7 +182,8 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 
 ### 5.1 界面与路由
 
-五个界面，路由用 wouter（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
+三个正式界面加四个开发页，路由用 wouter
+（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
 
 ```
 /                主网站：介绍 + 「开始游戏」
@@ -190,9 +191,16 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 /match           联机对局
 /design          设计参考页：纸面视觉元素的样板间（开发用）
 /dev/hand        手牌动画调试页
+/card            卡牌图鉴 / 卡面调试页：全部卡牌按真实尺寸摆开，改卡面排版时一眼对照
+/loader          加载动画的演示和调参页：各档参数连同浅色底一起摆开对比
 ```
 
-首页的**「开始游戏」**直接进匹配房，没有分流——新手教程已经整个下线。
+后四个是开发页，直接敲地址进；首页角落的 dev 区给「手牌演示」和「加载动画」留了快捷方式。
+`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 是要给真实加载场景用的
+（`index.html` 的首屏 loader 已经是同一套视觉），短路径方便随手打开对着调，
+也方便之后直接拿它当「正在加载」的空页。
+
+首页的**「开始游戏」**直接进匹配房，没有分流——教程还没做（见 5.3）。
 
 `/design` 把纸张、图标、卡牌、卡背这些视觉元件连同"为什么调成这个值"的说明摆在一页上，
 用的就是 `src/ui/paper` 下的正式组件，所以组件改坏了这一页第一个看得出来。
@@ -207,9 +215,9 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 房间页建好 driver 之后才跨得过跳到 `/match` 的那次卸载。它不写 localStorage，
 所以刷新 `/match` 会读不到 driver，直接跳回首页——和「不存对局」是一致的。
 
-### 5.2 MatchDriver：对局的四种来源
+### 5.2 MatchDriver：对局的三种来源
 
-教程、本地热座、联机房主、联机客人，**界面完全一样**，区别只在于指令交给谁执行、局面从哪来。
+本地热座、联机房主、联机客人，**界面完全一样**，区别只在于指令交给谁执行、局面从哪来。
 这层差异收进 `src/match/driver.ts` 的 `MatchDriver` 接口：
 
 ```ts
@@ -223,11 +231,10 @@ dispose()
 | 实现 | 谁跑 `execute` | 对手指令来自 |
 |---|---|---|
 | `localDriver` | 本地 | 同一个页面（热座，`seat: 'active'` 时视角跟着行动方走） |
-| `tutorialDriver` | 本地 | 关卡脚本 |
 | `hostDriver` | 本地 | socket relay |
 | `guestDriver` | 不跑 | 房主 relay 过来的事件流 |
 
-`MatchStage` 只认 driver，不知道自己在打教程还是联机。**接联机时对局界面一行都不用改。**
+`MatchStage` 只认 driver，分不清自己在打热座还是联机。**接联机时对局界面一行都不用改。**
 
 两条订阅分开是有意的：`getSnapshot` 给的是「事件全部应用完」的结果，负责渲染；
 事件流是「过程」，负责播动画。两者节奏不同，混在一起会互相牵制。
@@ -235,22 +242,12 @@ dispose()
 driver 在构造函数里就把开局事件发出来了，而 React 要等 effect 里才订阅得上，
 不攒着的话发牌动画必然丢。
 
-### 5.3 教程
+### 5.3 教程（计划中）
 
-三关，全是写死的剧本。**两头都定死**才敢在引导文案里写「伤害 = 2 + 2 = 4，一击就碎」这种实数：
+会有一个简单教程，详细设计还没定。唯一定下来的方向是**强制玩家按固定流程走一遍操作**，
+而不是配一个 AI 对手跟他真打一局——只有每一步都锁死，引导才知道下一句该说什么。
 
-- **对手**按 `src/tutorial/levels.ts` 里的脚本出牌（`opponentTurns`）。
-- **玩家**被界面锁住：`MatchStage` 的 `restriction` 每一步只放行引导指定的那一个动作，
-  别的牌点不动、目标也选不了。
-
-引导步骤全部走完即通关，不另设胜利条件——每一步都被锁死了，走完就等于达成了教学目标。
-
-关卡数据有个关键技巧：**每关的牌组只用一两种卡，而且整副都是同一张**。
-这样洗牌洗成什么顺序都无所谓，起手一定是那张卡，剧本不必去反推 seed 洗出了什么。
-谁先手也不是单独的开关，而是靠把玩家排在 0 号还是 1 号座位决定的（引擎固定 0 号先手）。
-
-卡池一改，剧本会**静默**失效，表现为玩家卡死在某一步点不动。
-`packages/client/test/tutorial.test.ts` 把三关整段跑一遍守着这件事。
+第一版是三关写死的剧本，已经随提交 `a616a7c` 整体删掉了，重做时可以进那个提交考古。
 
 ### 5.4 为什么推翻了 Pixi
 
@@ -436,18 +433,25 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 `src/save/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
 ```
-key   ai-duel-save-v2
-value { "ownedCards": ["..."], "wins": 3, "tutorialDone": 2 }
+key   ai-duel-save-v3
+value { "ownedCards": ["..."], "wins": 3 }
 ```
 
-- `loadSave()` 读；`recordWin()` 记一场胜利，`completeTutorialLevel(n)` 记一关教程通关，
-  两者都顺手用 `drawNewCard` 抽一张新卡再写回。
-- `tutorialDone` 是已通关的关卡数（0..3），首页的「一键开始」就靠它分流。
-  它用 `max` 而不是 `+1` 更新，所以重玩已通关的关卡既不会把进度退回去，也不会越刷越高。
-- key 带版本号，结构要改就换 `v3`，旧数据读不到自动当新号，不写迁移代码。
+对外只有三个函数：
+
+- `loadSave()` 读存档，任何一处读不通都回落到初始收藏。
+- `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
+- `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
+
+几处约定：
+
+- key 带版本号，结构要改就换下一个版本号：旧数据读不到自动当新号，不写迁移代码。
+  v2 → v3 就是这么删掉 `tutorialDone` 的——教程下线，字段直接消失，没有任何迁移代码，
+  老存档整份作废重来。
 - 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
   `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
 - 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
+  一张都不剩说明这份存档和当前卡池已经完全对不上，整份当新号处理。
 
 ## 6. 目录结构
 
@@ -465,31 +469,46 @@ packages/client/
   src/main.tsx                入口，只负责挂 <App>
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
-    HomeScreen.tsx            主网站：介绍 + 一键开始（按 tutorialDone 分流）
-    TutorialScreen.tsx        教程关卡：对局 + 分步引导 + 通关结算
-    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房
-    MatchScreen.tsx           联机对局：从 MatchSession 取 driver
+    HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」进匹配房，
+                              角落 dev 区有手牌演示 / 加载动画 / 重置存档
+    RoomScreen.tsx            匹配房：一进来就自动建房拿码，再输对方的码进房
+    MatchScreen.tsx           联机对局：从 MatchSession 取 driver，赢了记一次胜场
+    DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
+    design.css                只给设计参考页用的样式
   src/match/                  对局驱动层
     driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
     localDriver.ts            本地热座
-    tutorialDriver.ts         本地 + 脚本对手
     hostDriver.ts             联机房主（唯一跑 execute 的一方）
     guestDriver.ts            联机客人（只发指令）
     useMatch.ts               把 driver 接进 React（useSyncExternalStore）
     MatchSession.tsx          持有当前对局的 driver，跨得过路由切换
-  src/tutorial/levels.ts      三关的剧本数据
   src/net/
     protocol.ts               房主 ↔ 客人的消息格式
     socket.ts                 联机通道封装（原生 WebSocket：建房、进房、转发）
   src/ui/
     MatchStage.tsx            对局界面，只认一个 driver（目前是占位实现）
     HandFan.tsx               扇形手牌组件 + 卡面，通用
+    OpponentFan.tsx           对手的倒扇形手牌：容器整个转 180° 吊在视口顶边，只能点不能看
+    CardBackHidden.tsx        对手手牌的隐藏牌背，一个字的牌面信息都不带
+    fanMath.ts                扇形布局的公式和常量，两个 Fan 共用（也是 hover 防抖动的几何前提）
     cardTilt.ts               卡面跟指针的倾斜 + 微高光，手牌和战场小卡共用
+    flipCard.ts               绕 Y 轴翻面的公共实现，正反互斥靠角度驱动 opacity 硬切
+    playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份
+    cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
+    CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
+    BattleTopBar.tsx          对局顶栏：站名 + 导航页签 + 手册/设置图标（页面都还没有）
+    OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
+    PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
+    HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 六个弱点维度的中文名
-  src/dev/HandDemo.tsx        手牌动画演示页（/dev/hand）
-  src/save/save.ts            localStorage 存档（收藏 + 胜场 + 教程进度）
+    paper/                    纸面组件库（卡牌、卡背、图标、标题、算力条……），index.ts 统一出口
+  src/dev/                    开发页，各自挂在一条路由上，正式流程里没有入口
+    HandDemo.tsx              手牌动画演示（/dev/hand）：我方出牌、对方出牌、加减牌、看战场小卡
+    CardGallery.tsx           卡牌图鉴（/card）：全部卡牌按真实尺寸摆开，卡面塞不下的字段列在下面
+    LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
+  src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
-  test/tutorial.test.ts       把三关教程整段跑一遍
+  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
 packages/server/
   src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
   wrangler.jsonc              Worker 配置：静态资源、DO 绑定
@@ -497,7 +516,7 @@ packages/server/
   test/smoke.mjs              端到端冒烟测试（真起 wrangler dev、真连 WebSocket）
 ```
 
-依赖方向：`screens → match / ui / tutorial / save`，`match → net / core`，
+依赖方向：`screens → match / ui / net / save`，`match → net / core`，
 `ui` 谁也不依赖（只认自己的 props），`server` 不依赖 `core`。
 
 ## 7. 常用命令
@@ -505,7 +524,7 @@ packages/server/
 ```bash
 pnpm install
 pnpm typecheck          # 全仓类型检查
-pnpm test               # 单元测试：core 规则、教程剧本
+pnpm test               # 单元测试：core 规则、client 存档的读写与回落
 pnpm dev                # 起客户端 (http://localhost:5173)
                         # 手牌动画演示页：http://localhost:5173/dev/hand
                         # 端口被占时用 PORT=5174 pnpm dev
@@ -527,12 +546,11 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 ## 8. 现在做到哪了
 
-已经就位（骨架，UI 全是占位）：
+已经就位（对局界面还是占位）：
 
-- 五个界面、路由、按存档分流的「一键开始」。
-- `MatchDriver` 四个实现全写完，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
-- 教程三关能整段打通，通关送卡、写进度。
-- 存档 v2（收藏 + 胜场 + 教程进度）。
+- 三个正式界面加四个开发页、路由；首页「开始游戏」直接进匹配房，不分流。
+- `MatchDriver` 三个实现全写完，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
+- 存档 v3（收藏 + 胜场）。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
 
 **还没做的**，按建议顺序：
@@ -543,11 +561,10 @@ Vite 的 dev server 自带这个回退，开发时不用管。
    并给它们在卡面上腾出版面（见 5.6）。
 2. **补规则和卡牌数据**（core）——攻击、随从交战、更多卡牌效果。
    全程用 Vitest 验证，不需要碰界面。
-   **改卡牌数值时记得跑 `pnpm test`**：教程剧本依赖具体的费用和伤害，
-   改坏了测试会红，不改的话玩家会卡死在教程里。
 3. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
 4. **联机端到端实测**——协议和转发器都有测试，但没有在两台真机上跑过完整一局。
-5. **打磨**——音效、特效、结算画面。
+5. **简单教程**（见 5.3）——第一版已经删掉，重做时先定流程再动手。
+6. **打磨**——音效、特效、结算画面。
 
-如果时间不够，砍的顺序是倒过来的：4 和 5 都可以不要，
+如果时间不够，砍的顺序是倒过来的：4、5、6 都可以不要，
 只要第 1 步做完就有一个能演示的游戏。

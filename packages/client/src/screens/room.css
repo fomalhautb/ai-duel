@@ -715,8 +715,8 @@
 /*
  * GSAP 入场的位移专用层。
  *
- * 位移不能写在 .room__banner 上：那个元素挂着 transition: transform（给 :active 的下压用），
- * GSAP 每帧写进行内样式的 transform 都会被这条 140ms 过渡再插值一遍，
+ * 位移不能写在 .room__banner 上：那个元素挂着 transition: transform（给 hover 上浮和按下下压用），
+ * GSAP 每帧写进行内样式的 transform 都会被这条 160ms 过渡再插值一遍，
  * 补间跑不出自己的缓动曲线，收尾还要再飘一段。父子各管一套 transform 就互不干扰
  * （同 .room__back 和它里面那个箭头的分工）。这一层自己不带任何过渡。
  */
@@ -775,8 +775,12 @@
 /* ============================================================
    三块可按的素材（复制 / 加入 / 两块横幅）共用的交互
    ------------------------------------------------------------
-   一套统一的表现：hover 亮一档、按下往下压一点、focus-visible 用两道 drop-shadow
+   一套统一的表现：hover 上浮一点并提亮、按下压回去并压暗、focus-visible 用两道 drop-shadow
    描出轮廓、disabled 淡化。
+
+   位移量、亮度档位和过渡时长都照抄首页「开始游戏」按钮（styles.css 的 .home__start），
+   全站的主按钮按下去要是同一种手感；哪边改了数值，另一边也得跟着改。
+   （.home__start 静置还带一段上下浮动的 keyframes，那是首页主 CTA 独有的氛围，这页不搬。）
 
    投影用 drop-shadow 不用 box-shadow：box-shadow 描的是矩形边框盒，
    而素材是带斜角、四周还留了透明余量的图，只有 drop-shadow 跟得上真实轮廓；
@@ -795,15 +799,23 @@
 .room__banner {
   cursor: pointer;
   transition:
-    transform 0.14s ease,
-    filter 0.14s ease;
+    transform 0.16s ease,
+    filter 0.16s ease;
 }
 
-/* 按下时整块压进去，像真的被按到了台面上。位移三块共用。 */
+/* 悬停时轻轻抬起来一点，像被指到的那块从台面上浮了起来。位移三块共用。 */
+.room__copy:hover:not(:disabled),
+.room__join:hover:not(:disabled),
+.room__banner:hover {
+  transform: translateY(-0.4cqi);
+}
+
+/* 按下时反过来压进去，像真的被按到了台面上。
+   这条排在 hover 之后：两边特异性相同，靠顺序让「按住」盖过「悬停」。 */
 .room__copy:active:not(:disabled),
 .room__join:active:not(:disabled),
 .room__banner:active {
-  transform: translateY(0.18cqi);
+  transform: translateY(0.15cqi);
 }
 
 .room__copy:disabled,
@@ -834,18 +846,15 @@
   filter: var(--room-shadow);
 }
 
-.room__join:hover:not(:disabled) {
-  filter: var(--room-shadow) brightness(1.08);
-}
-
-/* 两块横幅比按钮亮得慢一点：面积大，同样的 brightness 会显得刺眼。 */
+/* 提亮和压暗都用 .home__start 那两档（1.06 / 0.94）；影子的松紧是这一页自己的补充。 */
+.room__join:hover:not(:disabled),
 .room__banner:hover {
-  filter: var(--room-shadow) brightness(1.04);
+  filter: var(--room-shadow) brightness(1.06);
 }
 
 .room__join:active:not(:disabled),
 .room__banner:active {
-  filter: var(--room-shadow-tight) brightness(0.96);
+  filter: var(--room-shadow-tight) brightness(0.94);
 }
 
 .room__join:focus-visible,
@@ -860,15 +869,15 @@
 .room__join:focus-visible:active,
 .room__banner:focus-visible:active {
   filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
-    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) var(--room-shadow-tight) brightness(0.96);
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) var(--room-shadow-tight) brightness(0.94);
 }
 
 .room__copy:hover:not(:disabled) {
-  filter: brightness(1.12);
+  filter: brightness(1.06);
 }
 
 .room__copy:active:not(:disabled) {
-  filter: brightness(0.96);
+  filter: brightness(0.94);
 }
 
 .room__copy:focus-visible {
@@ -879,7 +888,7 @@
 
 .room__copy:focus-visible:active {
   filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
-    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) brightness(0.96);
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) brightness(0.94);
 }
 
 /* ============================================================

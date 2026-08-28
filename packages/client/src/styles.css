@@ -760,6 +760,14 @@ body,
 /*
  * 高度为 0 的定位锚点：钉在视口底边中央，每张牌相对它绝对定位。
  * 这样"卡牌底边贴着视口底边"就是坐标原点，GSAP 只要补间 x / y / rotation 就够了。
+ *
+ * fixed + z-index 让它自成一个层叠上下文，整排手牌对页面而言恒定是第 20 层：
+ * 里面每张牌的 z-index（1..n，右压左）只在扇形内部有效，改它影响不到手牌和战场的前后关系。
+ * 而 hover 放大后的牌高约 400px，必然戳进我方战场行——落位后的战场格子是 z-index auto，
+ * 压不过第 20 层，所以"抬起来的手牌盖住战场小卡"是这套层级下的必然结果，也是想要的：
+ * 玩家正在看的那张牌就该在最上面。
+ * 演出期间（牌在飞、在落地、展示层演着）不能出现这种遮挡，靠的不是层级而是不让 hover 发生
+ * ——HandFan 的 frozen 会把整排手牌冻住（见 HandFanProps.frozen）。
  */
 .hand-fan {
   position: fixed;
@@ -993,7 +1001,7 @@ body,
  *
  * 插画自带装饰边框和羊皮纸底色，所以这里不再画"插画框"那种分区版式：
  * 图是底，卡名/描述/标识挤在底部的 .card-face__body 上。
- * 卡种（AI / 技能）的区分退到 --accent 上，现在只出现在底部那行标识上，
+ * 卡种（AI / 技能 / 英雄）的区分退到 --accent 上，现在只出现在底部那行标识上，
  * 边框保持墨色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
  */
 .card-face {
@@ -1012,12 +1020,18 @@ body,
   isolation: isolate;
 }
 
-.card-face--agent {
+.card-face--ai {
   --accent: #7fd1ff;
 }
 
 .card-face--skill {
   --accent: #ffc158;
+}
+
+/* 英雄牌。挑紫色是为了和 AI 牌的蓝、技能牌的橙都拉开距离——
+   对局侧栏里三种卡会同时出现在视野里，底部那行标识的颜色是唯一的区分。 */
+.card-face--hero {
+  --accent: #c9a6ff;
 }
 
 /*
@@ -1083,7 +1097,7 @@ body,
 }
 
 /*
- * 卡面最底下那一行标识：AI 卡印模型名，技能牌印"技能"。
+ * 卡面最底下那一行标识：AI 牌印模型名，其余印卡种（"技能" / "英雄"）。
  *
  * 靠右排是给将来留位置的：正式卡面要加数值的话会从左边往这一行里填，
  * 标识留在右端不用挪。字号 11px 已经是下限——战场小卡是同一份排版按 0.73 缩小画的，
@@ -1624,19 +1638,73 @@ body:has(.battle) {
   padding: 26px 20px;
 }
 
-/* 一块玩家面板：左边名字和牌数，右边那个大数字是累计得分。 */
+/*
+ * 一块玩家面板：最左边一张小英雄牌，中间名字和牌数，右边那个大数字是累计得分。
+ *
+ * 英雄那一列跨两行，没有英雄时（hero 为 null）整个格子不渲染，
+ * grid 会让后面两列自己顶上去，不用为这种情况另写一套模板。
+ */
 .battle__player-panel {
   display: grid;
   grid-template-areas:
-    'name score'
-    'piles score';
-  grid-template-columns: 1fr auto;
+    'hero name score'
+    'hero piles score';
+  grid-template-columns: auto 1fr auto;
   align-content: center;
   gap: 2px 12px;
   padding: 14px 16px;
   border: 1px solid rgb(119 116 101 / 45%);
   border-radius: 4px;
   background: rgb(255 255 255 / 26%);
+}
+
+/*
+ * 侧栏里的小英雄牌。
+ *
+ * 卡面排版是照 150×210 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ */
+.battle__hero {
+  --hero-card-w: 62px;
+  --hero-card-h: 87px;
+  /* 62 / 150 = 0.413333，卡面高 210 × 0.413333 ≈ 87，和上面那对宽高对得上。 */
+  --hero-card-scale: 0.413333;
+
+  grid-area: hero;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  align-self: center;
+}
+
+.battle__hero-card {
+  width: var(--hero-card-w);
+  height: var(--hero-card-h);
+  overflow: hidden;
+}
+
+/* 里面这一层才是真正的 150×210 卡面，靠 scale 缩进上面那个盒子里。 */
+.battle__hero-card > * {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--hero-card-scale));
+  transform-origin: top left;
+}
+
+/* 卡下面那行技能名。技能用掉之后变成「Debug 已用」，配合整块置灰。 */
+.battle__hero-tag {
+  max-width: calc(var(--hero-card-w) + 16px);
+  color: var(--battle-ink-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+/* 技能已经用掉：整块褪色，一眼看出这一局指望不上它了。 */
+.battle__hero--used {
+  opacity: 0.55;
+  filter: grayscale(85%);
 }
 
 .battle__player-name {
@@ -1790,7 +1858,14 @@ body:has(.battle) {
  * 否则拖回底部的卡也会被 isInsideDropZone 判成打出。
  *
  * absolute 本身不会形成层叠上下文；这里刻意不设 z-index / isolation，
- * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面。
+ * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面（飞行途中是 60 或 1200，
+ * 都高过手牌那一层的 20）。
+ *
+ * 但那个层级只在飞行途中有效：Flip 是把 z-index 写死在元素的内联样式上的，飞完不会自己收，
+ * 所以每段飞行的 onComplete 都要点名 clearProps: 'zIndex'（见 MatchStage 的三处 Flip.from）。
+ * 清掉之后 tile 回到 z-index auto，也就重新落在手牌（20）下面——这是刻意的，
+ * 理由见 .hand-fan 上面那段注释。不清的话场上会出现三种层级的小卡，有的盖得住手牌、
+ * 有的盖不住，而停在 1200 的那张连展示遮罩（1100）都能戳穿。
  */
 .battle__board {
   position: absolute;
@@ -2255,7 +2330,7 @@ body:has(.battle) {
 /* ---------- 事件动画层 ---------- */
 
 /*
- * 横幅由 MatchStage 直接往下面的挂载位里塞节点（React 只管中央那张技能卡）。
+ * 横幅由 MatchStage 直接往下面的挂载位里塞节点（React 只管中央那张技能牌）。
  * 全层不吃指针事件，压在手牌（z-index 20）和顶栏（70）之上、结算层（90）之下。
  *
  * 全屏过场（.coin-toss / .quiz-reveal）和展示遮罩（.reveal-overlay）都不在这一层：
@@ -2296,7 +2371,7 @@ body:has(.battle) {
 }
 
 /*
- * 我方打出的技能卡，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。
+ * 我方打出的技能牌，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。
  * 对方打出的技能牌不走这里，它要从对手手牌飞到中央翻正，归展示层管（见 .reveal-card）。
  */
 .battle__skill-show {
@@ -2616,16 +2691,11 @@ body:has(.battle) {
  * 把 opacity 压到 0.3（那一层的 opacity 本来就归它管，CSS 再插一手会打架）。
  * 扇形是 fixed + z-index 的层叠上下文，抬的只能是整层，抬不了单张牌。
  *
- * 整排同时不吃指针事件：点出这张牌时指针八成还压在它身上，留着 hover 它会一直保持
- * 1.9 倍放大、把要选的战场整个挡住（用户实测踩的就是这个）。
- * 抬到压暗层之上之后如果还收指针事件，玩家甚至能在压暗态里继续摸别的牌。
+ * 这里只管层级。"整排不接指针"那件事归 HandFan 的 frozen（父组件在选目标态一并打开），
+ * 别在这儿再写一遍 pointer-events：同一件事两处实现，改的时候必然漏掉一处。
  */
 .hand-fan[data-casting='true'] {
   z-index: 77;
-}
-
-.hand-fan[data-casting='true'] .hand-fan__slot {
-  pointer-events: none;
 }
 
 /*
@@ -2697,7 +2767,7 @@ body:has(.battle) {
 
 /*
  * 这一族类名由两种展示共用：
- * 一是对手出牌的强制展示（牌从对手手牌飞到中央翻正、停 1.5 秒，模型卡接着飞向战场），
+ * 一是对手出牌的强制展示（牌从对手手牌飞到中央翻正、停 1.5 秒，AI 牌接着飞向战场），
  * 二是卡牌的放大查看（飞到中央停住，点遮罩再飞回原位）。
  *
  * 编排代码眼下有两份：/match 的两种都内联在 ui/MatchStage.tsx 里，/deck 的放大查看走通用组件
@@ -2826,10 +2896,10 @@ body:has(.battle) {
   transform-origin: top left;
 }
 
-/* ---------- 全屏过场：抛硬币 / 答题揭晓 ---------- */
+/* ---------- 全屏过场：抛硬币 / 答题揭晓 / 英雄技能抵消 ---------- */
 
 /*
- * 这两层的遮罩写法照 .reveal-overlay：压暗 + 背景模糊，层级同在 1100 那一档，
+ * 这三层的遮罩写法照 .reveal-overlay：压暗 + 背景模糊，层级同在 1100 那一档，
  * 高于顶栏（70）、手牌（20）、特效层（80）和结算层（90）。
  *
  * 和 .reveal-overlay 不同的是它们由 React 状态挂载/卸载（不是常驻 DOM 靠 autoAlpha 开关），
@@ -2841,11 +2911,12 @@ body:has(.battle) {
  *
  * 和展示遮罩同为 1100 却不会打架，靠的是两头一起管：
  * MatchStage 那边 startReveal 在过场演着时不受理新展示、QUESTION_REVEALED 会先 abortReveal；
- * 万一还是撞上，这两层在 DOM 里排在展示遮罩后面，同层级由后者胜出（展示卡的裁剪层是 1101，
+ * 万一还是撞上，这几层在 DOM 里排在展示遮罩后面，同层级由后者胜出（展示卡的裁剪层是 1101，
  * 但它跟着 reveal 状态一起被清掉，不会留在上面）。
  */
 .coin-toss,
-.quiz-reveal {
+.quiz-reveal,
+.skill-cancel {
   position: fixed;
   inset: 0;
   z-index: 1100;
@@ -2860,6 +2931,37 @@ body:has(.battle) {
   /* 和 opacity: 0 配成 GSAP 的 autoAlpha 初值。visibility 这一半是必须的：
      万一时间线没跑起来（拿不到 ref 之类），只有 opacity: 0 的话这层看不见却照样挡着点击。 */
   visibility: hidden;
+}
+
+/*
+ * 英雄技能抵消：一个技能名大字 + 一行说明，没有别的元件。
+ * 间距比上面那条通用规则的 26px 收紧一点，两行字才像一组。
+ */
+.skill-cancel {
+  gap: 14px;
+}
+
+.skill-cancel__title {
+  margin: 0;
+  color: #ffeec5;
+  font-size: 76px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  /* letter-spacing 会在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.1em;
+  text-shadow:
+    0 3px 0 rgb(20 26 34 / 70%),
+    0 8px 30px rgb(8 12 20 / 80%);
+}
+
+.skill-cancel__text {
+  max-width: min(720px, 88vw);
+  margin: 0;
+  color: rgb(255 238 197 / 88%);
+  font-size: 20px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 
 /*

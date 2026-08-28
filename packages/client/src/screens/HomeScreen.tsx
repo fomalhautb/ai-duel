@@ -47,7 +47,7 @@ import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
-import { placeholderArtFor } from '../ui/cardArt'
+import { cardArtFor } from '../ui/cardArt'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
@@ -95,7 +95,7 @@ const SEATS: Seat[] = [
     rot: -9,
     card: {
       id: 'home-chatgpt',
-      kind: 'agent',
+      kind: 'ai',
       name: 'ChatGPT',
       model: 'GPT',
       text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
@@ -108,7 +108,7 @@ const SEATS: Seat[] = [
     rot: -3,
     card: {
       id: 'home-claude',
-      kind: 'agent',
+      kind: 'ai',
       name: 'Claude',
       model: 'Claude',
       text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
@@ -121,7 +121,7 @@ const SEATS: Seat[] = [
     rot: 3,
     card: {
       id: 'home-deepseek',
-      kind: 'agent',
+      kind: 'ai',
       name: 'DeepSeek',
       model: 'DeepSeek',
       text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
@@ -134,7 +134,7 @@ const SEATS: Seat[] = [
     rot: 9,
     card: {
       id: 'home-gemini',
-      kind: 'agent',
+      kind: 'ai',
       name: 'Gemini',
       model: 'Gemini',
       text: '占位描述：看得见听得见，就是记性差了点。',
@@ -280,7 +280,7 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
  * 首页要用到的全部图片：舞台各层 + 匾额按钮的背景图 + 四张展示卡的插画。
  * 全部加载完之前首页不上场（见紧跟其后的 HomeScreen）。
  *
- * 卡面插画走 placeholderArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
+ * 卡面插画走 cardArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
  * 四张卡有两张会分到同一张图，Set 去重一下，别为同一个地址排两次队。
  *
  * index.html 里给 /home/ 下这几张写了 <link rel="preload">，那份清单要跟这里对得上：
@@ -296,7 +296,7 @@ const HOME_ASSETS = Array.from(
     // 匾额是「开始游戏」按钮的 CSS 背景图（见 styles.css 的 .home__start），
     // 页面里没有对应的 <img>，但同样得等它，否则按钮会先空着一块。
     '/home/home-plaque.webp',
-    ...SEATS.map((seat) => placeholderArtFor(seat.card.id)),
+    ...SEATS.map((seat) => cardArtFor(seat.card.id)),
   ]),
 )
 

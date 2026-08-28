@@ -20,13 +20,17 @@
  * 拖拽的那台指针状态机（阈值、指针捕获、跟随、落点高亮、松手判定）在 ui/useCardDrag.ts，
  * 和卡组页共用；这里只保留扇形自己的部分：排布时把被拖的牌摘出去、抓起牌时收拾 hover 那一套、
  * 以及"没落进落点就补间回扇形"。
+ *
+ * 两个"关掉手牌"的开关不要混（详见 HandFanProps）：
+ * disabled 只管出不了牌，玩家照样能 hover 把牌抬起来看；
+ * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用。
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { placeholderArtFor } from './cardArt'
+import { cardArtFor } from './cardArt'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -46,7 +50,7 @@ gsap.registerPlugin(useGSAP)
 /**
  * 一张手牌的展示数据。
  *
- * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 AgentInstance）拼出来。
+ * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 AiInstance）拼出来。
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
@@ -55,8 +59,12 @@ gsap.registerPlugin(useGSAP)
 export interface HandCardData {
   id: string
   name: string
-  kind: 'agent' | 'skill'
-  /** AI 卡印在卡面上的模型名，纯展示。技能牌没有这一项。 */
+  /**
+   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 借的是同一份卡面排版（见 ui/heroCard.ts）。
+   */
+  kind: 'ai' | 'skill' | 'hero'
+  /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
   model?: string
   /** 卡面正面的描述文案。 */
   text: string
@@ -108,16 +116,35 @@ export interface HandFanProps {
   /**
    * 为 true 时拖不出牌（比如不是自己的回合、正在等对方确认），但仍然可以 hover 看牌。
    *
+   * 这是刻意的：轮不到自己时玩家还是想把牌抬起来看清楚手上有什么。
+   * 要连 hover 一起关掉得用下面的 frozen。
+   *
    * 拖到一半才变成 true 的话不会把牌从手上抢走：还能继续拖，只是落点区的高亮会立刻熄掉
    * （高亮必须和松手的实际结果一致），松手一律按取消算。
    */
   disabled?: boolean
   /**
-   * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage）。
+   * 为 true 时整排手牌彻底冻住：不接 hover、不接问号翻面、也拖不出牌。
    *
-   * 这张牌**留在扇形里**，只是抬高一点、亮着；同一时刻整排其余的牌一起压暗，
-   * 而且整个扇形都不再吃指针事件——玩家点出这张牌时指针多半还停在它身上，
-   * 不掐掉的话它会一直保持 hover 放大，把要选的战场挡得死死的（用户实测踩的就是这个）。
+   * 给"屏幕上正在演一段动画"的时刻用（牌飞向战场、落地冒烟、展示层演着）。
+   * 那段时间手牌只要还能 hover，抬起来的下一张牌就会盖住正在演的那张——
+   * 放大后的手牌高约 400px，必然戳进我方战场行，而 .hand-fan 是 z-index 20 的层叠上下文，
+   * 落位后的战场格子（z-index auto）压不过它，光靠调层级解决不了，只能不让 hover 发生。
+   *
+   * 打开的那一刻已经抬起来的那张牌会被主动收回扇形（连倾斜、高光、翻面一起收）；
+   * 关掉时不主动抬牌，等玩家动一下鼠标——指针停在原地不动的话浏览器不会补发 enter，
+   * 所以那一下靠 slot 的 onPointerMove 接住（见那里）。
+   *
+   * 它不参与"等回包"那套约定：父组件要等网络结果，仍然得按上面 onPlay 的说明打开 disabled。
+   */
+  frozen?: boolean
+  /**
+   * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
+   *
+   * 这张牌**留在扇形里**，只是抬高一点、单独亮着，同一时刻整排其余的牌一起压暗
+   * （压暗走 opacity，因为全屏那层压暗在扇形下面，够不着手牌自己）。
+   * 它只管这一层"哪张在等目标"的排布：那期间不该有 hover 的事归 frozen 管，
+   * 父组件两个都要给（选目标态同样要冻住整排，否则指针还压在那张牌上，它会一直放大挡住战场）。
    *
    * 注意这张牌同时也在"已经打出、正在等结果"的记录里（playedRef），
    * 但它和等网络回包的牌不一样：那种停在落点上不参与排布，这种要照常排回扇形。
@@ -263,6 +290,7 @@ export function HandFan({
   returnZoneRef,
   onPlay,
   disabled = false,
+  frozen = false,
   castingId = null,
   onDragStateChange,
 }: HandFanProps) {
@@ -288,11 +316,13 @@ export function HandFan({
    */
   const disabledRef = useRef(disabled)
   /**
-   * 最新的 castingId。applyLayout 必须读它而不是闭包里的 prop：
-   * layoutRef 里存的那份 applyLayout 只在 cards 变化时才重新捕获（见下面的 useGSAP），
-   * 而选目标态是在 cards 没变的情况下开关的，读闭包会一直拿到进选目标态之前的旧值。
-   * 在渲染期间赋值（同 useCardDrag 的 optionsRef）：紧跟着的 layout effect 就要用上这一帧的值。
+   * 最新的 frozen。在渲染期间就写好，因为读它的地方等不到 effect：
+   * applyLayout 被存进 layoutRef，而那份闭包只在 cards 变化时才重建（见下面 useGSAP 的依赖数组），
+   * frozen 一变它是不会刷新的，只能走 ref 拿当前值。
    */
+  const frozenRef = useRef(frozen)
+  frozenRef.current = frozen
+  /** 最新的 castingId。理由和上面那个 frozenRef 一模一样：applyLayout 读的是这一份。 */
   const castingIdRef = useRef(castingId)
   castingIdRef.current = castingId
   /** 给 resize 监听和延迟回位用：它们要拿到最新一次渲染的布局函数。 */
@@ -360,7 +390,10 @@ export function HandFan({
     )
     const count = laid.length
 
-    const hoveredId = hoverRef.current
+    // 冻结期间一律按"没有 hover"排布。下面那个 frozen 的 layout effect 会把 hoverRef 清掉，
+    // 但重排的入口不止一处（resize、手牌增减都会走到这里），冻结和清空之间隔着一次提交；
+    // 中间这次重排要是照旧读 hoverRef，就会把那张牌又补间回放大位。
+    const hoveredId = frozenRef.current ? null : hoverRef.current
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
     // 邻牌要让到 hover 那张牌放大后的轮廓之外；放大不改 x，所以让位量只跟基准位有关，
     // 全部在 neighborPushes 里按几何算好。
@@ -372,8 +405,8 @@ export function HandFan({
 
       const base = fanTransform(index, count, viewportWidth, PLAYER_FAN)
       const isCasting = card.id === casting
-      // 选目标期间整个扇形都不吃指针事件，理论上不会有 hover；判 isCasting 优先只是兜底，
-      // 免得进选目标态那一帧还留着旧的 hover 记录，把这张牌又摆成放大的样子。
+      // 选目标态下父组件会一并打开 frozen，上面那行已经把 hover 抹平了；
+      // 判 isCasting 优先只是兜底，免得哪天两个开关没一起给，这张牌又被摆成放大的样子。
       const isHovered = !isCasting && index === hoverIndex
       const isNew = !placedRef.current.has(card.id)
       if (isNew) {
@@ -430,7 +463,6 @@ export function HandFan({
         flipTo(inner, 0, 0.3)
       }
     })
-
   }
 
   /**
@@ -514,6 +546,9 @@ export function HandFan({
     // 与其猜它们的行为，不如在这里挡掉。
     // 松手时若指针确实已经不在牌上，浏览器会补一发 leave，hover 状态自己就对上了。
     if (cardDrag.pressedId() !== null) return
+    // 冻结期间连抬牌都不接（见 frozen）。注意不能靠 pressedId 那道闸代劳：
+    // 冻结时 useCardDrag 在 pointerdown 就返回了，pressedId 恒为 null，那道闸形同虚设。
+    if (frozenRef.current) return
     cancelLeaveTimer()
     if (hoverRef.current === id) return
     hoverRef.current = id
@@ -535,6 +570,10 @@ export function HandFan({
   })
 
   const handleHelpEnter = contextSafe((id: string) => {
+    // 热区平时是 visibility: hidden，根本吃不到指针；但冻结那一刻已经显形的那张牌，
+    // 热区还要淡 0.2 秒才关掉 visibility，这段空窗里指针挪进去仍然能翻一次面。
+    // 对应的 leave 不加闸：翻回正面这种"收回去"的动作冻结期照做不误。
+    if (frozenRef.current) return
     const inner = innerOf(id)
     if (inner) flipTo(inner, 180, 0.4)
   })
@@ -682,7 +721,8 @@ export function HandFan({
 
   const cardDrag = useCardDrag({
     zones: dropZones,
-    enabled: !disabled,
+    // frozen 是 disabled 的超集：冻结期间连拖带点一律不受理。
+    enabled: !disabled && !frozen,
     // 拖拽建的补间要和布局补间归进同一个 useGSAP context，卸载时才会被一起 revert 掉。
     contextSafe,
     targetOf: dragTargetOf,
@@ -724,12 +764,41 @@ export function HandFan({
   }, [disabled])
 
   /**
-   * 进出选目标态时把 hover 收干净、整排重排一次。
+   * frozen 打开的那一刻，把已经抬起来的那张牌主动收回扇形。
    *
-   * 点出一张要选目标的牌时，指针八成还压在这张牌上、它还保持着 hover 放大的样子；
-   * 而选目标态一来整个扇形就不吃指针事件了（见 .hand-fan[data-casting]），
-   * 再也等不到 pointerleave，那张牌会一直大着把战场挡死——所以必须主动清掉。
-   * 用 layout effect：缩回和压暗要和这一帧一起出现，不能等到下一帧再跳一下。
+   * 只在 handleEnter 加闸是不够的：hoverRef 不清空的话，冻结期间的一次 resize
+   * 或者一次手牌增减（出牌成功那次 cards 变化必然落在冻结期内）都会重排一遍，
+   * 那张牌会被重新摆回放大位。
+   *
+   * 要收拾的东西和抓起牌时（handleDragStart）是同一份：
+   * 停掉延迟缩回的定时器 → 清 hoverRef（顺带关掉这张牌的倾斜跟随，attachCardTilt 的
+   * enabled 判的就是它）→ 让倾斜和高光归零 → 重排回基准位。
+   * 翻到背面的牌转正、问号热区淡出这两件事由 applyLayout 自己收（见那里）。
+   *
+   * 倾斜必须显式 reset：cardTilt 只在 pointermove / pointerleave 时归零，而冻结时玩家的指针
+   * 往往就停在那张牌上不动，两个事件一个都不会来，倾斜角和高光会原地冻住。
+   *
+   * frozen 关掉时刻意什么都不做：浏览器不会为"指针原本就停在某张牌上"补发一次 pointerenter，
+   * 这里猜着抬一张起来反而更怪，等玩家动一下鼠标自然就恢复了（和 disabled 现有的行为一致）。
+   */
+  useLayoutEffect(() => {
+    if (!frozen) return
+    cancelLeaveTimer()
+    const hovered = hoverRef.current
+    if (hovered === null) return
+    hoverRef.current = null
+    tiltsRef.current.get(hovered)?.reset()
+    layoutRef.current('hover')
+  }, [frozen])
+
+  /**
+   * 进出选目标态时重排一次：那张牌要抬起来单独亮着，或者从抬起的位置落回扇形。
+   *
+   * 和上面那段 frozen 的收尾分工不同，两个都要留着：那段只在"当时有牌被抬起来"时才重排
+   * （它管的是收 hover），而这里两个方向都必须重排一次，不然点出去的牌不会抬起来、
+   * 取消之后也落不回去。指针八成还停在这张牌上，hover 一并清掉——
+   * 选目标态下父组件同时会打开 frozen，之后也不会再有新的 hover 进来。
+   * 用 layout effect：抬起和压暗要和这一帧一起出现，不能等到下一帧再跳一下。
    */
   useLayoutEffect(() => {
     cancelLeaveTimer()
@@ -740,28 +809,42 @@ export function HandFan({
   return (
     // --hand-card-zoom 是 slot 盒子的放大倍数，CSS 那边全靠它算宽高和 zoom；
     // 值来自 HOVER_SCALE（按扇形几何算出来的），所以只能由 JS 传下去。
-    // data-casting 只管样式：整排不吃指针事件，并把扇形抬到全屏压暗层之上
-    //（正在施放的那张要亮着，其余靠上面那份 opacity 压暗）。
+    // data-casting 只管一件样式：把整个扇形抬到全屏压暗层之上，正在施放的那张才亮得起来
+    //（同排其余的靠上面那份 opacity 自己压暗）。不接指针那件事归 frozen 管，不写在 CSS 里。
     <div
       className="hand-fan"
       ref={rootRef}
       data-casting={castingId === null ? undefined : 'true'}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}
     >
-      {cards.map((card) => (
-        <div
-          key={card.id}
-          className="hand-fan__slot"
-          data-flip-id={card.id}
-          ref={(el) => {
-            if (el) slotsRef.current.set(card.id, el)
-            else slotsRef.current.delete(card.id)
-          }}
-          onPointerEnter={() => handleEnter(card.id)}
-          onPointerLeave={() => handleLeave(card.id)}
-          {...cardDrag.bind(card.id)}
-        >
-          {/*
+      {cards.map((card) => {
+        const dragBindings = cardDrag.bind(card.id)
+        return (
+          <div
+            key={card.id}
+            className="hand-fan__slot"
+            data-flip-id={card.id}
+            ref={(el) => {
+              if (el) slotsRef.current.set(card.id, el)
+              else slotsRef.current.delete(card.id)
+            }}
+            onPointerEnter={() => handleEnter(card.id)}
+            onPointerLeave={() => handleLeave(card.id)}
+            {...dragBindings}
+            /*
+            指针已经在牌上、却没抬起来的那些情况，全靠 move 补一次 hover：
+            浏览器只在指针跨过边界时发 enter，而"指针没动、牌自己变了"的场合它一次都不发——
+            解冻那一刻（frozen 期间的 enter 被挡掉了）、重排把另一张牌挪到指针底下、
+            出牌后手牌合拢，都是这样。补上之后玩家动一下鼠标牌就抬起来，不用先挪出去再挪回来。
+            拖拽的 move 要先跑（它管跟随），而且必须写在 dragBindings 之后才盖得住它的同名 prop。
+            handleEnter 自己会挡掉按着不放和已经 hover 的情况，move 这么密也不会白跑补间。
+          */
+            onPointerMove={(event) => {
+              dragBindings.onPointerMove(event)
+              handleEnter(card.id)
+            }}
+          >
+            {/*
             三层 transform 各管一件事，分开才不会互相覆盖：
             slot 管扇形摆位（x / y / rotation / scale）和拖拽时跟着光标走，
             tilt 管跟着指针的三维倾斜（rotationX / rotationY），
@@ -772,35 +855,35 @@ export function HandFan({
             问号拆成两半分挂在两层里：看得见的圆圈在 inner 里（跟着倾斜也跟着翻面），
             触发翻面的透明热区在 inner 外（只跟倾斜、绝不跟翻面）。原因见下面两处注释。
           */}
-          <div className="hand-fan__tilt">
-            <div className="hand-fan__inner">
-              <div className="hand-fan__face hand-fan__face--front" data-flip-face="front">
-                <HandCardFace card={card} />
-                {/* 看得见的问号圆圈之一。放在这里而不是 HandCardFace 里面：
+            <div className="hand-fan__tilt">
+              <div className="hand-fan__inner">
+                <div className="hand-fan__face hand-fan__face--front" data-flip-face="front">
+                  <HandCardFace card={card} />
+                  {/* 看得见的问号圆圈之一。放在这里而不是 HandCardFace 里面：
                     那个组件被战场小卡复用，而小卡没有翻面这回事，不该跟着长出一个问号。 */}
-                <span className="hand-fan__help-mark" aria-hidden="true">
-                  ?
-                </span>
-              </div>
-              <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                <div className="card-back">
-                  <span className="card-back__title">{card.name}</span>
-                  <p className="card-back__text">{card.backText}</p>
-                  {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
-                      这一层和正面共用 --glare-x / --glare-y，位置是对的：
-                      .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
-                      而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
-                  <div className="card-glare" />
-                  {/* 背面同一个角上的问号圆圈：翻过去之后指针底下仍然压着一个问号，
-                      看起来就是"同一个问号跟着卡转到了背面"。
-                      排在高光层后面，免得被那层 soft-light 混得发灰。 */}
                   <span className="hand-fan__help-mark" aria-hidden="true">
                     ?
                   </span>
                 </div>
+                <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
+                  <div className="card-back">
+                    <span className="card-back__title">{card.name}</span>
+                    <p className="card-back__text">{card.backText}</p>
+                    {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
+                      这一层和正面共用 --glare-x / --glare-y，位置是对的：
+                      .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
+                      而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
+                    <div className="card-glare" />
+                    {/* 背面同一个角上的问号圆圈：翻过去之后指针底下仍然压着一个问号，
+                      看起来就是"同一个问号跟着卡转到了背面"。
+                      排在高光层后面，免得被那层 soft-light 混得发灰。 */}
+                    <span className="hand-fan__help-mark" aria-hidden="true">
+                      ?
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-            {/*
+              {/*
               问号的触发热区：完全透明，只管交互（hover 翻面、拦住在它身上按下时抓起牌，
               靠的是传给 useCardDrag 的 ignoreSelector），样子全交给上面 inner 里那两个圆圈。
 
@@ -812,16 +895,17 @@ export function HandFan({
               与之配套，卡面那一整棵子树在 CSS 里是 pointer-events: none（见 .hand-fan__inner），
               翻面途中转动的卡面抢不走指针。别给卡面加指针事件，加了这条抖动就会回来。
             */}
-            <button
-              type="button"
-              className="hand-fan__help"
-              aria-label="查看卡牌详情"
-              onPointerEnter={() => handleHelpEnter(card.id)}
-              onPointerLeave={() => handleHelpLeave(card.id)}
-            />
+              <button
+                type="button"
+                className="hand-fan__help"
+                aria-label="查看卡牌详情"
+                onPointerEnter={() => handleHelpEnter(card.id)}
+                onPointerLeave={() => handleHelpLeave(card.id)}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -835,7 +919,7 @@ export function HandFan({
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
  * 卡名、描述、底部那一行标识都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
  *
- * 现在卡面上没有任何数值：出牌不要费用，AI 卡也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
+ * 现在卡面上没有任何数值：出牌不要费用，AI 牌也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
  * 排版是占位程度，等正式卡面设计出来再重排。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
@@ -845,7 +929,7 @@ export function HandCardFace({ card }: { card: HandCardData }) {
           念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
       <img
         className="card-face__art"
-        src={card.art ?? placeholderArtFor(card.id)}
+        src={card.art ?? cardArtFor(card.id)}
         alt=""
         draggable={false}
       />
@@ -853,8 +937,8 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
         <div className="card-face__stats">
-          {/* AI 卡印模型名，技能牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
-          <span>{card.kind === 'agent' ? (card.model ?? 'AI') : '技能'}</span>
+          {/* AI 牌印模型名，技能牌和英雄牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+          <span>{faceStamp(card)}</span>
         </div>
       </div>
       {/*
@@ -866,4 +950,14 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       <div className="card-glare" />
     </div>
   )
+}
+
+/**
+ * 卡面底部那一行印什么。
+ *
+ * AI 牌印模型名（没填就退回"AI"，卡面上留空比印错更难看），其余按卡种印两个字。
+ */
+function faceStamp(card: HandCardData): string {
+  if (card.kind === 'ai') return card.model ?? 'AI'
+  return card.kind === 'hero' ? '英雄' : '技能'
 }

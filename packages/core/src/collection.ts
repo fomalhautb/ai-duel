@@ -7,27 +7,25 @@
  */
 
 import { CARDS } from './cards'
+import { AI_MODEL_CARD_IDS } from './aiModels'
 import type { CardId } from './types'
 
 /**
- * 完整卡池：目前就是全部卡牌定义。
- * 将来如果出现"不进抽卡池"的卡（活动卡、测试卡），改成显式列表即可。
+ * 完整卡池：目前就是全部能进牌组的卡牌定义（CARDS）。
+ * 英雄牌是开局前单独选的，既不进卡池也不进牌组，所以 heroes.ts 的 HEROES 不在这里。
+ * 将来如果出现"不进抽卡池"的手牌（活动卡、测试卡），把这里改成显式列表即可。
  */
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
 /**
- * 新玩家开局就拥有的卡。
+ * 新玩家开局就拥有的卡：十八张 AI 加那两张技能牌。
  *
  * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
- * 现在卡池只有 6 张、示例牌组把它们全用上了，所以这份收藏暂时等于整个卡池，
- * `drawNewCard` 也就抽不到新卡（返回 null）——等卡池扩到超出示例牌组，
- * 解锁流程会自动重新生效，不需要改代码。
+ * 现在卡池里的牌全在这份收藏里，所以 `drawNewCard` 抽不到新卡（返回 null）——
+ * 等卡池扩到超出这份收藏，解锁流程会自动重新生效，不需要改代码。
  */
 export const INITIAL_COLLECTION: CardId[] = [
-  'agent-gpt',
-  'agent-claude',
-  'agent-gemini',
-  'agent-deepseek',
+  ...AI_MODEL_CARD_IDS,
   'placeholder-skill',
   'skill-must-answer',
 ]

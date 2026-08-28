@@ -1,7 +1,7 @@
 /**
  * 卡牌图鉴 / 卡面调试页（/card）。
  *
- * 左右分栏：左边按 AI 卡 / 技能牌列出 core 里的全部卡牌，点一张，右边就是这张卡的完整档案
+ * 左右分栏：左边按 英雄牌 / AI 牌 / 技能牌列出 core 里的全部卡牌，点一张，右边就是这张卡的完整档案
  * ——正反两面、卡面之外的字段、分到的占位插画，最后附一份卡牌定义的原始 JSON。
  * 这是给开发和卡面调试用的，不是给玩家看的图鉴界面，所以只求信息全、找得快，不做美化。
  *
@@ -13,19 +13,27 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation } from 'wouter'
-import { CARDS } from '@ai-duel/core'
-import type { AgentCard, Card, CardId, SkillCard } from '@ai-duel/core'
+import { CARDS, HEROES } from '@ai-duel/core'
+import type { AiCard, Card, CardId, HeroCard, SkillCard } from '@ai-duel/core'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
-import { CARD_ART_PLACEHOLDERS, placeholderArtFor } from '../ui/cardArt'
+import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
+import { heroCardData } from '../ui/heroCard'
 
-const ALL_CARDS = Object.values(CARDS)
-const AGENT_CARDS = ALL_CARDS.filter((card): card is AgentCard => card.kind === 'agent')
-const SKILL_CARDS = ALL_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
+const HERO_CARDS: HeroCard[] = Object.values(HEROES)
+/** 进牌组的那两类牌。英雄牌不在 CARDS 里，所以页头的张数也按这一份算。 */
+const DECK_CARDS = Object.values(CARDS)
+const AI_CARDS = DECK_CARDS.filter((card): card is AiCard => card.kind === 'ai')
+const SKILL_CARDS = DECK_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
+// 英雄牌不进牌组，所以 core 把它和 CARDS 分成两张表；这一页要三类牌都列出来、还要按 id 反查，
+// 在这里合成一张。
+const ALL_CARDS: Card[] = [...HERO_CARDS, ...DECK_CARDS]
+const CARD_BY_ID = new Map<CardId, Card>(ALL_CARDS.map((card) => [card.id, card]))
 
 const KIND_LABELS: Record<Card['kind'], string> = {
-  agent: 'AI 卡',
+  hero: '英雄牌',
+  ai: 'AI 牌',
   skill: '技能牌',
 }
 
@@ -34,17 +42,20 @@ const KIND_LABELS: Record<Card['kind'], string> = {
  *
  * backText 走 cardBackText，和对局里那张卡完全一样——这一页就是拿来照着对局检查排版的。
  * art 不填，交给 HandCardFace 按 id 分配占位插画（见 ui/cardArt.ts），
- * 这样这一页看到的配图也和对局里那张卡是同一张。
+ * 这样这一页看到的配图也和对局里那张卡是同一张。英雄牌也走同一条路：
+ * 它自己的立绘（assets/人物卡简介/）还没接进构建，先跟着分一张占位图。
  */
 function toHandCardData(card: Card): HandCardData {
+  // 英雄牌的正面拼法只有一份（ui/heroCard.ts），对局侧栏画的就是这一张。
+  if (card.kind === 'hero') return heroCardData(card)
   const base = {
     id: card.id,
     name: card.name,
     text: card.text,
     backText: cardBackText(card),
   }
-  if (card.kind === 'agent') {
-    return { ...base, kind: 'agent', model: card.model }
+  if (card.kind === 'ai') {
+    return { ...base, kind: 'ai', model: card.model }
   }
   return { ...base, kind: 'skill' }
 }
@@ -53,22 +64,31 @@ export function CardGallery() {
   const [, navigate] = useLocation()
   // 默认选中第一张：右栏永远有东西，不用为"还没选"单独做一个空状态。
   const [selectedId, setSelectedId] = useState<CardId | undefined>(ALL_CARDS[0]?.id)
-  const selected = selectedId === undefined ? undefined : CARDS[selectedId]
+  const selected = selectedId === undefined ? undefined : CARD_BY_ID.get(selectedId)
 
   return (
     <div className="gallery">
       <aside className="gallery__list">
         <header className="gallery__header">
           <h1 className="gallery__title">卡牌图鉴</h1>
-          <p className="gallery__lead">core 里共 {ALL_CARDS.length} 张卡。</p>
+          <p className="gallery__lead">
+            core 里共 {DECK_CARDS.length} 张进牌组的牌，外加 {HERO_CARDS.length} 位英雄。
+          </p>
           <button type="button" className="gallery__back" onClick={() => navigate('/')}>
             回首页
           </button>
         </header>
 
+        {/* 英雄牌单独一组：它不在 CARDS 里，也进不了牌组，只是借同一套卡面画出来。 */}
         <CardPicker
-          title={`AI 卡（${AGENT_CARDS.length}）`}
-          cards={AGENT_CARDS}
+          title={`英雄牌（${HERO_CARDS.length}）`}
+          cards={HERO_CARDS}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        <CardPicker
+          title={`AI 牌（${AI_CARDS.length}）`}
+          cards={AI_CARDS}
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
@@ -106,7 +126,7 @@ export function CardGallery() {
   )
 }
 
-/** 左栏的一组卡（AI 卡 / 技能牌各一组），只画正面，点一下换选中。 */
+/** 左栏的一组卡（英雄牌 / AI 牌 / 技能牌各一组），只画正面，点一下换选中。 */
 function CardPicker({
   title,
   cards,
@@ -174,9 +194,19 @@ function CardDetail({ card }: { card: Card }) {
         <MetaRow label="卡牌 id">
           <code>{card.id}</code>
         </MetaRow>
-        {card.kind === 'agent' ? <MetaRow label="模型名">{card.model}</MetaRow> : null}
+        {card.kind === 'ai' ? <MetaRow label="模型名">{card.model}</MetaRow> : null}
+        {/* 英雄牌没有模型名，它那几格换成英文名和专属技能。 */}
+        {card.kind === 'hero' ? (
+          <>
+            <MetaRow label="英文名">{card.enName}</MetaRow>
+            <MetaRow label="技能">
+              {card.skillName}：{card.skillText}
+            </MetaRow>
+            <MetaRow label="进牌组">不进：英雄技能不占 20 张牌的牌组空间</MetaRow>
+          </>
+        ) : null}
         <MetaRow label="占位插画">
-          <code>{placeholderArtFor(card.id)}</code>
+          <code>{cardArtFor(card.id)}</code>
         </MetaRow>
       </dl>
 

@@ -39,18 +39,19 @@ export const FACTIONS = [
 /**
  * 一张 demo 卡。
  *
- * art 不填：让卡面按 id 稳定地分一张占位插画（见 ui/cardArt.ts 的 placeholderArtFor）。
+ * art 不填：让卡面按 id 挑图（见 ui/cardArt.ts 的 cardArtFor）：
+ * id 和真卡对上的那几张会拿到具名 AI 的原画，其余按 id 稳定地分一张占位插画。
  * 也正因如此，下面的 id 必须稳定——改 id 会连带换掉那张卡的插画。
  */
 export type DeckDemoCard = HandCardData & { faction: DeckFaction }
 
 /**
- * 30 张 demo 卡：18 张 AI 卡（agent）+ 12 张技能卡（skill）。
+ * 30 张 demo 卡：18 张 AI 牌（ai）+ 12 张技能牌（skill）。
  *
- * 每个阵营都同时有 AI 卡和技能卡，这样筛选栏点任何一个阵营都不会筛出空列表——
+ * 每个阵营都同时有 AI 牌和技能牌，这样筛选栏点任何一个阵营都不会筛出空列表——
  * 演示页要能展示"筛完还有牌"的正常状态。
  *
- * AI 卡的 model 直接照抄卡名：这批 demo 卡的卡名本来就是模型名，
+ * AI 牌的 model 直接照抄卡名：这批 demo 卡的卡名本来就是模型名，
  * 没有"卡名和型号不是一回事"的样例可举。真卡池里两者可以不同，别照搬这个写法。
  */
 export const DECK_DEMO_CARDS: DeckDemoCard[] = [
@@ -58,7 +59,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'gpt-2',
     faction: 'gpt',
-    kind: 'agent',
+    kind: 'ai',
     name: 'GPT-2',
     model: 'GPT-2',
     text: '它会接话，但不保证接的是人话。',
@@ -67,7 +68,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'gpt-3-5',
     faction: 'gpt',
-    kind: 'agent',
+    kind: 'ai',
     name: 'GPT-3.5',
     model: 'GPT-3.5',
     text: '什么都答得上来，答得对不对是另一回事。',
@@ -76,7 +77,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'gpt-4o',
     faction: 'gpt',
-    kind: 'agent',
+    kind: 'ai',
     name: 'GPT-4o',
     model: 'GPT-4o',
     text: '看得见图、听得见声，就是有点太想夸你。',
@@ -85,7 +86,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'gpt-5-6-sol',
     faction: 'gpt',
-    kind: 'agent',
+    kind: 'ai',
     name: 'GPT-5.6 Sol',
     model: 'GPT-5.6 Sol',
     text: '它算得比你快，也比你确信。',
@@ -95,7 +96,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'claude-4-5-haiku',
     faction: 'claude',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Claude 4.5 Haiku',
     model: 'Claude 4.5 Haiku',
     text: '答得极快，代价是没来得及细想。',
@@ -104,7 +105,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'claude-5-sonnet',
     faction: 'claude',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Claude 5 Sonnet',
     model: 'Claude 5 Sonnet',
     text: '写代码很稳，就是喜欢先解释一遍它打算怎么写。',
@@ -113,7 +114,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'claude-fable-5',
     faction: 'claude',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Claude Fable 5',
     model: 'Claude Fable 5',
     text: '想得又深又长，长到你忘了自己问过什么。',
@@ -123,7 +124,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'kimi-k1-5',
     faction: 'kimi',
-    kind: 'agent',
+    kind: 'ai',
     name: 'K1.5',
     model: 'K1.5',
     text: '一口气读完二十万字，然后总结错了三处。',
@@ -132,7 +133,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'kimi-k2-6',
     faction: 'kimi',
-    kind: 'agent',
+    kind: 'ai',
     name: 'K2.6',
     model: 'K2.6',
     text: '嘴上说着"这个我不能回答"，手上已经开始写了。',
@@ -141,17 +142,17 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'kimi-k3',
     faction: 'kimi',
-    kind: 'agent',
+    kind: 'ai',
     name: 'K3',
     model: 'K3',
     text: '会自己调工具、自己查资料、自己相信查到的东西。',
-    backText: 'Agent 型号：放出去能干一整套活，就是没人复核它的中间步骤。',
+    backText: '智能体型号：放出去能干一整套活，就是没人复核它的中间步骤。',
   },
   // ---- DeepSeek ----
   {
     id: 'deepseek-v3-2',
     faction: 'deepseek',
-    kind: 'agent',
+    kind: 'ai',
     name: 'V3.2',
     model: 'V3.2',
     text: '便宜、耐用、话不多。',
@@ -160,7 +161,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'deepseek-r1',
     faction: 'deepseek',
-    kind: 'agent',
+    kind: 'ai',
     name: 'R1',
     model: 'R1',
     text: '先自言自语三千字，再回答你那个是非题。',
@@ -169,7 +170,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'deepseek-v4',
     faction: 'deepseek',
-    kind: 'agent',
+    kind: 'ai',
     name: 'V4',
     model: 'V4',
     text: '用别人一半的算力，办完一样的事。',
@@ -179,7 +180,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'step-3-5',
     faction: 'cn',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Step-3.5',
     model: 'Step-3.5',
     text: '一步一步来，只是有一步算错了。',
@@ -188,7 +189,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'glm-5',
     faction: 'cn',
-    kind: 'agent',
+    kind: 'ai',
     name: 'GLM-5',
     model: 'GLM-5',
     text: '中文说得比谁都顺，顺到你懒得核对。',
@@ -197,7 +198,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'qwen-4-max',
     faction: 'cn',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Qwen 4 Max',
     model: 'Qwen 4 Max',
     text: '什么尺寸都有，什么活都接。',
@@ -207,7 +208,7 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'llama-5-scout',
     faction: 'other',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Llama 5 Scout',
     model: 'Llama 5 Scout',
     text: '谁都能把它下回家，再教成自己想要的样子。',
@@ -216,14 +217,14 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   {
     id: 'mistral-grand-3',
     faction: 'other',
-    kind: 'agent',
+    kind: 'ai',
     name: 'Mistral Grand 3',
     model: 'Mistral Grand 3',
     text: '答得简洁利落，偶尔简洁掉了关键那句。',
     backText: '欧洲口味：不啰嗦，也不解释。',
   },
 
-  // ---- 技能卡 ----
+  // ---- 技能牌 ----
   {
     id: 'tip-bribery',
     faction: 'gpt',

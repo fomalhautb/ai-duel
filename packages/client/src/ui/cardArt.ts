@@ -1,10 +1,12 @@
 /**
  * 卡面插画的占位图。
  *
- * 正式美术还没出，先拿四张塔罗风的整版竖图顶着（1024×1536，羊皮纸底、自带装饰边框），
+ * 提示卡与首页示例仍使用四张塔罗风竖图（1024×1536）；具名 AI 原画见 aiModelArt.ts。
  * 卡面把它们当整张底图铺满，文字浮在上面（见 HandCardFace 与 styles.css 的 .card-face）。
  * 图放在 public/ 下，所以路径是根绝对路径，不经过打包器的资源哈希。
  */
+
+import { AI_MODEL_ART } from './aiModelArt'
 
 export const CARD_ART_PLACEHOLDERS = [
   '/cards/placeholder-1.webp',
@@ -30,4 +32,14 @@ export function placeholderArtFor(seed: string): string {
   // >>> 0 把 32 位有符号结果转成无符号，省掉负数取模那一层判断。
   const index = (hash >>> 0) % CARD_ART_PLACEHOLDERS.length
   return CARD_ART_PLACEHOLDERS[index] ?? CARD_ART_PLACEHOLDERS[0]
+}
+
+/**
+ * 一张卡该画哪张插画：有专属原画就用原画，没有的才退回占位图。
+ *
+ * 卡面、图鉴、首页预加载都走这一个函数。要是各处自己判断，
+ * 预加载等的图和卡面真正显示的图就会对不上，玩家会先看到空白再看到图闪出来。
+ */
+export function cardArtFor(cardId: string): string {
+  return AI_MODEL_ART[cardId] ?? placeholderArtFor(cardId)
 }

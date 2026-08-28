@@ -9,7 +9,7 @@ import type { RandomGenerator } from 'pure-rand/types/RandomGenerator'
 import { CARDS, getCard } from './cards'
 import { QUESTION_POOL } from './questions'
 import type {
-  AgentInstance,
+  AiInstance,
   AnswerResult,
   CardId,
   CardInstance,
@@ -17,6 +17,7 @@ import type {
   ExecuteResult,
   GameEvent,
   GameState,
+  HeroId,
   InstanceId,
   PlayerId,
   PlayerState,
@@ -26,10 +27,19 @@ import type {
 /** 开局手牌数。黑客松阶段不做先后手补偿，双方一样。 */
 export const STARTING_HAND_SIZE = 5
 
+/** 没指定英雄时用谁。选英雄的界面还没做，所以双方默认都是格蕾丝·霍珀。 */
+const DEFAULT_HERO: HeroId = 'grace-hopper'
+
 export interface PlayerSetup {
   name: string
   /** 牌组，元素是卡牌定义 id，可以重复。 */
   deck: CardId[]
+  /**
+   * 这一方的英雄，不填就是 DEFAULT_HERO。
+   * 暂时没有选英雄的界面，联机和测试房都不传这一项，双方都拿到默认英雄。
+   * 传 null 表示这一方不带英雄（现在只有测试会这么用）。
+   */
+  hero?: HeroId | null
 }
 
 export interface GameSetup {
@@ -68,6 +78,10 @@ export function createGame(setup: GameSetup): ExecuteResult {
       deck: shuffle(deck, rng),
       board: [],
       discard: [],
+      // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
+      // 英雄初始化不碰 rng，所以加了它也不影响下面抛硬币/洗牌那串随机数的顺序。
+      hero: config.hero === undefined ? DEFAULT_HERO : config.hero,
+      heroSkillUsed: false,
     }
   }
 
@@ -160,8 +174,8 @@ function playCard(
   // 目标先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
   // 而下面这些改动全落在副本 next 上，顺序写反了以后加分支时容易漏掉。
   // 找到的是 next 里的那个单位，直接给它盖 interfered 就行。
-  let target: AgentInstance | undefined
-  if (card.kind === 'skill' && card.target === 'foe-agent') {
+  let target: AiInstance | undefined
+  if (card.kind === 'skill' && card.target === 'foe-ai') {
     if (targetInstanceId === undefined) return reject(state, '这张技能牌要先指定目标')
     target = next.players[other(playerId)].board.find((a) => a.instanceId === targetInstanceId)
     // 两条分开报：客户端选错人和选了个已经被干扰的，玩家该看到的提示不一样。
@@ -172,21 +186,30 @@ function playCard(
   player.hand.splice(handIndex, 1)
 
   const events: GameEvent[] = []
-  if (card.kind === 'agent') {
-    // AI 卡进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
+  if (card.kind === 'ai') {
+    // AI 牌进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
     // 罚下时才能原样塞回弃牌堆。
-    const agent: AgentInstance = {
+    const ai: AiInstance = {
       instanceId: instance.instanceId,
       cardId: card.id,
       owner: playerId,
     }
-    player.board.push(agent)
-    events.push({ type: 'AGENT_DEPLOYED', player: playerId, agent })
+    player.board.push(ai)
+    events.push({ type: 'AI_DEPLOYED', player: playerId, ai })
   } else {
+    player.discard.push(instance)
+    // 格蕾丝·霍珀的 Debug：抵消对方本局打出的第一张技能牌。
+    // 牌本身照常打出、照常进弃牌堆，作废的只是**效果**，所以要赶在结算之前先问一句
+    // 「这张会不会被抵消」——被抵消的干扰技能不能给目标盖上 interfered，
+    // 否则玩家会看到"技能被抵消了，那个 AI 却再也不能被干扰"这种自相矛盾的局面。
+    // 以后给别的技能牌写效果，同样都要写进下面这个 canceledBy === null 的分支里。
+    const foe = next.players[other(playerId)]
+    const canceledBy: HeroId | null =
+      foe.hero === 'grace-hopper' && !foe.heroSkillUsed ? foe.hero : null
     // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰，战场小卡上也会挂个角标。
     // 它不影响答题——真正往 AI 上下文里塞话的效果还没做。
-    if (target !== undefined) target.interfered = true
-    player.discard.push(instance)
+    if (canceledBy === null && target !== undefined) target.interfered = true
+
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
     events.push({
@@ -195,8 +218,22 @@ function playCard(
       cardId: card.id,
       instanceId: instance.instanceId,
       // 无目标技能不带这个字段，客户端据此决定亮相完是原地淡出还是飞向目标格。
+      // 被抵消时也照常带：牌确实是冲着那个 AI 打出去的，客户端先演飞过去、再演抵消，
+      // 玩家才看得懂"这一下本来要打谁"。
       ...(target === undefined ? {} : { targetInstanceId: target.instanceId }),
     })
+    // 抵消这条排在 SKILL_PLAYED 之后：客户端才能先演出牌、再演抵消。
+    if (canceledBy !== null) {
+      foe.heroSkillUsed = true
+      events.push({
+        type: 'SKILL_CANCELED',
+        player: playerId,
+        by: foe.id,
+        heroId: canceledBy,
+        cardId: card.id,
+        instanceId: instance.instanceId,
+      })
+    }
   }
   return { state: next, events }
 }
@@ -248,22 +285,22 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
       p.board.some((a) => a.instanceId === result.instanceId),
     )!
     const index = owner.board.findIndex((a) => a.instanceId === result.instanceId)
-    const agent = owner.board[index]!
+    const ai = owner.board[index]!
     events.push({
-      type: 'AGENT_ANSWERED',
-      instanceId: agent.instanceId,
-      owner: agent.owner,
+      type: 'AI_ANSWERED',
+      instanceId: ai.instanceId,
+      owner: ai.owner,
       correct: result.correct,
       answerText: result.answerText,
     })
     if (!result.correct) {
       owner.board.splice(index, 1)
       owner.discard.push({
-        instanceId: agent.instanceId,
-        cardId: agent.cardId,
-        owner: agent.owner,
+        instanceId: ai.instanceId,
+        cardId: ai.cardId,
+        owner: ai.owner,
       })
-      events.push({ type: 'AGENT_ELIMINATED', instanceId: agent.instanceId, owner: agent.owner })
+      events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
     }
   }
 

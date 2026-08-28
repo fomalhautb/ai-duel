@@ -41,27 +41,65 @@ interface CardBase {
   text: string
 }
 
-/** AI 卡：打出后作为单位留在场上，每轮跟着答题，答错才罚下。 */
-export interface AgentCard extends CardBase {
-  kind: 'agent'
+/** AI 牌：打出后作为单位留在场上，每轮答题阶段跟着答题，答错才罚下。 */
+export interface AiCard extends CardBase {
+  kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
 }
 
-/** 技能牌：打出后直接进弃牌堆。本迭代只有卡面和动画，没有任何效果。 */
+/**
+ * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
+ * 本迭代只有「必须回答」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ */
 export interface SkillCard extends CardBase {
   kind: 'skill'
   /**
    * 打出时必须指定的目标；不填就是无目标技能，打出即结算。
    *
-   * `'foe-agent'` = 对方场上一个还没被干扰过的 AI（`AgentInstance.interfered` 不为 true）。
+   * `'foe-ai'` = 对方场上一个还没被干扰过的 AI（`AiInstance.interfered` 不为 true）。
    * 目标规则写在卡牌定义上而不是引擎里：再加一张干扰类技能只要标这个字段，
    * `playCard` 那段校验一行都不用改。
    */
-  target?: 'foe-agent'
+  target?: 'foe-ai'
 }
 
-export type Card = AgentCard | SkillCard
+/** 英雄 id。英雄很少，直接用字面量联合，写错名字当场就是类型错误。 */
+export type HeroId = 'grace-hopper'
+
+/**
+ * 英雄牌：开局就跟着玩家，不是牌组里的一张牌。
+ *
+ * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
+ *
+ * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / STARTER_DECK**：
+ * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 4 节），
+ * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
+ * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。
+ */
+export interface HeroCard {
+  kind: 'hero'
+  id: HeroId
+  /** 中文名，卡面主标题。 */
+  name: string
+  /** 英文名，卡面上当副标题印一行。 */
+  enName: string
+  /** 人物简介。 */
+  text: string
+  /** 技能名，界面上要单独拎出来显示（如抵消过场的大字）。 */
+  skillName: string
+  /** 技能效果的说明文案。 */
+  skillText: string
+}
+
+/** 牌组、手牌、弃牌堆里唯二可能出现的牌。 */
+export type HandCard = AiCard | SkillCard
+
+/**
+ * 全部三类牌。只有需要"任意一张牌"的展示代码才用它（卡面渲染、图鉴、背面文案）；
+ * 一切和牌组沾边的地方一律用 HandCard，英雄牌进不去。
+ */
+export type Card = HandCard | HeroCard
 
 /** 牌堆/手牌/弃牌堆里的一张牌。 */
 export interface CardInstance {
@@ -75,7 +113,7 @@ export interface CardInstance {
  * 除了身份三件套，只有一个被干扰标记；
  * 之后要加"上场后被增益/削弱"的数值时再往这里拷贝卡面数值。
  */
-export interface AgentInstance {
+export interface AiInstance {
   instanceId: InstanceId
   cardId: CardId
   owner: PlayerId
@@ -111,8 +149,21 @@ export interface PlayerState {
   hand: CardInstance[]
   /** 牌堆，数组末尾是牌堆顶（抽牌用 pop）。 */
   deck: CardInstance[]
-  board: AgentInstance[]
+  board: AiInstance[]
   discard: CardInstance[]
+  /**
+   * 这一方选的英雄。英雄不进牌组，只是挂在玩家身上的一份身份 + 一个技能。
+   * 为 null 表示这一方没有英雄（技能一律不发动）。
+   */
+  hero: HeroId | null
+  /**
+   * 英雄技能这一局用掉了没有。
+   *
+   * 现在只有格蕾丝·霍珀的 Debug 是"每局一次"，所以一个布尔够用；
+   * 将来有"每若干轮一次"的技能时再换成记轮次的字段。
+   * 一个 GameState 的生命周期就是一局，createGame 重新建状态时它天然回到 false。
+   */
+  heroSkillUsed: boolean
 }
 
 export interface GameState {
@@ -147,7 +198,7 @@ export type Command =
   /**
    * 打出一张手牌。本迭代没有费用，一轮内想打几张打几张。
    *
-   * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-agent'`：
+   * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
    * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；
    * 无目标的卡带上它则直接忽略。
    */
@@ -190,7 +241,7 @@ export type GameEvent =
   /** 开局抛硬币的结果，客户端拿它播全场硬币动画。 */
   | { type: 'GAME_STARTED'; firstPlayer: PlayerId }
   | { type: 'CARD_DRAWN'; player: PlayerId; card: CardInstance }
-  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AGENT_DEPLOYED / SKILL_PLAYED）。 */
+  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AI_DEPLOYED / SKILL_PLAYED）。 */
   | { type: 'CARD_REMOVED'; player: PlayerId; instanceId: InstanceId }
   | {
       type: 'ROUND_STARTED'
@@ -201,7 +252,7 @@ export type GameEvent =
     }
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
-  | { type: 'AGENT_DEPLOYED'; player: PlayerId; agent: AgentInstance }
+  | { type: 'AI_DEPLOYED'; player: PlayerId; ai: AiInstance }
   /** 技能牌打出：中央亮相一下再进弃牌堆。 */
   | {
       type: 'SKILL_PLAYED'
@@ -213,23 +264,45 @@ export type GameEvent =
        */
       instanceId: InstanceId
       /**
-       * 被这张技能命中的 AI（只有干扰类技能才有）。
-       * 同样是给客户端定位用的：技能卡亮相完要飞向这个 AI 的战场格子并在那儿播命中特效。
-       * 结算已经在事件发出前做完了（那个单位的 `interfered` 已经是 true）。
+       * 这张技能打向的那个 AI（只有干扰类技能才有）。
+       *
+       * 同样是给客户端定位用的：技能牌亮相完要飞向这个 AI 的战场格子并在那儿播命中特效。
+       * 结算在事件发出前就做完了，但**别拿它当"目标一定被干扰了"的凭据**：
+       * 这张牌可能紧接着被一条 SKILL_CANCELED 抵消掉，那时目标身上什么标记都没留下。
+       * 谁被干扰了永远以快照里的 `AiInstance.interfered` 为准。
        */
       targetInstanceId?: InstanceId
+    }
+  /**
+   * 一张技能牌的效果被英雄技能抵消。
+   *
+   * 紧跟在被抵消的那张牌的 SKILL_PLAYED 之后：牌照常打出、照常进弃牌堆，只是效果作废，
+   * 客户端也就先演出牌、再演抵消。
+   *
+   * 两个玩家 id 方向相反，别弄混：
+   * - `player` 是打出这张技能牌的一方（被抵消的那一方）；
+   * - `by` 是发动英雄技能的一方，也就是 `player` 的对手。
+   */
+  | {
+      type: 'SKILL_CANCELED'
+      player: PlayerId
+      by: PlayerId
+      heroId: HeroId
+      cardId: CardId
+      /** 被抵消的那张牌的实例 id，和它的 SKILL_PLAYED 是同一个，客户端要靠它对上号。 */
+      instanceId: InstanceId
     }
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */
   | { type: 'QUESTION_REVEALED'; question: Question }
   | {
-      type: 'AGENT_ANSWERED'
+      type: 'AI_ANSWERED'
       instanceId: InstanceId
       owner: PlayerId
       correct: boolean
       answerText: string
     }
   /** 答错被罚下，从场上移进弃牌堆。 */
-  | { type: 'AGENT_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
+  | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
   /** 本轮计分：gains/scores 按座位号排，[0] 是 0 号玩家。 */
   | { type: 'ROUND_SCORED'; gains: [number, number]; scores: [number, number] }
   | { type: 'GAME_OVER'; winner: PlayerId | 'draw' }

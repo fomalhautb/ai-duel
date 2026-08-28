@@ -1,13 +1,14 @@
 :root {
   color-scheme: dark;
   /*
-   * 全站唯一的字体栈，和设计参考 paper-demo.html 一致：EB Garamond 管拉丁字母和数字，
-   * Noto Serif SC 管中文，两者都从 Google Fonts 拿（引入写在 index.html）。
+   * 全站唯一的字体栈，和 /design 设计参考页一致（那套纸张 token 在 src/ui/paper/paper.css）：
+   * EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文，两者都从 Google Fonts 拿
+   * （引入写在 index.html）。
    * 后面三个本地宋体是兜底：断网或字体没加载成功时至少还是衬线体，
    * 不会一下掉回黑体、把整个古典调子毁掉。
    *
-   * 注意 Noto Serif SC 只引到 700，全站字重别写超过 700，
-   * 否则浏览器会自己拉伸出一份很难看的伪粗体。
+   * 注意 Noto Serif SC 只引了 300～700 这几档，全站字重别写出这个范围，
+   * 否则浏览器会自己拉伸出一份很难看的伪粗体 / 伪细体。
    */
   font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
   color: #e5e7eb;
@@ -152,7 +153,12 @@ body,
  * 首页复原的是一整张 1672×941 的设计稿，做法是"固定宽高比的舞台 + 容器查询单位"：
  * 舞台按原比例撑到视口里最大的那一档，里面所有尺寸都写成 cqi（= 舞台宽的百分之一），
  * 于是换窗口大小只是整体等比缩放，图和字的关系一点不变，也就不用写断点。
- * 舞台之外露出的那圈米色，就是设计稿画布外沿的纸色。
+ *
+ * 舞台之外露出的那圈留边，铺的是 /design 设计参考页那套纸张做法：底色 + 两层纸纹 + 暗角，
+ * 整幅画面就像被印在一张纸上。纸纹由 .grain 提供（定义在 src/ui/paper/paper.css，
+ * 根节点上和 .home 一起写着），这里只负责底色和暗角。
+ * 底色跟的是设计稿画布边缘，不是全局纸张 token，具体见下面 background-color 处的说明。
+ * 暗角的 var() 带兜底值：paper.css 还没加载时也要有暗角，不能整片平掉。
  */
 .home {
   /* 画面上所有米色字的颜色，从设计稿里取的。 */
@@ -164,24 +170,82 @@ body,
   place-items: center;
   height: 100%;
   overflow: hidden;
-  background: #ddcab7;
+  /*
+   * 留边底色要和 16:9 背景图 /home/home-bg.jpg 的边缘无缝接上，所以取的是图片边缘实测
+   * 平均色 rgb(221 201 180)（≈#ddc9b4，暖棕），而不是全局纸张 token --paper（#f0ecdf，偏冷的米白）——
+   * 那个白跟这张图接在一起会在图片四周留下一道明显的硬接缝。
+   * 写进来的值比 #ddc9b4 再亮约 2%，是给上面叠的 .grain 留的补偿：斑驳层平均把底色压暗约 2%
+   * （原因见 paper.css 里 --tex-mottle 的注释），提亮之后叠完纹理的平均亮度正好落回图片边缘色。
+   * 图片那边还另做了一层边缘羽化（见 .home__layer），接缝因此是软的；但羽化只抹得平图片四角
+   * 那点亮度不均，底色本身仍要贴着图片边缘色——差得多了，羽化的那段渐变自己就成了一圈看得见的色带。
+   */
+  background-color: #e1cdb8;
+  /* 暗角范围很大、很淡，只是让四周比中间沉一点。 */
+  background-image: var(
+    --vignette,
+    radial-gradient(ellipse 130% 100% at 50% 42%, rgb(0 0 0 / 0%) 45%, rgb(122 106 74 / 0.189) 100%)
+  );
   user-select: none;
 }
 
 .home__stage {
   container-type: size;
   position: relative;
+  /*
+   * 纸纹只该出现在舞台之外的留边上。
+   * .grain 的两层纹理是宿主（.home）的 ::before / ::after，其中 ::after 排在所有子元素之后，
+   * 默认会盖在舞台上面；这里把舞台抬一级，整块 16:9 画面就压到两层纹理之上了。
+   * 溢出的 multiply 不用管：.grain 自带 isolation: isolate，混合出不了 .home。
+   */
+  z-index: 1;
   width: min(100vw, 100vh * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
-/* 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
-   桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。 */
+/*
+ * 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
+ * 桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。
+ *
+ * 四条边用 mask 羽化，让图片边缘渐隐进下面的纸底（见 .home 的 background-color）。
+ * 起因是切图四条边的角落亮度并不均匀（左上偏亮、右下偏暗），下面是一整片纯色，怎么校准都对不齐每个角，
+ * 接缝处总能看出一点色差；把边缘化开，色差就没有硬边可以贴着显形了。
+ *
+ * 羽化只能写在图片层，不能写到 .home__stage 上：舞台里还装着标题、开始按钮、导航和四张展示卡，
+ * mask 一挂到舞台，这些东西靠边的部分会跟着一起虚掉——字发糊、按钮缺角。它们是画面上的实体，不该被溶掉。
+ * 三张图共用这一个类，一条规则就全覆盖，这正是要的：桌面弧和道具都贴着舞台底边，
+ * 只羽化背景图的话，它们俩会在底边露出一道硬边。
+ *
+ * 两条渐变一横一纵，各自只管一个方向的两端；mask-composite: intersect 让两层 alpha 相乘取交集。
+ * 这一步不能省：默认的 add 是取并集，横向没虚的地方会被竖向那层补成不透明，四条边一条都虚不起来。
+ * 相乘还顺带把四个角压得更淡，而角上正是色差最扎眼的地方。
+ *
+ * 已知副作用：窗口正好是 16:9 时舞台铺满视口、外面一圈留边都没有，四边会直接露出一线极窄的纸色渐变。
+ * 这是预期效果——整幅画本来就是"印在纸上"的，边上透出一点纸色反而对味，不是要修的漏。
+ */
 .home__layer {
+  /* 羽化宽度。cqi 跟的是舞台宽度，所以横竖四条边虚化的实际像素一样宽（约合设计稿的 29px）。
+     再往宽了写会开始啃画面内容：左右两侧的人物、底边的道具都离边不远。 */
+  --home-layer-feather: 1.75cqi;
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      black var(--home-layer-feather),
+      black calc(100% - var(--home-layer-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      black var(--home-layer-feather),
+      black calc(100% - var(--home-layer-feather)),
+      transparent
+    );
+  mask-composite: intersect;
   pointer-events: none;
 }
 
@@ -220,9 +284,10 @@ body,
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 7.3cqi;
-  /* 700 是 Noto Serif SC 引进来的最重一档。再往上写 800/900 不会更粗，
+  /* 600 比原来的 700 收一档：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
+     上限还是 700——Noto Serif SC 只引到 700，再往上写 800/900 不会更粗，
      只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   text-align: center;
   /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
@@ -248,6 +313,9 @@ body,
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 1.75cqi;
+  /* 300 是引进来的最细一档，副标题要明显比标题轻。
+     EB Garamond 没有 300，这行里的拉丁字符会落在 400 上，中英会有一点粗细差，可以接受。 */
+  font-weight: 300;
   line-height: 1;
 }
 
@@ -376,14 +444,19 @@ body,
   }
 }
 
+/* 文字排版参照 /design 页那块八角匾额按钮（.plaque-button，定义在本文件下方）：
+   同样的 600 字重、同样的宽字距。字距比它稍宽一点（0.28em 对 0.25em），
+   是对着首页这张铜牌切图单独调出来的。 */
 .home__start-label {
+  /* 只有颜色没跟着抄：参考页的匾额是深墨蓝底配米白字，而这里的匾额切图是浅色铜牌，
+     米白字放上去看不清，所以换成深墨色。 */
   color: #2c2926;
   font-size: 3cqi;
-  font-weight: 700;
-  letter-spacing: 0.36em;
-  /* 两处补偿：横向抵消末字后面多出的一格字距；纵向是因为切图带着下缘的投影，
-     几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
-  transform: translate(0.18em, -0.5cqi);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  /* 两处补偿：横向抵消末字后面多出的一格字距，取字距的一半正好把整行推回视觉居中；
+     纵向是因为切图带着下缘的投影，几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
+  transform: translate(0.14em, -0.5cqi);
 }
 
 .home__start:hover {
@@ -467,7 +540,7 @@ body,
   height: 2.4cqi;
 }
 
-/* 开发期入口，压到角落里：这两个功能正式版不留，但现在天天要用。 */
+/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。 */
 .home__dev {
   position: absolute;
   bottom: 3%;
@@ -2020,6 +2093,18 @@ body:has(.demo) {
   width: var(--tile-w);
   height: var(--tile-h);
   perspective: 700px;
+  cursor: pointer;
+}
+
+/*
+ * 这张小卡正被放大查看。
+ *
+ * 用 visibility 而不是把 tile 从 React 里卸掉：格子还得占着位置，
+ * 不然同一行剩下的小卡会当场往中间挤一下，等看完飞回来又挤回去。
+ * （Flip 的起飞位置是在点击那一刻、隐藏之前就量好的，所以隐藏不影响飞行。）
+ */
+.demo__tile--held {
+  visibility: hidden;
 }
 
 /*
@@ -2030,6 +2115,10 @@ body:has(.demo) {
  * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
  * 不裁掉溢出的部分会把整页撑出滚动条。
  * 这里的 9px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .demo__tile-edge-ring）。
+ *
+ * hover 时的略微放大也在这一层，但整个交给 cardTilt 用 GSAP 做（见它的 hoverScale 选项），
+ * CSS 这边一个字都不写：GSAP 接管这一层的 transform 之后会往内联样式里写死
+ * `translate: none; rotate: none; scale: none;`，任何 CSS 的 scale / :hover 规则都会被它压住。
  */
 .demo__tile-tilt {
   position: absolute;
@@ -2109,11 +2198,12 @@ body:has(.demo) {
  *
  * 常驻 DOM、默认 visibility: hidden，由 GSAP 的 autoAlpha 开关——
  * 挂在 React 状态上的话，展示一结束元素就没了，那 0.3s 的淡出根本演不出来。
- * visibility: hidden 顺带让它不吃指针事件；一旦淡入，它就吃掉全部指针事件，
- * 强制动画期间玩家什么都点不了。
+ * visibility: hidden 顺带让它不吃指针事件；一旦淡入，它就吃掉全部指针事件：
+ * 强制展示期间玩家什么都点不了，而放大查看战场小卡期间点它就是关闭查看
+ * （展示卡自己在 pointer-events: none 的裁剪层里，点在卡上也会落到这块遮罩）。
  *
  * z-index 1100 高于顶栏（70）、手牌（20）和拖拽中的牌（1000），低于展示卡的裁剪层（1101）
- * 和展示卡落场时的飞行层级（1200）。
+ * 和展示卡落场 / 飞回原格时的飞行层级（1200）。
  */
 .reveal-overlay {
   position: fixed;
@@ -2123,6 +2213,11 @@ body:has(.demo) {
   backdrop-filter: blur(7px);
   opacity: 0;
   visibility: hidden;
+}
+
+/* 只有放大查看时点遮罩才有用（关闭查看），这时才给出可点的光标。 */
+.reveal-overlay--closable {
+  cursor: pointer;
 }
 
 /*
@@ -2422,4 +2517,278 @@ body:has(.demo) {
 .gallery__meta-value {
   margin: 0;
   color: var(--gallery-ink);
+}
+
+/* ---------- 卡片加载动画 ---------- */
+
+/*
+ * 仿 ldrs（uiball loaders）的线框卡 loader：一张 5:7 的空心卡在原地弹跳，底下跟着一块影子。
+ * 组件在 ui/CardLoader.tsx，它只负责把 size / speed / color 写成下面三个自定义属性。
+ *
+ * 全程纯 CSS、不碰 GSAP：同一套视觉还要在 index.html 里当首屏 loader，
+ * 那时 JS bundle 还没下载完。index.html 里那份是这一节按默认参数写死的精简拷贝，
+ * **改这里必须同步改那边**，否则首屏和 React 挂载后会是两个样子。
+ */
+.card-loader {
+  /* 默认值在组件里也写了一份。这里再写一遍是为了单独套 class 用时也能直接跑起来。 */
+  --cl-size: 72px;
+  --cl-speed: 1.75s;
+  --cl-color: #ddcab7;
+  /* 5:7 就是游戏卡面 150:210 的比例，loader 和真卡才像同一种东西。 */
+  --cl-card-w: calc(var(--cl-size) * 5 / 7);
+  /* 描边跟着尺寸走，但夹在 1.5~3px 之间：小号下太粗会把内框糊死，大号下太细又撑不住画面。
+     除以 36 是为了让默认的 72px 正好落在 2px 上。 */
+  --cl-stroke: clamp(1.5px, calc(var(--cl-size) / 36), 3px);
+  --cl-radius: calc(var(--cl-size) * 0.06);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--cl-size) * 0.06);
+  /* 弹跳最高点约是卡高的 45%（见 keyframes 里的 translateY），但 transform 不占布局空间。
+     顶上补出同样多的内边距，loader 塞进 flex/grid 里才不会在最高点戳到上面的东西。 */
+  padding-top: calc(var(--cl-size) * 0.45);
+}
+
+.card-loader__card {
+  position: relative;
+  width: var(--cl-card-w);
+  height: var(--cl-size);
+  border: var(--cl-stroke) solid var(--cl-color);
+  border-radius: var(--cl-radius);
+  /* 底边中心：压扁时下沿钉在"地面"上不动，才像被地面挤了一下，而不是整张卡凭空缩水。
+     倾斜也绕这个点转，看起来就是卡立在地上左右晃，不是悬空自转。 */
+  transform-origin: 50% 100%;
+  animation: card-loader-bounce var(--cl-speed) infinite;
+}
+
+/* 内框。纸牌常见的双线边，1px 细线配六成不透明度，只做层次，不跟主轮廓抢。 */
+.card-loader__card::before {
+  content: '';
+  position: absolute;
+  inset: 7%;
+  border: 1px solid var(--cl-color);
+  border-radius: calc(var(--cl-radius) * 0.6);
+  opacity: 0.6;
+}
+
+/* 正中那颗小菱形，其实是转了 45° 的正方形。整张卡只留这一处装饰，再多就吵了。 */
+.card-loader__card::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26%;
+  /* 宽度是卡宽的百分比，高度靠 aspect-ratio 跟上，转 45° 之后才是正菱形而不是斜方块。 */
+  aspect-ratio: 1;
+  border: 1px solid var(--cl-color);
+  opacity: 0.35;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/*
+ * 影子。宽度和卡一样，靠 border-radius: 50% 压成椭圆。
+ * 它和卡片是同一个周期的两条 keyframes：卡落地时最宽最实，卡到顶点时最窄最淡。
+ * 两条 keyframes 的百分比和缓动必须成对改，改一边影子就会和卡脱节。
+ */
+.card-loader__shadow {
+  width: var(--cl-card-w);
+  height: calc(var(--cl-size) * 0.07);
+  border-radius: 50%;
+  background: var(--cl-color);
+  filter: blur(calc(var(--cl-size) * 0.03));
+  animation: card-loader-shadow var(--cl-speed) infinite;
+}
+
+/*
+ * 弹跳 + 挤压拉伸。
+ *
+ * 每个关键帧自带 animation-timing-function，管的是"从这一帧到下一帧"那一段，
+ * 用它手搓重力：蹬地段最快、上升段减速、过了顶点下落段再加速。
+ * 只写一个全局 ease 的话整条曲线是匀速感的，看着像被线吊着上下拉。
+ *
+ * 0% 和 100% 都是落地压扁的姿势，循环首尾才接得上，不会每轮开头顿一下。
+ * translateY 的百分比是相对卡片自身高度的，所以换任何 size 弹跳高度都自动等比。
+ */
+@keyframes card-loader-bounce {
+  0% {
+    transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+    animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+  }
+  12% {
+    /* 刚离地：压扁弹回来，顺势被"甩"得略微细长。 */
+    transform: translateY(-14%) scale(0.96, 1.05) rotate(-1.2deg);
+    animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+  }
+  48% {
+    /* 顶点：形变归零，卡是完整的原始比例，也是全程唯一"站正"的一帧。 */
+    transform: translateY(-45%) scale(1, 1) rotate(2.5deg);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+  }
+  84% {
+    transform: translateY(-12%) scale(0.97, 1.04) rotate(1deg);
+    animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+  }
+  100% {
+    transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+  }
+}
+
+/* 百分比和缓动逐帧对着上面那条抄，两者必须同步改。 */
+@keyframes card-loader-shadow {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+    animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+  }
+  12% {
+    opacity: 0.4;
+    transform: scale(0.94);
+    animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+  }
+  48% {
+    opacity: 0.16;
+    transform: scale(0.56);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+  }
+  84% {
+    opacity: 0.38;
+    transform: scale(0.92);
+    animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+}
+
+@keyframes card-loader-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/*
+ * 前庭敏感的人受不了这种上下位移，所以整段弹跳都得关掉，改成缓慢的明暗呼吸：
+ * 仍然看得出"还在转、没卡死"，但画面上没有任何东西在移动。
+ * 只换 animation-name 不写 animation: none，是为了让 var(--cl-speed) 还能控制节奏。
+ * 影子这时候不动了，固定成一块很淡的底座，让卡不至于悬空。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .card-loader__card {
+    animation-name: card-loader-breathe;
+    animation-duration: calc(var(--cl-speed) * 1.8);
+    animation-timing-function: ease-in-out;
+  }
+
+  .card-loader__shadow {
+    animation: none;
+    opacity: 0.22;
+  }
+}
+
+/* ---------- 加载动画演示页 ---------- */
+
+.loader-demo {
+  min-height: 100%;
+  padding: 0 24px 72px;
+  background: #0d1117;
+}
+
+/*
+ * 顶上这块占满一屏，是为了照着真实加载页的样子看：整屏就一个 loader 加一行字。
+ * 变体墙在它下面，要滚一下才看得到——先看整体观感，再看参数对比。
+ */
+.loader-demo__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 20px;
+}
+
+.loader-demo__hint {
+  /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
+  margin: 0 -0.32em 0 0;
+  color: #9ca3af;
+  font-size: 15px;
+  letter-spacing: 0.32em;
+}
+
+.loader-demo__heading {
+  margin: 0 0 8px;
+  color: #e5e7eb;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.loader-demo__note {
+  margin: 0 0 32px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/*
+ * 变体墙。每格给足 200px 宽：最大的那个 loader 卡高 110、加上顶部预留的弹跳空间将近 160，
+ * 各格高度不齐会看着乱，所以用 align-items: stretch（grid 默认）让色块自己撑平。
+ */
+.loader-demo__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.loader-demo__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 220px;
+  padding: 20px 12px 16px;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  background: #11161d;
+}
+
+/* 纸色底那一格：验证同一套 loader 换成深色线也能压在浅底上，不是只在深色页面成立。 */
+.loader-demo__cell--paper {
+  border-color: #c9b69c;
+  background: #ddcab7;
+}
+
+.loader-demo__label {
+  color: #6b7280;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.loader-demo__cell--paper .loader-demo__label {
+  color: #6b6252;
+}
+
+.loader-demo__back {
+  display: block;
+  margin: 40px auto 0;
+  padding: 8px 18px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #9ca3af;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.loader-demo__back:hover,
+.loader-demo__back:focus-visible {
+  color: #e5e7eb;
 }

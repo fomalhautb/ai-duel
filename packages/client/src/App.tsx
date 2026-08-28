@@ -13,8 +13,10 @@ import { MatchSessionProvider } from './match/MatchSession'
 import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { DesignScreen } from './screens/DesignScreen'
 import { HandDemo } from './dev/HandDemo'
 import { CardGallery } from './dev/CardGallery'
+import { LoaderDemo } from './dev/LoaderDemo'
 
 export function App() {
   return (
@@ -23,11 +25,17 @@ export function App() {
         <Route path="/" component={HomeScreen} />
         <Route path="/room" component={RoomScreen} />
         <Route path="/match" component={MatchScreen} />
+        {/* 设计参考页，纸面元素的样板间。 */}
+        <Route path="/design" component={DesignScreen} />
         {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}
         <Route path="/dev/hand" component={HandDemo} />
         {/* 卡牌图鉴 / 卡面调试页：把全部卡牌按真实尺寸摆开，改卡面排版时用来一眼对照，
             也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />
+        {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
+            没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
+            短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
+        <Route path="/loader" component={LoaderDemo} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

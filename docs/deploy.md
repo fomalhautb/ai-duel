@@ -5,7 +5,7 @@
 整个项目部署成 **Cloudflare 上的一个 Worker**：
 
 ```
-                  https://ai-duel.<你的账号>.workers.dev
+                    https://playyourcardai.online
                                   │
               ┌───────────────────┴───────────────────┐
               │                                       │
@@ -24,7 +24,30 @@
 常见的免费 PaaS（Render、Fly 之类）在免费档上会把闲置的实例睡掉，
 第一个玩家建完房等对手的那几分钟正好把自己等没了。
 
-## 2. 房间码就是 Durable Object 的名字
+## 2. 域名怎么接的
+
+`playyourcardai.online` 在 Namecheap 注册，NS 指到 Cloudflare
+（`clayton.ns.cloudflare.com` / `hazel.ns.cloudflare.com`），
+zone 就建在跑这个 Worker 的同一个 Cloudflare 账号下。
+
+裸域和 `www` 两个 hostname 都是 **Workers Custom Domain**，直接挂在 Worker 上，
+不经过任何反向代理。DNS 记录和边缘证书由 Cloudflare 自动创建和续期，
+仓库里唯一要写的就是 `wrangler.jsonc` 的 `routes`：
+
+```jsonc
+"routes": [
+  { "pattern": "playyourcardai.online", "custom_domain": true },
+  { "pattern": "www.playyourcardai.online", "custom_domain": true }
+]
+```
+
+Worker 原本的 `ai-duel.<你的账号>.workers.dev` 地址**已经停用**：配置里声明了
+`routes` 之后，wrangler 部署时会默认关掉 workers.dev 路由（部署日志里有对应警告）。
+不恢复它是有意的——**国内 DNS 会污染 `workers.dev`**，买域名就是为了绕开这一点，
+留着旧地址只会多一个不可用的入口。真要恢复的话在 `wrangler.jsonc` 里加
+`"workers_dev": true` 即可。
+
+## 3. 房间码就是 Durable Object 的名字
 
 转发器不需要自己维护一张全局房间表，「房间」这个概念直接落到了基础设施上：
 
@@ -37,7 +60,7 @@
 `GET /api/room` 摇一个 4 位随机码，用 RPC 问对应的实例「你那儿几个人」，
 是 0 就把这个码发给客户端，不是 0 就重摇（最多 10 次）。
 
-## 3. 为什么一定要 WebSocket Hibernation
+## 4. 为什么一定要 WebSocket Hibernation
 
 接受连接时用的是 `ctx.acceptWebSocket(server)`，**不是** `server.accept()`。差别很大：
 
@@ -57,7 +80,7 @@
 心跳也顺手交给运行时：`ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))`
 让运行时直接回 `pong`，休眠中的实例不会被心跳唤醒。客户端定期发 `ping` 保活即可。
 
-## 4. 协议
+## 5. 协议
 
 服务端**不解析游戏内容**——它不认识卡牌也不认识回合，前端协议怎么改它都不用动。
 但控制消息和游戏载荷要走同一条 WebSocket，所以服务端发出去的每一帧带一个字符的前缀：
@@ -103,7 +126,7 @@
 （Cloudflare 自家 PartyKit 那套里拆出来的），别自己手写——它是 `WebSocket` 的替身，
 自带指数退避重连、断线期间的发送队列和心跳，接口和原生 `WebSocket` 一样。
 
-## 5. 免费档够不够用
+## 6. 免费档够不够用
 
 | 额度 | 免费档 | 这个项目怎么花 |
 |---|---|---|
@@ -116,7 +139,7 @@
 
 结论：黑客松演示的量级离额度上限差着好几个数量级。
 
-## 6. 自动部署
+## 7. 自动部署
 
 `.github/workflows/deploy.yml`：push 到 `main` 或者手动触发 → 装依赖 →
 `pnpm --filter @ai-duel/client build` → 在 `packages/server` 里跑 `wrangler deploy`。
@@ -133,9 +156,13 @@
 账户 ID 不用配成 secret，它已经写在 `wrangler.jsonc` 的 `account_id` 里了——
 那是个标识符，不是凭据，没有 token 拿着它什么也做不了。
 
+"Edit Cloudflare Workers" 模板不一定带 Zone/DNS 权限。万一部署卡在挂 custom domain 那一步报权限
+错误，给 token 补上 Zone/DNS 权限，或者把 `wrangler.jsonc` 里的 `routes` 删掉——
+域名已经在 Cloudflare 服务端挂好了，删掉不会解绑。
+
 没配 secret 时工作流会**跳过部署并显示成功**，不会变红。这样别人 fork 这个仓库不会看到一片红。
 
-## 7. 踩过的坑
+## 8. 踩过的坑
 
 **`exports` 取代了 legacy 的 `migrations`。**
 老教程里的 `"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]` 已经是遗留写法，
@@ -168,7 +195,7 @@ Cloudflare 这么做是为了少算一次计费调用。
 WebSocket 升级请求不是导航请求，所以能正常进到 Worker。
 上面 `run_worker_first` 里列出来的路径不受这条影响。
 
-## 8. 本地跑和验证
+## 9. 本地跑和验证
 
 ```bash
 pnpm --filter @ai-duel/client build     # 先出静态资源，Worker 要用
@@ -181,7 +208,7 @@ pnpm --filter @ai-duel/server smoke
 冒烟测试（`packages/server/test/smoke.mjs`）覆盖摇码、双方进房、转发、
 房满/房间不存在的拒绝、对端断开通知、SPA 回退，以及换房之后原来那间房要被释放。
 它用 Node 内置的全局 `WebSocket`，不需要额外依赖。
-换个地址跑线上环境：`SMOKE_BASE=https://ai-duel.xxx.workers.dev pnpm --filter @ai-duel/server smoke`。
+换个地址跑线上环境：`SMOKE_BASE=https://playyourcardai.online pnpm --filter @ai-duel/server smoke`。
 
 改了 `wrangler.jsonc` 里的绑定之后要重新生成 `Env` 类型：
 

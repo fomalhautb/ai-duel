@@ -6,11 +6,15 @@
  * 中间那块虚线区是"战场"的占位，同时也是拖拽出牌的落点区（把 ref 交给 HandFan）——
  * 之后接真对局时，它就是真正的战场容器。战场分上下两行：上面是对方的，下面是我方的。
  *
- * 演示的三条动画链路：
+ * 演示的四条动画链路：
  * 1. 我方出牌：拖进战场（或原地点一下）→ Flip 飞到我方行 → 上场特效；
  * 2. 对方出牌：点对手那排倒扣的牌 → 遮罩压暗、卡飞到屏幕中央翻正、强制看 1.5 秒
  *    → 飞到对方行 → 上场特效；
  * 3. 加减牌：两侧手牌各自重排，新牌从屏幕外滑入。
+ * 4. 查看战场小卡：点战场上任意一张小卡（敌我两行都算）→ 遮罩压暗、卡飞到屏幕中央放大、
+ *    停在那儿轻微浮动 → 再点一下（点哪儿都会落在遮罩上）→ 卡飞回原来的格子。
+ *    和第 2 条共用同一套展示层 DOM，但不翻面（战场牌本来就是正面）、不自动关闭、
+ *    落回原格而不是新格，也没有上场特效。
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -41,9 +45,16 @@ const MAX_OPPONENT_HAND = 12
  * 战场小卡跟着指针倾斜的最大角度。
  *
  * 比手牌大卡（10°）大一点：小卡在屏幕上只占 110×154，同样的角度看起来位移小得多，
- * 要稍微加点量才看得出来。小卡不放大也不位移，倾斜就是它唯一的 hover 反馈。
+ * 要稍微加点量才看得出来。
  */
 const TILE_TILT_DEG = 12
+/**
+ * 战场小卡 hover 时放大的倍数，和倾斜一起构成"这张卡可以点"的反馈。
+ *
+ * 只有 5%：小卡是紧挨着排的，放大太多会压到旁边那张身上。
+ * 放大必须和倾斜一样交给 cardTilt 用 GSAP 做，CSS 写了也没用（原因见 ui/cardTilt.ts 的文件头）。
+ */
+const TILE_HOVER_SCALE = 1.05
 
 /** 我方出牌飞向战场的时长与层级：飞行途中要盖住手牌。 */
 const PLAY_FLIGHT_DUR = 0.65
@@ -120,10 +131,35 @@ function resizeCards(current: HandCardData[], next: number): HandCardData[] {
  * tile 的 transform 归 Flip 飞行，tilt 做指针倾斜兼裁剪，
  * inner 有 CSS 写死的 scale(var(--tile-scale)) 负责把 150×210 的卡面缩成小卡。
  * 小卡本身不分阵营：上场特效双方同款，配色也一样，所以这里不需要知道自己是哪边的。
+ *
+ * held 表示这张卡正被放大查看：格子还占着位置，但整张卡不可见（见 .demo__tile--held），
+ * 免得屏幕中央和战场上同时出现两张一模一样的卡。
+ * onInspect 是"打开查看"的回调，点击和键盘 Enter / 空格都会调它，参数是这张卡的 id。
  */
-function BoardTile({ card }: { card: HandCardData }) {
+function BoardTile({
+  card,
+  held,
+  onInspect,
+}: {
+  card: HandCardData
+  held: boolean
+  onInspect: (id: string) => void
+}) {
   return (
-    <div className="demo__tile" data-flip-id={card.id}>
+    <div
+      className={held ? 'demo__tile demo__tile--held' : 'demo__tile'}
+      data-flip-id={card.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`查看 ${card.name}`}
+      onClick={() => onInspect(card.id)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        // 空格在这个位置的默认行为是把页面往下滚一屏，回车也可能被外层当成提交，都不要。
+        event.preventDefault()
+        onInspect(card.id)
+      }}
+    >
       <div className="demo__tile-tilt">
         <div className="demo__tile-inner">
           <HandCardFace card={card} />
@@ -152,6 +188,12 @@ export function HandDemo() {
    * 这段时间由展示层单独渲染。非空就等于"展示中"，用来挡住第二次点击。
    */
   const [revealing, setRevealing] = useState<HandCardData | null>(null)
+  /**
+   * 正在被放大查看的那张战场小卡。和 revealing 不同，这张卡**没有**离开战场：
+   * 战场上的格子还在（只是隐藏着占位），这里只是让展示层多渲染一份放大的副本。
+   * 非空就等于"查看中"，同时也是遮罩可点关闭的开关。
+   */
+  const [inspecting, setInspecting] = useState<HandCardData | null>(null)
 
   /** 手牌上方的取消落点，只负责显示“放回手牌”的拖拽反馈。 */
   const returnZoneRef = useRef<HTMLDivElement>(null)
@@ -182,7 +224,22 @@ export function HandDemo() {
   const boardFlipRef = useRef<{ state: Flip.FlipState; id: string; side: BoardSide } | null>(null)
   /** 待播的"飞向展示位"动画，记的是对手手牌里那张牌起飞前的位置。 */
   const revealFlipRef = useRef<Flip.FlipState | null>(null)
-  /** 展示停留期间的呼吸浮动，收尾时要停掉，免得它继续改一个马上要卸载的节点。 */
+  /** 待播的"小卡飞向展示位"动画，记的是战场上那个格子起飞前的位置。 */
+  const inspectFlipRef = useRef<Flip.FlipState | null>(null)
+  /**
+   * 待播的"从展示位飞回战场格子"动画。
+   * 和 boardFlipRef 一样要连 id 一起存：展示卡马上就要被摘掉，之后只能靠 id 找回原来那个格子。
+   */
+  const inspectReturnRef = useRef<{ state: Flip.FlipState; id: string } | null>(null)
+  /**
+   * 查看的卡是否已经飞到位。飞入途中的点击一律忽略：
+   * 半路把飞入换成飞回，起点就是一个还在被 Flip 改写的元素，容易留下收不干净的补间。
+   */
+  const inspectHeldRef = useRef(false)
+  /**
+   * 展示停留期间的呼吸浮动，收尾时要停掉，免得它继续改一个马上要卸载的节点。
+   * 强制展示和放大查看共用这一个 ref——两条链路互斥，不会同时有浮动在跑。
+   */
   const floatRef = useRef<gsap.core.Tween | null>(null)
 
   const resizeHand = (count: number) => {
@@ -221,9 +278,11 @@ export function HandDemo() {
    *
    * 一次只展示一张，展示期间的点击一律忽略——遮罩本来就吃掉了所有指针事件，
    * 这里再挡一道是为了不依赖遮罩的时序（淡入要 0.25s）。
+   * 放大查看那条链路也要挡：两者共用展示卡这一个节点，同时跑就是两条 Flip 抢同一个元素。
    */
   const handleReveal = (id: string) => {
     if (revealing !== null || revealFlipRef.current !== null) return
+    if (inspecting !== null || inspectReturnRef.current !== null) return
     const card = opponentHand.find((item) => item.id === id)
     if (!card) return
     // 起飞点是倒扇形里那张牌此刻的位置。它在一个 rotate(180deg) 的容器里，
@@ -235,6 +294,50 @@ export function HandDemo() {
     revealFlipRef.current = Flip.getState(slot)
     setOpponentHand((current) => current.filter((item) => item.id !== id))
     setRevealing(card)
+  }
+
+  /**
+   * 玩家点了战场上的一张小卡：交给展示层放大看，敌我两行一视同仁。
+   *
+   * 强制展示正在播（哪怕只是待播的 Flip 还挂着）时一概不受理，反过来也一样：
+   * 展示层只有一张卡、一条浮动，两条链路必须严格互斥。
+   */
+  const handleInspect = (id: string) => {
+    if (revealing !== null || inspecting !== null) return
+    if (
+      revealFlipRef.current !== null ||
+      inspectFlipRef.current !== null ||
+      inspectReturnRef.current !== null
+    ) {
+      return
+    }
+    const card =
+      allyBoard.find((item) => item.id === id) ?? enemyBoard.find((item) => item.id === id)
+    if (!card) return
+    // 查询限定在 .demo__board 里，理由同 handlePlay：手牌、对手手牌、展示卡共用同一套
+    // data-flip-id，不限定范围就可能抓到别处那张同 id 的元素。
+    const slot = document.querySelector(`.demo__board [data-flip-id="${CSS.escape(id)}"]`)
+    if (slot === null) return
+    // 此刻格子还是可见的（held 要等这次 setState 之后才生效），量到的正是起飞位置。
+    inspectFlipRef.current = Flip.getState(slot)
+    setInspecting(card)
+  }
+
+  /**
+   * 点遮罩（放大查看时点屏幕任意处都会落在它上面）就把查看关掉。
+   *
+   * 强制展示期间同样会点到这块遮罩，但那条链路是不可跳过的，所以这里靠 inspecting 判空挡掉；
+   * 飞入还没落位、以及已经在飞回路上时也都不受理，免得重复触发。
+   */
+  const handleShowcaseClick = () => {
+    if (inspecting === null || !inspectHeldRef.current || inspectReturnRef.current !== null) return
+    inspectHeldRef.current = false
+    floatRef.current?.kill()
+    floatRef.current = null
+    const el = revealCardRef.current
+    // 趁展示卡还在屏幕中央、还没被 React 摘掉，量下它此刻的位置当飞回的起点。
+    if (el !== null) inspectReturnRef.current = { state: Flip.getState(el), id: inspecting.id }
+    setInspecting(null)
   }
 
   // 飞进战场：我方出牌和对手展示落场共用这一段，只有时长和层级按来源方分，落地特效同款。
@@ -341,6 +444,79 @@ export function HandDemo() {
     { dependencies: [revealing] },
   )
 
+  // 放大查看战场小卡。两个分支各管一程：inspecting 从空变成有牌时飞进展示位，
+  // 从有牌变回空时飞回原来的格子。时长和层级全部复用强制展示那套，两条链路的手感才一致。
+  useGSAP(
+    (_context, safe) => {
+      const pending = inspectFlipRef.current
+      if (pending !== null && inspecting !== null) {
+        inspectFlipRef.current = null
+        const card = revealCardRef.current
+        const overlay = overlayRef.current
+        if (card === null || overlay === null) return
+
+        // 同强制展示：autoAlpha 顺手改 visibility，遮罩看不见时不吃指针事件。
+        gsap.to(overlay, { autoAlpha: 1, duration: OVERLAY_IN_DUR, ease: 'power2.out' })
+
+        // 战场上的牌本来就正面朝上，这条链路整段不翻面，直接把翻面层定死在正面。
+        // 仍然走 setFlipAngle 而不是裸 gsap.set：正反两面谁可见是由角度切 opacity 决定的。
+        const inner = card.querySelector<HTMLElement>('.reveal-card__inner')
+        if (inner !== null) setFlipAngle(inner, 0)
+
+        // 裁剪层直接撤掉，不像强制展示那样留到落位。那份裁剪是给"从顶栏后面起飞"的对手牌准备的，
+        // 而战场格子整个在顶栏下方，这条链路从头到尾都用不着；留着反而会在呼吸浮动
+        // 擦到顶栏那条线时把卡裁掉一截（同 .reveal-clip 的 CSS 注释里说的那个问题）。
+        const clip = revealClipRef.current
+        if (clip !== null) gsap.set(clip, { clipPath: 'none' })
+
+        // onComplete 是飞完才跑的，出了 useGSAP 回调的同步区间，
+        // 里面新建的浮动补间不包一层就不归 context 管，组件卸载时 revert 不掉。
+        const landed = () => {
+          inspectHeldRef.current = true
+          // 浮动参数和强制展示的 revealed() 完全一致，两处停留的观感必须一样。
+          floatRef.current = gsap.to(card, {
+            y: '-=8',
+            duration: 1.15,
+            repeat: -1,
+            yoyo: true,
+            ease: 'sine.inOut',
+          })
+        }
+
+        Flip.from(pending, {
+          targets: card,
+          duration: REVEAL_IN_DUR,
+          ease: 'power3.inOut',
+          scale: true,
+          onComplete: safe ? safe(landed) : landed,
+        })
+        return
+      }
+
+      const back = inspectReturnRef.current
+      if (back === null || inspecting !== null) return
+      inspectReturnRef.current = null
+      const overlay = overlayRef.current
+      if (overlay === null) return
+      gsap.to(overlay, { autoAlpha: 0, duration: OVERLAY_OUT_DUR, ease: 'power2.in' })
+      // 原来那个格子此刻已经跟着 held 变 false 恢复可见了。useGSAP 是 layout effect，
+      // 恢复可见和 Flip 把它摆到起飞位置发生在同一次绘制之前，中间不会闪一下空格子。
+      const target = document.querySelector<HTMLElement>(
+        `.demo__board [data-flip-id="${CSS.escape(back.id)}"]`,
+      )
+      if (target === null) return
+      Flip.from(back.state, {
+        targets: target,
+        duration: REVEAL_OUT_DUR,
+        ease: 'power2.inOut',
+        scale: true,
+        // 层级必须给：飞回途中要压过正在淡出的遮罩（1100），同对手牌落场那段飞行。
+        zIndex: REVEAL_FLIGHT_Z,
+      })
+    },
+    { dependencies: [inspecting] },
+  )
+
   // 战场小卡的倾斜跟随。tile 是纯 React 渲染的，没有现成的 GSAP 管理，所以在这里逐个挂。
   // 单独开一个 useGSAP 而不是并进上面那些：那些都有"没有待播的动画就直接 return"的早退，
   // 挂在它们后面会被跳过。
@@ -361,11 +537,15 @@ export function HandDemo() {
       const alive = new Set<HTMLElement>(tiles)
       for (const tile of tiles) {
         if (tiltsRef.current.has(tile)) continue
-        // 倾斜写在 tile 内层：飞行途中 tile 自己的 transform 归 Flip 管，
-        // 往上面再写 rotationX 就是两边抢同一个属性。挂在内层的话飞行中被 hover 也不会出怪相。
+        // 倾斜和 hover 放大都写在 tile 内层：飞行途中 tile 自己的 transform 归 Flip 管，
+        // 往上面再写 rotationX / scale 就是两边抢同一个属性。挂在内层的话飞行中被 hover 也不会出怪相。
         tiltsRef.current.set(
           tile,
-          attachCardTilt(tile, { tiltLayer: '.demo__tile-tilt', maxTilt: TILE_TILT_DEG }),
+          attachCardTilt(tile, {
+            tiltLayer: '.demo__tile-tilt',
+            maxTilt: TILE_TILT_DEG,
+            hoverScale: TILE_HOVER_SCALE,
+          }),
         )
       }
       for (const [tile, handle] of tiltsRef.current) {
@@ -387,6 +567,12 @@ export function HandDemo() {
     const layer = fxLayerRef.current
     return () => layer?.replaceChildren()
   }, [])
+
+  /**
+   * 展示层当前要渲染的那张卡：强制展示优先（它不可打断），否则是正在放大查看的那张。
+   * 两条链路互斥，实际上不会同时非空，这个 ?? 只是把"到底渲染谁"收成一处。
+   */
+  const showcased = revealing ?? inspecting
 
   return (
     <div className="demo">
@@ -461,13 +647,23 @@ export function HandDemo() {
                 <span className="demo__board-hint">点击上方对手手牌，看它落到这里</span>
               )}
               {enemyBoard.map((card) => (
-                <BoardTile key={card.id} card={card} />
+                <BoardTile
+                  key={card.id}
+                  card={card}
+                  held={inspecting?.id === card.id}
+                  onInspect={handleInspect}
+                />
               ))}
             </div>
             <div className="demo__board-row demo__board-row--ally">
               {allyBoard.length === 0 && <span className="demo__board-hint">将手牌拖入战场</span>}
               {allyBoard.map((card) => (
-                <BoardTile key={card.id} card={card} />
+                <BoardTile
+                  key={card.id}
+                  card={card}
+                  held={inspecting?.id === card.id}
+                  onInspect={handleInspect}
+                />
               ))}
             </div>
           </div>
@@ -490,7 +686,7 @@ export function HandDemo() {
       <OpponentFan
         cards={opponentHand}
         onReveal={handleReveal}
-        disabled={revealing !== null}
+        disabled={revealing !== null || inspecting !== null}
       />
 
       <HandFan
@@ -498,30 +694,42 @@ export function HandDemo() {
         dropZoneRef={boardRef}
         returnZoneRef={returnZoneRef}
         onPlay={handlePlay}
-        disabled={revealing !== null}
+        disabled={revealing !== null || inspecting !== null}
       />
 
       {/*
-        强制展示层。遮罩常驻 DOM（默认 visibility: hidden，不吃指针事件），
+        展示层，强制展示和放大查看共用。遮罩常驻 DOM（默认 visibility: hidden，不吃指针事件），
         这样停留结束后它能自己淡出去——挂在 revealing 上的话，state 一清元素就没了，淡出无从谈起。
-        展示卡则跟着 revealing 存亡：它要作为 Flip 的起点被摘掉，才能把飞行接力给战场上的新 tile。
+        展示卡则跟着 showcased 存亡：强制展示要拿它当 Flip 的起点，把飞行接力给战场上的新 tile；
+        放大查看则拿它当飞回原格的起点。
+        遮罩淡入之后吃掉全部指针事件：强制展示期间玩家什么都点不了，
+        而放大查看期间点它（也就是点屏幕任意处）就是关闭查看。
       */}
-      <div className="reveal-overlay" ref={overlayRef} aria-hidden="true" />
-      {revealing !== null && (
+      <div
+        className={
+          inspecting !== null ? 'reveal-overlay reveal-overlay--closable' : 'reveal-overlay'
+        }
+        ref={overlayRef}
+        aria-hidden="true"
+        onClick={handleShowcaseClick}
+      />
+      {showcased !== null && (
         // 裁剪层每次展示都跟着展示卡重新挂载，所以 CSS 里那份"挡住顶栏"的裁剪
         // 每次都是新的，上一轮撤裁剪时写的内联样式不会留到下一轮。
         <div className="reveal-clip" ref={revealClipRef}>
-          <div className="reveal-card" ref={revealCardRef} data-flip-id={revealing.id}>
-            {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。 */}
+          <div className="reveal-card" ref={revealCardRef} data-flip-id={showcased.id}>
+            {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。
+                放大查看不翻面，只用 setFlipAngle 把它定死在正面。 */}
             <div className="reveal-card__inner">
               <div className="reveal-card__face" data-flip-face="front">
                 {/* 卡面布局尺寸仍是 150×210，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
                 <div className="reveal-card__scale">
-                  <HandCardFace card={revealing} />
+                  <HandCardFace card={showcased} />
                 </div>
               </div>
               <div className="reveal-card__face reveal-card__face--back" data-flip-face="back">
-                {/* 背面必须是对手手牌里那张一模一样的隐藏牌背，起飞瞬间才不会跳变。 */}
+                {/* 背面必须是对手手牌里那张一模一样的隐藏牌背，起飞瞬间才不会跳变。
+                    放大查看用不到这一面，它整段都是正面朝上，这里只是白渲染一次。 */}
                 <div className="reveal-card__scale">
                   <CardBackHidden />
                 </div>

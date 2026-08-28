@@ -533,7 +533,7 @@ function HomeStage() {
             >
               <div className="home__card-lift">
                 <div className="home__card-tilt">
-                  {/* 里面是整张 150×210 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
+                  {/* 里面是整张 150×225 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
                   <div className="home__card-inner">
                     <HandCardFace card={seat.card} />
                   </div>

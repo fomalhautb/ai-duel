@@ -2,25 +2,23 @@
  * 卡牌图鉴 / 卡面调试页（/card）。
  *
  * 一次把 core 里的全部卡牌按原始尺寸（150×210）摆出来，用的就是对局里那套 HandCardFace，
- * 所以卡面排版一改，这一页立刻能看出十张卡各自会变成什么样——它存在的意义就是这个"对照表"，
+ * 所以卡面排版一改，这一页立刻能看出每张卡各自会变成什么样——它存在的意义就是这个"对照表"，
  * 不是给玩家看的图鉴界面。
  *
- * 模型卡的弱点画像和提示卡的目标维度现在卡面上已经有版面（弱点标签行、"打·xx"），
- * 每张卡下面仍然把它们用纯文字再列一遍：卡面上那几个标签又小又挤，
- * 调排版时需要一个"这张卡的数据到底是什么"的对照，才看得出卡面有没有把它们画错或画漏。
+ * 卡面上现在只印卡名、描述和底部那一行标识（AI 卡是模型名，技能牌是"技能"），
+ * 所以下面的说明栏也只补一条卡面上没有的信息：AI 卡的模型名对应的卡牌 id。
  */
 
 import { useLocation } from 'wouter'
-import { CARDS, WEAKNESS_KINDS } from '@ai-duel/core'
-import type { Card, ModelCard, PromptCard } from '@ai-duel/core'
+import { CARDS } from '@ai-duel/core'
+import type { AgentCard, Card, SkillCard } from '@ai-duel/core'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { CARD_ART_PLACEHOLDERS } from '../ui/cardArt'
-import { WEAKNESS_LABELS } from '../ui/labels'
 
 const ALL_CARDS = Object.values(CARDS)
-const MODEL_CARDS = ALL_CARDS.filter((card): card is ModelCard => card.kind === 'model')
-const PROMPT_CARDS = ALL_CARDS.filter((card): card is PromptCard => card.kind === 'prompt')
+const AGENT_CARDS = ALL_CARDS.filter((card): card is AgentCard => card.kind === 'agent')
+const SKILL_CARDS = ALL_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
 
 /**
  * core 的 Card 转成卡面要的展示数据。
@@ -33,27 +31,13 @@ function toHandCardData(card: Card): HandCardData {
   const base = {
     id: card.id,
     name: card.name,
-    cost: card.cost,
     text: card.text,
     backText: '图鉴页只看正面。',
   }
-  if (card.kind === 'model') {
-    return {
-      ...base,
-      kind: 'model',
-      power: card.power,
-      integrity: card.integrity,
-      weaknesses: card.weaknesses,
-    }
+  if (card.kind === 'agent') {
+    return { ...base, kind: 'agent', model: card.model }
   }
-  return { ...base, kind: 'prompt', damage: card.damage, targetWeakness: card.targetWeakness }
-}
-
-/** 只列出真正暴露的那几维（0 的维度对打法没有意义，列出来只会把这块塞满）。 */
-function exposedWeaknesses(card: ModelCard): string[] {
-  return WEAKNESS_KINDS.filter((kind) => card.weaknesses[kind] > 0).map(
-    (kind) => `${WEAKNESS_LABELS[kind]} ${card.weaknesses[kind]}`,
-  )
+  return { ...base, kind: 'skill' }
 }
 
 export function CardGallery() {
@@ -88,19 +72,17 @@ export function CardGallery() {
       </section>
 
       <section className="gallery__section">
-        <h2 className="gallery__section-title">模型卡（{MODEL_CARDS.length}）</h2>
+        <h2 className="gallery__section-title">AI 卡（{AGENT_CARDS.length}）</h2>
         <div className="gallery__grid">
-          {MODEL_CARDS.map((card) => (
+          {AGENT_CARDS.map((card) => (
             <article className="gallery__item" key={card.id}>
               <div className="gallery__card">
                 <HandCardFace card={toHandCardData(card)} />
               </div>
               <dl className="gallery__meta">
                 <div className="gallery__meta-row">
-                  <dt className="gallery__meta-key">弱点</dt>
-                  <dd className="gallery__meta-value">
-                    {exposedWeaknesses(card).join(' · ') || '（六维全 0）'}
-                  </dd>
+                  <dt className="gallery__meta-key">卡牌 id</dt>
+                  <dd className="gallery__meta-value">{card.id}</dd>
                 </div>
               </dl>
             </article>
@@ -109,21 +91,17 @@ export function CardGallery() {
       </section>
 
       <section className="gallery__section">
-        <h2 className="gallery__section-title">提示卡（{PROMPT_CARDS.length}）</h2>
+        <h2 className="gallery__section-title">技能牌（{SKILL_CARDS.length}）</h2>
         <div className="gallery__grid">
-          {PROMPT_CARDS.map((card) => (
+          {SKILL_CARDS.map((card) => (
             <article className="gallery__item" key={card.id}>
               <div className="gallery__card">
                 <HandCardFace card={toHandCardData(card)} />
               </div>
               <dl className="gallery__meta">
                 <div className="gallery__meta-row">
-                  <dt className="gallery__meta-key">目标维度</dt>
-                  <dd className="gallery__meta-value">{WEAKNESS_LABELS[card.targetWeakness]}</dd>
-                </div>
-                <div className="gallery__meta-row">
-                  <dt className="gallery__meta-key">基础伤害</dt>
-                  <dd className="gallery__meta-value">{card.damage}</dd>
+                  <dt className="gallery__meta-key">卡牌 id</dt>
+                  <dd className="gallery__meta-value">{card.id}</dd>
                 </div>
               </dl>
             </article>

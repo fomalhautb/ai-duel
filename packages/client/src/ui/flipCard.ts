@@ -1,11 +1,12 @@
 /**
- * 卡牌绕 Y 轴翻面的公共实现。手牌的"问号看详情"（HandFan）和对手牌的强制展示
- * （.reveal-card 那一层，眼下还没有页面用）都走这里，
- * 两处的翻面观感和正反互斥逻辑必须完全一致。
+ * 绕 Y 轴翻面的公共实现。手牌的"问号看详情"（HandFan）、对手牌的强制展示
+ * （.reveal-card 那一层，眼下还没有页面用）和开局抛硬币的那枚圆片都走这里，
+ * 几处的翻面观感和正反互斥逻辑必须完全一致。
  *
  * 翻面层的 DOM 约定：传进来的 inner 元素自己承担 rotationY，它下面必须各有一个
  * data-flip-face="front" / "back" 的子元素，两层完全重叠、靠 opacity 互斥。
- * 用 data 属性而不是类名当契约，是因为两处的样式类名不一样（.hand-fan__face / .reveal-card__face），
+ * 用 data 属性而不是类名当契约，是因为几处的样式类名都不一样
+ * （.hand-fan__face / .reveal-card__face / .coin-toss__face），
  * 而"谁是正面谁是背面"这件事跟长什么样无关。
  *
  * 正反互斥**不能**交给 backface-visibility。Chrome 实测：静止时它判断得对，
@@ -31,8 +32,12 @@ const BACK_SELECTOR = '[data-flip-face="back"]'
  *
  * 读的是元素**当前的实际角度**而不是补间进度，所以翻过去和翻回来是同一套逻辑，
  * 新补间接管旧补间时也不用额外记状态。
+ *
+ * 对外导出是给"自己写 rotationY 补间"的地方用的（抛硬币那种要连转数圈、
+ * 还要和淡入淡出排进同一条时间线的场景，套不进下面 flipTo 的单条补间）：
+ * 在自己那条补间的 onUpdate 里调一次，就能复用同一套硬切逻辑。
  */
-function syncFaces(inner: HTMLElement) {
+export function syncFlipFaces(inner: HTMLElement) {
   const front = inner.querySelector<HTMLElement>(FRONT_SELECTOR)
   const back = inner.querySelector<HTMLElement>(BACK_SELECTOR)
   const angle = ((Number(gsap.getProperty(inner, 'rotationY')) % 360) + 360) % 360
@@ -51,12 +56,13 @@ function syncFaces(inner: HTMLElement) {
  */
 export function setFlipAngle(inner: HTMLElement, rotationY: number) {
   gsap.set(inner, { rotationY })
-  syncFaces(inner)
+  syncFlipFaces(inner)
 }
 
 /**
  * 翻面：转动 inner 的 rotationY，同时在补间途中按当前角度硬切正反两面的 opacity。
- * 所有会动 inner 的 rotationY 的地方都必须走这个函数或 setFlipAngle，
+ * 所有会动 inner 的 rotationY 的地方都必须走这个函数、setFlipAngle，
+ * 或者自己在补间的 onUpdate 里调 syncFlipFaces，
  * 漏一处那张牌就会卡在正反都显示的样子。
  */
 export function flipTo(inner: HTMLElement, rotationY: number, duration: number) {
@@ -66,6 +72,6 @@ export function flipTo(inner: HTMLElement, rotationY: number, duration: number) 
     ease: 'power2.inOut',
     // 快速来回 hover 时，旧补间要被新补间干净地接管，不能各改各的。
     overwrite: 'auto',
-    onUpdate: () => syncFaces(inner),
+    onUpdate: () => syncFlipFaces(inner),
   })
 }

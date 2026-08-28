@@ -357,6 +357,20 @@ body,
   transition:
     transform 0.16s ease,
     filter 0.16s ease;
+  /* 静置时轻轻上下浮，让按钮在满屏静态插画里显得是"活的"。
+     幅度只有 0.35cqi（约 5px），肉眼看得出在动但不会分散对标题的注意。 */
+  animation: home-start-float 3.2s ease-in-out infinite;
+}
+
+/* 起止都停在 0，循环首尾接得上，不会每轮开头顿一下。 */
+@keyframes home-start-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.35cqi);
+  }
 }
 
 .home__start-label {
@@ -370,11 +384,14 @@ body,
 }
 
 .home__start:hover {
+  /* 关掉浮动动画，否则 keyframes 的 transform 会盖过下面这句。 */
+  animation: none;
   transform: translateY(-0.4cqi);
   filter: brightness(1.06);
 }
 
 .home__start:active {
+  animation: none;
   transform: translateY(0.15cqi);
   filter: brightness(0.94);
 }
@@ -478,6 +495,10 @@ body,
   .home__settings,
   .home__dev-link {
     transition-duration: 1ms;
+  }
+
+  .home__start {
+    animation: none;
   }
 }
 

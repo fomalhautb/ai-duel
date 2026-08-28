@@ -239,6 +239,13 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 免得标题先用兜底宋体画一遍再跳）。等待有 10 秒超时兜底，图取不到也进得去首页。
 `index.html` 那份清单和 `HomeScreen` 里的 `HOME_ASSETS` 要对得上——两边都改，或者都不改。
 
+首页人物的 hover 高亮吃的是同一批图。人物那几层铺满舞台又压在展示卡上面，一收指针事件卡就再也
+hover 不到了，所以命中判定改在舞台上监听 `pointermove`，拿 `castHitTest.ts` 预先抽好的 alpha
+通道逐像素查（桌面弧和前景道具当遮挡层减掉，免得"指着地球仪高亮它后面的人"）。
+抽 alpha 要把七张人物抠图和两张遮挡图各读一遍，但那时它们已经被上面那步拉进缓存了，
+不会再走网络。这一步**不**算进加载闸门：抽完之前 hover 静默不生效就是了，
+为一个可有可无的反馈多顶一会儿 loader 是每个玩家都要付的代价。
+
 `/design` 把纸张、图标、卡牌、卡背这些视觉元件连同"为什么调成这个值"的说明摆在一页上，
 用的就是 `src/ui/paper` 下的正式组件，所以组件改坏了这一页第一个看得出来。
 
@@ -585,9 +592,13 @@ packages/client/
   src/screens/                一个界面一个文件
     HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
                               角落 dev 区有测试对局 / 加载动画 / 重置存档；
-                              整页的图先加载完再一次性亮出来，之前只显示加载动画。
+                              整页的图先加载完再一次性亮出来，之前只显示加载动画；
+                              人物 hover 出金边高亮和介绍卡片。
                               整幅切图放在 public/home/，现在只有 1x，高分屏上要放大 1.7 倍以上所以偏糊；
                               换成 3344×1882 的 2x 图同名覆盖即可，代码不用改（细节见该文件头注释）
+    castHitTest.ts            首页人物抠图的逐像素 alpha 命中检测（人物图层不收指针事件，
+                              hover 只能在舞台级采样判定）；坐标全归一化，素材换多大都不用改，
+                              但 alpha 缓冲会跟着源图分辨率一起涨（换 2x 素材时见该文件头）
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
@@ -633,6 +644,7 @@ packages/client/
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
   test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
+  test/castHitTest.test.ts    首页人物命中检测的纯函数：包围盒换算、前后遮挡、羽化边缘不算命中
 packages/server/
   src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
   wrangler.jsonc              Worker 配置：静态资源、DO 绑定

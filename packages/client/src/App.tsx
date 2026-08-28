@@ -27,8 +27,8 @@ export function App() {
         <Route path="/match" component={MatchScreen} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
-        {/* 卡牌图鉴 / 卡面调试页：把全部卡牌按真实尺寸摆开，改卡面排版时用来一眼对照，
-            也方便和协作的 AI 隔着屏幕指同一张卡。 */}
+        {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
+            加全部数值，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />
         {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，

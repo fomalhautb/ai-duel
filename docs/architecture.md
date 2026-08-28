@@ -219,7 +219,7 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 /room     匹配房：自己的 4 位房间码 + 输入对方房间码
 /match    对局界面（联机对局和 dev 测试房共用）
 /design   设计参考页：纸面视觉元素的样板间（开发用）
-/card     卡牌图鉴 / 卡面调试页：全部卡牌按真实尺寸摆开，改卡面排版时一眼对照
+/card     卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的完整档案
 /loader   加载动画的演示和调参页：各档参数连同浅色底一起摆开对比
 ```
 
@@ -633,10 +633,11 @@ packages/client/
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 六个弱点维度的中文名
+    cardText.ts               对局翻面与图鉴共用的卡牌背面文案拼法
     paper/                    纸面组件库（卡牌、卡背、图标、标题、算力条……），index.ts 统一出口
   src/dev/                    开发页和开发用组件，正式流程里没有入口
     DevPanel.tsx              dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
-    CardGallery.tsx           卡牌图鉴（/card）：全部卡牌按真实尺寸摆开，卡面塞不下的字段列在下面
+    CardGallery.tsx           卡牌图鉴（/card）：左栏点缩略卡，右栏是这张卡的正反面、全部数值和原始 JSON
     LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css

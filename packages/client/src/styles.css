@@ -502,195 +502,6 @@ body,
   }
 }
 
-/* ---------- 对局界面（占位） ---------- */
-
-/*
- * MatchStage 的样式。同样是占位：没有卡面美术，也没有给 GSAP 动画留位置。
- * 接真界面时这一整段会被换掉，接手牌用的是 .hand-fan / .card-face 那两套。
- */
-.stage-root {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 12px 16px;
-  gap: 12px;
-  background: radial-gradient(circle at 50% 120%, #16212e 0%, #0d1117 60%);
-}
-
-.stage-root--waiting {
-  align-items: center;
-  justify-content: center;
-  color: #9ca3af;
-}
-
-.stage-hud {
-  display: flex;
-  gap: 16px;
-  align-items: baseline;
-  font-size: 14px;
-  color: #9ca3af;
-}
-
-.stage-hud__turn {
-  font-weight: 600;
-  color: #38bdf8;
-}
-
-.stage-hud__spacer {
-  flex: 1;
-}
-
-.stage-side {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stage-side--mine {
-  margin-top: auto;
-}
-
-.stage-side__info {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  font-size: 13px;
-  color: #9ca3af;
-}
-
-.stage-models {
-  display: flex;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  min-height: 72px;
-}
-
-.stage-models--empty {
-  display: flex;
-  align-items: center;
-  min-height: 72px;
-  color: #4b5563;
-  font-size: 13px;
-}
-
-.stage-model,
-.stage-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid #30363d;
-  border-radius: 10px;
-  background: rgb(22 27 34 / 90%);
-  color: #e5e7eb;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.stage-card {
-  min-width: 150px;
-}
-
-.stage-model:disabled,
-.stage-card:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* 能点 = 现在可以选它当目标 / 出这张牌，描边提示一下。 */
-.stage-model:not(:disabled),
-.stage-card:not(:disabled) {
-  border-color: #38bdf8;
-}
-
-.stage-model__weak,
-.stage-card__stat,
-.stage-card__cost {
-  color: #9ca3af;
-}
-
-.stage-hint {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  font-size: 13px;
-  color: #fbbf24;
-}
-
-.stage-hint--error {
-  color: #f87171;
-}
-
-.stage-hand {
-  display: flex;
-  gap: 16px;
-  align-items: flex-end;
-}
-
-.stage-hand__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  flex: 1;
-}
-
-.stage-end-turn,
-.stage-target-face {
-  padding: 10px 16px;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  background: #161b22;
-  color: #e5e7eb;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.stage-end-turn:disabled,
-.stage-target-face:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* 结算层。盖满整屏，所以下面的对局点不到了。 */
-.stage-result {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
-  justify-content: center;
-  background: rgb(13 17 23 / 92%);
-}
-
-.stage-result__title {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  color: #38bdf8;
-}
-
-.stage-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.stage-actions button {
-  padding: 10px 20px;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  background: #161b22;
-  color: #e5e7eb;
-  font-size: 14px;
-  cursor: pointer;
-}
-
 /* ---------- 扇形手牌 ---------- */
 
 /*
@@ -891,11 +702,12 @@ body,
   font-weight: 700;
 }
 
+/* 高度和上边距压过一轮：模型卡多了一行弱点标签，版面得从这块占位美术里挪出来。 */
 .card-face__art {
   display: grid;
   place-items: center;
-  height: 60px;
-  margin-top: 24px;
+  height: 52px;
+  margin-top: 22px;
   border-radius: 8px;
   background: rgb(56 189 248 / 8%);
   color: var(--accent);
@@ -916,6 +728,31 @@ body,
   font-size: 11px;
   line-height: 1.45;
   overflow: hidden;
+}
+
+/*
+ * 模型卡的弱点标签行。
+ *
+ * 只列大于 0 的维度（筛选在 HandCardFace 里做）。允许换行是因为维度名长短差很多
+ * （"幻觉" 两个字，"上下文遗忘" 五个字），写死一行的话长名字会被挤出卡面。
+ * 字号 10px 是权衡出来的下限：战场小卡按 0.73 缩，这一行到那边就只剩 7px 出头，
+ * 再小就真认不出了；再大则两个长名字的标签一行放不下、老是换行。
+ */
+.card-face__weak {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.card-face__weak-chip {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .card-face__stats {
@@ -1003,39 +840,57 @@ body,
   mix-blend-mode: soft-light;
 }
 
-/* ---------- 手牌演示页 ---------- */
+/* ---------- 对局界面 ---------- */
 
 /*
- * .demo 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
+ * .battle 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
  * .hand-fan 是 position: fixed 钉在视口上的，而 fixed 元素本来就不受任何祖先的
  * overflow 裁剪。手牌 hover 放大、拖拽出牌这些动作只要让它在某一帧比视口高一丁点，
- * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且这页压根不需要滚动）。
- * 用 :has() 只在这一页挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
+ * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且对局页压根不需要滚动）。
+ * 用 :has() 只在对局界面挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
  */
-html:has(.demo),
-body:has(.demo) {
+html:has(.battle),
+body:has(.battle) {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
 }
 
-.demo {
-  --demo-paper: #eee9dc;
-  --demo-paper-shade: #e2dbc8;
-  --demo-line: #aaa391;
-  --demo-line-dark: #777465;
-  --demo-ink: #30313b;
-  --demo-ink-muted: #6d6b61;
-  --demo-navy: #253149;
-  --demo-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+.battle {
+  --battle-paper: #eee9dc;
+  --battle-paper-shade: #e2dbc8;
+  --battle-line: #aaa391;
+  --battle-line-dark: #777465;
+  --battle-ink: #30313b;
+  --battle-ink-muted: #6d6b61;
+  --battle-navy: #253149;
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
   display: grid;
   grid-template-rows: 72px minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: none;
-  color: var(--demo-ink);
-  background-color: var(--demo-paper);
+  color: var(--battle-ink);
+  background-color: var(--battle-paper);
+}
+
+/* 联机客人还没收到开局数据时的等待页：只有顶栏和一行字，没有战场。 */
+.battle__waiting {
+  display: grid;
+  gap: 18px;
+  place-content: center;
+  place-items: center;
+  background-color: var(--battle-paper);
+  background-image: var(--battle-grain);
+  background-blend-mode: multiply;
+}
+
+.battle__waiting-text {
+  margin: 0;
+  color: var(--battle-ink-muted);
+  font-size: 18px;
+  letter-spacing: 0.12em;
 }
 
 /* ---------- 顶栏 ---------- */
@@ -1048,10 +903,10 @@ body:has(.demo) {
   align-items: stretch;
   min-width: 0;
   border-bottom: 0;
-  background-color: var(--demo-paper);
+  background-color: var(--battle-paper);
   background-image:
     linear-gradient(90deg, rgb(255 255 255 / 26%), transparent 36%, rgb(130 115 82 / 8%)),
-    var(--demo-grain);
+    var(--battle-grain);
   background-blend-mode: normal, multiply;
   box-shadow: 0 2px 8px rgb(45 42 34 / 18%);
 }
@@ -1065,7 +920,7 @@ body:has(.demo) {
   height: 4px;
   background: linear-gradient(
     to bottom,
-    var(--demo-line-dark) 0 1px,
+    var(--battle-line-dark) 0 1px,
     transparent 1px 3px,
     rgb(132 126 112 / 45%) 3px 4px
   );
@@ -1140,7 +995,7 @@ body:has(.demo) {
   bottom: 8px;
   left: 8px;
   height: 2px;
-  background: var(--demo-ink);
+  background: var(--battle-ink);
   box-shadow: 0 2px 0 rgb(255 255 255 / 55%);
   transform: scaleX(0);
   transition: transform 160ms ease;
@@ -1152,7 +1007,7 @@ body:has(.demo) {
 }
 
 .battle-topbar__tab.is-active {
-  color: var(--demo-ink);
+  color: var(--battle-ink);
   font-weight: 600;
 }
 
@@ -1219,12 +1074,12 @@ body:has(.demo) {
 }
 
 .ornate-frame__line {
-  border: 1px solid var(--demo-line, #aaa391);
+  border: 1px solid var(--battle-line, #aaa391);
 }
 
 .ornate-frame__line--outer {
   inset: 6px;
-  border-color: var(--demo-line-dark, #777465);
+  border-color: var(--battle-line-dark, #777465);
 }
 
 .ornate-frame__line--inner {
@@ -1235,8 +1090,8 @@ body:has(.demo) {
 .ornate-frame__corner {
   width: 38px;
   height: 38px;
-  border-top: 1px solid var(--demo-line-dark, #777465);
-  border-left: 1px solid var(--demo-line-dark, #777465);
+  border-top: 1px solid var(--battle-line-dark, #777465);
+  border-left: 1px solid var(--battle-line-dark, #777465);
 }
 
 .ornate-frame__corner::before,
@@ -1250,8 +1105,8 @@ body:has(.demo) {
   left: 7px;
   width: 23px;
   height: 23px;
-  border-top: 1px solid var(--demo-line, #aaa391);
-  border-left: 1px solid var(--demo-line, #aaa391);
+  border-top: 1px solid var(--battle-line, #aaa391);
+  border-left: 1px solid var(--battle-line, #aaa391);
   transform: rotate(45deg);
   transform-origin: 7px 7px;
 }
@@ -1261,8 +1116,8 @@ body:has(.demo) {
   left: 17px;
   width: 6px;
   height: 6px;
-  border: 1px solid var(--demo-line-dark, #777465);
-  background: var(--demo-paper, #eee9dc);
+  border: 1px solid var(--battle-line-dark, #777465);
+  background: var(--battle-paper, #eee9dc);
   transform: rotate(45deg);
 }
 
@@ -1291,63 +1146,163 @@ body:has(.demo) {
 
 /* ---------- 主战场与侧栏 ---------- */
 
-.demo__layout {
+.battle__layout {
   display: grid;
   grid-template-columns: clamp(210px, 18.3vw, 306px) minmax(420px, 1fr) clamp(225px, 18.6vw, 316px);
   min-width: 0;
   min-height: 0;
 }
 
-.demo__sidebar {
+.battle__sidebar {
   position: relative;
   z-index: 30;
   min-width: 0;
   min-height: 0;
-  background-color: var(--demo-paper);
+  background-color: var(--battle-paper);
   background-image:
     radial-gradient(ellipse at 50% 38%, rgb(255 255 255 / 25%), rgb(129 111 75 / 12%) 100%),
-    var(--demo-grain);
+    var(--battle-grain);
   background-blend-mode: normal, multiply;
 }
 
-.demo__sidebar--left {
+.battle__sidebar--left {
   box-shadow: 5px 0 12px rgb(14 20 35 / 16%);
 }
 
-.demo__sidebar--right {
+.battle__sidebar--right {
   box-shadow: -5px 0 12px rgb(14 20 35 / 16%);
 }
 
-.demo__sidebar--left::after,
-.demo__sidebar--right::after {
+.battle__sidebar--left::after,
+.battle__sidebar--right::after {
   content: '';
   position: absolute;
   z-index: 3;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--demo-line-dark);
+  background: var(--battle-line-dark);
   filter: url('#ai-duel-rough-frame');
   pointer-events: none;
 }
 
-.demo__sidebar--left::after {
+.battle__sidebar--left::after {
   right: 0;
 }
 
-.demo__sidebar--right::after {
+.battle__sidebar--right::after {
   left: 0;
 }
 
-.demo__sidebar-frame--actions .ornate-frame__content {
+.battle__sidebar-frame--actions .ornate-frame__content {
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
   padding: 32px 16px 94px;
 }
 
-.demo__battlefield {
-  --demo-hand-zone-h: clamp(210px, 27vh, 250px);
+/* 上下两块玩家面板（上=对方、下=我方）平分左侧栏。 */
+.battle__sidebar-frame--players .ornate-frame__content {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px;
+  padding: 26px 20px;
+}
+
+/*
+ * 一块玩家面板。它同时是"打本体"的目标和 PLAYER_DAMAGED 飘字的定位锚，
+ * 所以尺寸必须是稳定的：不要在 hover / 选中时改它的宽高，否则飘字的落点会跟着跳。
+ */
+.battle__player-panel {
+  display: grid;
+  grid-template-areas:
+    'name integrity'
+    'compute integrity'
+    'piles integrity';
+  grid-template-columns: 1fr auto;
+  align-content: center;
+  gap: 2px 12px;
+  padding: 14px 16px;
+  border: 1px solid rgb(119 116 101 / 45%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 26%);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+/* 选目标时能点的那一边。加光标和高亮，不加位移——见上面对定位锚的要求。 */
+.battle__player-panel[data-targetable='true'] {
+  border-color: #a56848;
+  background: rgb(255 232 197 / 45%);
+  box-shadow: 0 0 0 2px rgb(165 104 72 / 26%);
+  cursor: pointer;
+}
+
+.battle__player-panel[data-targetable='true']:hover {
+  background: rgb(255 224 170 / 68%);
+  box-shadow: 0 0 0 3px rgb(165 104 72 / 42%);
+}
+
+.battle__player-name {
+  grid-area: name;
+  color: var(--battle-ink);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.battle__player-integrity {
+  grid-area: integrity;
+  align-self: center;
+  color: var(--battle-navy);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.battle__player-compute {
+  grid-area: compute;
+  color: var(--battle-ink-muted);
+  font-size: 13px;
+}
+
+.battle__player-piles {
+  grid-area: piles;
+  color: var(--battle-ink-muted);
+  font-size: 12px;
+}
+
+.battle__turn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  text-align: center;
+}
+
+.battle__turn-round {
+  color: var(--battle-ink);
+  font-size: 20px;
+  letter-spacing: 0.14em;
+}
+
+.battle__turn-who {
+  color: var(--battle-ink-muted);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+/* 背景图的文件名沿用当初做手牌演示页时的 demo-hand-background.png，没跟着改名——
+   public/ 里换文件名要连带改部署产物，收益只有"名字好看一点"。 */
+.battle__battlefield {
+  --battle-hand-zone-h: clamp(210px, 27vh, 250px);
+  /* 顶部对方手牌条的高度。测试房里要摆下真实卡面，所以那一档更高（见下面的 --test）。 */
+  --battle-foe-hand-h: 74px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1355,63 +1310,82 @@ body:has(.demo) {
   box-shadow: inset 0 0 24px rgb(5 11 24 / 36%);
 }
 
-.demo__bar {
+.battle__battlefield--test {
+  --battle-foe-hand-h: 122px;
+}
+
+/* ---------- 对方手牌条 ---------- */
+
+.battle__foe-hand {
   position: absolute;
-  top: 15px;
-  left: 50%;
-  z-index: 10;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 12;
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: calc(100% - 30px);
-  min-height: 38px;
-  padding: 5px 9px;
-  border: 1px solid rgb(170 163 145 / 60%);
-  border-radius: 3px;
-  background-color: rgb(238 233 220 / 90%);
-  background-image: var(--demo-grain);
-  background-blend-mode: multiply;
-  box-shadow: 0 3px 12px rgb(10 15 27 / 28%);
-  color: var(--demo-ink-muted);
-  font-size: 12px;
-  white-space: nowrap;
-  transform: translateX(-50%);
+  justify-content: center;
+  gap: 12px;
+  height: var(--battle-foe-hand-h);
+  padding: 0 16px;
 }
 
-.demo__title {
-  margin: 0 2px 0 1px;
-  color: var(--demo-ink);
+/* 卡背互相压住一半，看起来是一叠握在手里的牌，而不是排开的一行。 */
+.battle__foe-stack {
+  display: flex;
+}
+
+.battle__foe-back {
+  width: 34px;
+  height: 48px;
+  border: 1px solid rgb(226 213 184 / 45%);
+  border-radius: 4px;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgb(226 213 184 / 12%) 0 3px,
+      transparent 3px 6px
+    ),
+    #2b3a56;
+  box-shadow: 0 2px 6px rgb(5 10 20 / 45%);
+}
+
+.battle__foe-back + .battle__foe-back {
+  margin-left: -17px;
+}
+
+.battle__foe-count {
+  color: rgb(226 213 184 / 78%);
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 50%);
 }
 
-.demo__btn {
-  min-width: 30px;
-  height: 26px;
-  padding: 2px 8px;
-  border: 1px solid var(--demo-line-dark);
-  border-radius: 2px;
-  background: rgb(238 233 220 / 76%);
-  color: var(--demo-ink);
-  font: inherit;
+/* 测试房：摊开的真实卡面，比战场小卡再小一号，hover 时轻轻抬起表示能点。 */
+.battle__foe-hand--open {
+  gap: 6px;
+}
+
+.battle__foe-card {
+  width: 72px;
+  height: 101px;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 3px 10px rgb(5 10 20 / 45%);
   cursor: pointer;
+  transition: transform 0.16s ease;
 }
 
-.demo__btn:hover {
-  border-color: #5b6477;
-  background: #f4efe3;
+.battle__foe-card:hover {
+  transform: translateY(-5px);
 }
 
-.demo__slider {
-  width: clamp(80px, 9vw, 150px);
-  accent-color: #67728a;
-}
-
-.demo__count {
-  min-width: 34px;
-  color: var(--demo-ink);
-  text-align: center;
+.battle__foe-card-inner {
+  width: var(--card-w);
+  height: var(--card-h);
+  /* 72 / 150 = 0.48，和 --tile-scale 一个套路：卡面布局尺寸不变，整张按比例缩。 */
+  transform: scale(0.48);
+  transform-origin: top left;
 }
 
 /*
@@ -1421,15 +1395,15 @@ body:has(.demo) {
  * absolute 本身不会形成层叠上下文；这里刻意不设 z-index / isolation，
  * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面。
  */
-.demo__board {
+.battle__board {
   position: absolute;
-  inset: 68px clamp(16px, 2vw, 28px) var(--demo-hand-zone-h);
+  inset: var(--battle-foe-hand-h) clamp(16px, 2vw, 28px) var(--battle-hand-zone-h);
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   min-height: 0;
-  padding: 62px 24px 24px;
+  /* 上边留出 52px 是给拖拽时的"松手放到场上"提示条，它绝对定位在 top: 14px。 */
+  padding: 52px 24px 18px;
   border: 1px dashed transparent;
   border-radius: 18px;
   transition:
@@ -1438,12 +1412,32 @@ body:has(.demo) {
     background-color 0.18s ease;
 }
 
+/* 上下两行分别是对方场面和我方场面。两行等分剩下的高度，对手多摆几张也不会把我这边挤没。 */
+.battle__row {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 0;
+}
+
+.battle__row--foe {
+  align-content: flex-start;
+}
+
+.battle__row--mine {
+  align-content: flex-end;
+}
+
 /*
  * 这两个属性是 HandFan 在拖拽期间打上来的，拖拽一结束它会把两个都删掉（见 markDropZones）：
  * data-drop-ready 表示"手上正拖着一张牌"，把落点区标出来；
  * data-drop-hot 表示"指针已经进到这块区域里"，这时松手就打出去了。
  */
-.demo__board[data-drop-ready='true'] {
+.battle__board[data-drop-ready='true'] {
   border-color: rgb(229 213 174 / 72%);
   background: rgb(19 27 45 / 26%);
   box-shadow:
@@ -1452,7 +1446,7 @@ body:has(.demo) {
     0 0 24px rgb(222 194 133 / 12%);
 }
 
-.demo__board[data-drop-hot='true'] {
+.battle__board[data-drop-hot='true'] {
   border-color: rgb(255 229 164 / 96%);
   background: rgb(222 194 133 / 16%);
   box-shadow:
@@ -1461,25 +1455,83 @@ body:has(.demo) {
     0 0 30px rgb(255 220 141 / 30%);
 }
 
-.demo__board-hint {
-  margin: auto;
+.battle__board-hint {
   color: rgb(211 204 185 / 50%);
   font-size: 13px;
   letter-spacing: 0.16em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
 }
 
+/* ---------- 选目标提示与拒绝提示 ---------- */
+
+/*
+ * 选目标时的提示条。压在战场上方居中，z-index 要高过 .battle__board 里的小卡，
+ * 但不能拦住指针——除了里面那颗取消按钮，整条都是 pointer-events: none，
+ * 否则它会把底下"点空白处取消"的区域挖掉一块。
+ */
+.battle__pick-hint {
+  position: absolute;
+  top: calc(var(--battle-foe-hand-h) + 14px);
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 18px;
+  border: 1px solid rgb(255 229 164 / 70%);
+  border-radius: 999px;
+  background: rgb(22 29 43 / 88%);
+  box-shadow: 0 4px 18px rgb(4 9 19 / 42%);
+  color: #ffeec5;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.battle__pick-cancel {
+  padding: 2px 12px;
+  border: 1px solid rgb(255 229 164 / 55%);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.battle__pick-cancel:hover {
+  background: rgb(255 229 164 / 16%);
+}
+
+/* 指令被引擎拒了。正常玩不该看到它，看到就说明界面和引擎的判断不一致。 */
+.battle__reject {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--battle-hand-zone-h) + 8px);
+  left: 0;
+  z-index: 20;
+  color: #ffb4a4;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
+  pointer-events: none;
+}
+
 /*
  * 手牌取消区与战场落点首尾相接。它只是视觉热区，不接指针事件；
  * 真正拖拽仍由 pointer capture 送回 HandFan，松在战场外一律取消。
  */
-.demo__return-zone {
+.battle__return-zone {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
   z-index: 15;
-  height: var(--demo-hand-zone-h);
+  height: var(--battle-hand-zone-h);
   border-top: 2px solid transparent;
   background: linear-gradient(to bottom, transparent, rgb(10 20 39 / 0%));
   pointer-events: none;
@@ -1489,13 +1541,13 @@ body:has(.demo) {
     box-shadow 0.18s ease;
 }
 
-.demo__return-zone[data-drop-ready='true'] {
+.battle__return-zone[data-drop-ready='true'] {
   border-color: rgb(177 202 235 / 58%);
   background: linear-gradient(to bottom, rgb(84 126 180 / 12%), rgb(13 27 49 / 36%));
   box-shadow: inset 0 22px 42px -34px rgb(170 207 255 / 50%);
 }
 
-.demo__return-zone[data-drop-hot='true'] {
+.battle__return-zone[data-drop-hot='true'] {
   border-color: rgb(196 222 255 / 96%);
   background: linear-gradient(to bottom, rgb(101 153 219 / 23%), rgb(19 42 74 / 54%));
   box-shadow:
@@ -1503,8 +1555,8 @@ body:has(.demo) {
     inset 0 30px 58px -38px rgb(177 215 255 / 82%);
 }
 
-.demo__drop-cue {
-  --demo-cue-x: -50%;
+.battle__drop-cue {
+  --battle-cue-x: -50%;
   position: absolute;
   left: 50%;
   display: inline-flex;
@@ -1521,7 +1573,7 @@ body:has(.demo) {
   letter-spacing: 0.12em;
   opacity: 0;
   pointer-events: none;
-  transform: translate(var(--demo-cue-x), 7px) scale(0.94);
+  transform: translate(var(--battle-cue-x), 7px) scale(0.94);
   transition:
     color 0.18s ease,
     opacity 0.18s ease,
@@ -1529,40 +1581,40 @@ body:has(.demo) {
     box-shadow 0.18s ease;
 }
 
-.demo__drop-cue strong {
+.battle__drop-cue strong {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   opacity: 0.72;
 }
 
-.demo__drop-cue--board {
+.battle__drop-cue--board {
   top: 14px;
   color: rgb(238 220 177 / 88%);
 }
 
-.demo__drop-cue--return {
-  --demo-cue-x: 0;
+.battle__drop-cue--return {
+  --battle-cue-x: 0;
   top: 18px;
   right: clamp(18px, 3vw, 42px);
   left: auto;
   color: rgb(198 220 248 / 88%);
 }
 
-[data-drop-ready='true'] > .demo__drop-cue {
+[data-drop-ready='true'] > .battle__drop-cue {
   opacity: 1;
-  transform: translate(var(--demo-cue-x), 0) scale(1);
+  transform: translate(var(--battle-cue-x), 0) scale(1);
 }
 
-[data-drop-hot='true'] > .demo__drop-cue {
+[data-drop-hot='true'] > .battle__drop-cue {
   color: #fff4d5;
   box-shadow:
     0 0 0 3px rgb(255 238 197 / 16%),
     0 6px 24px rgb(4 9 19 / 48%);
-  transform: translate(var(--demo-cue-x), 0) scale(1.08);
+  transform: translate(var(--battle-cue-x), 0) scale(1.08);
 }
 
-.demo__return-zone[data-drop-hot='true'] > .demo__drop-cue {
+.battle__return-zone[data-drop-hot='true'] > .battle__drop-cue {
   color: #e9f4ff;
   box-shadow:
     0 0 0 3px rgb(207 231 255 / 20%),
@@ -1588,7 +1640,7 @@ body:has(.demo) {
   background-color: var(--plaque-fill);
   background-image:
     radial-gradient(circle at 50% 30%, rgb(255 255 255 / 7%), transparent 60%),
-    var(--demo-grain);
+    var(--battle-grain);
   background-blend-mode: screen;
   clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
   color: #e7e1d4;
@@ -1719,7 +1771,8 @@ body:has(.demo) {
 
 .plaque-button:focus-visible,
 .battle-topbar button:focus-visible,
-.demo__btn:focus-visible {
+.battle-dev__btn:focus-visible,
+.battle-dev__toggle:focus-visible {
   outline: 2px solid #a56848;
   outline-offset: 3px;
 }
@@ -1743,8 +1796,9 @@ body:has(.demo) {
 }
 
 /* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */
-.demo__tile {
+.battle__tile {
   position: relative;
+  flex: none;
   width: var(--tile-w);
   height: var(--tile-h);
   /* 3D 透视给里面的倾斜层用。数值按卡宽等比缩小（大卡 150px 配 1000px，小卡 110px 约 700px），
@@ -1760,7 +1814,7 @@ body:has(.demo) {
  * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
  * 不裁掉溢出的部分会把整页撑出滚动条。
  */
-.demo__tile-tilt {
+.battle__tile-tilt {
   position: absolute;
   inset: 0;
   border-radius: 9px;
@@ -1770,15 +1824,223 @@ body:has(.demo) {
   will-change: transform;
 }
 
-.demo__tile-inner {
+.battle__tile-inner {
   width: var(--card-w);
   height: var(--card-h);
   transform: scale(var(--tile-scale));
   transform-origin: top left;
 }
 
+/*
+ * 选目标时能打的那些小卡。
+ *
+ * 高亮画在 tile 上而不是倾斜层里：倾斜层每帧被 cardTilt 改 transform，
+ * 而且它 overflow: hidden，外发光会被自己裁掉。tile 这一层平时只有 Flip 会动，
+ * 而 Flip 飞行和"正在选目标"不会同时发生。
+ */
+.battle__tile[data-targetable='true'] {
+  border-radius: 9px;
+  box-shadow:
+    0 0 0 2px rgb(255 229 164 / 75%),
+    0 0 22px rgb(255 213 121 / 45%);
+  cursor: pointer;
+}
+
+.battle__tile[data-targetable='true']:hover {
+  box-shadow:
+    0 0 0 3px rgb(255 240 200 / 95%),
+    0 0 30px rgb(255 213 121 / 70%);
+}
+
+/* ---------- 事件动画层 ---------- */
+
+/*
+ * 横幅和伤害飘字都由 MatchStage 直接往这一层塞节点（React 只管里面那张提示卡）。
+ * 全层不吃指针事件，压在手牌（z-index 20）和顶栏（70）之上、结算层（90）之下。
+ */
+.battle__fx {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.battle__banner {
+  position: absolute;
+  top: 34%;
+  right: 0;
+  left: 0;
+  color: #ffeec5;
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-align: center;
+  text-indent: 0.28em;
+  text-shadow:
+    0 2px 0 rgb(20 26 34 / 70%),
+    0 6px 26px rgb(8 12 20 / 80%);
+}
+
+/*
+ * 伤害飘字。left/top 由 JS 按目标元素的矩形算好写进内联样式，
+ * translateX(-50%) 把它挪到目标的水平中点上——这一半不能交给 GSAP，
+ * 否则它和补间里的 y 位移会挤在同一个 transform 上互相覆盖。
+ */
+.battle__damage {
+  position: absolute;
+  color: #ff9c86;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow:
+    0 2px 0 rgb(20 12 12 / 70%),
+    0 4px 14px rgb(10 6 6 / 80%);
+  translate: -50% 0;
+}
+
+/* 对手打出的提示卡，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。 */
+.battle__prompt-show {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--card-w);
+  height: var(--card-h);
+  margin: calc(var(--card-h) / -2) 0 0 calc(var(--card-w) / -2);
+  filter: drop-shadow(0 12px 30px rgb(4 9 19 / 70%));
+}
+
+/* ---------- 结算层 ---------- */
+
+/* 盖满整屏，所以下面的对局点不到了。 */
+.battle__result {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  background: rgb(18 22 30 / 88%);
+}
+
+.battle__result-title {
+  margin: 0;
+  color: #ffeec5;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  text-shadow: 0 4px 22px rgb(6 10 18 / 80%);
+}
+
+.battle__result-actions {
+  display: flex;
+  gap: 14px;
+}
+
+.battle__result-actions button {
+  padding: 10px 22px;
+  border: 1px solid rgb(226 213 184 / 55%);
+  border-radius: 3px;
+  background: rgb(37 49 73 / 90%);
+  color: #e7e1d4;
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.battle__result-actions button:hover {
+  border-color: #cb9d7b;
+  background: rgb(48 63 92 / 92%);
+}
+
+/* ---------- dev 测试面板 ---------- */
+
+/*
+ * 只在测试房里挂。它渲染在 .battle 外面（MatchScreen 里和 MatchStage 平级），
+ * 继承不到 --battle-* 那套变量，所以颜色都写死在这一段里。
+ * z-index 压过战场和特效层，但低于结算层（90）——分出胜负之后不该还能摆局面。
+ */
+.battle-dev {
+  position: fixed;
+  top: 84px;
+  right: 14px;
+  z-index: 85;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.battle-dev__toggle {
+  padding: 4px 12px;
+  border: 1px solid rgb(119 116 101 / 70%);
+  border-radius: 3px;
+  background: rgb(238 233 220 / 92%);
+  color: #30313b;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.battle-dev__toggle:hover {
+  background: #f4efe3;
+}
+
+.battle-dev__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  padding: 12px;
+  border: 1px solid rgb(119 116 101 / 70%);
+  border-radius: 3px;
+  background: rgb(238 233 220 / 96%);
+  box-shadow: 0 6px 20px rgb(10 15 27 / 35%);
+  color: #30313b;
+}
+
+.battle-dev__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.battle-dev__row-label {
+  min-width: 32px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.battle-dev__btn {
+  padding: 3px 8px;
+  border: 1px solid rgb(119 116 101 / 80%);
+  border-radius: 2px;
+  background: rgb(255 255 255 / 55%);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.battle-dev__btn:hover {
+  border-color: #5b6477;
+  background: #f7f3e9;
+}
+
+.battle-dev__note {
+  margin: 0;
+  color: #6d6b61;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 @media (max-width: 1080px) {
-  .demo__layout {
+  .battle__layout {
     grid-template-columns: 170px minmax(360px, 1fr) 190px;
   }
 
@@ -1798,14 +2060,14 @@ body:has(.demo) {
     gap: 8px;
   }
 
-  .demo__sidebar-frame--actions .ornate-frame__content {
+  .battle__sidebar-frame--actions .ornate-frame__content {
     padding-right: 12px;
     padding-left: 12px;
   }
 }
 
 @media (max-height: 660px) {
-  .demo {
+  .battle {
     grid-template-rows: 62px minmax(0, 1fr);
   }
 
@@ -1817,7 +2079,7 @@ body:has(.demo) {
     font-size: 27px;
   }
 
-  .demo__sidebar-frame--actions .ornate-frame__content {
+  .battle__sidebar-frame--actions .ornate-frame__content {
     padding-bottom: 42px;
   }
 }

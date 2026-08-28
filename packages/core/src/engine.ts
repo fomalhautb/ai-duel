@@ -2,7 +2,7 @@
 import { uniformInt } from 'pure-rand/distribution/uniformInt'
 import { xoroshiro128plus } from 'pure-rand/generator/xoroshiro128plus'
 import type { RandomGenerator } from 'pure-rand/types/RandomGenerator'
-import { getCard } from './cards'
+import { CARDS, getCard } from './cards'
 import type {
   CardId,
   CardInstance,
@@ -31,7 +31,7 @@ export interface PlayerSetup {
   deck: CardId[]
   /**
    * 起始完整度，不填就是 STARTING_INTEGRITY。
-   * 教程关卡靠它把血量压到几点，好在三五个回合内演到 GAME_OVER。
+   * 留这个口子是为了测试和调试：把血量压到几点，几个回合内就能打到 GAME_OVER。
    */
   integrity?: number
 }
@@ -72,14 +72,22 @@ export function createGame(setup: GameSetup): ExecuteResult {
   }
 
   // 先手固定为 0 号座位：黑客松不做随机先后手，谁建房谁先手，规则更好解释。
-  // 要让某一方先手（教程第 2 关就要）就把他排到 0 号座位上，不需要再开一个开关。
+  // 要让某一方先手就把他排到 0 号座位上，不需要再开一个开关——
+  // dev 测试房就是这样把本端"我"固定成先手的。
   const startingPlayer: PlayerId = 0
+  // 先建好两个玩家再组装 state：makePlayer 会推进 seq，
+  // 写在对象字面量里的话 seq 那一行会按书写顺序取到发牌前的旧值。
+  const players: [PlayerState, PlayerState] = [
+    makePlayer(0, setup.players[0]),
+    makePlayer(1, setup.players[1]),
+  ]
   const state: GameState = {
     turn: 0,
     activePlayer: startingPlayer,
-    players: [makePlayer(0, setup.players[0]), makePlayer(1, setup.players[1])],
+    players,
     phase: 'playing',
     winner: null,
+    seq,
   }
 
   const events: GameEvent[] = [{ type: 'GAME_STARTED', startingPlayer }]
@@ -98,21 +106,44 @@ export function createGame(setup: GameSetup): ExecuteResult {
  */
 export function execute(state: GameState, command: Command): ExecuteResult {
   if (state.phase === 'finished') return reject(state, '对局已结束')
-  if (command.player !== state.activePlayer) return reject(state, '不是你的回合')
+  // 回合归属只管正常对局指令。DEBUG_* 是测试房用来随时摆场面的
+  // （比如在对手回合给自己塞张卡、替对手打出一张卡看结算动画），
+  // 一律要求"轮到你"就没法用了，所以这里把它们排除在检查之外。
+  if (
+    (command.type === 'PLAY_CARD' || command.type === 'END_TURN') &&
+    command.player !== state.activePlayer
+  ) {
+    return reject(state, '不是你的回合')
+  }
 
   switch (command.type) {
     case 'PLAY_CARD':
       return playCard(state, command.player, command.instanceId, command.targetInstanceId)
     case 'END_TURN':
       return endTurn(state, command.player)
+    case 'DEBUG_ADD_CARD':
+      return debugAddCard(state, command.player, command.cardId)
+    case 'DEBUG_REMOVE_CARD':
+      return debugRemoveCard(state, command.player, command.instanceId)
+    case 'DEBUG_PLAY_CARD':
+      return playCard(state, command.player, command.instanceId, command.targetInstanceId, true)
+    case 'DEBUG_REFILL_COMPUTE':
+      return debugRefillCompute(state, command.player)
   }
 }
 
+/**
+ * 打出一张手牌。
+ *
+ * free = true（DEBUG_PLAY_CARD）时不检查算力、也不扣算力和发 COMPUTE_CHANGED，
+ * 除此之外和正常出牌走完全同一套结算，免得调试路径和真实路径慢慢跑偏。
+ */
 function playCard(
   state: GameState,
   playerId: PlayerId,
   instanceId: InstanceId,
   targetInstanceId?: InstanceId,
+  free = false,
 ): ExecuteResult {
   const next = clone(state)
   const player = next.players[playerId]
@@ -121,17 +152,19 @@ function playCard(
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
-  if (card.cost > player.compute) return reject(state, '算力不足')
+  if (!free && card.cost > player.compute) return reject(state, '算力不足')
 
   const events: GameEvent[] = []
   player.hand.splice(handIndex, 1)
-  player.compute -= card.cost
-  events.push({
-    type: 'COMPUTE_CHANGED',
-    player: playerId,
-    compute: player.compute,
-    computeMax: player.computeMax,
-  })
+  if (!free) {
+    player.compute -= card.cost
+    events.push({
+      type: 'COMPUTE_CHANGED',
+      player: playerId,
+      compute: player.compute,
+      computeMax: player.computeMax,
+    })
+  }
 
   if (card.kind === 'model') {
     deployModel(next, playerId, instance, card, events)
@@ -260,6 +293,81 @@ function drawCards(player: PlayerState, count: number, events: GameEvent[]): voi
     if (!card) return
     player.hand.push(card)
     events.push({ type: 'CARD_DRAWN', player: player.id, card })
+  }
+}
+
+/**
+ * 测试房：给某位玩家加一张手牌。
+ *
+ * 不带 cardId 就是正常从牌堆抽一张；带 cardId 则凭空造一张新实例塞进手牌，牌堆不动，
+ * 这样想测某张卡不用先把牌组调成一水儿的那张卡。
+ */
+function debugAddCard(state: GameState, playerId: PlayerId, cardId?: CardId): ExecuteResult {
+  const next = clone(state)
+  const player = next.players[playerId]
+  const events: GameEvent[] = []
+
+  if (cardId === undefined) {
+    if (player.deck.length === 0) return reject(state, '牌堆已空')
+    drawCards(player, 1, events)
+    return { state: next, events }
+  }
+
+  // 这里直接查表而不用 getCard：cardId 是客户端传来的，写错很正常，
+  // 得退一条 COMMAND_REJECTED 回去，不能让 getCard 抛的异常把房主的引擎打断。
+  if (!CARDS[cardId]) return reject(state, `未知卡牌：${cardId}`)
+  const card: CardInstance = {
+    // 凭空造的牌不属于任何一副牌组，用 dbg- 前缀跟发牌时的 p0-c3 这类 id 区分开。
+    instanceId: `dbg-${next.seq++}`,
+    cardId,
+    owner: playerId,
+  }
+  player.hand.push(card)
+  // 复用 CARD_DRAWN：对客户端来说"手上多了一张牌"要播的动画是一样的。
+  events.push({ type: 'CARD_DRAWN', player: playerId, card })
+  return { state: next, events }
+}
+
+/** 测试房：弃掉某位玩家的一张手牌，不填 instanceId 就弃最后一张。 */
+function debugRemoveCard(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId?: InstanceId,
+): ExecuteResult {
+  const next = clone(state)
+  const player = next.players[playerId]
+  if (player.hand.length === 0) return reject(state, '手牌为空')
+
+  const index =
+    instanceId === undefined
+      ? player.hand.length - 1
+      : player.hand.findIndex((c) => c.instanceId === instanceId)
+  if (index < 0) return reject(state, '手牌里没有这张卡')
+
+  const removed = player.hand.splice(index, 1)[0]!
+  player.discard.push(removed)
+  return {
+    state: next,
+    events: [{ type: 'CARD_REMOVED', player: playerId, instanceId: removed.instanceId }],
+  }
+}
+
+/** 测试房：把算力和算力上限一起拉满，省掉为了测高费卡连过十几个回合。 */
+function debugRefillCompute(state: GameState, playerId: PlayerId): ExecuteResult {
+  const next = clone(state)
+  const player = next.players[playerId]
+  player.computeMax = MAX_COMPUTE
+  player.compute = MAX_COMPUTE
+  return {
+    state: next,
+    events: [
+      {
+        type: 'COMPUTE_CHANGED',
+        player: playerId,
+        compute: player.compute,
+        computeMax: player.computeMax,
+      },
+    ],
   }
 }
 

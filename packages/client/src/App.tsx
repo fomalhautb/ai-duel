@@ -13,7 +13,6 @@ import { MatchSessionProvider } from './match/MatchSession'
 import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
-import { HandDemo } from './dev/HandDemo'
 
 export function App() {
   return (
@@ -21,9 +20,8 @@ export function App() {
       <Switch>
         <Route path="/" component={HomeScreen} />
         <Route path="/room" component={RoomScreen} />
+        {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
-        {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}
-        <Route path="/dev/hand" component={HandDemo} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

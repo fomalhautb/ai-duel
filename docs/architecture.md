@@ -94,6 +94,35 @@ COMPUTE_CHANGED → MODEL_DEPLOYED → MODEL_DAMAGED → MODEL_DESTROYED → GAM
 和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
 实际的随机数和存档读写都在客户端（见 5.8）。
 
+### 3.6 调试指令
+
+`Command` 里另有四条 `DEBUG_*`，专门给 dev 测试房（见 5.1）用，
+让一个人不必真打十几个回合就能摆出想看的局面：
+
+| 指令 | 作用 |
+|---|---|
+| `DEBUG_ADD_CARD` | 给某方加一张手牌：不带 `cardId` 就从他牌堆抽一张，带了就凭空造一张（牌堆不动） |
+| `DEBUG_REMOVE_CARD` | 弃掉某方一张手牌，产出新的 `CARD_REMOVED` 事件 |
+| `DEBUG_PLAY_CARD` | 无视回合归属和算力打出一张手牌 |
+| `DEBUG_REFILL_COMPUTE` | 把某方的算力和算力上限一起拉满 |
+
+三处取舍：
+
+- **走同一条 `execute` 路径，不另开后门函数。** `DEBUG_PLAY_CARD` 复用 `playCard`，
+  只多传一个"免费"开关跳过算力检查和扣费，其余结算一字不差。
+  调试路径和真实路径共用一份代码，测出来的行为才等于真实行为。
+  代价是联机时客人发这几条指令房主也照样会执行——本项目本就不防作弊（见 4.1），
+  引擎这层不做身份或来源校验，要不要给入口是客户端的事。
+- **只有"是不是你的回合"这一条检查为它们让路**，算力、目标是否存在等等照常检查。
+  测试房要能在对手回合替对手出牌，但摆出来的局面仍然必须是引擎认可的合法局面。
+- **`CARD_REMOVED` 是为它新增的事件。** 正常打法里"牌离开手牌"永远伴随着
+  `MODEL_DEPLOYED` 或 `PROMPT_RESOLVED`，没有单纯弃一张牌这回事。
+
+`GameState.seq` 是给凭空造牌兜底的下一个实例序号。造出来的牌要一个不撞车的 `instanceId`，
+而引擎里不许有 `Math.random` / `Date.now`（见 3.1），所以这个计数器只能存进状态本身，
+才会跟着状态一起被深拷贝、一起发给客人。它从发起手牌时用的那个计数接着往下走，
+造出来的 id 带 `dbg-` 前缀，和发牌时的 `p0-c3` 区分得开。
+
 ## 4. 联机：房主模式
 
 ### 4.1 为什么不做服务器权威
@@ -182,18 +211,22 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 
 ### 5.1 界面与路由
 
-五个界面，路由用 wouter（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
+三个界面，路由用 wouter（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
 
 ```
-/                主网站：介绍 + 「一键开始」
-/tutorial/:level 教程关卡（1..3）
-/room            匹配房：自己的 4 位房间码 + 输入对方房间码
-/match           联机对局
-/dev/hand        手牌动画调试页
+/       主网站：介绍 + 「开始游戏」（教程还没做，直接进匹配房，见 5.3）
+/room   匹配房：自己的 4 位房间码 + 输入对方房间码
+/match  对局界面
 ```
 
-**「一键开始」的分流**只看存档里的 `tutorialDone`：没通关完就接着打下一关教程，
-通关完了直接进匹配房。判断不看胜场，重玩教程也不会把进度往回退。
+**`/match` 由联机对局和 dev 测试房共用一份界面代码。** 区别只有两样：
+`MatchSession` 里放的是哪种 driver，以及跟着 driver 一起放进去的 `testMode` 标记。
+测试房用本地 driver，`testMode` 打开后对方手牌摊开成真实卡面且可点（替对方出牌）、
+底下挂一块测试面板、结算不记胜场。
+
+特意不给测试房另开一条路由或另一套界面：另开一套的话，在测试房里验过的行为就不再等于
+联机时真实会发生的行为，测了也白测。进测试房的入口有两个——匹配房页面底部和首页的 dev 区，
+都不依赖房间连接建没建起来，一点就地建一局本地对局再跳 `/match`。
 
 不引 Next.js 是因为这里是纯客户端游戏：SSR、RSC、服务端数据获取一项都用不上，
 每个页面都得挂 `'use client'`，等于把 Next 当成一个启动更慢的 Vite。
@@ -204,10 +237,12 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 房间页建好 driver 之后才跨得过跳到 `/match` 的那次卸载。它不写 localStorage，
 所以刷新 `/match` 会读不到 driver，直接跳回首页——和「不存对局」是一致的。
 
-### 5.2 MatchDriver：对局的四种来源
+### 5.2 MatchDriver：对局的三种来源
 
-教程、本地热座、联机房主、联机客人，**界面完全一样**，区别只在于指令交给谁执行、局面从哪来。
-这层差异收进 `src/match/driver.ts` 的 `MatchDriver` 接口：
+本地热座、dev 测试房、联机房主、联机客人，**界面完全一样**，
+区别只在于指令交给谁执行、局面从哪来。这层差异收进 `src/match/driver.ts` 的 `MatchDriver` 接口。
+四种玩法只对应三个实现：热座和测试房共用 `localDriver`，两者的规则都在本地跑，
+差别只在座位怎么定和对方的指令由谁发（见下表）。
 
 ```ts
 subscribe(fn)        // 局面变了，配 useSyncExternalStore
@@ -219,12 +254,12 @@ dispose()
 
 | 实现 | 谁跑 `execute` | 对手指令来自 |
 |---|---|---|
-| `localDriver` | 本地 | 同一个页面（热座，`seat: 'active'` 时视角跟着行动方走） |
-| `tutorialDriver` | 本地 | 关卡脚本 |
+| `localDriver` | 本地 | 同一个页面：热座是坐在旁边的另一个人（`seat: 'active'`，视角跟着行动方走）；测试房是测试面板和摊开的对方手牌（`seat: 0` 固定，视角不换边） |
 | `hostDriver` | 本地 | socket relay |
 | `guestDriver` | 不跑 | 房主 relay 过来的事件流 |
 
-`MatchStage` 只认 driver，不知道自己在打教程还是联机。**接联机时对局界面一行都不用改。**
+`MatchStage` 只认一个 driver，外加一个 `testMode` 标记（见 5.1）——
+它分不出手上这批事件是本地算出来的还是从网络收来的。**接联机时对局界面一行都不用改。**
 
 两条订阅分开是有意的：`getSnapshot` 给的是「事件全部应用完」的结果，负责渲染；
 事件流是「过程」，负责播动画。两者节奏不同，混在一起会互相牵制。
@@ -232,22 +267,12 @@ dispose()
 driver 在构造函数里就把开局事件发出来了，而 React 要等 effect 里才订阅得上，
 不攒着的话发牌动画必然丢。
 
-### 5.3 教程
+### 5.3 教程（计划中）
 
-三关，全是写死的剧本。**两头都定死**才敢在引导文案里写「伤害 = 2 + 2 = 4，一击就碎」这种实数：
+会有一个简单教程，详细设计还没定。唯一定下来的方向是**强制玩家按固定流程走一遍操作**，
+而不是配一个 AI 对手跟他真打一局——只有每一步都锁死，引导才知道下一句该说什么。
 
-- **对手**按 `src/tutorial/levels.ts` 里的脚本出牌（`opponentTurns`）。
-- **玩家**被界面锁住：`MatchStage` 的 `restriction` 每一步只放行引导指定的那一个动作，
-  别的牌点不动、目标也选不了。
-
-引导步骤全部走完即通关，不另设胜利条件——每一步都被锁死了，走完就等于达成了教学目标。
-
-关卡数据有个关键技巧：**每关的牌组只用一两种卡，而且整副都是同一张**。
-这样洗牌洗成什么顺序都无所谓，起手一定是那张卡，剧本不必去反推 seed 洗出了什么。
-谁先手也不是单独的开关，而是靠把玩家排在 0 号还是 1 号座位决定的（引擎固定 0 号先手）。
-
-卡池一改，剧本会**静默**失效，表现为玩家卡死在某一步点不动。
-`packages/client/test/tutorial.test.ts` 把三关整段跑一遍守着这件事。
+第一版是三关写死的剧本，已经随提交 `a616a7c` 整体删掉了，重做时可以进那个提交考古。
 
 ### 5.4 为什么推翻了 Pixi
 
@@ -272,7 +297,7 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 - 补间统一用 `@gsap/react` 的 `useGSAP` 创建，它会在组件卸载时把这一片的补间和内联样式
   一起清掉，也兼容 React 严格模式的两次挂载。
   能圈定范围的组件顺手带上 `scope`；像跨容器 Flip 那种要同时够到两个容器的就不带
-  （`HandDemo` 就是这种）。
+  （`MatchStage` 里手牌飞进战场那段就是这种）。
 - **稍后才执行的回调里新建的补间也要包 `contextSafe`**，不只是事件处理函数：
   `contextSafe` 只在被它包住的那次同步执行期间生效，
   所以 `setTimeout`、`resize` 监听这类回调必须自己再包一层，否则补间不归 context 管，
@@ -291,12 +316,14 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 ### 5.6 手牌组件
 
 `src/ui/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）。
-`src/dev/HandDemo.tsx` 是它的演示页，用占位数据跑各种边界，访问 `/dev/hand` 进入。
+`HandCardData` 已经带齐核心机制要用的两项——模型卡的六维弱点画像（`ModelCard.weaknesses`）
+和提示卡的目标维度（`PromptCard.targetWeakness`），150×210 的卡面也照着重排过。
+卡面尺寸要动的话，`--card-w/--card-h` 和 `HandFan.tsx` 里那对常量得同步改（见下）。
 
-**接真对局不只是换 props**：`HandCardData` 目前还缺核心机制要用的两项——
-模型卡的六维弱点画像（`ModelCard.weaknesses`）和提示卡的目标维度（`PromptCard.targetWeakness`），
-而 150×210 的卡面上也没有给它们留版面。接的时候要一并扩字段、重排卡面，
-卡面尺寸一动，`--card-w/--card-h` 和 `HandFan.tsx` 里那对常量得同步改（见下）。
+原来另有一个 `src/dev/HandDemo.tsx` 演示页（`/dev/hand`），拿占位数据跑扇形和拖拽的各种边界，
+现在**已经删掉**：它那套布局和交互原样并进了 `MatchStage`，也就是真对局界面本身。
+再留一份喂假数据的副本，只会变成两份慢慢分叉的实现。
+要拿各种局面试边界就进 dev 测试房（见 5.1），那里的卡和结算都是真的。
 
 hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡外面，于是缩回去，
 缩回去又被 hover 到，无限循环。这里靠两条几何约束根治：
@@ -345,14 +372,20 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 
 | 手牌 | 战场小卡 | 负责 |
 |---|---|---|
-| `.hand-fan__slot` | `.demo__tile` | 摆位：扇形的 x / y / rotation / scale；小卡这边是 Flip 飞行 |
-| `.hand-fan__tilt` | `.demo__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY |
+| `.hand-fan__slot` | `.battle__tile` | 摆位：扇形的 x / y / rotation / scale；小卡这边是 Flip 飞行 |
+| `.hand-fan__tilt` | `.battle__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY |
 | `.hand-fan__inner` | — | 翻到背面的 3D 翻转：rotationY 180° |
+| — | `.battle__tile-inner` | 写死在 CSS 里的一条 `scale`，把整张 150×210 的卡面缩到小卡尺寸 |
+
+战场小卡多出来的那一层是为了**整张卡等比缩小**，而不是重画一套小卡面：
+卡面组件（`HandCardFace`）和手牌共用同一份，字号内边距全按大卡写死，缩放交给这一层。
+它必须独立于上面两层——`scale` 混进 Flip 飞行那一层会被飞行补间覆盖掉，
+混进倾斜层则会被 cardTilt 每帧写的旋转覆盖掉。
 
 倾斜层和翻转层都要 `transform-style: preserve-3d`，否则翻转层会被压成一张平面图片再倾斜。
 透视（`perspective`）加在最外层，对下面几层一起生效，不用逐层加。
 小卡的倾斜层同时承担裁剪（`overflow: hidden` + 圆角）：裁切边跟着卡一起转，
-放在不动的 `.demo__tile` 上的话，倾斜时卡角会被一条直边削掉。
+放在不动的 `.battle__tile` 上的话，倾斜时卡角会被一条直边削掉。
 
 **翻面：立体感靠 `rotationY`，正反互斥靠角度驱动的 opacity 硬切，不用 `backface-visibility`。**
 所有会动 `.hand-fan__inner` 的 `rotationY` 的地方都必须走 `HandFan.tsx` 里的 `flipTo()`
@@ -422,7 +455,7 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 返回的 handle 有 `detach()`（摘监听 + 归零）
 和 `reset()`（出牌时快速收手：出牌被拒绝的话卡还在原地，不主动归零它会僵在倾斜的样子）。
 
-调用方（`HandFan` / `HandDemo`）都是**按元素增量挂/摘**，手牌或战场一变不能整批重挂：
+调用方（`HandFan` / `MatchStage`）都是**按元素增量挂/摘**，手牌或战场一变不能整批重挂：
 `detach()` 会把倾斜和高光硬切回零，而指针很可能正停在一张没有离场的卡上，
 它的倾斜会突然弹平、高光凭空消失，指针不动就不再有 `pointermove`，也就再也回不来。
 另外依赖数组非空时 `useGSAP` 只在**卸载**时 revert，清理函数在依赖变化时不会跑，
@@ -433,18 +466,25 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 `src/save/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
 ```
-key   ai-duel-save-v2
-value { "ownedCards": ["..."], "wins": 3, "tutorialDone": 2 }
+key   ai-duel-save-v3
+value { "ownedCards": ["..."], "wins": 3 }
 ```
 
-- `loadSave()` 读；`recordWin()` 记一场胜利，`completeTutorialLevel(n)` 记一关教程通关，
-  两者都顺手用 `drawNewCard` 抽一张新卡再写回。
-- `tutorialDone` 是已通关的关卡数（0..3），首页的「一键开始」就靠它分流。
-  它用 `max` 而不是 `+1` 更新，所以重玩已通关的关卡既不会把进度退回去，也不会越刷越高。
-- key 带版本号，结构要改就换 `v3`，旧数据读不到自动当新号，不写迁移代码。
+对外只有三个函数：
+
+- `loadSave()` 读存档，任何一处读不通都回落到初始收藏。
+- `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
+- `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
+
+几处约定：
+
+- key 带版本号，结构要改就换下一个版本号：旧数据读不到自动当新号，不写迁移代码。
+  v2 → v3 就是这么删掉 `tutorialDone` 的——教程下线，字段直接消失，没有任何迁移代码，
+  老存档整份作废重来。
 - 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
   `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
 - 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
+  一张都不剩说明这份存档和当前卡池已经完全对不上，整份当新号处理。
 
 ## 6. 目录结构
 
@@ -462,31 +502,35 @@ packages/client/
   src/main.tsx                入口，只负责挂 <App>
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
-    HomeScreen.tsx            主网站：介绍 + 一键开始（按 tutorialDone 分流）
-    TutorialScreen.tsx        教程关卡：对局 + 分步引导 + 通关结算
-    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房
-    MatchScreen.tsx           联机对局：从 MatchSession 取 driver
+    HomeScreen.tsx            主网站：照设计稿复原的分层场景，「开始游戏」直接进匹配房，
+                              角落 dev 区有「测试对局」和「重置存档」
+    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
+    MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode
   src/match/                  对局驱动层
     driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
-    localDriver.ts            本地热座
-    tutorialDriver.ts         本地 + 脚本对手
+    localDriver.ts            本地热座，也被 dev 测试房复用
     hostDriver.ts             联机房主（唯一跑 execute 的一方）
     guestDriver.ts            联机客人（只发指令）
+    testMatch.ts              dev 测试房：拿本地 driver 起一局，双方都用起始牌组
     useMatch.ts               把 driver 接进 React（useSyncExternalStore）
-    MatchSession.tsx          持有当前对局的 driver，跨得过路由切换
-  src/tutorial/levels.ts      三关的剧本数据
+    MatchSession.tsx          持有当前对局的 driver + testMode，跨得过路由切换
   src/net/
     protocol.ts               房主 ↔ 客人的消息格式
     socket.ts                 联机通道封装（原生 WebSocket：建房、进房、转发）
   src/ui/
-    MatchStage.tsx            对局界面，只认一个 driver（目前是占位实现）
+    MatchStage.tsx            对局界面本体：HandFan + 战场 + 把事件流播成动画，只认一个 driver
     HandFan.tsx               扇形手牌组件 + 卡面，通用
     cardTilt.ts               卡面跟指针的倾斜 + 微高光，手牌和战场小卡共用
+    BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
+                              （除「对战」外都还没有对应页面，是占位）
+    OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
+    PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
+    HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 六个弱点维度的中文名
-  src/dev/HandDemo.tsx        手牌动画演示页（/dev/hand）
-  src/save/save.ts            localStorage 存档（收藏 + 胜场 + 教程进度）
+  src/dev/DevPanel.tsx        dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
+  src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
-  test/tutorial.test.ts       把三关教程整段跑一遍
+  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
 packages/server/
   src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
   wrangler.jsonc              Worker 配置：静态资源、DO 绑定
@@ -494,7 +538,7 @@ packages/server/
   test/smoke.mjs              端到端冒烟测试（真起 wrangler dev、真连 WebSocket）
 ```
 
-依赖方向：`screens → match / ui / tutorial / save`，`match → net / core`，
+依赖方向：`screens → match / ui / dev / save`，`match → net / core`，
 `ui` 谁也不依赖（只认自己的 props），`server` 不依赖 `core`。
 
 ## 7. 常用命令
@@ -502,9 +546,9 @@ packages/server/
 ```bash
 pnpm install
 pnpm typecheck          # 全仓类型检查
-pnpm test               # 单元测试：core 规则、教程剧本
+pnpm test               # 单元测试：core 规则、client 存档的读写与回落
 pnpm dev                # 起客户端 (http://localhost:5173)
-                        # 手牌动画演示页：http://localhost:5173/dev/hand
+                        # 一个人调对局界面：首页 dev 区「测试对局」或匹配房「测试房（dev）」
                         # 端口被占时用 PORT=5174 pnpm dev
 pnpm dev:server         # 起 Worker (http://localhost:8787)，同时发前端产物和 WebSocket
                         # 转发器的端到端测试：先 build 前端，再 pnpm --filter @ai-duel/server smoke
@@ -524,27 +568,27 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 ## 8. 现在做到哪了
 
-已经就位（骨架，UI 全是占位）：
+已经就位：
 
-- 五个界面、路由、按存档分流的「一键开始」。
-- `MatchDriver` 四个实现全写完，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
-- 教程三关能整段打通，通关送卡、写进度。
-- 存档 v2（收藏 + 胜场 + 教程进度）。
+- 三个界面、路由，首页是照设计稿做的分层场景。
+- `MatchDriver` 各个实现，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
+- **对局界面已经是真 UI**（不再是占位的一堆按钮）：底部 `HandFan` 扇形手牌拖进战场出牌、
+  模型卡用 Flip 从手牌原位飞到场上、伤害飘字加受击抖动、回合交接横幅、
+  对手打出的提示卡在中央亮一下卡面、提示卡进入选目标态时高亮可打的那一侧。
+- **dev 测试房**：首页和匹配房各有一个入口，一个人就能把整套对局界面跑一遍——
+  对方手牌摊开成真卡面、点一下替对方出牌，测试面板发 `DEBUG_*` 随手摆局面
+  （指令见 3.6，和联机共用同一条渲染链见 5.1）。
+- 存档 v3（收藏 + 胜场）。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
 
 **还没做的**，按建议顺序：
 
-1. **对局界面接真 UI**（client）——把 `MatchStage` 里那堆按钮换成 `HandFan` + 战场，
-   把事件流接到 GSAP 上，播出牌、受伤、崩坏这几段动画。
-   接 `HandFan` 前要先给 `HandCardData` 补上弱点画像和目标维度两项，
-   并给它们在卡面上腾出版面（见 5.6）。
-2. **补规则和卡牌数据**（core）——攻击、随从交战、更多卡牌效果。
+1. **补规则和卡牌数据**（core）——攻击、随从交战、更多卡牌效果。
    全程用 Vitest 验证，不需要碰界面。
-   **改卡牌数值时记得跑 `pnpm test`**：教程剧本依赖具体的费用和伤害，
-   改坏了测试会红，不改的话玩家会卡死在教程里。
-3. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
-4. **联机端到端实测**——协议和转发器都有测试，但没有在两台真机上跑过完整一局。
+2. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
+3. **联机端到端实测**——协议和转发器都有测试，但没有在两台真机上跑过完整一局。
+4. **简单教程**（见 5.3）——第一版已经删掉，重做时先定流程再动手。
 5. **打磨**——音效、特效、结算画面。
 
-如果时间不够，砍的顺序是倒过来的：4 和 5 都可以不要，
-只要第 1 步做完就有一个能演示的游戏。
+如果时间不够，砍的顺序是倒过来的：3、4、5 都可以不要，
+现在这套界面已经够演示一局完整对战了。

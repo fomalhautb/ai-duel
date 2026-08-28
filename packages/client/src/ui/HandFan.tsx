@@ -5,7 +5,7 @@
  * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者直接点一下
  * （按下、原地松手，没有拖动过阈值）——两条路殊途同归，都在松手那一刻喊一声 onPlay，
  * 组件自己不区分是哪种触发的。打出的卡要飞到哪个容器由父组件决定
- * （见 HandDemo 里的 Flip 用法），因为跨容器的 FLIP 必须由同时看得见
+ * （见 MatchStage 里的 Flip 用法），因为跨容器的 FLIP 必须由同时看得见
  * "手牌"和"战场"的那一层来做。
  *
  * 只面向电脑浏览器 + 鼠标：拖拽走原生 pointer 事件，不做触屏和多指适配。
@@ -20,21 +20,23 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import type { WeaknessKind } from '@ai-duel/core'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
+import { WEAKNESS_LABELS } from './labels'
 
 gsap.registerPlugin(useGSAP)
 
 /**
  * 一张手牌的展示数据。
  *
- * 字段照着 core 的 Card 取名，将来接真对局时可以直接从 Card + CardInstance 拼出来；
- * power/integrity 只有模型卡有，damage 只有提示卡有，所以都是可选的。
+ * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 ModelInstance）拼出来；
+ * power/integrity/weaknesses 只有模型卡有，damage/targetWeakness 只有提示卡有，所以都是可选的。
  *
- * 注意这里还缺核心机制要用的两项：模型卡的六维弱点画像（ModelCard.weaknesses）
- * 和提示卡的目标维度（PromptCard.targetWeakness）。卡面上现在也没有给它们留版面，
- * 接真对局时得先扩字段、再重排卡面，不是加两个 props 就完事。
- * backText 是演示用的占位文案，core 里没有对应字段。
+ * 场上单位要传**实例的当前数值**而不是卡牌定义里的：受伤和增益都写在实例上，
+ * 读定义的话战场小卡会永远显示满血。
+ *
+ * backText 是翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
@@ -44,6 +46,15 @@ export interface HandCardData {
   power?: number
   integrity?: number
   damage?: number
+  /**
+   * 模型卡的六维弱点画像。
+   *
+   * 只传大于 0 的那几维：卡面上这一行是"它哪里脆"，六维全列出来又长又没有信息量，
+   * 完整画像留给翻面的 backText。
+   */
+  weaknesses?: Partial<Record<WeaknessKind, number>>
+  /** 提示卡打的那一个弱点维度。 */
+  targetWeakness?: WeaknessKind
   /** 卡面正面的描述文案。 */
   text: string
   /** 翻到背面时展示的补充说明。 */
@@ -364,6 +375,7 @@ export function HandFan({
    *
    * 正在拖的那张牌不参与排布：它的 transform 和 zIndex 全归拖拽逻辑管，
    * 布局连碰都不能碰，否则跟随光标的补间会被布局补间抢走。
+   * 已经打出、正在等结果的牌（playedRef）同样不参与，原因见下面 laid 那里。
    */
   const applyLayout = (mode: LayoutMode) => {
     // 扇形锚点 .hand-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），
@@ -372,7 +384,7 @@ export function HandFan({
     const ids = new Set(cards.map((card) => card.id))
 
     if (mode === 'reflow') {
-      // 拖着的牌被父组件从 cards 里拿掉了（demo 的滑杆从末尾砍牌就可能正好砍掉它）：
+      // 拖着的牌被父组件从 cards 里拿掉了（测试面板的"去1张"弃的就是手牌末尾那张，可能正是它）：
       // 它的 DOM 节点这一帧已经没了，再留着拖拽状态，松手时就会去动一个不存在的节点。
       if (dragRef.current !== null && !ids.has(dragRef.current.id)) endDrag()
       // 只清理"已经不在手牌里"的记录。hover 期间调用得太频繁，不该顺手改这些状态。
@@ -384,8 +396,15 @@ export function HandFan({
     }
 
     // 拖出来的牌从队里摘掉，剩下的按"少了一张"重算扇形，手牌会自己合拢（炉石就是这样）。
+    //
+    // 已经打出、正在等父组件受理的牌（playedRef）也一起摘掉，和拖拽中的牌同等待遇：
+    // 父组件为了打开 disabled 必然重渲染，重渲染就带来一次 reflow，
+    // 排布只要碰它就会把它补间回扇形，和 HandFanProps 约定的"停在落点上等结果"正好相反
+    // （拖一张提示卡进战场松手，牌会当场飞回手里）。
+    // 豁免不需要额外的解除逻辑：两处收尾（disabled 关掉时的 layout effect、松手后的 rAF 兜底）
+    // 都是先把 id 从 playedRef 删掉再 returnToFan，那一次 reflow 就会把牌送回扇形。
     const draggingId = dragRef.current?.active === true ? dragRef.current.id : null
-    const laid = draggingId === null ? cards : cards.filter((card) => card.id !== draggingId)
+    const laid = cards.filter((card) => card.id !== draggingId && !playedRef.current.has(card.id))
     const count = laid.length
 
     const hoveredId = hoverRef.current
@@ -937,12 +956,27 @@ export function HandFan({
  * 画面前后是同一份排版，落位时不会突然换一套内容。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
+  // 只画真正暴露出来的那几维。传进来的 weaknesses 本来就该是过滤过的，
+  // 这里再挡一道，免得调用方漏筛把六个 0 全画上去。
+  const weakChips = Object.entries(card.weaknesses ?? {}).filter(([, value]) => value > 0)
   return (
     <div className={`card-face card-face--${card.kind}`}>
       <div className="card-face__cost">{card.cost}</div>
       <div className="card-face__art">{card.kind === 'model' ? '模型' : '提示'}</div>
       <div className="card-face__name">{card.name}</div>
       <p className="card-face__text">{card.text}</p>
+      {/* 弱点行夹在描述和数值行之间：它是"这张模型哪里脆"，和下面的攻防数值一起读才有意义。
+          战场小卡是同一份排版按 0.73 缩小画的，所以这里的字号已经是压到最小的一档了。 */}
+      {card.kind === 'model' && weakChips.length > 0 ? (
+        <div className="card-face__weak">
+          {weakChips.map(([kind, value]) => (
+            <span className="card-face__weak-chip" key={kind}>
+              {WEAKNESS_LABELS[kind as WeaknessKind]}
+              {value}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="card-face__stats">
         {card.kind === 'model' ? (
           <>
@@ -950,7 +984,11 @@ export function HandCardFace({ card }: { card: HandCardData }) {
             <span>完整度 {card.integrity ?? 0}</span>
           </>
         ) : (
-          <span>伤害 {card.damage ?? 0}</span>
+          <>
+            <span>伤害 {card.damage ?? 0}</span>
+            {/* 提示卡的目标维度，决定了它打谁疼——比伤害数字本身更该被一眼看到。 */}
+            {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
+          </>
         )}
       </div>
       {/*

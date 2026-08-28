@@ -100,4 +100,19 @@ describe('hitTestAlphaMaps', () => {
       expect(hitTestAlphaMaps([left], 0.1, 0.9, [soft])).toBe(0)
     })
   })
+
+  /*
+   * 素材只要求和舞台等比，不要求等大，几张图之间也不必同尺寸（见 castHitTest.ts 文件头）。
+   * 首页文档里"换 2x 素材代码一行都不用改"这句话就靠这条性质，所以拿测试钉住：
+   * 人物图换成 2x、遮挡层还是 1x 时，同一个归一化坐标必须判出同样的结果。
+   */
+  it('同一坐标下，图的分辨率不影响判定结果', () => {
+    const table1x = makeMap(4, 4, (_x, y) => (y >= 2 ? 255 : 0))
+    const left2x = makeMap(8, 8, (x) => (x < 4 ? 255 : 0))
+
+    expect(hitTestAlphaMaps([left2x], 0.1, 0.1, [table1x])).toBe(0)
+    expect(hitTestAlphaMaps([left2x], 0.1, 0.9, [table1x])).toBeNull()
+    // 包围盒是比例，所以 1x 和 2x 的同一张图算出来完全一样。
+    expect(left2x.bbox).toEqual(left.bbox)
+  })
 })

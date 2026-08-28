@@ -1747,8 +1747,18 @@ body:has(.battle) {
   letter-spacing: 0.08em;
 }
 
-/* 背景图的文件名沿用当初做手牌演示页时的 demo-hand-background.png，没跟着改名——
-   public/ 里换文件名要连带改部署产物，收益只有"名字好看一点"。 */
+/* 战场背景图：public/battle/battle-bg.webp，1672×941。
+
+   这张图是 1x 的，和设计稿等大，但战场用 cover 铺满，高分屏上一律要被放大。
+   战场比图更方，所以 cover 的放大倍数是由高度定的，横向多出来的那截会被裁掉：
+   1440×810 视口配 DPR 2 时战场约 909×738 CSS px，图要铺满 1476 个物理像素高，
+   等于把 941 高的原图放大约 1.57 倍，放大用的插值抹平边缘，画面就发糊了。
+   现在这张图在导出时做过一遍锐化补偿（半径 0.8px、力度 70%、阈值 3），让放大后的边缘不那么平，
+   但锐化补不回丢掉的分辨率。真要清晰只能换 2x 素材：按 3344×1882 重新导出、同名覆盖就行，
+   样式一行都不用改。换图请保持原来的宽高比，比例一变，cover 裁掉的就不是设计稿预留的那一边了。
+
+   存成 WebP 而不是 PNG：画面是纸纹噪点加暗部渐变的照片类内容，PNG 无损压不动它，
+   原来那张 PNG 有 2.18MB，同一张图 WebP q90 只要 188KB，噪点和渐变都看不出损失。 */
 .battle__battlefield {
   --battle-hand-zone-h: clamp(210px, 27vh, 250px);
   /*
@@ -1762,7 +1772,7 @@ body:has(.battle) {
   position: relative;
   min-width: 0;
   min-height: 0;
-  background: #26334c url('/demo-hand-background.png') center / cover no-repeat;
+  background: #26334c url('/battle/battle-bg.webp') center / cover no-repeat;
   box-shadow: inset 0 0 24px rgb(5 11 24 / 36%);
 }
 

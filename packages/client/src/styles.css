@@ -582,14 +582,11 @@ body,
  * 圆心落在指针的**镜像位置**，不是指针底下：指针把卡按下去，翘向观察者、正对光源的是
  * 对角那一块，所以最亮的在那儿（方向和倾斜是一套物理模型，见 cardTilt.ts）。
  *
- * --glare-x / --glare-y 由 cardTilt.ts 写在外层（slot 或 tile）上，靠继承传到这里；
- * 没人写的时候退回卡面中央，配上默认的 opacity: 0，这一层就完全不存在。
+ * --glare-x / --glare-y 由 cardTilt.ts 直接写在这个元素上（不走祖先继承，
+ * 那样每动一次指针就会作废整棵卡子树的样式）；没人写的时候退回卡面中央，
+ * 配上默认的 opacity: 0，这一层就完全不存在。
  * 淡入淡出交给 GSAP 改 opacity，不用 CSS transition：卡上的动画统一归 GSAP 管，
  * 两边一起改同一个属性会互相打断。
- *
- * 混合模式选 soft-light 而不是 overlay：卡面底色很深（≈#11161d），
- * overlay 在深色底上只是把原亮度翻一倍，仍然是黑的，高光几乎看不见；
- * soft-light 会把深色往上提一截，更接近覆膜那种"哑光反光"。
  */
 .card-glare {
   position: absolute;
@@ -597,7 +594,6 @@ body,
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
-  mix-blend-mode: soft-light;
   /* 半径必须写死。不写的话默认是 farthest-corner——半径跟着指针到最远那个角的距离变，
      指针从卡中心挪到卡角，这块反光会一路胀到两倍大再糊满半张卡，不像一块跟着滑动的反光。
      400px 是在原本 200px 的基础上翻倍放大，比卡面对角线的一半（≈129px）还大得多，
@@ -608,6 +604,23 @@ body,
     rgb(255 255 255 / 12%) 22%,
     rgb(255 255 255 / 0%) 60%
   );
+}
+
+/*
+ * 混合模式只在跟随期间开。
+ *
+ * 选 soft-light 而不是 overlay：卡面底色很深（≈#11161d），
+ * overlay 在深色底上只是把原亮度翻一倍，仍然是黑的，高光几乎看不见；
+ * soft-light 会把深色往上提一截，更接近覆膜那种"哑光反光"。
+ *
+ * 但只要 mix-blend-mode 不是 normal，WebKit 就无条件给这个元素单独提一层、每帧离屏合成，
+ * 一屏二十张牌（正反两面各一层高光）就是四十层常驻开销；而没人 hover 时高光的 opacity 是 0，
+ * 这层混合本来就什么也没混。所以把它交给 cardTilt.ts 用 data-glare 属性开关，
+ * 只在真的跟着指针跑的那张卡上打开。摘的时机是高光淡完之后（cardTilt.ts 里用定时器等），
+ * 中途摘会让还没淡完的高光变成普通白色叠加、亮度跳一下。
+ */
+[data-glare='on'] .card-glare {
+  mix-blend-mode: soft-light;
 }
 
 /* ---------- 手牌演示页 ---------- */
@@ -1207,14 +1220,18 @@ body:has(.demo) {
   letter-spacing: 0.25em;
   text-indent: 0.25em;
   cursor: pointer;
-  filter: drop-shadow(0 3px 4px rgb(60 50 30 / 25%));
+  /* 这里刻意没有 drop-shadow：filter 的结果会被同一个元素上的 clip-path 再裁一遍
+     （裁剪发生在滤镜之后），投影全落在八角形之外、一个像素都留不下，
+     只白白换来每次 hover / 按压一整轮离屏滤镜。
+     transition 也只留 transform：label 上挂着 SVG 手绘滤镜，一旦让 color 参与过渡，
+     接下来的十来帧里这条滤镜就要一帧不落地重跑（WebKit 上是逐像素 CPU 计算），
+     所以换色改成瞬切，滤镜只需要算一次。
+     will-change 同理只声明 transform——:disabled 上那条 saturate 是静态的，不参与动画。 */
   transform: translateY(0) scaleY(1);
+  /* 压入以底边为支点，看着像匾额被按进墙里而不是整体平移。 */
   transform-origin: center bottom;
-  transition:
-    color 180ms ease,
-    transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1),
-    filter 220ms cubic-bezier(0.16, 1.2, 0.35, 1);
-  will-change: transform, filter;
+  transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
+  will-change: transform;
 }
 
 .plaque-button::before {
@@ -1276,26 +1293,24 @@ body:has(.demo) {
 .plaque-button__label {
   position: relative;
   z-index: 2;
+  /* 和框线共用页面上那份公共滤镜。参数和按钮原来自带的私有滤镜完全一致（只差 seed），
+     共用之后浏览器只需要为这个 id 算一次噪声。 */
+  filter: url('#ai-duel-rough-icon');
   transform: translateY(0);
   transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
-}
-
-.plaque-button__filter-defs {
-  position: absolute;
-  pointer-events: none;
 }
 
 .plaque-button:hover {
   --plaque-fill: #2c3953;
   --plaque-line: rgb(203 157 123 / 85%);
   color: #ead0b9;
-  filter: drop-shadow(0 4px 5px rgb(60 50 30 / 32%));
 }
 
+/* :active 之外还认 data-pressed，是为了让 PlaqueButton 里的最短按压时长能撑住这个姿态：
+   点得再快也要按满 MIN_PRESS_MS 才松开。 */
 .plaque-button:not(:disabled):active,
 .plaque-button[data-pressed='true'] {
   transform: translateY(6px) scaleY(0.96);
-  filter: drop-shadow(0 0 0 rgb(60 50 30 / 0%));
   transition-duration: 70ms;
   transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
@@ -1372,6 +1387,9 @@ body:has(.demo) {
   inset: 0;
   border-radius: 9px;
   overflow: hidden;
+  /* 这一层被 cardTilt 每帧改 3D 旋转。不预先声明的话，WebKit 要等到第一帧真的转起来
+     才隐式给它提一层合成层，而提层要重建合成树——这一下正好卡在手势刚开始、最该跟手的时候。 */
+  will-change: transform;
 }
 
 .demo__tile-inner {

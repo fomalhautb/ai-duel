@@ -11,7 +11,7 @@ import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
 import { loadSave, recordWin, resetSave } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
-const SAVE_KEY = 'ai-duel-save-v3'
+const SAVE_KEY = 'ai-duel-save-v5'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -51,29 +51,27 @@ describe('本地存档', () => {
     expect(loadSave().ownedCards).toEqual(INITIAL_COLLECTION)
   })
 
-  it('基础收藏始终开放，同时保留额外解锁与胜场', () => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: ['gpt-3-5', 'context-flood'], wins: 5 }))
-    const save = loadSave()
-    expect(save.wins).toBe(5)
-    expect(save.ownedCards).toEqual(expect.arrayContaining([...INITIAL_COLLECTION, 'context-flood']))
-    expect(new Set(save.ownedCards).size).toBe(save.ownedCards.length)
-  })
-
-  it('读取收藏会移除已删除的占位模型，并开放 Gemini', () => {
-    const removed = ['hallucinating-oracle', 'context-goldfish', 'stereotype-parrot', 'benchmark-champion']
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [...removed, 'leading-question'], wins: 5 }))
-    const save = loadSave()
-    expect(save.wins).toBe(5)
-    expect(save.ownedCards).toContain('gemini')
-    for (const id of removed) expect(save.ownedCards).not.toContain(id)
-  })
-
-  it('赢一局胜场 +1，并抽到一张之前没有的卡', () => {
+  // 现在初始收藏就等于整个卡池，所以新号赢一局是抽不到新卡的。
+  // 这条测试守着"抽不到也不能出错"，卡池扩容后它应该跟着改成断言抽得到。
+  it('新号赢一局：胜场 +1，但初始收藏已经是整个卡池，抽不到新卡', () => {
     const { save, drawn } = recordWin()
     expect(save.wins).toBe(1)
-    expect(drawn).not.toBeNull()
-    expect(save.ownedCards).toContain(drawn)
+    expect(drawn).toBeNull()
+    expect(save.ownedCards).toEqual(INITIAL_COLLECTION)
     expect(loadSave()).toEqual(save)
+  })
+
+  // 基础收藏始终开放：默认牌组里的卡不能因为"存档里没写"就变成没解锁，
+  // 否则改一次默认牌组，老玩家的牌组里就会出现打不出来的卡。
+  it('读存档时把基础收藏并回来，额外解锁的卡和胜场都留着', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [CARD_POOL[0]], wins: 5 }))
+    const save = loadSave()
+    expect(save.wins).toBe(5)
+    for (const id of INITIAL_COLLECTION) {
+      expect(save.ownedCards).toContain(id)
+    }
+    // 并回来的时候不能并出重复项，否则 drawNewCard 的候选集会被算错。
+    expect(new Set(save.ownedCards).size).toBe(save.ownedCards.length)
   })
 
   it('卡已经集齐时再赢一局，抽卡结果是 null，收藏不再增长', () => {

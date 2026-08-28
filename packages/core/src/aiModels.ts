@@ -1,33 +1,147 @@
-import type { CardId, ModelCard, WeaknessProfile } from './types'
+import type { AiCard, CardId } from './types'
 
-/** 这些数值是游戏测试设定，不代表模型实测表现；技能简称不附加引擎尚未实现的效果。 */
-function model(id: CardId, name: string, cost: number, power: number, integrity: number, profile: Partial<WeaknessProfile>): ModelCard {
-  return {
-    id, name, kind: 'model', cost, power, integrity,
-    text: '部署到己方场上。完整度耗尽时崩坏，无额外触发技能。',
-    weaknesses: { bias: 0, hallucination: 0, misjudgment: 0, overconfidence: 0, forgetfulness: 0, jailbreak: 0, ...profile },
-  }
+/**
+ * 十八张具名 AI 牌。
+ *
+ * 每张都有一张专属原画（客户端 ui/aiModelArt.ts 按同一份 id 查图），所以这里的 id 是资源名的一部分，
+ * 改 id 等于换图，必须两边一起改。
+ *
+ * 牌面上没有任何数值：本迭代的胜负只看答题对错，模型之间的差别全部体现在
+ * script.ts 那张「题目 × 卡牌」的剧本表里（谁擅长看图、谁容易掉进语言陷阱）。
+ * 卡面文案是玩梗，不代表这些模型的真实表现。
+ */
+export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
+  'gpt-2': {
+    kind: 'ai',
+    id: 'gpt-2',
+    name: 'GPT-2',
+    model: 'GPT-2',
+    text: '它会接话，但不保证接的是人话。',
+  },
+  'gpt-3-5': {
+    kind: 'ai',
+    id: 'gpt-3-5',
+    name: 'GPT-3.5',
+    model: 'GPT-3.5',
+    text: '什么都答得上来，答得对不对是另一回事。',
+  },
+  'gpt-4o': {
+    kind: 'ai',
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    model: 'GPT-4o',
+    text: '看得见图、听得见声，就是有点太想夸你。',
+  },
+  'chatgpt-5-6-sol': {
+    kind: 'ai',
+    id: 'chatgpt-5-6-sol',
+    name: 'ChatGPT 5.6 Sol',
+    model: 'ChatGPT 5.6 Sol',
+    text: '它算得比你快，也比你确信。',
+  },
+  'claude-5-sonnet': {
+    kind: 'ai',
+    id: 'claude-5-sonnet',
+    name: 'Claude 5 Sonnet',
+    model: 'Claude 5 Sonnet',
+    text: '写代码很稳，就是喜欢先解释一遍它打算怎么写。',
+  },
+  'claude-fable-5': {
+    kind: 'ai',
+    id: 'claude-fable-5',
+    name: 'Claude Fable 5',
+    model: 'Claude Fable 5',
+    text: '想得又深又长，长到你忘了自己问过什么。',
+  },
+  'deepseek-r1': {
+    kind: 'ai',
+    id: 'deepseek-r1',
+    name: 'DeepSeek R1',
+    model: 'DeepSeek R1',
+    text: '先自言自语三千字，再回答你那个是非题。',
+  },
+  'deepseek-v4': {
+    kind: 'ai',
+    id: 'deepseek-v4',
+    name: 'DeepSeek V4',
+    model: 'DeepSeek V4',
+    text: '用别人一半的算力，办完一样的事。',
+  },
+  gemini: {
+    kind: 'ai',
+    id: 'gemini',
+    name: 'Gemini',
+    model: 'Gemini',
+    text: '看图这件事它最有话说。',
+  },
+  qwen: {
+    kind: 'ai',
+    id: 'qwen',
+    name: '通义千问',
+    model: 'Qwen',
+    text: '什么尺寸都有，什么活都接。',
+  },
+  'kimi-k2-6': {
+    kind: 'ai',
+    id: 'kimi-k2-6',
+    name: 'Kimi K2.6',
+    model: 'Kimi K2.6',
+    text: '嘴上说着「这个我不能回答」，手上已经开始写了。',
+  },
+  'kimi-k3': {
+    kind: 'ai',
+    id: 'kimi-k3',
+    name: 'Kimi K3',
+    model: 'Kimi K3',
+    text: '会自己调工具、自己查资料、自己相信查到的东西。',
+  },
+  doubao: {
+    kind: 'ai',
+    id: 'doubao',
+    name: '豆包',
+    model: 'Doubao',
+    text: '语气永远是好脾气，答案偶尔不是。',
+  },
+  'glm-5': {
+    kind: 'ai',
+    id: 'glm-5',
+    name: 'GLM-5',
+    model: 'GLM-5',
+    text: '中文说得比谁都顺，顺到你懒得核对。',
+  },
+  minimax: {
+    kind: 'ai',
+    id: 'minimax',
+    name: 'MiniMax',
+    model: 'MiniMax',
+    text: '能说会唱，正经答题的时候有点跳。',
+  },
+  yuanbao: {
+    kind: 'ai',
+    id: 'yuanbao',
+    name: '腾讯元宝',
+    model: 'Yuanbao',
+    text: '先去搜一圈再回来答，搜到什么信什么。',
+  },
+  grok: {
+    kind: 'ai',
+    id: 'grok',
+    name: 'Grok',
+    model: 'Grok',
+    text: '想说什么说什么，护栏拦得住它一半。',
+  },
+  'wenxin-yiyan': {
+    kind: 'ai',
+    id: 'wenxin-yiyan',
+    name: '文心一言',
+    model: 'ERNIE',
+    text: '成语接得漂亮，事实核得一般。',
+  },
 }
 
-export const AI_MODEL_CARDS: Record<CardId, ModelCard> = {
-  'gpt-2': model('gpt-2', 'GPT-2', 1, 1, 3, {"forgetfulness":3,"hallucination":2}),
-  'gpt-3-5': model('gpt-3-5', 'GPT-3.5', 2, 2, 4, {"hallucination":2,"misjudgment":2}),
-  'gpt-4o': model('gpt-4o', 'GPT-4o', 4, 4, 5, {"overconfidence":2,"hallucination":1}),
-  'chatgpt-5-6-sol': model('chatgpt-5-6-sol', 'ChatGPT 5.6 sol', 7, 7, 7, {"overconfidence":2,"jailbreak":1}),
-  'claude-5-sonnet': model('claude-5-sonnet', 'Claude 5 Sonnet', 4, 3, 6, {"forgetfulness":2,"misjudgment":1}),
-  'claude-fable-5': model('claude-fable-5', 'Claude Fable 5', 6, 5, 8, {"overconfidence":2,"forgetfulness":1}),
-  'deepseek-r1': model('deepseek-r1', 'DeepSeek R1', 3, 4, 3, {"hallucination":2,"bias":1}),
-  'deepseek-v4': model('deepseek-v4', 'DeepSeek V4', 5, 5, 6, {"jailbreak":2,"overconfidence":1}),
-  'gemini': model('gemini', 'Gemini', 4, 4, 5, { hallucination: 1, forgetfulness: 2 }),
-  'qwen': model('qwen', '通义千问', 3, 3, 5, {"bias":2,"misjudgment":1}),
-  'kimi-k2-6': model('kimi-k2-6', 'Kimi K2.6', 3, 2, 6, {"misjudgment":2,"hallucination":1}),
-  'kimi-k3': model('kimi-k3', 'Kimi K3', 5, 4, 7, {"jailbreak":2,"overconfidence":1}),
-  'doubao': model('doubao', '豆包', 2, 2, 4, {"bias":2,"hallucination":1}),
-  'glm-5': model('glm-5', 'GLM-5', 4, 4, 5, {"misjudgment":2,"forgetfulness":1}),
-  'minimax': model('minimax', 'MiniMax', 3, 4, 4, {"forgetfulness":2,"bias":1}),
-  'yuanbao': model('yuanbao', '腾讯元宝', 3, 3, 5, {"hallucination":2,"overconfidence":1}),
-  'grok': model('grok', 'Grok', 4, 5, 4, {"jailbreak":3,"bias":1}),
-  'wenxin-yiyan': model('wenxin-yiyan', '文心一言', 3, 2, 6, {"bias":2,"overconfidence":1}),
-}
-
+/**
+ * 十八张 AI 牌的 id，顺序就是卡池和默认牌组里的顺序（按厂商归堆，不按字母排）。
+ *
+ * 从 AI_MODEL_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。
+ */
 export const AI_MODEL_CARD_IDS: CardId[] = Object.keys(AI_MODEL_CARDS)

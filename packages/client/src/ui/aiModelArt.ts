@@ -1,21 +1,29 @@
-/** 插画按卡牌定义 id 固定关联；颜色取自原画，避免同一系列因实例 id 不同而换图。 */
-export const AI_MODEL_PRESENTATIONS: Record<string, { art: string; accent: string; skillName: string }> = {
-  'gpt-2': { art: '/cards/models/gpt-2.webp', accent: '#46584b', skillName: '文本续写' },
-  'gpt-3-5': { art: '/cards/models/gpt-3-5.webp', accent: '#46584b', skillName: '对话启蒙' },
-  'gpt-4o': { art: '/cards/models/gpt-4o.webp', accent: '#46584b', skillName: '多模感知' },
-  'chatgpt-5-6-sol': { art: '/cards/models/chatgpt-5-6-sol.webp', accent: '#46584b', skillName: '统筹推演' },
-  'claude-5-sonnet': { art: '/cards/models/claude-5-sonnet.webp', accent: '#87502d', skillName: '文理兼修' },
-  'claude-fable-5': { art: '/cards/models/claude-fable-5.webp', accent: '#87502d', skillName: '深思织文' },
-  'deepseek-r1': { art: '/cards/models/deepseek-r1.webp', accent: '#304e70', skillName: '链式推理' },
-  'deepseek-v4': { art: '/cards/models/deepseek-v4.webp', accent: '#304e70', skillName: '深海求索' },
-  'gemini': { art: '/cards/models/gemini.webp', accent: '#655580', skillName: '多模融会' },
-  'qwen': { art: '/cards/models/qwen.webp', accent: '#37646b', skillName: '万语通晓' },
-  'kimi-k2-6': { art: '/cards/models/kimi-k2-6.webp', accent: '#343e48', skillName: '长卷寻踪' },
-  'kimi-k3': { art: '/cards/models/kimi-k3.webp', accent: '#343e48', skillName: '群星协作' },
-  'doubao': { art: '/cards/models/doubao.webp', accent: '#505b77', skillName: '灵感相伴' },
-  'glm-5': { art: '/cards/models/glm-5.webp', accent: '#3d4a64', skillName: '知行合一' },
-  'minimax': { art: '/cards/models/minimax.webp', accent: '#95465f', skillName: '声影共鸣' },
-  'yuanbao': { art: '/cards/models/yuanbao.webp', accent: '#465d49', skillName: '博览集智' },
-  'grok': { art: '/cards/models/grok.webp', accent: '#303939', skillName: '破界直言' },
-  'wenxin-yiyan': { art: '/cards/models/wenxin-yiyan.webp', accent: '#40596b', skillName: '文心妙笔' },
+/**
+ * 十八张具名 AI 牌各自的原画。
+ *
+ * 键是 core 里的卡牌 id（见 packages/core/src/aiModels.ts），改 id 就得同步改这里，
+ * 否则那张卡会悄悄退回占位插画——不会报错，只会画错。
+ *
+ * 图放在 public/cards/models/ 下，所以路径是根绝对路径，不经过打包器的资源哈希。
+ * 和占位图一样是整版竖图，卡面把它当整张底图铺满（见 HandCardFace）。
+ */
+export const AI_MODEL_ART: Record<string, string> = {
+  'gpt-2': '/cards/models/gpt-2.webp',
+  'gpt-3-5': '/cards/models/gpt-3-5.webp',
+  'gpt-4o': '/cards/models/gpt-4o.webp',
+  'chatgpt-5-6-sol': '/cards/models/chatgpt-5-6-sol.webp',
+  'claude-5-sonnet': '/cards/models/claude-5-sonnet.webp',
+  'claude-fable-5': '/cards/models/claude-fable-5.webp',
+  'deepseek-r1': '/cards/models/deepseek-r1.webp',
+  'deepseek-v4': '/cards/models/deepseek-v4.webp',
+  gemini: '/cards/models/gemini.webp',
+  qwen: '/cards/models/qwen.webp',
+  'kimi-k2-6': '/cards/models/kimi-k2-6.webp',
+  'kimi-k3': '/cards/models/kimi-k3.webp',
+  doubao: '/cards/models/doubao.webp',
+  'glm-5': '/cards/models/glm-5.webp',
+  minimax: '/cards/models/minimax.webp',
+  yuanbao: '/cards/models/yuanbao.webp',
+  grok: '/cards/models/grok.webp',
+  'wenxin-yiyan': '/cards/models/wenxin-yiyan.webp',
 }

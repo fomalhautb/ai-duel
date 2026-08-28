@@ -7,37 +7,41 @@
  *
  * 两条订阅各司其职：
  * - `useMatch` 拿快照，渲染"事件全部应用完"的结果；
- * - `useMatchEvents` 拿事件流，播过程动画（回合横幅、伤害飘字、对手出牌的强制展示：
- *   牌从对手手里飞到屏幕中央翻正停一会儿，模型卡接着飞向对方战场行并播上场特效）。
+ * - `useMatchEvents` 拿事件流，播过程动画（回合横幅、抛硬币、答题揭晓、对手出牌的强制展示：
+ *   牌从对手手里飞到屏幕中央翻正停一会儿，AI 牌接着飞向对方战场行并播上场特效）。
  *   事件订阅者全局只允许一个（架构 5.2），所以整个应用里只能有这一处 useMatchEvents。
  *
- * 屏幕中央那套展示层（.reveal-*）由两条链路共用，它们严格互斥（共用同一张展示卡、同一条浮动）：
- * 对手出牌的强制展示（reveal，不可打断）和玩家点战场小卡的放大查看（inspect，点遮罩关闭）。
+ * 阶段动画分三档：
+ * - 全屏过场（开局抛硬币、答题揭晓、英雄技能抵消）挂在 React 状态上，压暗整个战场演一段再退场；
+ * - 屏幕中央那套展示层（.reveal-*）由两条链路共用，它们严格互斥（共用同一张展示卡、同一条浮动）：
+ *   对手出牌的强制展示（reveal，不可打断）和玩家点战场小卡的放大查看（inspect，点遮罩关闭）；
+ * - 轻量提示（第几轮、轮到谁出牌）走中央横幅，一次只播一条，多条排队。
+ * 视觉全是占位，只求节奏顺、看得懂，美术另做。
  */
 
 import { useRef, useState, useEffect, useMemo } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { getCard, other, WEAKNESS_KINDS } from '@ai-duel/core'
+import { getCard, getHero, other } from '@ai-duel/core'
 import type {
-  Card,
+  AiInstance,
   CardId,
   CardInstance,
   Command,
   GameState,
+  HeroId,
   InstanceId,
-  ModelInstance,
+  PlayerId,
   PlayerState,
-  WeaknessKind,
+  Question,
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
-import { cardPresentation } from './cardPresentation'
 import type { HandCardData } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { OpponentFan } from './OpponentFan'
@@ -46,7 +50,9 @@ import { PlaqueButton } from './PlaqueButton'
 import { cardBackText } from './cardText'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
-import { flipTo, setFlipAngle } from './flipCard'
+import { flipTo, setFlipAngle, syncFlipFaces } from './flipCard'
+import { heroCardData } from './heroCard'
+import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSummonFx } from './playSummonFx'
 
 gsap.registerPlugin(useGSAP, Flip)
@@ -65,6 +71,28 @@ const TILE_TILT_DEG = 12
  * 放大必须和倾斜一样交给 cardTilt 用 GSAP 做，CSS 写了也没用（原因见 ui/cardTilt.ts 的文件头）。
  */
 const TILE_HOVER_SCALE = 1.05
+/** 我方打出的技能牌在战场中央停留多久（秒），停完淡出。 */
+const SKILL_SHOWCASE_HOLD = 1.2
+
+/**
+ * 落地特效（震屏 + 烟尘 + 追光）从落地那一刻起还要再演这么久（秒）。
+ * 演出锁要一直挂到这段演完：Flip 一到位就解锁的话，手牌立刻能 hover，
+ * 抬起来的下一张牌会盖住还在冒烟的那张。
+ * 我方出牌和对手的牌落场用同一段尾巴，两边的手感才一致。
+ */
+const SUMMON_FX_TAIL = 0.8
+/**
+ * 出牌演出的兜底解锁时间（秒）。两条出牌链路（AI 牌飞向战场、技能牌中央亮相）共用。
+ *
+ * 两条链路都是同一个套路：出牌那一刻先上锁，等对面回来的新局面/事件把演出起起来，
+ * 最后由演出收尾解锁。要是那一步压根没来（联机丢包，或者房主标签页被冻住而 socket 没断、
+ * onPeerLeft 也不触发），锁就再没人放了——手牌会连 hover 抬牌都做不到，只能刷新页面。
+ * 所以出牌时一并挂上这个定时器：演出真的起来了就把它撤掉（解锁交回给演出收尾），
+ * 到点还没起来就把锁放开，退回"出不了牌但还能把牌抬起来看"这个能忍的状态。
+ *
+ * 取值只要盖得住一次联机往返，演出本身有多长不影响（演出一起来定时器就撤了）。
+ */
+const PLAY_LOCK_FALLBACK = 2.5
 
 /** 遮罩淡入 / 淡出。淡出比淡入慢一点，让"看完了"这一下收得柔和些。 */
 const OVERLAY_IN_DUR = 0.25
@@ -77,25 +105,56 @@ const REVEAL_HOLD = 1.5
 const REVEAL_OUT_DUR = 0.6
 const REVEAL_FLIGHT_Z = 1200
 
-export interface MatchStageProps {
-  driver: MatchDriver
-  /**
-   * dev 测试房模式：对方手牌摊开显示真实卡面，点一下就替对方打出去（走 DEBUG_PLAY_CARD，
-   * 提示卡不选目标、直击我方本体）。正式对局一律为 false，那时对方手牌是顶边的倒扇形牌背。
-   */
-  testMode?: boolean
-  /** 结算层里的按钮，由各个界面自己决定是"再来一局"还是"回首页"。 */
-  resultActions?: ReactNode
+/** 硬币转多久（秒）落定。 */
+const COIN_SPIN = 1.6
+/**
+ * 硬币转几整圈之后才停到该停的那一面。
+ *
+ * 整圈数决定"转"的观感；落到哪一面是另外加的 180°（背面）或 0°（正面），
+ * 所以这个数只影响转多久看着够不够劲，不影响结果。
+ */
+const COIN_SPINS = 4
+/** 硬币停稳后停留多久（秒）再整层淡出，留出看清「谁先出牌」的时间。 */
+const COIN_HOLD = 1.3
+
+/** 英雄技能抵消那一层，大字停留多久（秒）再整层淡出。 */
+const CANCEL_HOLD = 1.3
+
+/** 答题结果逐条淡入的间隔（秒）。 */
+const QUIZ_ROW_STAGGER = 0.16
+/** 计分那行出来之后停留多久（秒）再整层淡出，露出已经更新的战场和比分。 */
+const QUIZ_HOLD = 1.1
+
+/** 一条中央横幅从淡入到淡出的总时长（秒），排队时按它算下一条什么时候上。 */
+const BANNER_IN = 0.3
+const BANNER_HOLD = 0.75
+const BANNER_OUT = 0.35
+
+/** 答题揭晓层里的一行结果，全部由 AI_ANSWERED 事件当场攒出来。 */
+interface QuizAnswerRow {
+  instanceId: InstanceId
+  /** 这个 AI 是我方的还是对方的。收到事件时就按当时的座位算好，渲染时不用再查局面。 */
+  mine: boolean
+  name: string
+  correct: boolean
+  answerText: string
 }
 
 /**
- * 正在等玩家选目标的提示卡。
+ * 答题全屏揭晓层的全部内容。
  *
- * 只有本端自己出牌会进这个状态（测试房替对方出牌不选目标，见 playForFoe），
- * 所以出牌方恒为本端座位、目标恒在对方那一侧，这里只记牌是哪张。
+ * 结果**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
+ * 提交一完成，答错的 tile 立刻就从战场上消失了，没有机会在它身上播罚下动画。
+ * 所以这一层刻意盖住整个战场，把那次跳变藏在自己后面（见计划的"关键陷阱"）。
  */
-interface PendingPrompt {
-  instanceId: InstanceId
+interface QuizReveal {
+  /** 每次揭晓换一个新的 key，用来重新触发下面几段 useGSAP，并识别"这条时间线是不是自己的"。 */
+  key: number
+  question: Question
+  /** AI_ANSWERED 逐条追加。 */
+  rows: QuizAnswerRow[]
+  /** ROUND_SCORED 到了才有；它一到就说明这一轮播完了，可以走收尾。 */
+  gains: { mine: number; theirs: number } | null
 }
 
 /**
@@ -112,10 +171,10 @@ interface InspectTarget {
 /**
  * 正在被强制展示的那张对手牌。
  *
- * landingId 非空 = 模型卡，展示完要飞到对方战场行上那个 instanceId 对应的格子；
- * 为 null = 提示卡，没有落点，展示完原地淡出。
+ * landingId 非空 = AI 牌，展示完要飞到对方战场行上那个 instanceId 对应的格子；
+ * 为 null = 技能牌，没有落点，展示完原地淡出。
  * flipId 是这张牌在对手手牌里的实例 id，也就是 Flip 用来把"手牌里的旧节点"和"展示卡"
- * 对上号的键——提示卡的卡面数据是按卡牌定义拼的（id 是 cardId），对不上，所以单独存一份。
+ * 对上号的键——技能牌的卡面数据是按卡牌定义拼的（id 是 cardId），对不上，所以单独存一份。
  * key 让连着展示两张牌也能各播各的（同一张卡也不会被上一轮的收尾掐掉）。
  */
 interface RevealTarget {
@@ -125,8 +184,25 @@ interface RevealTarget {
   key: number
 }
 
+/** 抵消提示那一层的两行字：大字是技能名，小字说清楚谁抵消了谁的哪张牌。 */
+interface SkillCancelText {
+  title: string
+  text: string
+}
+
 /** 正式对局里对手手牌只能看不能点（点着看牌是原演示页的行为），所以 onReveal 是个空函数。 */
 const noopReveal = () => {}
+
+export interface MatchStageProps {
+  driver: MatchDriver
+  /**
+   * dev 测试房模式：对方手牌摊开显示真实卡面，点一下就替对方打出去（走 DEBUG_PLAY_CARD，
+   * 无视出牌轮次）。正式对局一律为 false，那时对方手牌是顶边的倒扇形牌背。
+   */
+  testMode?: boolean
+  /** 结算层里的按钮，由各个界面自己决定是"再来一局"还是"回首页"。 */
+  resultActions?: ReactNode
+}
 
 export function MatchStage({ driver, testMode = false, resultActions }: MatchStageProps) {
   const view = useMatch(driver)
@@ -179,9 +255,9 @@ function BattleField({
   const foeSeat = other(mySeat)
   const me = state.players[mySeat]
   const foe = state.players[foeSeat]
-  const myTurn = state.activePlayer === mySeat && state.phase === 'playing'
+  /** 现在轮到我出牌。答题阶段双方都不能动手，所以还要判 phase。 */
+  const myPlayTurn = state.phase === 'play' && state.activePlayer === mySeat
 
-  const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(null)
   /**
    * 已经发出我方指令、还没等到新局面。
    *
@@ -191,6 +267,30 @@ function BattleField({
    * 停在落点上等结果，而不是被当成"父组件没受理"立刻飞回手牌。
    */
   const [awaiting, setAwaiting] = useState(false)
+  /**
+   * 屏幕上有牌正在飞或刚落地，演出还没收尾。
+   *
+   * 三条链路共用这一个锁：我方出牌（AI 牌飞向战场并落地冒烟，技能牌在中央亮相）、
+   * 对手的牌从展示位飞向他的战场行、以及放大查看结束后飞回原格。
+   * 只有"我方出牌"那条会先经过 awaiting，而 awaiting 只管到"新局面到手"为止，
+   * 那时动画才刚开始，所以必须另有这个锁接着挂。
+   *
+   * 它同时喂给 HandFan 的 frozen：这段时间手牌只要还能 hover，抬起来的下一张牌
+   * 就会盖住正在演的那张（放大后的手牌必然戳进我方战场行，见 HandFanProps.frozen）。
+   * 和 flyingRef 是一对：ref 给动画回调判活，state 只负责触发重渲染去更新 actionsLocked。
+   */
+  const [landing, setLanding] = useState(false)
+  /** 我方刚打出的技能牌，短暂展示在战场中央。key 让连打同一张卡也能重新播一遍。 */
+  const [skillShow, setSkillShow] = useState<{ cardId: CardId; key: number } | null>(null)
+  /** 开局抛硬币过场；播完置回 null 把整层卸载掉。 */
+  const [coinToss, setCoinToss] = useState<{ firstPlayer: PlayerId; key: number } | null>(null)
+  /** 答题全屏揭晓层；同样播完置回 null。 */
+  const [quizReveal, setQuizReveal] = useState<QuizReveal | null>(null)
+  /**
+   * 英雄技能抵消的全屏提示（现在只有 Debug 一种）。
+   * 两行文案在收到 SKILL_CANCELED 那一刻就按当时的座位拼好，演的时候不再回头读局面。
+   */
+  const [skillCancel, setSkillCancel] = useState<(SkillCancelText & { key: number }) | null>(null)
   /** 正在放大查看的战场小卡；非空即"查看中"，同时也是遮罩可点关闭的开关。 */
   const [inspecting, setInspecting] = useState<InspectTarget | null>(null)
   /** 对手正打出的那张牌，强制展示在屏幕中央。 */
@@ -203,8 +303,13 @@ function BattleField({
   const boardRef = useRef<HTMLDivElement>(null)
   /** 手牌上方的取消落点，只负责显示"放回手牌"的拖拽反馈。 */
   const returnZoneRef = useRef<HTMLDivElement>(null)
-  /** 特效层：横幅和飘字都由 GSAP 直接往里塞节点，pointer-events: none，不参与交互。 */
-  const fxRef = useRef<HTMLDivElement>(null)
+  /** 中央横幅的挂载位。一次只有一条横幅在里面，多的排队等（见下面的 showBanner）。 */
+  const bannerSlotRef = useRef<HTMLDivElement>(null)
+  const skillShowRef = useRef<HTMLDivElement>(null)
+  const coinTossRef = useRef<HTMLDivElement>(null)
+  const coinInnerRef = useRef<HTMLDivElement>(null)
+  const quizRevealRef = useRef<HTMLDivElement>(null)
+  const skillCancelRef = useRef<HTMLDivElement>(null)
   /** 上场特效的烟尘容器。卸载时要把里面动态插的 DOM 一次清干净。 */
   const smokeLayerRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -213,10 +318,31 @@ function BattleField({
   const revealClipRef = useRef<HTMLDivElement>(null)
   /** 战场上每张小卡的倾斜跟随，按 tile 元素存着（tile 上没有别的稳定标识可用）。 */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
-  /** 松手那一刻记下的手牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。 */
-  const flipStateRef = useRef<{ state: Flip.FlipState; id: string } | null>(null)
+  /** 上面那段演出是否还在进行中。事件回调和延迟回调读它判活，见 landing。 */
+  const flyingRef = useRef(false)
   /**
-   * 兜底：展示链路被占用（连着出牌）或找不到起飞点时，对方新上场的模型只播一段简易进场。
+   * 演出锁的持有者编号，每上一次锁 +1。
+   *
+   * 解锁的回调常常延迟很久才跑（落地特效的尾巴、出牌的兜底定时器），中间锁很可能
+   * 已经易主给下一次演出了——比如联机时技能牌的兜底先到点放了锁，玩家立刻又打出一张 AI 牌，
+   * 迟到的技能展示时间线跑完时放掉的就是别人的锁。带着编号解锁，对不上号就不放。
+   */
+  const landingTokenRef = useRef(0)
+  /**
+   * 出牌那把锁的兜底解锁定时器，演出真的起来了就把它撤掉。见 PLAY_LOCK_FALLBACK。
+   *
+   * 两条出牌链路共用一个 ref 是安全的：锁一上手牌就冻住了，不解开就打不出下一张牌，
+   * 所以同一时刻最多只有一条兜底在等。
+   */
+  const lockFallbackRef = useRef<gsap.core.Tween | null>(null)
+  /** 这次技能牌展示持有的是哪一号锁。展示时间线演完时凭它解锁（见 landingTokenRef）。 */
+  const skillLockTokenRef = useRef(0)
+  /** 当前正在展示的那张技能牌的 key。连打时用它认出"我这条时间线是不是已经过气了"。 */
+  const skillShowKeyRef = useRef<number | null>(null)
+  /** 松手那一刻记下的手牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。 */
+  const flipStateRef = useRef<{ state: Flip.FlipState; id: string; token: number } | null>(null)
+  /**
+   * 兜底：展示链路被占用（连着出牌）或找不到起飞点时，对方新上场的 AI 只播一段简易进场。
    * 收到事件那一刻它的 DOM 还不存在，所以攒到下一次提交后再播。
    */
   const popQueueRef = useRef<InstanceId[]>([])
@@ -231,15 +357,26 @@ function BattleField({
    *
    * 必须是 ref 不能是 state：事件回调在 React 提交新局面**之前**同步送达，
    * 读 state 拿到的是上一次渲染的旧值（同 seatRef 的理由）。
-   * 它同时是特效队列的闸门：为 true 期间的横幅和飘字都先排队，等遮罩淡出再补播。
+   * 它同时是横幅队列的闸门：为 true 期间的横幅先排队，等遮罩淡出再补播。
    */
   const revealBusyRef = useRef(false)
-  /** 待播的"从展示位飞向战场格子"动画。展示卡马上要被摘掉，只能靠 id 找落点那个新格子。 */
-  const landingFlipRef = useRef<{ state: Flip.FlipState; id: InstanceId } | null>(null)
+  /**
+   * 待播的"从展示位飞向战场格子"动画。展示卡马上要被摘掉，只能靠 id 找落点那个新格子。
+   * token 是这段飞行占着的那把演出锁（见 landingTokenRef），飞完或者半路作废时凭它解锁。
+   */
+  const landingFlipRef = useRef<{
+    state: Flip.FlipState
+    id: InstanceId
+    token: number
+  } | null>(null)
   /** 待播的"小卡飞向展示位"动画，记的是战场上那个格子起飞前的位置。 */
   const inspectFlipRef = useRef<Flip.FlipState | null>(null)
-  /** 待播的"从展示位飞回战场格子"动画，同样要连 id 一起存。 */
-  const inspectReturnRef = useRef<{ state: Flip.FlipState; id: InstanceId } | null>(null)
+  /** 待播的"从展示位飞回战场格子"动画，同样要连 id 和演出锁的编号一起存。 */
+  const inspectReturnRef = useRef<{
+    state: Flip.FlipState
+    id: InstanceId
+    token: number
+  } | null>(null)
   /**
    * 查看的卡是否已经飞到位。飞入途中的点击一律忽略：
    * 半路把飞入换成飞回，起点就是一个还在被 Flip 改写的元素，容易留下收不干净的补间。
@@ -250,6 +387,8 @@ function BattleField({
    * 强制展示和放大查看共用这一个 ref——两条链路互斥，不会同时有浮动在跑。
    */
   const floatRef = useRef<gsap.core.Tween | null>(null)
+  /** 同 seatRef：事件回调要判"现在是不是正在放大查看"，读 state 拿到的是旧值。 */
+  const inspectingRef = useRef<InspectTarget | null>(null)
   /**
    * 事件回调要读最新的座位号。
    * 不能直接闭包捕获：useMatchEvents 把 handler 存在 ref 里就是为了不重新订阅
@@ -257,15 +396,42 @@ function BattleField({
    */
   const seatRef = useRef(mySeat)
   seatRef.current = mySeat
-  /** 同 seatRef：事件回调要判"现在是不是正在放大查看"，读 state 拿到的是旧值。 */
-  const inspectingRef = useRef<InspectTarget | null>(null)
+
+  /** 还没播的横幅文案，先进先出。 */
+  const bannerQueueRef = useRef<string[]>([])
+  /** 现在有一条横幅正在播，它播完才轮到下一条。 */
+  const bannerBusyRef = useRef(false)
   /**
-   * 强制展示期间攒下的特效（横幅、伤害飘字），等遮罩淡出后再逐个补播。
+   * 有全屏过场正在演。这两个标志一起决定横幅要不要先憋着。
    *
-   * 展示遮罩（z 1100）压在特效层（z 80）之上，展示期间播的横幅和飘字会被压暗模糊；
-   * 叙事顺序也不对——应该先看清对手打的是什么牌，再看到掉了多少血。
+   * 横幅在特效层（z-index 80），全屏过场和展示遮罩都在 1100，它们演的时候播横幅
+   * 等于播给遮罩看。而且事件是一整批到的——结算那批里 ROUND_SCORED 后面紧跟着就是下一轮的
+   * ROUND_STARTED / PLAY_TURN_STARTED，正常播的话会在揭晓层还没退场时就白白用掉。
+   * 所以过场期间只入队不播，等过场淡出的 onComplete 再把攒着的一起放出来。
+   *
+   * 用 ref 而不是读上面那两个 state：一批事件是在同一次回调里同步处理完的，
+   * 这中间 React 还没重渲染，读 state 拿到的还是"过场没开始"的旧值。
+   * 强制展示那一档的闸门是 revealBusyRef，理由一样。
    */
-  const fxQueueRef = useRef<(() => void)[]>([])
+  const coinUpRef = useRef(false)
+  const quizUpRef = useRef(false)
+  /** 抵消层正演着。和上面两个同一档（全屏 1100、吃指针事件），闸门作用也一样。 */
+  const cancelUpRef = useRef(false)
+  /**
+   * 待演的抵消提示。
+   *
+   * SKILL_CANCELED 和它对应的 SKILL_PLAYED 是同一批事件，收到时那张技能牌的亮相
+   * （我方 skillShow / 对方强制展示）刚刚开始演，抵消层这时上去会盖在牌面上，
+   * 玩家根本没看清被抵消的是什么牌。所以先在这里存着，等亮相收尾时再放（见 pumpSkillCancel）。
+   */
+  const pendingCancelRef = useRef<SkillCancelText | null>(null)
+  /**
+   * 我方技能牌亮相还有几段在演（连打两张时上一张的时间线还没跑完，会同时有两段）。
+   *
+   * 用计数而不是布尔：每次 setSkillShow 建一条时间线、每条时间线收尾减一次，
+   * 布尔的话第一条收尾就会把"还在演的第二条"一起当成演完了。
+   */
+  const skillShowBusyRef = useRef(0)
 
   /**
    * 只为了拿 contextSafe：事件回调、定时回调里新建的补间必须包一层，
@@ -280,117 +446,76 @@ function BattleField({
 
   // ---------- 事件动画 ----------
 
-  /** 中央横幅：回合交接时闪一下"你的回合"/"对方回合"。 */
-  const playBanner = contextSafe((text: string) => {
-    const layer = fxRef.current
-    if (layer === null) return
+  /**
+   * 播队列里的下一条横幅。已经有一条在播、或者全屏过场正演着，就先不动。
+   *
+   * 自己在时间线的 onComplete 里再调自己接着播下一条——所以整个函数必须 contextSafe，
+   * onComplete 是延迟回调，在里面新建的补间不包一层就不归 useGSAP 的 context 管（架构 5.5）。
+   */
+  const pumpBanner = contextSafe(() => {
+    if (bannerBusyRef.current || coinUpRef.current || quizUpRef.current || cancelUpRef.current) {
+      return
+    }
+    if (revealBusyRef.current) return
+    const slot = bannerSlotRef.current
+    if (slot === null) return
+    const text = bannerQueueRef.current.shift()
+    if (text === undefined) return
+    bannerBusyRef.current = true
     const node = document.createElement('div')
     node.className = 'battle__banner'
     node.textContent = text
-    layer.appendChild(node)
+    slot.appendChild(node)
     gsap
-      .timeline({ onComplete: () => node.remove() })
+      .timeline({
+        onComplete: () => {
+          node.remove()
+          bannerBusyRef.current = false
+          pumpBanner()
+        },
+      })
       .fromTo(
         node,
         { autoAlpha: 0, scale: 0.86 },
-        { autoAlpha: 1, scale: 1, duration: 0.3, ease: 'back.out(1.6)', overwrite: 'auto' },
+        { autoAlpha: 1, scale: 1, duration: BANNER_IN, ease: 'back.out(1.6)', overwrite: 'auto' },
       )
-      .to(node, { autoAlpha: 0, scale: 1.05, duration: 0.35, ease: 'power2.in' }, '+=0.75')
-  })
-
-  /**
-   * 在某个元素上方飘一个「-N」并让它抖一下。
-   *
-   * fallbackRect 只有补播时才传：排队那会儿量下的矩形。等到补播时目标可能已经碎了、
-   * 从 DOM 里没了，那就拿这份旧矩形把飘字摆回它当时的位置，抖动只能跳过。
-   */
-  const playHit = contextSafe((selector: string, amount: number, fallbackRect: DOMRect | null) => {
-    const layer = fxRef.current
-    if (layer === null) return
-    const target = document.querySelector<HTMLElement>(selector)
-    const rect = target?.getBoundingClientRect() ?? fallbackRect
-    if (rect === null) return
-    const origin = layer.getBoundingClientRect()
-    const node = document.createElement('span')
-    node.className = 'battle__damage'
-    node.textContent = `-${amount}`
-    node.style.left = `${rect.left + rect.width / 2 - origin.left}px`
-    node.style.top = `${rect.top - origin.top}px`
-    layer.appendChild(node)
-    gsap
-      .timeline({ onComplete: () => node.remove() })
-      .fromTo(
+      .to(
         node,
-        { y: 0, autoAlpha: 0, scale: 0.7 },
-        { y: -44, autoAlpha: 1, scale: 1, duration: 0.32, ease: 'back.out(2)' },
+        { autoAlpha: 0, scale: 1.05, duration: BANNER_OUT, ease: 'power2.in' },
+        `+=${BANNER_HOLD}`,
       )
-      .to(node, { y: -70, autoAlpha: 0, duration: 0.4, ease: 'power1.in' }, '+=0.3')
-    // 目标已经不在了（补播时它早被打碎）就只剩飘字，没什么可抖的。
-    if (target === null) return
-    // 抖的是倾斜层而不是 tile 本身：tile 的 transform 归 Flip 飞行管，两边写一层就是互相覆盖。
-    // 玩家面板没有这一层，就直接抖它自己。
-    const shaken = target.querySelector<HTMLElement>('.battle__tile-tilt') ?? target
-    gsap.fromTo(
-      shaken,
-      { x: -5 },
-      {
-        x: 5,
-        duration: 0.05,
-        repeat: 5,
-        yoyo: true,
-        ease: 'none',
-        overwrite: 'auto',
-        // 抖完必须把 x 归零：yoyo 来回跑完最后停在 -5，留着的话这张卡会一直歪在旁边几个像素。
-        //
-        // 归零只能用 gsap.set，不能用 clearProps: 'x'——GSAP 清任何一个 transform 分量都会
-        // 把元素整条内联 transform 删掉，连这一层上 cardTilt 正在写的 rotationX / rotationY
-        // 一起清掉。指针要是正停在这张卡上，倾斜会突然弹平，而且指针不动就没有下一次
-        // pointermove，再也恢复不了。gsap.set 只写 x，GSAP 的 transform 缓存会保留其余分量。
-        //
-        // 这个回调在 contextSafe 包住的同步执行期之外才触发，但它只是一次性写值、不新建补间，
-        // 没有需要 context 回收的东西，所以不用再包一层 contextSafe。
-        onComplete: () => gsap.set(shaken, { x: 0 }),
-      },
-    )
   })
 
-  /** 受理一次横幅：展示期间先排队，别被遮罩压暗。 */
-  const showBanner = (text: string) => {
-    if (revealBusyRef.current) {
-      fxQueueRef.current.push(() => playBanner(text))
-      return
-    }
-    playBanner(text)
+  /**
+   * 中央横幅：把"第几轮了、该谁出牌"这类轻量提示用一行大字念出来。
+   *
+   * 一次只显示一条。一批事件里常常连着来两条（每轮开头的 ROUND_STARTED + PLAY_TURN_STARTED），
+   * 同时画在屏幕正中会糊成一团，所以排队一条条播。
+   */
+  function showBanner(text: string): void {
+    bannerQueueRef.current.push(text)
+    pumpBanner()
   }
 
-  /**
-   * 受理一次伤害飘字。
-   *
-   * 目标元素和它的矩形必须在**受理这一刻**就量好：事件是在 React 提交新局面之前送到的，
-   * 即将被打碎的那张卡此刻还在 DOM 里，等到补播时就找不到了。
-   */
-  const showHit = (selector: string, amount: number) => {
-    const target = document.querySelector<HTMLElement>(selector)
-    if (target === null) return
-    if (revealBusyRef.current) {
-      const rect = target.getBoundingClientRect()
-      fxQueueRef.current.push(() => playHit(selector, amount, rect))
-      return
-    }
-    playHit(selector, amount, null)
-  }
+  // ---------- 英雄技能抵消的全屏提示 ----------
 
   /**
-   * 把攒着的特效一次性补播完。只在遮罩淡出的 onComplete 里调。
+   * 放出憋着的抵消提示。
    *
-   * 包一层 contextSafe 是给队列兜底：眼下入队的 thunk 调的是 playBanner / playHit，
-   * 它们自己已经包过，但队列是通用的，将来塞进来的补间也得归 context 管。
+   * 三处调用：收到事件时试一次（那一刻没有演出在放就直接上），
+   * 我方技能牌亮相收尾时、对方强制展示收尾时各试一次。
+   * 判"有没有演出在放"只能读 ref：事件是在 React 提交新快照之前同步送达的（架构 5.8）。
    */
-  const flushFx = contextSafe(() => {
-    const queued = fxQueueRef.current
-    fxQueueRef.current = []
-    for (const play of queued) play()
-  })
+  const pumpSkillCancel = () => {
+    const pending = pendingCancelRef.current
+    if (pending === null) return
+    if (skillShowBusyRef.current > 0 || revealBusyRef.current) return
+    // 抛硬币和答题揭晓同在 1100 那一档且不可打断，撞上就继续等它们的收尾来喊。
+    if (coinUpRef.current || quizUpRef.current || cancelUpRef.current) return
+    pendingCancelRef.current = null
+    cancelUpRef.current = true
+    setSkillCancel((current) => ({ ...pending, key: (current?.key ?? 0) + 1 }))
+  }
 
   // ---------- 展示层（强制展示 + 放大查看） ----------
 
@@ -416,6 +541,8 @@ function BattleField({
     inspectHeldRef.current = false
     floatRef.current?.kill()
     floatRef.current = null
+    // 飞回那段已经上了锁、却还没起跑就被打断，锁得还回去，否则手牌永远解不开。
+    if (inspectReturnRef.current !== null) releaseLanding(inspectReturnRef.current.token)
     inspectReturnRef.current = null
     closeInspect()
   }
@@ -423,9 +550,9 @@ function BattleField({
   /**
    * 受理一次对手出牌的强制展示：截下起飞位置，把牌交给展示层。
    *
-   * 返回 false 表示这次不播展示，调用方自己降级（模型卡退回 popQueue 的简易进场，
-   * 提示卡就只剩伤害飘字）。requireOrigin 为 true 时找不到起飞的那张手牌也算不受理：
-   * 模型卡还有 popQueue 兜底，而提示卡没有别的地方能看到牌面，宁可从屏幕中央淡入
+   * 返回 false 表示这次不播展示，调用方自己降级（AI 牌退回 popQueue 的简易进场，
+   * 技能牌就只剩什么都不播）。requireOrigin 为 true 时找不到起飞的那张手牌也算不受理：
+   * AI 牌还有 popQueue 兜底，而技能牌没有别的地方能看到牌面，宁可从屏幕中央淡入
    * （见展示 useGSAP 里 revealFlipRef 为空的那条分支）。
    */
   const startReveal = (
@@ -436,6 +563,9 @@ function BattleField({
   ): boolean => {
     // 展示层只有一张展示卡、一条浮动，正在展示（含收尾还没跑完）时第二条一律不受理。
     if (revealBusyRef.current) return false
+    // 全屏过场压在展示层同一档（都是 1100），抛硬币或答题揭晓演着的时候插一次展示，
+    // 两层会糊在一起。这两档都不可打断，所以展示这边让路。
+    if (coinUpRef.current || quizUpRef.current || cancelUpRef.current) return false
     // 挡的是"查看那边刚受理了一次点击、对应的 effect 还没跑"的那一拍：
     // 那时展示卡的起飞状态已经截好、却还没交给 Flip，横插一次展示就把它丢了。
     // 真正的飞行途中反倒不用挡——两个 ref 在各自 effect 开头就被消费成 null，
@@ -474,46 +604,402 @@ function BattleField({
     return true
   }
 
+  /**
+   * 强行收掉正在进行的强制展示，不播收尾。
+   *
+   * 只有一个调用方：答题阶段开始。展示要停 1.5 秒，而对手"出完最后一张牌就结束出牌"时
+   * 那两条指令挨得很近，揭晓层（1100）会直接盖在还没演完的展示（同样 1100）上。
+   * 与其让两层打架，不如让展示让位——它想说的"对手打了这张牌"已经看到一部分了。
+   * 遮罩要显式关掉：它是常驻节点，展示卡被卸载并不会把它带走。
+   */
+  const abortReveal = contextSafe(() => {
+    if (!revealBusyRef.current) return
+    revealBusyRef.current = false
+    floatRef.current?.kill()
+    floatRef.current = null
+    revealFlipRef.current = null
+    // 同 abortInspect：落场那段飞行已经上了锁却不会再跑了，锁得还回去。
+    if (landingFlipRef.current !== null) releaseLanding(landingFlipRef.current.token)
+    landingFlipRef.current = null
+    const overlay = overlayRef.current
+    if (overlay !== null) gsap.to(overlay, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
+    setReveal(null)
+  })
+
   useMatchEvents(driver, (events) => {
     for (const event of events) {
       switch (event.type) {
-        case 'TURN_STARTED':
-          showBanner(event.player === seatRef.current ? '你的回合' : '对方回合')
+        case 'GAME_STARTED':
+          // 抛硬币定先手。开局事件是 driver 构造时就发出来的，靠 subscribeEvents 的补发机制
+          // 送到这里（架构 5.2），所以组件刚挂载就能开播。
+          coinUpRef.current = true
+          setCoinToss((current) => ({
+            firstPlayer: event.firstPlayer,
+            key: (current?.key ?? 0) + 1,
+          }))
           break
-        case 'MODEL_DAMAGED':
-          // 事件是在 React 提交新局面之前送到的，所以被打的那张卡即使马上就要碎，
-          // 此刻 DOM 里也还在，飘字正好落在它当时的位置上。
-          showHit(`[data-model-id="${CSS.escape(event.instanceId)}"]`, event.amount)
+        case 'ROUND_STARTED':
+          showBanner(`第 ${event.round} 轮 · ${QUESTION_CATEGORY_LABELS[event.category]}`)
           break
-        case 'PLAYER_DAMAGED':
-          showHit(`[data-player="${event.player}"]`, event.amount)
+        case 'PLAY_TURN_STARTED':
+          showBanner(event.player === seatRef.current ? '轮到你出牌' : '对方出牌中')
           break
-        case 'MODEL_DEPLOYED': {
-          // 我方模型走 Flip 从手牌飞过去，不要再叠一层进场动画。
+        case 'AI_DEPLOYED': {
+          // 我方 AI 走 Flip 从手牌飞过去，不要再叠一层进场动画。
           if (event.player === seatRef.current) break
-          // 对方的模型先强制展示、再从展示位飞到战场行；受理不了才退回简易进场。
-          // 落场用的 id 和手牌里那张是同一个（deployModel 沿用了手牌实例的 instanceId）。
-          const id = event.model.instanceId
-          if (!startReveal(handCardOfModel(event.model), id, id, true)) {
+          // 对方的 AI 先强制展示、再从展示位飞到战场行；受理不了才退回简易进场。
+          // 落场用的 id 和手牌里那张是同一个（playCard 沿用了手牌实例的 instanceId）。
+          const id = event.ai.instanceId
+          if (!startReveal(handCardOfAi(event.ai), id, id, true)) {
             popQueueRef.current.push(id)
           }
           break
         }
-        case 'PROMPT_RESOLVED':
-          // 对手打提示卡时画面上只有数字跳一下，根本看不出他打了什么，所以把卡面亮出来。
-          // 受理不了（上一张还在展示）就跳过这一次展示：伤害飘字已经排进队列，稍后照播，
-          // 玩家只是少看一眼牌面——这是连打时的降级路径。
-          if (event.player !== seatRef.current) {
+        case 'SKILL_PLAYED':
+          // 技能牌不上场，不亮出来的话画面上根本看不出有人打过牌，所以双方都要亮一次，
+          // 只是亮法不同：我方那张刚从自己手里飞走，知道打的是什么，中央淡入一下就够；
+          // 对方那张要从他手牌里飞到中央翻正，否则画面上什么都没发生过。
+          if (event.player === seatRef.current) {
+            skillShowBusyRef.current += 1
+            setSkillShow((current) => ({ cardId: event.cardId, key: (current?.key ?? 0) + 1 }))
+          } else {
+            // 受理不了（上一张还在展示）就跳过这一次展示：技能牌没有落场，
+            // 少看一眼牌面是这条链路唯一的降级代价。
             startReveal(handCardOfDefinition(event.cardId), null, event.instanceId, false)
           }
           break
+        case 'SKILL_CANCELED': {
+          // 措辞按"谁打出的那张牌被抵消了"来分：player 是出牌方，by 是发动英雄技能的一方。
+          const hero = getHero(event.heroId)
+          const whose = event.player === seatRef.current ? '你' : '对方'
+          const cardName = getCard(event.cardId).name
+          pendingCancelRef.current = {
+            title: `${hero.skillName}!`,
+            text: `${hero.name} 发动 ${hero.skillName}，抵消了${whose}打出的「${cardName}」`,
+          }
+          // 这一批里紧挨在前面的 SKILL_PLAYED 刚开了一段亮相，抵消层得等它演完再上；
+          // 没有演出在放（比如亮相被降级跳过了）时这一下就直接放出去。
+          pumpSkillCancel()
+          break
+        }
+        case 'QUESTION_REVEALED':
+          // 全屏揭晓：题目和正确答案先亮出来，等 driver 那边的自动驾驶把结果提交上来
+          // （默认 2.5 秒后，那批事件不在这一批里），再往这一层里填结果。
+          // 揭晓层和展示层同在 1100，先把还没演完的展示收掉再开这一层（见 abortReveal）。
+          abortReveal()
+          // 还憋着没演的抵消提示直接丢掉：它说的是刚才那次出牌，等揭晓层演完再补一遍，
+          // 就成了下一轮开头凭空冒出来的一句话，比不演更让人糊涂。
+          pendingCancelRef.current = null
+          quizUpRef.current = true
+          setQuizReveal((current) => ({
+            key: (current?.key ?? 0) + 1,
+            question: event.question,
+            rows: [],
+            gains: null,
+          }))
+          break
+        case 'AI_ANSWERED': {
+          // 结果渲染在揭晓层内部，不去动战场上那张即将被 React 移除的小卡。
+          const row: QuizAnswerRow = {
+            instanceId: event.instanceId,
+            mine: event.owner === seatRef.current,
+            name: nameOfCard(event.instanceId, state),
+            correct: event.correct,
+            answerText: event.answerText,
+          }
+          setQuizReveal((current) =>
+            current === null ? current : { ...current, rows: [...current.rows, row] },
+          )
+          break
+        }
+        case 'ROUND_SCORED': {
+          const gains = {
+            mine: event.gains[seatRef.current],
+            theirs: event.gains[other(seatRef.current)],
+          }
+          setQuizReveal((current) => (current === null ? current : { ...current, gains }))
+          break
+        }
         default:
+          // AI_ELIMINATED 不单独播：揭晓层里那一行的 ✗ 和罚下样式已经说明了，
+          // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被揭晓层盖住）。
+          // CARD_DRAWN 的进场动画归 HandFan 自己管；GAME_OVER 由结算层接管；
+          // COMMAND_REJECTED 走 view.lastRejection 那条提示。
           break
       }
     }
   })
 
-  // ---------- 出牌与选目标 ----------
+  // 打出的技能牌：淡入、停一会儿、淡出，播完把 state 清掉（清掉会让这段再跑一次并直接返回）。
+  useGSAP(
+    () => {
+      if (skillShow === null) return
+      const node = skillShowRef.current
+      if (node === null) {
+        // 理论上到不了：skillShow 非空时那张卡就在同一次渲染里，layout effect 里 ref 必然已挂上。
+        // 真到了这儿也得把计数放开，否则待演的抵消提示会永远憋着（同展示层那处兜底）。
+        skillShowBusyRef.current = Math.max(0, skillShowBusyRef.current - 1)
+        pumpSkillCancel()
+        return
+      }
+      const shownKey = skillShow.key
+      skillShowKeyRef.current = shownKey
+      // 展示真的起来了，兜底定时器可以撤了，解锁交给这条时间线的末尾。
+      lockFallbackRef.current?.kill()
+      lockFallbackRef.current = null
+      gsap
+        .timeline()
+        .fromTo(
+          node,
+          { autoAlpha: 0, scale: 0.82, y: 24 },
+          { autoAlpha: 1, scale: 1, y: 0, duration: 0.28, ease: 'back.out(1.6)' },
+        )
+        .to(
+          node,
+          { autoAlpha: 0, scale: 0.94, duration: 0.32, ease: 'power2.in' },
+          `+=${SKILL_SHOWCASE_HOLD}`,
+        )
+        // 只清掉自己这一次的展示：依赖变化时 useGSAP 默认不 revert 旧 context，
+        // 连打两张技能牌时上一张的时间线还在跑，它到点后也会来执行这个 call。
+        // 无条件 setSkillShow(null) 的话，刚开始展示的第二张会被上一条时间线提前掐掉。
+        // 演出锁同样只认自己这一次：连打两张技能牌时，上一条时间线到点也会跑到这儿，
+        // 无条件解锁会把第二张还在展示的锁提前放掉。
+        // 计数和抵消提示则不分是谁：那两样按"演完一段减一段"记账，过气的这条也得销账。
+        .call(() => {
+          // 亮相演完了，轮到憋着的抵消提示（如果有的话）。计数减到 0 才算全部演完。
+          skillShowBusyRef.current = Math.max(0, skillShowBusyRef.current - 1)
+          pumpSkillCancel()
+          if (skillShowKeyRef.current !== shownKey) return
+          setSkillShow((current) => (current?.key === shownKey ? null : current))
+          // 凭编号解锁：兜底定时器先到点放了锁、玩家又打出下一张牌时，
+          // 这条迟到的时间线放掉的会是别人的锁（见 landingTokenRef）。
+          releaseLanding(skillLockTokenRef.current)
+        })
+    },
+    { dependencies: [skillShow] },
+  )
+
+  /**
+   * 抛硬币：整层淡入 → 圆片弹出来同时连转数圈落到该停的那一面 → 停一下 → 整层淡出。
+   *
+   * 正反两面靠角度驱动 opacity 硬切，**不用 backface-visibility**：Chrome 在逐帧补间期间
+   * 对合成层的朝向判断不可靠，会出现"全程正面、结尾闪一下"（原因见 ui/flipCard.ts）。
+   * 这里自己写 rotationY 补间是为了把转动和淡入淡出排进同一条时间线，
+   * 硬切逻辑仍然复用 flipCard 的 syncFlipFaces，不另写一份。
+   */
+  useGSAP(
+    () => {
+      const node = coinTossRef.current
+      const inner = coinInnerRef.current
+      if (coinToss === null || node === null || inner === null) return
+      const shownKey = coinToss.key
+      // 落在正面（0°）还是背面（180°）就是「先手」和「后手」两张币面的区别。
+      const landing = COIN_SPINS * 360 + (coinToss.firstPlayer === seatRef.current ? 0 : 180)
+      const coin = node.querySelector<HTMLElement>('.coin-toss__coin')
+      gsap
+        .timeline({
+          onComplete: () => {
+            coinUpRef.current = false
+            setCoinToss((current) => (current?.key === shownKey ? null : current))
+            // 开局这一批里，硬币后面紧跟着还有「第 1 轮」和「轮到你出牌」两条横幅憋着。
+            pumpBanner()
+          },
+        })
+        .fromTo(
+          node,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.25, ease: 'power2.out', overwrite: 'auto' },
+        )
+        .fromTo(
+          coin,
+          { scale: 0.4, autoAlpha: 0 },
+          { scale: 1, autoAlpha: 1, duration: 0.5, ease: 'back.out(1.8)', overwrite: 'auto' },
+          0,
+        )
+        .fromTo(
+          inner,
+          { rotationY: 0 },
+          {
+            rotationY: landing,
+            duration: COIN_SPIN,
+            ease: 'power3.out',
+            overwrite: 'auto',
+            onUpdate: () => syncFlipFaces(inner),
+          },
+          0,
+        )
+        // 落定那一下的回弹，让"停住"这件事有个交代，不然转完就干等着。
+        .to(coin, {
+          scale: 1.06,
+          duration: 0.12,
+          yoyo: true,
+          repeat: 1,
+          ease: 'power2.out',
+          overwrite: 'auto',
+        })
+        .to(
+          node,
+          { autoAlpha: 0, duration: 0.4, ease: 'power2.in', overwrite: 'auto' },
+          `+=${COIN_HOLD}`,
+        )
+    },
+    { dependencies: [coinToss?.key ?? null] },
+  )
+
+  /**
+   * 英雄技能抵消：整层淡入 → 大字弹出来 → 说明跟上 → 停一下 → 整层淡出。
+   *
+   * 结构和抛硬币那层同一档（全屏 1100、吃指针事件），只是没有 3D 翻转要处理。
+   * 收尾里除了清 state 还要放开闸门（cancelUpRef）并补播憋着的横幅，和另外两层一致；
+   * 多出来的一步是接力放憋着的下一条抵消提示（见 onComplete 里的注释）。
+   */
+  useGSAP(
+    () => {
+      const node = skillCancelRef.current
+      if (skillCancel === null || node === null) return
+      const shownKey = skillCancel.key
+      gsap
+        .timeline({
+          onComplete: () => {
+            cancelUpRef.current = false
+            // 第二条抵消提示如果是在这层演着的时候到的，它对应的强制展示会被上面那道闸门
+            // 挡掉，不会再有别的收尾来放行——所以这里放开闸门后要自己接力一次。
+            // 必须排在下面那次清 state 之前：两次 setSkillCancel 会被合成一次重渲染，
+            // 反过来的话先清成 null，接力算出的 key 会从 1 重新开始，撞上旧 key 就不重播了。
+            pumpSkillCancel()
+            setSkillCancel((current) => (current?.key === shownKey ? null : current))
+            pumpBanner()
+          },
+        })
+        .fromTo(
+          node,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.22, ease: 'power2.out', overwrite: 'auto' },
+        )
+        .fromTo(
+          node.querySelector('.skill-cancel__title'),
+          { autoAlpha: 0, scale: 0.6 },
+          { autoAlpha: 1, scale: 1, duration: 0.42, ease: 'back.out(2)', overwrite: 'auto' },
+          0.05,
+        )
+        .fromTo(
+          node.querySelector('.skill-cancel__text'),
+          { autoAlpha: 0, y: 16 },
+          { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out', overwrite: 'auto' },
+          0.28,
+        )
+        .to(
+          node,
+          { autoAlpha: 0, duration: 0.38, ease: 'power2.in', overwrite: 'auto' },
+          `+=${CANCEL_HOLD}`,
+        )
+    },
+    { dependencies: [skillCancel?.key ?? null] },
+  )
+
+  /** 答题揭晓层出场：整层淡入、题面从下方升起。只在新的一轮揭晓时跑。 */
+  useGSAP(
+    () => {
+      const node = quizRevealRef.current
+      if (quizReveal === null || node === null) return
+      gsap
+        .timeline()
+        .fromTo(
+          node,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.3, ease: 'power2.out', overwrite: 'auto' },
+        )
+        .fromTo(
+          node.querySelector('.quiz-reveal__panel'),
+          { autoAlpha: 0, y: 26 },
+          { autoAlpha: 1, y: 0, duration: 0.45, ease: 'back.out(1.3)', overwrite: 'auto' },
+          0.08,
+        )
+    },
+    { dependencies: [quizReveal?.key ?? null] },
+  )
+
+  /**
+   * 答题揭晓层收尾：结果逐条淡入 → 计分 → 停一下 → 整层淡出。
+   *
+   * 触发条件是"计分到了"而不是"有结果行了"：AI_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
+   * React 把这一批合成一次重渲染，所以这段跑起来时结果行已经全在 DOM 里了，一次排完就行。
+   */
+  const quizScored = quizReveal !== null && quizReveal.gains !== null
+  useGSAP(
+    () => {
+      const node = quizRevealRef.current
+      if (!quizScored || quizReveal === null || node === null) return
+      const shownKey = quizReveal.key
+      gsap
+        .timeline({
+          onComplete: () => {
+            quizUpRef.current = false
+            setQuizReveal((current) => (current?.key === shownKey ? null : current))
+            // 同一批里跟在 ROUND_SCORED 后面的下一轮横幅一直憋到这里才放出来。
+            pumpBanner()
+          },
+        })
+        .to(node.querySelector('.quiz-reveal__waiting'), {
+          autoAlpha: 0,
+          duration: 0.25,
+          ease: 'power2.in',
+          overwrite: 'auto',
+        })
+        .fromTo(
+          node.querySelectorAll('.quiz-reveal__row'),
+          { autoAlpha: 0, x: -16 },
+          {
+            autoAlpha: 1,
+            x: 0,
+            duration: 0.3,
+            ease: 'power2.out',
+            stagger: QUIZ_ROW_STAGGER,
+            overwrite: 'auto',
+          },
+          0.12,
+        )
+        .fromTo(
+          node.querySelector('.quiz-reveal__score'),
+          { autoAlpha: 0, scale: 0.88 },
+          { autoAlpha: 1, scale: 1, duration: 0.35, ease: 'back.out(1.6)', overwrite: 'auto' },
+          '+=0.2',
+        )
+        .to(
+          node,
+          { autoAlpha: 0, duration: 0.45, ease: 'power2.in', overwrite: 'auto' },
+          `+=${QUIZ_HOLD}`,
+        )
+    },
+    { dependencies: [quizScored, quizReveal?.key ?? null] },
+  )
+
+  /**
+   * 对局中断（对手断线）时把还在演的全屏过场收掉。
+   *
+   * 答题揭晓层要等 ROUND_SCORED 才会自己退场，而中断时那条事件永远不会来了；
+   * 结算层在它下面（z-index 90 < 1100），不清掉的话玩家会被一层退不掉的遮罩挡死。
+   * 强制展示会自己走完，但对手都断线了没必要再演，一并收掉。
+   */
+  useEffect(() => {
+    if (view.status !== 'aborted') return
+    coinUpRef.current = false
+    quizUpRef.current = false
+    // 抵消层同样是吃指针事件的全屏层，留着它玩家会被一层退不掉的遮罩挡死；
+    // 待演的那条也要一起丢，否则它会在中断之后才冒出来。
+    cancelUpRef.current = false
+    pendingCancelRef.current = null
+    skillShowBusyRef.current = 0
+    setCoinToss(null)
+    setQuizReveal(null)
+    setSkillCancel(null)
+    abortReveal()
+    abortInspect()
+    // 刻意只跟着 status 走：abortReveal / abortInspect 每次渲染都是新函数，
+    // 进依赖数组会让这段每帧重跑，而它们读的全是 ref，闭包旧不旧无所谓。
+  }, [view.status])
+
+  // ---------- 出牌 ----------
 
   /** 我方指令发出去了：打开 awaiting，让 HandFan 把牌停在落点上等结果。 */
   function sendMine(command: Command): void {
@@ -522,130 +1008,148 @@ function BattleField({
   }
 
   /**
-   * 手牌被打出（拖进战场松手，或者原地点一下）。
-   *
-   * 模型卡：先截 Flip 状态再发指令，牌一离开手牌就从原位飞到战场。
-   * 提示卡：这一步只进入选目标态、不发指令。setPendingPrompt 会在本轮事件处理结束前
-   * 同步 flush，于是 HandFan 的 disabled 当场变成 true，那张牌按 HandFanProps 的约定
-   * 停在落点上等着——取消选目标时 disabled 回到 false，HandFan 自己会把它送回扇形；
-   * 确认目标则发指令，牌离开手牌，什么都不用收拾。
+   * 上一把演出锁：手牌整个冻住、「结束出牌」也按不动，直到对应的 releaseLanding。
+   * 返回这次的编号，交给延迟解锁的那个回调带着（见 landingTokenRef）。
    */
-  const handlePlay = (instanceId: string) => {
-    const instance = me.hand.find((item) => item.instanceId === instanceId)
-    if (instance === undefined) return
-    if (getCard(instance.cardId).kind === 'prompt') {
-      setPendingPrompt({ instanceId })
-      return
-    }
-    // 此刻手牌那张卡还在 DOM 里、还停在松手那一刻的位置，正好当飞行起点。
-    // 查询限定在 .hand-fan 里：战场小卡、对手手牌、展示卡用的是同一套 data-flip-id，
-    // 不限定会抓错元素。
-    const slot = document.querySelector(`.hand-fan [data-flip-id="${CSS.escape(instanceId)}"]`)
-    flipStateRef.current = slot === null ? null : { state: Flip.getState(slot), id: instanceId }
-    sendMine({ type: 'PLAY_CARD', player: mySeat, instanceId })
-  }
-
-  /** 选中了一个目标（不传 instanceId 就是打本体）。 */
-  const confirmTarget = (targetInstanceId?: InstanceId) => {
-    const pending = pendingPrompt
-    if (pending === null) return
-    setPendingPrompt(null)
-    sendMine({
-      type: 'PLAY_CARD',
-      player: mySeat,
-      instanceId: pending.instanceId,
-      targetInstanceId,
-    })
+  const acquireLanding = (): number => {
+    landingTokenRef.current += 1
+    flyingRef.current = true
+    setLanding(true)
+    return landingTokenRef.current
   }
 
   /**
-   * 测试房里点对方手牌：不管什么卡都当场打出去，提示卡不传 targetInstanceId，
-   * 按引擎语义直击我方本体。
+   * 演出收尾，把手牌和「结束出牌」放开。见 landing。
    *
-   * 刻意简化：替对方出牌只是为了快速摆局面，让它也走一遍选目标，
-   * 等于在测试房里多养一条"目标在我方这一侧"的分支，而这条分支真实对局里根本不存在。
-   * 选目标只留给本端真实出牌那条路，测的才是玩家真会走的流程。
+   * token 是上锁时拿到的编号：对不上号就说明锁已经易主给下一次演出了，这次不能放。
+   * 不传编号是无条件强放，只给"确实该收掉一切"的场合用。
    */
+  const releaseLanding = (token?: number) => {
+    if (token !== undefined && token !== landingTokenRef.current) return
+    lockFallbackRef.current?.kill()
+    lockFallbackRef.current = null
+    flyingRef.current = false
+    setLanding(false)
+  }
+
+  /**
+   * 出牌专用的上锁：在 acquireLanding 之上再挂一条兜底解锁定时器。
+   *
+   * 出牌这两条链路的解锁都要等对面把局面/事件送回来，中间隔着一次联机往返，
+   * 是唯一可能"等不到解锁的人"的场合，所以只有它们需要兜底。见 PLAY_LOCK_FALLBACK。
+   * （对手出牌落场、放大查看飞回那两条链路的解锁全在本地驱动，不会卡住，不用兜底。）
+   *
+   * 唯一的调用方 handlePlay 整个走 contextSafe：这条定时器是在 React 事件回调里建的，
+   * 不包一层就不归 useGSAP 的 context 管，组件在到点前卸载时 revert 不掉，
+   * 到点还会去动一个已经卸载的组件（架构 5.5）。
+   */
+  const acquirePlayLanding = (): number => {
+    const token = acquireLanding()
+    lockFallbackRef.current?.kill()
+    lockFallbackRef.current = gsap.delayedCall(PLAY_LOCK_FALLBACK, () => releaseLanding(token))
+    return token
+  }
+
+  /**
+   * 手牌被打出（拖进战场松手，或者原地点一下）。
+   *
+   * 两种牌都是直接发 PLAY_CARD，没有费用也不选目标。差别只在动画：
+   * AI 牌要飞进战场，所以先截 Flip 状态；技能牌打完就进弃牌堆，战场上没有它的落点，
+   * 截了也没有目标元素可飞，它靠 SKILL_PLAYED 在中央亮相。
+   */
+  const handlePlay = contextSafe((instanceId: string) => {
+    const instance = me.hand.find((item) => item.instanceId === instanceId)
+    if (instance === undefined) return
+    if (getCard(instance.cardId).kind === 'ai') {
+      // 此刻手牌那张卡还在 DOM 里、还停在松手那一刻的位置，正好当飞行起点。
+      // 查询限定在 .hand-fan 里：战场小卡用的是同一套 data-flip-id，不限定会抓错元素。
+      const slot = document.querySelector(`.hand-fan [data-flip-id="${CSS.escape(instanceId)}"]`)
+      // 锁挂到新局面到手、那段飞行演完为止（解锁在下面消费 flipStateRef 那段 useGSAP 里）。
+      flipStateRef.current =
+        slot === null
+          ? null
+          : { state: Flip.getState(slot), id: instanceId, token: acquirePlayLanding() }
+    } else {
+      // 技能牌没有飞行，锁挂到中央展示演完为止（解锁在下面那条展示时间线的末尾）。
+      skillLockTokenRef.current = acquirePlayLanding()
+    }
+    sendMine({ type: 'PLAY_CARD', player: mySeat, instanceId })
+  })
+
+  /** 测试房里点对方手牌：无视出牌轮次替对方打出去，其余结算和正常出牌完全一致。 */
   const playForFoe = (instance: CardInstance) => {
-    // 展示或查看进行中一律不受理：这一下打出去必然带来一次强制展示，
-    // 而两条链路共用展示卡这一个节点，抢起来就是两条 Flip 改同一个元素。
-    if (revealBusyRef.current || reveal !== null || inspecting !== null) return
     driver.send({ type: 'DEBUG_PLAY_CARD', player: foeSeat, instanceId: instance.instanceId })
   }
 
-  // 选目标时只放行对方那一侧：出牌方恒是本端，我方的小卡和面板永远不是提示卡的目标，
-  // 所以下面我方侧的 targetable 一律写死 false。
-  const picking = pendingPrompt !== null
-  const pendingCard = findPendingCard(me, pendingPrompt)
-
   /**
-   * 点空白处取消选目标。
+   * 点战场小卡：把它放大到屏幕中央看清楚。
    *
-   * 绑 pointerdown 而不是 click：拖着提示卡在战场上松手时，pointerup 之后浏览器还会补一发
-   * click，它会一路冒泡到根节点，用 click 的话刚进入的选目标态当场就被自己取消掉。
-   * 与之配套，所有自己响应 pointerdown 的元素（战场小卡、玩家面板、测试房里的对方手牌、
-   * 展示遮罩）都要 stopPropagation，否则点它们会先被这里取消。
+   * 展示层同一时刻只归一条链路用，所以对手正在强制展示、或者上一次查看还没收干净时都不受理。
    */
-  const cancelPick = () => {
-    if (pendingPrompt !== null) setPendingPrompt(null)
-  }
-
-  /**
-   * 点战场上的一张小卡：交给展示层放大看，敌我两行一视同仁。
-   *
-   * 强制展示进行中（哪怕只是待播的 Flip 还挂着）一概不受理，反过来也一样：
-   * 展示层只有一张卡、一条浮动，两条链路必须严格互斥。
-   * 选目标时也不受理——那一下点击的含义是选目标或取消选目标，不是看牌。
-   */
-  const handleInspect = (model: ModelInstance) => {
-    if (picking || reveal !== null || inspecting !== null) return
+  const handleInspect = (ai: AiInstance) => {
+    if (reveal !== null || inspecting !== null) return
+    // 有牌正在飞或刚落地时也不受理：点开的很可能正是那张还被 Flip 改写着的格子。
+    if (flyingRef.current) return
     if (
       revealBusyRef.current ||
-      revealFlipRef.current !== null ||
       inspectFlipRef.current !== null ||
       inspectReturnRef.current !== null
     ) {
       return
     }
-    // 查询限定在战场容器里，理由同 handlePlay。找到的是 tile 那一层，
+    // 此刻这张小卡还是可见的（held 要等下一次渲染才为 true），正好当飞行起点。
     // 而 Flip 把它和展示卡对上号靠的是两边同一个 data-flip-id（就是 instanceId）。
     const slot = boardRef.current?.querySelector(
-      `[data-model-id="${CSS.escape(model.instanceId)}"]`,
+      `[data-flip-id="${CSS.escape(ai.instanceId)}"]`,
     )
     if (slot == null) return
-    // 此刻格子还是可见的（held 要等这次 setState 之后才生效），量到的正是起飞位置。
     inspectFlipRef.current = Flip.getState(slot)
-    openInspect({ card: handCardOfModel(model), instanceId: model.instanceId })
+    openInspect({ card: handCardOfAi(ai), instanceId: ai.instanceId })
   }
 
   /**
-   * 点遮罩（放大查看时点屏幕任意处都会落在它上面）就把查看关掉。
+   * 点展示遮罩 = 关掉放大查看，那张卡飞回原来的格子。
    *
    * 强制展示期间同样会点到这块遮罩，但那条链路是不可跳过的，所以这里靠 inspecting 判空挡掉；
-   * 飞入还没落位、以及已经在飞回路上时也都不受理，免得重复触发。
+   * 飞入还没到位（inspectHeldRef 为 false）时也不理，免得半路掉头。
    */
   const handleShowcaseClick = () => {
     if (inspecting === null || !inspectHeldRef.current || inspectReturnRef.current !== null) return
     inspectHeldRef.current = false
     floatRef.current?.kill()
     floatRef.current = null
+    // 在卡还停在屏幕中央、还没被 React 摘掉的这一帧取位置，飞回那段从这儿接着走。
     const el = revealCardRef.current
-    // 趁展示卡还在屏幕中央、还没被 React 摘掉，量下它此刻的位置当飞回的起点。
     if (el !== null) {
-      inspectReturnRef.current = { state: Flip.getState(el), id: inspecting.instanceId }
+      // 飞回那 0.6 秒同样要冻住手牌：遮罩这时已经在淡出，挡不住指针了。
+      inspectReturnRef.current = {
+        state: Flip.getState(el),
+        id: inspecting.instanceId,
+        token: acquireLanding(),
+      }
     }
     closeInspect()
   }
 
-  // 展示和查看期间遮罩本来就吃掉了全部指针事件，这两个 disabled 只是兜底
-  // （也顺带让手牌和结束回合按钮在视觉上就是关着的）。
+  // 展示层演着的时候玩家什么都不该点得动（遮罩本来就吃掉了指针事件，这里是让手牌和
+  // 「结束出牌」按钮在视觉上也是关着的）。
   const showcasing = reveal !== null || inspecting !== null
-  const handDisabled = !myTurn || picking || view.status !== 'playing' || awaiting || showcasing
-  const endTurnDisabled = !myTurn || picking || awaiting || view.status !== 'playing' || showcasing
+  // 出牌和「结束出牌」同一个口径：不是我的出牌轮、对局已结束、正在等回包、展示层演着时都锁住。
+  const actionsLocked =
+    !myPlayTurn || view.status !== 'playing' || awaiting || showcasing || landing
+  /**
+   * 手牌彻底冻住（连 hover 都不接）的时刻：屏幕上有牌在飞或刚落地，或者展示层正演着。
+   *
+   * 刻意比 actionsLocked 窄一大截：不是我的回合、等回包这些"只是出不了牌"的时刻
+   * 玩家仍然应该能把牌抬起来看清楚，那归 HandFan 的 disabled 管（两者的分工见 HandFanProps）。
+   * 展示期间遮罩本来就吃掉了指针事件，但展示开始前指针已经停在某张牌上的话
+   * 它不会收到 pointerleave，那张牌会一直抬着，所以这里也一并冻上。
+   */
+  const handFrozen = landing || showcasing
 
   /**
    * 现算的话每次渲染都是个新数组，两个 Fan 的 useGSAP 会跟着重跑一遍归位补间；
-   * 而这个组件光是 awaiting / reveal / pendingPrompt 变一下就要重渲染好几次，
+   * 而这个组件光是 awaiting / skillShow / reveal 变一下就要重渲染好几次，
    * 手牌根本没动却在那儿反复补间。按 hand 记住，手牌真换了才重建。
    */
   const handCards = useMemo(() => me.hand.map(handCardOfInstance), [me.hand])
@@ -656,18 +1160,37 @@ function BattleField({
   useGSAP(
     (_context, safe) => {
       const pending = flipStateRef.current
-      if (pending !== null) {
+      if (pending === null) {
+        // 演出途中也会因为别的局面更新跑到这儿（包括对手的牌正在飞的时候），
+        // 那时不能把锁解掉。判据是 flyingRef：它和 landing 永远同进同出。
+        if (flyingRef.current === false) setLanding(false)
+      } else {
         flipStateRef.current = null
+        // 新局面到手了，这条链路的兜底定时器可以撤了：底下要么当场解锁，要么解锁交给这段飞行的收尾。
+        // 不撤的话，往返慢一点就会被它在飞行途中把手牌放开（见 PLAY_LOCK_FALLBACK）。
+        lockFallbackRef.current?.kill()
+        lockFallbackRef.current = null
         // 必须显式把战场上的新元素交给 Flip：不传 targets 的话它会退回用 state.targets，
         // 也就是手牌里那个已经被 React 摘掉的旧节点，补间挂在脱离文档的 div 上，
         // 战场小卡一动不动。Flip 不会自己按 data-flip-id 去全文档找新元素（架构 5.5）。
         const target = document.querySelector<HTMLElement>(
           `.battle__board [data-flip-id="${CSS.escape(pending.id)}"]`,
         )
-        if (target !== null) {
+        if (target === null) {
+          // 没有落点可飞，这次就没有飞行动画，锁当场放开。
+          releaseLanding(pending.token)
+        } else {
           // 落地特效是在 onComplete 里才建的补间，出了 useGSAP 回调的同步区间，
           // 不用 contextSafe 包一层就不归 context 管，组件卸载时 revert 不掉。
-          const landed = () => playSummonFx(target)
+          const landed = () => {
+            // Flip 把 zIndex 直接写死在元素的内联样式上，飞完不会自己收——
+            // 不清的话这张 tile 会永久停在第 60 层，之后一直压着手牌（见 .battle__board 的注释）。
+            // 只能点名清 zIndex：clearProps: true 会把落位用的 transform 一起抹掉。
+            gsap.set(target, { clearProps: 'zIndex' })
+            playSummonFx(target)
+            // 锁再多挂一会儿，等落地特效也演完（见 SUMMON_FX_TAIL）。
+            gsap.delayedCall(SUMMON_FX_TAIL, () => releaseLanding(pending.token))
+          }
           Flip.from(pending.state, {
             targets: target,
             duration: 0.65,
@@ -686,7 +1209,7 @@ function BattleField({
       popQueueRef.current = []
       for (const id of pops) {
         const tile = boardRef.current?.querySelector<HTMLElement>(
-          `[data-model-id="${CSS.escape(id)}"]`,
+          `[data-ai-id="${CSS.escape(id)}"]`,
         )
         if (tile == null) continue
         gsap.fromTo(
@@ -701,7 +1224,7 @@ function BattleField({
 
   // 强制展示：遮罩淡入 + 卡从对手手牌飞到屏幕中央并翻正 + 停 1.5 秒 + 收尾。
   // 两个分支各管一程：reveal 从空变成有牌时飞进展示位，
-  // 从有牌变回空时（模型卡）从展示位接着飞到对方战场行并落地。
+  // 从有牌变回空时（AI 牌）从展示位接着飞到对方战场行并落地。
   useGSAP(
     (_context, safe) => {
       if (reveal !== null) {
@@ -710,9 +1233,10 @@ function BattleField({
         if (card === null || overlay === null) {
           // 理论上到不了：reveal 非空时展示卡就在同一次渲染里，layout effect 里 ref 必然已挂上。
           // 真到了这儿也得把闸放开，否则 revealBusyRef 会永远卡在 true，
-          // 之后的特效全堵在队列里、也再没有第二次展示。
+          // 之后的横幅全堵在队列里、也再没有第二次展示。
           revealBusyRef.current = false
-          flushFx()
+          pumpSkillCancel()
+          pumpBanner()
           return
         }
         const pending = revealFlipRef.current
@@ -722,11 +1246,11 @@ function BattleField({
         // 遮罩接管所有指针事件：强制动画期间玩家什么都点不了。
         // 用 autoAlpha 而不是 opacity——它顺手改 visibility，遮罩看不见时就不吃指针事件。
         //
-        // 遮罩上的四条补间（两条链路各一进一出）都必须 overwrite: 'auto'。遮罩是常驻节点，
-        // 两条链路紧挨着衔接时会同时有补间活着：比如刚点关闭查看、返程的淡出还在跑（0.3s），
-        // 对手就出了牌，这条淡入随即起跑。默认不 overwrite 的话两条一起改 autoAlpha，
-        // 后结束的那条说了算——淡出赢了遮罩就停在 0（visibility: hidden），
-        // 强制展示期间玩家能点穿遮罩。让新补间干净接管旧的就没有这回事。
+        // 遮罩上的补间（两条链路各一进一出，外加 abortReveal 那条）都必须 overwrite: 'auto'。
+        // 遮罩是常驻节点，两条链路紧挨着衔接时会同时有补间活着：比如刚点关闭查看、
+        // 返程的淡出还在跑（0.3s），对手就出了牌，这条淡入随即起跑。默认不 overwrite 的话
+        // 两条一起改 autoAlpha，后结束的那条说了算——淡出赢了遮罩就停在 0
+        //（visibility: hidden），强制展示期间玩家能点穿遮罩。让新补间干净接管旧的就没有这回事。
         gsap.to(overlay, {
           autoAlpha: 1,
           duration: OVERLAY_IN_DUR,
@@ -740,7 +1264,7 @@ function BattleField({
         const fromBack = pending?.fromBack === true
         if (inner !== null) setFlipAngle(inner, fromBack ? 180 : 0)
 
-        /** 停留到点：停浮动、遮罩淡出，模型卡把位置交给下一段飞行，提示卡原地淡出。 */
+        /** 停留到点：停浮动、遮罩淡出，AI 牌把位置交给下一段飞行，技能牌原地淡出。 */
         const finish = () => {
           floatRef.current?.kill()
           floatRef.current = null
@@ -753,12 +1277,23 @@ function BattleField({
             overwrite: 'auto',
             onComplete: () => {
               revealBusyRef.current = false
-              flushFx()
+              // 对方那张技能牌刚看完，这才轮到"它被抵消了"这一层。
+              pumpSkillCancel()
+              // 展示期间憋着的横幅（比如对方出完牌轮到我）到这儿才放出来。
+              pumpBanner()
             },
           })
           if (landingId !== null) {
             // 在卡还停在屏幕中央、还没被 React 摘掉的这一帧取位置，下一段飞行从这儿接着走。
-            if (el !== null) landingFlipRef.current = { state: Flip.getState(el), id: landingId }
+            // 遮罩这时已经开始淡出、马上就不吃指针了，而牌还要飞 0.6 秒再冒 0.8 秒烟，
+            // 所以这段也要上演出锁，把手牌一起冻住。
+            if (el !== null) {
+              landingFlipRef.current = {
+                state: Flip.getState(el),
+                id: landingId,
+                token: acquireLanding(),
+              }
+            }
             setReveal(null)
             return
           }
@@ -766,7 +1301,7 @@ function BattleField({
             setReveal(null)
             return
           }
-          // 提示卡没有落点，原地淡出。必须等淡出跑完再清 state：
+          // 技能牌没有落点，原地淡出。必须等淡出跑完再清 state：
           // 先清的话元素当场就没了，这段淡出根本演不出来。
           gsap.to(el, {
             autoAlpha: 0,
@@ -803,7 +1338,7 @@ function BattleField({
         const revealedSafe = safe ? safe(revealed) : revealed
 
         if (pending === null) {
-          // 找不到起飞点时的降级路径（只有提示卡会走到这儿）：没有 Flip 起点就从中央淡入，
+          // 找不到起飞点时的降级路径（只有技能牌会走到这儿）：没有 Flip 起点就从中央淡入，
           // 裁剪也就没有意义了，直接撤掉。
           const clip = revealClipRef.current
           if (clip !== null) gsap.set(clip, { clipPath: 'none' })
@@ -835,18 +1370,30 @@ function BattleField({
         return
       }
 
-      const landing = landingFlipRef.current
-      if (landing === null) return
+      // 局部名字用 landingFlight，别写成 landing：那是外面那个演出锁的 state。
+      const landingFlight = landingFlipRef.current
+      if (landingFlight === null) return
       landingFlipRef.current = null
       // 落点那个格子此刻已经跟着 held 变 false 恢复可见了。useGSAP 是 layout effect，
       // 恢复可见和 Flip 把它摆到起飞位置发生在同一次绘制之前，中间不会闪一下空格子。
       const tile = boardRef.current?.querySelector<HTMLElement>(
-        `[data-flip-id="${CSS.escape(landing.id)}"]`,
+        `[data-flip-id="${CSS.escape(landingFlight.id)}"]`,
       )
-      if (tile == null) return
+      if (tile == null) {
+        // 没有落点可飞，这次就没有飞行动画，锁当场放开（同我方出牌那条）。
+        releaseLanding(landingFlight.token)
+        return
+      }
       // 同我方出牌：onComplete 出了同步区间，里面新建的特效补间必须包一层才归 context 管。
-      const landed = () => playSummonFx(tile)
-      Flip.from(landing.state, {
+      const landed = () => {
+        // 同我方出牌：Flip 写在内联样式上的 zIndex 飞完不会自己收，不清的话这张 tile 会
+        // 永久停在 1200 层——那比展示遮罩（1100）还高，之后每次展示都会被它戳穿。
+        gsap.set(tile, { clearProps: 'zIndex' })
+        playSummonFx(tile)
+        // 锁挂到落地特效也演完，和我方出牌一个节奏（见 SUMMON_FX_TAIL）。
+        gsap.delayedCall(SUMMON_FX_TAIL, () => releaseLanding(landingFlight.token))
+      }
+      Flip.from(landingFlight.state, {
         targets: tile,
         duration: REVEAL_OUT_DUR,
         ease: 'power2.inOut',
@@ -918,7 +1465,11 @@ function BattleField({
       if (back === null || inspecting !== null) return
       inspectReturnRef.current = null
       const overlay = overlayRef.current
-      if (overlay === null) return
+      if (overlay === null) {
+        // 飞不成了，锁得还回去，否则手牌永远解不开。
+        releaseLanding(back.token)
+        return
+      }
       gsap.to(overlay, {
         autoAlpha: 0,
         duration: OVERLAY_OUT_DUR,
@@ -930,7 +1481,17 @@ function BattleField({
       const target = boardRef.current?.querySelector<HTMLElement>(
         `[data-flip-id="${CSS.escape(back.id)}"]`,
       )
-      if (target == null) return
+      if (target == null) {
+        releaseLanding(back.token)
+        return
+      }
+      // onComplete 出了同步区间，里面的 gsap.set 不包一层就不归 context 管。
+      const settled = () => {
+        // 同另外两段飞行：Flip 写在内联样式上的 zIndex 飞完不会自己收，不清的话这张 tile
+        // 会永久停在 1200 层——那比展示遮罩（1100）还高，之后每次展示都会被它戳穿。
+        gsap.set(target, { clearProps: 'zIndex' })
+        releaseLanding(back.token)
+      }
       Flip.from(back.state, {
         targets: target,
         duration: REVEAL_OUT_DUR,
@@ -938,6 +1499,7 @@ function BattleField({
         scale: true,
         // 层级必须给：飞回途中要压过正在淡出的遮罩（1100），同对手牌落场那段飞行。
         zIndex: REVEAL_FLIGHT_Z,
+        onComplete: safe ? safe(settled) : settled,
       })
     },
     { dependencies: [inspecting] },
@@ -995,6 +1557,7 @@ function BattleField({
   }, [])
 
   const finished = view.status === 'finished' || view.status === 'aborted'
+  const category = state.questions[state.round - 1]?.category
 
   /**
    * 展示层当前要渲染的那张卡：强制展示优先（它不可打断），否则是正在放大查看的那张。
@@ -1015,15 +1578,15 @@ function BattleField({
         : null
 
   return (
-    <div className="battle" onPointerDown={cancelPick}>
+    <div className="battle">
       <HandDrawnFilterDefs />
       <BattleTopBar />
 
       <div className="battle__layout">
         <aside className="battle__sidebar battle__sidebar--left" aria-label="双方状态">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--players">
-            <PlayerPanel player={foe} targetable={picking} onPick={() => confirmTarget()} />
-            <PlayerPanel player={me} targetable={false} onPick={() => confirmTarget()} />
+            <PlayerPanel player={foe} />
+            <PlayerPanel player={me} />
           </OrnateFrame>
         </aside>
 
@@ -1041,19 +1604,16 @@ function BattleField({
             <div className="battle__smoke-layer" ref={smokeLayerRef} aria-hidden="true" />
 
             <div className="battle__row battle__row--foe">
-              {foe.board.map((model) => (
+              {foe.board.map((ai) => (
                 <BoardTile
-                  key={model.instanceId}
-                  model={model}
-                  targetable={picking}
-                  picking={picking}
-                  // 对方的模型有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
+                  key={ai.instanceId}
+                  ai={ai}
+                  // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
                   held={
-                    inspecting?.instanceId === model.instanceId ||
-                    reveal?.landingId === model.instanceId
+                    inspecting?.instanceId === ai.instanceId ||
+                    reveal?.landingId === ai.instanceId
                   }
-                  onPick={() => confirmTarget(model.instanceId)}
-                  onInspect={() => handleInspect(model)}
+                  onInspect={() => handleInspect(ai)}
                 />
               ))}
             </div>
@@ -1062,15 +1622,12 @@ function BattleField({
               {me.board.length === 0 ? (
                 <span className="battle__board-hint">将手牌拖入战场</span>
               ) : (
-                me.board.map((model) => (
+                me.board.map((ai) => (
                   <BoardTile
-                    key={model.instanceId}
-                    model={model}
-                    targetable={false}
-                    picking={picking}
-                    held={inspecting?.instanceId === model.instanceId}
-                    onPick={() => confirmTarget(model.instanceId)}
-                    onInspect={() => handleInspect(model)}
+                    key={ai.instanceId}
+                    ai={ai}
+                    held={inspecting?.instanceId === ai.instanceId}
+                    onInspect={() => handleInspect(ai)}
                   />
                 ))
               )}
@@ -1084,14 +1641,6 @@ function BattleField({
             </span>
           </div>
 
-          {picking ? (
-            <div className="battle__pick-hint">
-              <span>选一个目标打出「{pendingCard?.name ?? '这张牌'}」</span>
-              <button type="button" className="battle__pick-cancel" onClick={cancelPick}>
-                取消
-              </button>
-            </div>
-          ) : null}
           {view.lastRejection !== null ? (
             <div className="battle__reject">{view.lastRejection}</div>
           ) : null}
@@ -1100,20 +1649,29 @@ function BattleField({
         <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
             <div className="battle__turn">
-              <span className="battle__turn-round">第 {state.turn} 回合</span>
-              <span className="battle__turn-who">
-                {view.status !== 'playing'
-                  ? '对局结束'
-                  : myTurn
-                    ? '轮到你了'
-                    : `${state.players[state.activePlayer].name} 行动中…`}
+              <span className="battle__turn-round">
+                第 {state.round}/{state.totalRounds} 轮
               </span>
+              <span className="battle__turn-score">
+                你 {me.score} : {foe.score} 对方
+              </span>
+              {/*
+                只报类别不报题面：题目全文要到答题阶段才揭晓，这里是"下一题考什么方向"。
+                终局后没有下一题了，整行不渲染——state.round 停在最后一轮，
+                照常渲染的话会一直挂着最后一题的类别，看着像还有一题要考。
+              */}
+              {finished || category === undefined ? null : (
+                <span className="battle__turn-next">
+                  下一题：{QUESTION_CATEGORY_LABELS[category]}
+                </span>
+              )}
+              <span className="battle__turn-who">{statusTextOf(view, state, mySeat)}</span>
             </div>
             <PlaqueButton
-              disabled={endTurnDisabled}
-              onClick={() => sendMine({ type: 'END_TURN', player: mySeat })}
+              disabled={actionsLocked}
+              onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
             >
-              结束回合
+              结束出牌
             </PlaqueButton>
           </OrnateFrame>
         </aside>
@@ -1124,15 +1682,26 @@ function BattleField({
           但玩家不该点得动它。张数信息侧栏的玩家面板本来就有一份。 */}
       {testMode ? null : <OpponentFan cards={foeHandCards} onReveal={noopReveal} disabled />}
 
+      {/* disabled 和 frozen 分工不同：前者是"出不了牌但还能 hover 看牌"（不是我的回合、
+          等回包……），后者是演出期间整排手牌冻住，连 hover 都不接。见 HandFanProps。 */}
       <HandFan
         cards={handCards}
         dropZoneRef={boardRef}
         returnZoneRef={returnZoneRef}
         onPlay={handlePlay}
-        disabled={handDisabled}
+        disabled={actionsLocked}
+        frozen={handFrozen}
       />
 
-      <div className="battle__fx" ref={fxRef} aria-hidden="true" />
+      {/* 特效层：技能牌在中央亮相、横幅一条条排队播，整层不吃指针事件。 */}
+      <div className="battle__fx" aria-hidden="true">
+        <div className="battle__banner-slot" ref={bannerSlotRef} />
+        {skillShow !== null ? (
+          <div className="battle__skill-show" key={skillShow.key} ref={skillShowRef}>
+            <HandCardFace card={handCardOfDefinition(skillShow.cardId)} />
+          </div>
+        ) : null}
+      </div>
 
       {/*
         展示层，强制展示和放大查看共用。遮罩常驻 DOM（默认 visibility: hidden，不吃指针事件），
@@ -1141,10 +1710,6 @@ function BattleField({
         放大查看则拿它当飞回原格的起点。
         遮罩淡入之后吃掉全部指针事件：强制展示期间玩家什么都点不了，
         而放大查看期间点它（也就是点屏幕任意处）就是关闭查看。
-
-        遮罩（z 1100）也压着结算层（90）：对手用提示卡打死我方本体时，
-        结算画面会在展示的这两秒里被压暗模糊，遮罩淡出后恢复。这一档可以接受，
-        不为它给强制展示加快进——那两秒本来就是"看清楚对手打了什么"的。
       */}
       <div
         className={
@@ -1153,9 +1718,6 @@ function BattleField({
         ref={overlayRef}
         aria-hidden="true"
         onClick={handleShowcaseClick}
-        // 挡住冒泡，理由同别的自己响应 pointerdown 的元素（见 cancelPick）：
-        // 不挡的话展示期间点一下会顺手把还挂着的选目标态取消掉。
-        onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => event.stopPropagation()}
       />
       {showcase !== null ? (
         <div className="reveal-clip" key={showcase.key} ref={revealClipRef}>
@@ -1183,47 +1745,153 @@ function BattleField({
 
       {finished ? (
         <div className="battle__result">
-          <p className="battle__result-title">
-            {view.status === 'aborted'
-              ? view.abortReason
-              : state.winner === mySeat
-                ? '你赢了'
-                : '你输了'}
-          </p>
+          <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
+          {view.status === 'aborted' ? null : (
+            <p className="battle__result-score">
+              最终比分 {me.score} : {foe.score}
+            </p>
+          )}
           <div className="battle__result-actions">{resultActions}</div>
+        </div>
+      ) : null}
+
+      {/*
+        三个全屏过场。它们和特效层不一样，是要**吃掉指针事件**的：
+        演的时候玩家不能出牌，等它们退场再说。所以放在 .battle__fx 外面单独挂。
+      */}
+      {coinToss !== null ? (
+        <div className="coin-toss" key={coinToss.key} ref={coinTossRef}>
+          <div className="coin-toss__coin">
+            {/* 这一层承担 rotationY，下面两面靠 data-flip-face 对号（契约见 ui/flipCard.ts）。 */}
+            <div className="coin-toss__inner" ref={coinInnerRef}>
+              <span className="coin-toss__face" data-flip-face="front">
+                <img
+                  className="coin-toss__img"
+                  src="/battle/coin-first.webp"
+                  alt="先手"
+                  draggable={false}
+                />
+              </span>
+              <span className="coin-toss__face coin-toss__face--back" data-flip-face="back">
+                <img
+                  className="coin-toss__img"
+                  src="/battle/coin-second.webp"
+                  alt="后手"
+                  draggable={false}
+                />
+              </span>
+            </div>
+          </div>
+          <p className="coin-toss__caption">抛硬币定先手</p>
+        </div>
+      ) : null}
+
+      {quizReveal !== null ? (
+        // key 让下一轮揭晓拿到一套全新的 DOM：上一轮那些结果行上还留着 GSAP 写的内联样式，
+        // 复用同一批节点的话新一轮的 fromTo 要和它们打架。
+        <QuizRevealLayer key={quizReveal.key} reveal={quizReveal} rootRef={quizRevealRef} />
+      ) : null}
+
+      {/* 英雄技能抵消。key 同抛硬币：每次都换一套新 DOM，上一次留下的内联样式不会跟到下一次。
+          大字是技能名，下面那行说清楚"谁抵消了谁的哪张牌"。 */}
+      {skillCancel !== null ? (
+        <div className="skill-cancel" key={skillCancel.key} ref={skillCancelRef}>
+          <p className="skill-cancel__title">{skillCancel.title}</p>
+          <p className="skill-cancel__text">{skillCancel.text}</p>
         </div>
       ) : null}
     </div>
   )
 }
 
-/** 侧栏里的一块玩家面板，同时是"打本体"的目标和 PLAYER_DAMAGED 飘字的定位锚。 */
-function PlayerPanel({
-  player,
-  targetable,
-  onPick,
+/**
+ * 答题全屏揭晓层：题目 + 正确答案 + 每个在场 AI 的作答结果 + 本轮计分。
+ *
+ * 内容全部来自事件（`QuizReveal`），不读局面快照——答错的 AI 在新快照里已经被罚下、
+ * 从战场上消失了，只有事件里还留着它答了什么。
+ *
+ * 动画归上面 BattleField 的两段 useGSAP 管，这里只负责结构：
+ * 那两段靠类名（.quiz-reveal__panel / __waiting / __row / __score）找元素，改类名要一起改。
+ */
+function QuizRevealLayer({
+  reveal,
+  rootRef,
 }: {
-  player: PlayerState
-  targetable: boolean
-  onPick: () => void
+  reveal: QuizReveal
+  rootRef: RefObject<HTMLDivElement | null>
 }) {
+  const { question, rows, gains } = reveal
   return (
-    <div
-      className="battle__player-panel"
-      data-player={player.id}
-      data-targetable={targetable ? 'true' : undefined}
-      // 目标一律绑 pointerdown 并挡住冒泡，原因见 cancelPick 上的说明。
-      onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-        if (!targetable) return
-        event.stopPropagation()
-        onPick()
-      }}
-    >
+    <div className="quiz-reveal" ref={rootRef}>
+      <div className="quiz-reveal__panel">
+        <span className="quiz-reveal__category">{QUESTION_CATEGORY_LABELS[question.category]}</span>
+        <p className="quiz-reveal__question">{question.text}</p>
+        <p className="quiz-reveal__answer">
+          <span className="quiz-reveal__answer-label">正确答案</span>
+          {question.answer}
+        </p>
+
+        <div className="quiz-reveal__body">
+          {/*
+            「作答中」和结果行叠在同一块地方交叉淡入淡出，所以这一行常驻 DOM 且脱离文档流：
+            条件渲染的话它一消失就会把下面的结果行整体往上拽一截。
+          */}
+          <p className="quiz-reveal__waiting">场上 AI 作答中…</p>
+          <div className="quiz-reveal__rows">
+            {rows.length === 0 ? (
+              // 双方场上一个 AI 都没有时也要有句交代，否则揭晓层看着像卡住了。
+              // 顶着 __row 的类名是为了跟着同一段 stagger 淡入。
+              gains === null ? null : (
+                <p className="quiz-reveal__row quiz-reveal__row--none">场上没有 AI 作答</p>
+              )
+            ) : (
+              rows.map((row) => (
+                <p
+                  key={row.instanceId}
+                  className={`quiz-reveal__row${row.correct ? '' : ' quiz-reveal__row--wrong'}`}
+                >
+                  <span className="quiz-reveal__row-side">{row.mine ? '我方' : '对方'}</span>
+                  <span className="quiz-reveal__row-name">{row.name}</span>
+                  <span className="quiz-reveal__row-mark">{row.correct ? '✓' : '✗'}</span>
+                  <span className="quiz-reveal__row-text">{row.answerText}</span>
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+
+        {gains === null ? null : (
+          <p className="quiz-reveal__score">
+            本轮 你 +{gains.mine} / 对方 +{gains.theirs}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 右侧栏那行状态提示：现在该干什么。 */
+function statusTextOf(view: MatchView, state: GameState, mySeat: PlayerId): string {
+  if (view.status !== 'playing') return '对局结束'
+  if (state.phase === 'quiz') return '场上 AI 答题中…'
+  if (state.activePlayer === mySeat) return '轮到你出牌'
+  return `${state.players[state.activePlayer].name} 出牌中…`
+}
+
+/** 结算层的大标题。平局是正经结果之一（总分相同），不是异常。 */
+function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): string {
+  if (view.status === 'aborted') return view.abortReason ?? '对局中断'
+  if (state.winner === 'draw') return '平局'
+  return state.winner === mySeat ? '你赢了' : '你输了'
+}
+
+/** 侧栏里的一块玩家面板：英雄、名字、当前总分、手牌和牌堆张数。 */
+function PlayerPanel({ player }: { player: PlayerState }) {
+  return (
+    <div className="battle__player-panel" data-player={player.id}>
+      <HeroBadge hero={player.hero} skillUsed={player.heroSkillUsed} />
       <span className="battle__player-name">{player.name}</span>
-      <span className="battle__player-integrity">{player.integrity}</span>
-      <span className="battle__player-compute">
-        算力 {player.compute}/{player.computeMax}
-      </span>
+      <span className="battle__player-score">{player.score}</span>
       <span className="battle__player-piles">
         手牌 {player.hand.length} · 牌堆 {player.deck.length}
       </span>
@@ -1232,55 +1900,64 @@ function PlayerPanel({
 }
 
 /**
- * 场上的一张小卡。三层结构：tile 管 Flip 飞行，tilt 管倾斜和裁剪，inner 是整张卡面缩小。
+ * 玩家面板左边那张小英雄牌。
  *
- * held 表示这张卡此刻由展示层代管（玩家正放大查看它，或者对手打出的模型还停在展示位）：
+ * 英雄牌不进牌组、不上战场，所以它不走 BoardTile 那套（没有 Flip、没有放大查看），
+ * 只是把同一份卡面按 --hero-card-scale 缩小画一遍，看得到名字和技能就够了。
+ * 技能用掉之后整块置灰、卡下面那行标签变成「Debug 已用」——Debug 一局只发动一次，
+ * 玩家得能一眼看出这张牌还能不能指望上。
+ */
+function HeroBadge({ hero, skillUsed }: { hero: HeroId | null; skillUsed: boolean }) {
+  if (hero === null) return null
+  const card = getHero(hero)
+  return (
+    <div
+      className={skillUsed ? 'battle__hero battle__hero--used' : 'battle__hero'}
+      // 卡面缩到 60 多像素宽，技能说明那几行字实际读不清，鼠标停一下能看全文。
+      title={`${card.name}（${card.enName}）｜${card.skillName}：${card.skillText}`}
+    >
+      <div className="battle__hero-card">
+        <HandCardFace card={heroCardData(card)} />
+      </div>
+      <span className="battle__hero-tag">
+        {skillUsed ? `${card.skillName} 已用` : card.skillName}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 场上的一个 AI。三层结构：tile 管 Flip 飞行，tilt 管倾斜和裁剪，inner 是整张卡面缩小。
+ *
+ * held 表示这张卡此刻由展示层代管（玩家正放大查看它，或者对手打出的 AI 牌还停在展示位）：
  * 格子还占着位置，但整张卡不可见（见 .battle__tile--held），
  * 免得屏幕中央和战场上同时出现两张一模一样的卡。
  */
 function BoardTile({
-  model,
-  targetable,
-  picking,
+  ai,
   held,
-  onPick,
   onInspect,
 }: {
-  model: ModelInstance
-  targetable: boolean
-  /** 正在选目标。此时点小卡的含义是选目标或取消选目标，都不该打开放大查看。 */
-  picking: boolean
+  ai: AiInstance
   held: boolean
-  onPick: () => void
   onInspect: () => void
 }) {
-  const card = handCardOfModel(model)
+  const card = handCardOfAi(ai)
   return (
     <div
       className={held ? 'battle__tile battle__tile--held' : 'battle__tile'}
-      // data-model-id 全场唯一，事件层靠它定位伤害飘字和抖动。
+      // data-ai-id 全场唯一，事件层靠它定位这个单位（现在只有对方上场的简易进场在用）。
       // data-flip-id 敌我两侧都要给：它是 Flip 用来把两个容器里的节点对号的键，
       // 我方靠它把手牌里的旧节点接到战场上的新节点，对方靠它把展示卡接到落场的格子，
       // 放大查看的飞回也靠它。实例 id 形如 p1-c7，本来就全局唯一，标上不会撞车。
-      data-model-id={model.instanceId}
-      data-flip-id={model.instanceId}
-      data-targetable={targetable ? 'true' : undefined}
+      data-ai-id={ai.instanceId}
+      data-flip-id={ai.instanceId}
       role="button"
       tabIndex={0}
       aria-label={`查看 ${card.name}`}
-      // 打开查看走 pointerdown 而不是 click，和选目标同一套时序考虑：
-      // 选目标时 pointerdown 里的 confirmTarget 会同步清掉 pendingPrompt，随后浏览器补发的
-      // click 拿到的已经是 picking = false 的新 props，用 click 就会在选完目标那一瞬间
-      // 误开一次放大查看；同理我方小卡在选目标态下 pointerdown 冒泡到根节点取消选目标，
-      // 那一下补发的 click 也不能再开查看。所以这条路上一个 click 处理器都不能留。
+      // 走 pointerdown 而不是 click：拖着手牌路过战场时不该顺手点开一次查看，
+      // 而 pointerdown 上能立刻判断这一下是不是落在小卡上（click 要等松手才来）。
       onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-        if (targetable) {
-          event.stopPropagation()
-          onPick()
-          return
-        }
-        // 选目标时这一下要冒泡到根节点去取消选目标（见 cancelPick），什么都不做。
-        if (picking) return
         event.stopPropagation()
         onInspect()
       }}
@@ -1288,11 +1965,6 @@ function BoardTile({
         if (event.key !== 'Enter' && event.key !== ' ') return
         // 空格在这个位置的默认行为是把页面往下滚一屏，回车也可能被外层当成提交，都不要。
         event.preventDefault()
-        if (targetable) {
-          onPick()
-          return
-        }
-        if (picking) return
         onInspect()
       }}
     >
@@ -1336,12 +2008,7 @@ function FoeHand({
           // 强制展示是一次跨容器的 FLIP，这张牌打出去时就是从这个位置起飞的（见 startReveal）。
           data-flip-id={instance.instanceId}
           title="点一下替对方打出这张牌"
-          onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-            // 同样要挡冒泡：这一下要是传到根节点，会被当成"点空白处取消"，
-            // 把我方正在进行的选目标态顺手清掉。
-            event.stopPropagation()
-            onPlay(instance)
-          }}
+          onPointerDown={() => onPlay(instance)}
         >
           <div className="battle__foe-card-inner">
             <HandCardFace card={handCardOfInstance(instance)} />
@@ -1360,67 +2027,37 @@ function handCardOfInstance(instance: CardInstance): HandCardData {
 /** 从卡牌定义拼出卡面数据。id 只是给 React 当 key 用，不参与 Flip。 */
 function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
-  if (card.kind === 'model') {
-    return {
-      ...cardPresentation(card),
-      id: card.id,
-      name: card.name,
-      cost: card.cost,
-      kind: 'model',
-      power: card.power,
-      integrity: card.integrity,
-      weaknesses: exposedWeaknesses(card.weaknesses),
-      text: card.text,
-      backText: cardBackText(card),
-    }
+  // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
+  const base = { id: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
+  if (card.kind === 'ai') {
+    return { ...base, kind: 'ai', model: card.model }
   }
-  return {
-    ...cardPresentation(card),
-    id: card.id,
-    name: card.name,
-    cost: card.cost,
-    kind: 'prompt',
-    damage: card.damage,
-    targetWeakness: card.targetWeakness,
-    text: card.text,
-    backText: cardBackText(card),
-  }
+  return { ...base, kind: 'skill' }
 }
 
 /**
- * 从场上的模型实例拼出卡面数据。
+ * 从场上的 AI 单位拼出卡面数据。
  *
- * 数值一律读实例：受伤和增益都写在实例上，读卡牌定义的话战场小卡会永远显示满血。
+ * 单位上现在没有会变的数值，所以直接读卡牌定义就够了；
+ * 哪天加了"上场后被增益/削弱"的属性，这里要改成读实例，否则小卡会一直显示原始数值。
+ * backText 照常留着：战场小卡自己不翻面，但它被放大查看、或者对手打出时飞到屏幕中央，
+ * 用的都是同一份数据，而展示卡是有背面的。
  */
-function handCardOfModel(model: ModelInstance): HandCardData {
-  const card = getCard(model.cardId)
-  return {
-    ...cardPresentation(card),
-    id: model.instanceId,
-    name: card.name,
-    cost: card.cost,
-    kind: 'model',
-    power: model.power,
-    integrity: model.integrity,
-    weaknesses: exposedWeaknesses(model.weaknesses),
-    text: card.text,
-    // 战场小卡和放大查看都只看正面，这份文案没有地方会显示出来。
-    backText: '',
-  }
+function handCardOfAi(ai: AiInstance): HandCardData {
+  return { ...handCardOfDefinition(ai.cardId), id: ai.instanceId }
 }
 
-/** 只留下大于 0 的维度，卡面上那一行才不会被六个 0 撑满。 */
-function exposedWeaknesses(profile: Record<WeaknessKind, number>): Partial<Record<WeaknessKind, number>> {
-  const exposed: Partial<Record<WeaknessKind, number>> = {}
-  for (const kind of WEAKNESS_KINDS) {
-    if (profile[kind] > 0) exposed[kind] = profile[kind]
+/**
+ * 按实例 id 查这个 AI 的卡名，给答题揭晓层的结果行用。
+ *
+ * 事件是在 React 提交新局面**之前**送到的，所以答错被罚下的那个单位这时还在 state 里，
+ * 名字查得到——查完就存进 QuizAnswerRow，之后不再回头读局面。
+ * 查不到（理论上不该发生）就退回一个中性称呼，不为了一行字把界面搞崩。
+ */
+function nameOfCard(instanceId: InstanceId, state: GameState): string {
+  for (const player of state.players) {
+    const ai = player.board.find((item) => item.instanceId === instanceId)
+    if (ai !== undefined) return getCard(ai.cardId).name
   }
-  return exposed
-}
-
-/** 正在选目标的那张提示卡，用来在提示条上写卡名。它还在我方手里，没离开手牌。 */
-function findPendingCard(me: PlayerState, pending: PendingPrompt | null): Card | null {
-  if (pending === null) return null
-  const instance = me.hand.find((item) => item.instanceId === pending.instanceId)
-  return instance === undefined ? null : getCard(instance.cardId)
+  return '场上 AI'
 }

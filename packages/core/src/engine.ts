@@ -1,55 +1,67 @@
 // pure-rand v8 只提供子路径入口，没有包根入口，所以这几行 import 看起来才这么长。
 import { uniformInt } from 'pure-rand/distribution/uniformInt'
-import { xoroshiro128plus } from 'pure-rand/generator/xoroshiro128plus'
+// 用 mersenne 而不是更快的 xoroshiro128plus：后者从整数种子起步时，
+// 相邻种子头几个输出的低位是强相关的（实测连续种子掷硬币有约 65% 概率翻面，
+// 空转多少次都甩不掉），而这里的 seed 就是 Date.now()，会掷出"隔一毫秒换一次先手"的规律。
+// mersenne 的种子扩散做得干净，连续种子的首个输出实测就是均匀且互不相关的。
+import { mersenne } from 'pure-rand/generator/mersenne'
 import type { RandomGenerator } from 'pure-rand/types/RandomGenerator'
 import { CARDS, getCard } from './cards'
+import { QUESTION_POOL } from './questions'
 import type {
+  AiInstance,
+  AnswerResult,
   CardId,
   CardInstance,
   Command,
   ExecuteResult,
   GameEvent,
   GameState,
+  HeroId,
   InstanceId,
-  ModelCard,
-  ModelInstance,
   PlayerId,
   PlayerState,
-  PromptCard,
+  Question,
 } from './types'
 
-/** 本体完整度初始值，归零判负。 */
-export const STARTING_INTEGRITY = 20
 /** 开局手牌数。黑客松阶段不做先后手补偿，双方一样。 */
-export const STARTING_HAND_SIZE = 3
-/** 算力上限的上限。 */
-export const MAX_COMPUTE = 10
+export const STARTING_HAND_SIZE = 5
+
+/** 没指定英雄时用谁。选英雄的界面还没做，所以双方默认都是格蕾丝·霍珀。 */
+const DEFAULT_HERO: HeroId = 'grace-hopper'
 
 export interface PlayerSetup {
   name: string
   /** 牌组，元素是卡牌定义 id，可以重复。 */
   deck: CardId[]
   /**
-   * 起始完整度，不填就是 STARTING_INTEGRITY。
-   * 留这个口子是为了测试和调试：把血量压到几点，几个回合内就能打到 GAME_OVER。
+   * 这一方的英雄，不填就是 DEFAULT_HERO。
+   * 暂时没有选英雄的界面，联机和测试房都不传这一项，双方都拿到默认英雄。
+   * 传 null 表示这一方不带英雄（现在只有测试会这么用）。
    */
-  integrity?: number
+  hero?: HeroId | null
 }
 
 export interface GameSetup {
-  /** 洗牌种子。同一个种子 + 同一串指令 = 同一场对局。 */
+  /** 洗牌种子。同一个种子 + 同一串指令 = 同一场对局，先手也由它掷出。 */
   seed: number
   players: [PlayerSetup, PlayerSetup]
+  /**
+   * 指定本局的题序，不填就把整个题库洗一遍。
+   * 留这个口子是给测试和调试用的：只塞一两道题，一两轮就能打到 GAME_OVER，
+   * 不必为了看结算界面把整局走完。传进来的顺序原样使用，不再洗。
+   */
+  questions?: Question[]
 }
 
 /**
- * 开一局：建好双方状态、洗牌、发起始手牌。
+ * 开一局：建好双方状态、洗牌、洗题序、抛硬币定先手、发起始手牌。
  *
- * 随机只出现在这里（洗牌）。牌堆洗完之后抽牌就是从末尾 pop，
+ * 随机只出现在这里。牌堆洗完之后抽牌就是从末尾 pop、题目按洗好的顺序逐轮取，
  * 所以 execute 全程没有随机数，GameState 也不需要保存 RNG 状态。
  */
 export function createGame(setup: GameSetup): ExecuteResult {
-  const rng = xoroshiro128plus(setup.seed)
+  const rng = mersenne(setup.seed)
   let seq = 0
 
   const makePlayer = (id: PlayerId, config: PlayerSetup): PlayerState => {
@@ -61,40 +73,47 @@ export function createGame(setup: GameSetup): ExecuteResult {
     return {
       id,
       name: config.name,
-      integrity: config.integrity ?? STARTING_INTEGRITY,
-      compute: 0,
-      computeMax: 0,
+      score: 0,
       hand: [],
       deck: shuffle(deck, rng),
       board: [],
       discard: [],
+      // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
+      // 英雄初始化不碰 rng，所以加了它也不影响下面抛硬币/洗牌那串随机数的顺序。
+      hero: config.hero === undefined ? DEFAULT_HERO : config.hero,
+      heroSkillUsed: false,
     }
   }
 
-  // 先手固定为 0 号座位：黑客松不做随机先后手，谁建房谁先手，规则更好解释。
-  // 要让某一方先手就把他排到 0 号座位上，不需要再开一个开关——
-  // dev 测试房就是这样把本端"我"固定成先手的。
-  const startingPlayer: PlayerId = 0
+  // 抛硬币定第一轮先手，之后每轮交换，所以只掷这一次。
+  // 放在洗牌之前是有意的：洗牌会按牌组长度推进 rng，先手要是排在后面，
+  // 换一副牌组或换一份题库就会掷出另一个结果，"同一个 seed 谁先手"这件事就不好复盘了。
+  const firstPlayer: PlayerId = uniformInt(rng, 0, 1) === 0 ? 0 : 1
   // 先建好两个玩家再组装 state：makePlayer 会推进 seq，
   // 写在对象字面量里的话 seq 那一行会按书写顺序取到发牌前的旧值。
   const players: [PlayerState, PlayerState] = [
     makePlayer(0, setup.players[0]),
     makePlayer(1, setup.players[1]),
   ]
+  const questions = setup.questions ? setup.questions.slice() : shuffle(QUESTION_POOL, rng)
+
   const state: GameState = {
-    turn: 0,
-    activePlayer: startingPlayer,
+    round: 1,
+    totalRounds: questions.length,
+    firstPlayer,
+    activePlayer: firstPlayer,
+    phase: 'play',
+    questions,
     players,
-    phase: 'playing',
     winner: null,
     seq,
   }
 
-  const events: GameEvent[] = [{ type: 'GAME_STARTED', startingPlayer }]
+  const events: GameEvent[] = [{ type: 'GAME_STARTED', firstPlayer }]
   for (const player of state.players) {
     drawCards(player, STARTING_HAND_SIZE, events)
   }
-  beginTurn(state, events)
+  announceRound(state, events)
   return { state, events }
 }
 
@@ -106,45 +125,39 @@ export function createGame(setup: GameSetup): ExecuteResult {
  */
 export function execute(state: GameState, command: Command): ExecuteResult {
   if (state.phase === 'finished') return reject(state, '对局已结束')
-  // 回合归属只管正常对局指令。DEBUG_* 是测试房用来随时摆场面的
-  // （比如在对手回合给自己塞张卡、替对手打出一张卡看结算动画），
-  // 一律要求"轮到你"就没法用了，所以这里把它们排除在检查之外。
-  if (
-    (command.type === 'PLAY_CARD' || command.type === 'END_TURN') &&
-    command.player !== state.activePlayer
-  ) {
-    return reject(state, '不是你的回合')
-  }
 
   switch (command.type) {
     case 'PLAY_CARD':
-      return playCard(state, command.player, command.instanceId, command.targetInstanceId)
-    case 'END_TURN':
-      return endTurn(state, command.player)
+      if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
+      if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
+      return playCard(state, command.player, command.instanceId)
+    case 'END_PLAY':
+      if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
+      if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
+      return endPlay(state)
+    case 'SUBMIT_ANSWERS':
+      if (state.phase !== 'quiz') return reject(state, '现在不是答题阶段')
+      return submitAnswers(state, command.results)
+    // DEBUG_ADD_CARD / DEBUG_REMOVE_CARD 不限阶段：测试房要能在答题阶段先把手牌摆好。
     case 'DEBUG_ADD_CARD':
       return debugAddCard(state, command.player, command.cardId)
     case 'DEBUG_REMOVE_CARD':
       return debugRemoveCard(state, command.player, command.instanceId)
     case 'DEBUG_PLAY_CARD':
-      return playCard(state, command.player, command.instanceId, command.targetInstanceId, true)
-    case 'DEBUG_REFILL_COMPUTE':
-      return debugRefillCompute(state, command.player)
+      // 和 PLAY_CARD 只差"轮到谁"这一条检查：测试房要能替对手出牌看结算动画。
+      if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
+      return playCard(state, command.player, command.instanceId)
+    case 'DEBUG_SKIP_TO_QUIZ':
+      if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
+      return skipToQuiz(state)
   }
 }
 
 /**
  * 打出一张手牌。
- *
- * free = true（DEBUG_PLAY_CARD）时不检查算力、也不扣算力和发 COMPUTE_CHANGED，
- * 除此之外和正常出牌走完全同一套结算，免得调试路径和真实路径慢慢跑偏。
+ * 本迭代出牌没有费用、不选目标，一轮内想打几张打几张。
  */
-function playCard(
-  state: GameState,
-  playerId: PlayerId,
-  instanceId: InstanceId,
-  targetInstanceId?: InstanceId,
-  free = false,
-): ExecuteResult {
+function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId): ExecuteResult {
   const next = clone(state)
   const player = next.players[playerId]
   const handIndex = player.hand.findIndex((c) => c.instanceId === instanceId)
@@ -152,156 +165,167 @@ function playCard(
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
-  if (!free && card.cost > player.compute) return reject(state, '算力不足')
+  player.hand.splice(handIndex, 1)
 
   const events: GameEvent[] = []
-  player.hand.splice(handIndex, 1)
-  if (!free) {
-    player.compute -= card.cost
-    events.push({
-      type: 'COMPUTE_CHANGED',
-      player: playerId,
-      compute: player.compute,
-      computeMax: player.computeMax,
-    })
-  }
-
-  if (card.kind === 'model') {
-    deployModel(next, playerId, instance, card, events)
+  if (card.kind === 'ai') {
+    // AI 牌进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
+    // 罚下时才能原样塞回弃牌堆。
+    const ai: AiInstance = {
+      instanceId: instance.instanceId,
+      cardId: card.id,
+      owner: playerId,
+    }
+    player.board.push(ai)
+    events.push({ type: 'AI_DEPLOYED', player: playerId, ai })
   } else {
-    const resolved = resolvePrompt(
-      next,
-      playerId,
-      card,
-      instance.instanceId,
-      targetInstanceId,
-      events,
-    )
-    // 指定了目标却找不到，说明客户端拿的是过期状态，整条指令作废。
-    if (!resolved) return reject(state, '目标不存在')
     player.discard.push(instance)
+    // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
+    // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
+    events.push({
+      type: 'SKILL_PLAYED',
+      player: playerId,
+      cardId: card.id,
+      instanceId: instance.instanceId,
+    })
+    // 格蕾丝·霍珀的 Debug：抵消对方本局打出的第一张技能牌。
+    // 牌本身照常打出、照常进弃牌堆，作废的只是效果——所以这段排在 SKILL_PLAYED 之后，
+    // 客户端才能先演出牌、再演抵消。
+    //
+    // 技能牌眼下本来就没有任何实际效果，这里没什么可拦的；
+    // 将来给技能牌实现效果时，效果必须写在"没被抵消"的分支里，否则 Debug 只剩一层动画。
+    const foe = next.players[other(playerId)]
+    if (foe.hero === 'grace-hopper' && !foe.heroSkillUsed) {
+      foe.heroSkillUsed = true
+      events.push({
+        type: 'SKILL_CANCELED',
+        player: playerId,
+        by: foe.id,
+        heroId: foe.hero,
+        cardId: card.id,
+        instanceId: instance.instanceId,
+      })
+    }
   }
-
-  checkGameOver(next, events)
   return { state: next, events }
 }
 
-function deployModel(
-  state: GameState,
-  playerId: PlayerId,
-  instance: CardInstance,
-  card: ModelCard,
-  events: GameEvent[],
-): void {
-  const model: ModelInstance = {
-    instanceId: instance.instanceId,
-    cardId: card.id,
-    owner: playerId,
-    power: card.power,
-    integrity: card.integrity,
-    weaknesses: { ...card.weaknesses },
+/** 结束本方出牌：先手发就轮到后手，后手发就进答题阶段。 */
+function endPlay(state: GameState): ExecuteResult {
+  const next = clone(state)
+  if (next.activePlayer === next.firstPlayer) {
+    next.activePlayer = other(next.firstPlayer)
+    return { state: next, events: [{ type: 'PLAY_TURN_STARTED', player: next.activePlayer }] }
   }
-  state.players[playerId].board.push(model)
-  events.push({ type: 'MODEL_DEPLOYED', player: playerId, model })
+  return { state: next, events: enterQuiz(next) }
+}
+
+/** 测试房：跳过双方剩下的出牌，直接进答题阶段。 */
+function skipToQuiz(state: GameState): ExecuteResult {
+  const next = clone(state)
+  return { state: next, events: enterQuiz(next) }
+}
+
+/** 进答题阶段：揭晓本轮题目全文（含正确答案）。 */
+function enterQuiz(state: GameState): GameEvent[] {
+  state.phase = 'quiz'
+  return [{ type: 'QUESTION_REVEALED', question: currentQuestion(state) }]
 }
 
 /**
- * 结算提示卡。目标找不到时返回 false，由调用方作废整条指令。
+ * 结算本轮答题。
  *
- * instanceId 是打出的那张手牌自己的实例 id，只是原样带进 PROMPT_RESOLVED 事件里，
- * 不参与结算：客户端要靠它在出牌方的手牌里找到起飞的那张牌（见 PROMPT_RESOLVED 的说明）。
+ * results 由房主/本地 driver 在进入答题阶段后一次性生成，覆盖场上每一个 AI；
+ * 对不上就整条拒绝——那说明 driver 拿的是过期状态，宁可什么都不做也别结算出错的局面。
  */
-function resolvePrompt(
-  state: GameState,
-  playerId: PlayerId,
-  card: PromptCard,
-  instanceId: InstanceId,
-  targetInstanceId: InstanceId | undefined,
-  events: GameEvent[],
-): boolean {
-  const opponentId = other(playerId)
-  const opponent = state.players[opponentId]
-
-  if (targetInstanceId === undefined) {
-    // 不指定目标就是直击本体：本体没有弱点画像，只吃基础伤害。
-    opponent.integrity -= card.damage
-    events.push({
-      type: 'PROMPT_RESOLVED',
-      player: playerId,
-      cardId: card.id,
-      instanceId,
-      weakness: card.targetWeakness,
-      targetInstanceId: null,
-      damage: card.damage,
-    })
-    events.push({
-      type: 'PLAYER_DAMAGED',
-      player: opponentId,
-      amount: card.damage,
-      integrity: opponent.integrity,
-    })
-    return true
-  }
-
-  const index = opponent.board.findIndex((m) => m.instanceId === targetInstanceId)
-  if (index < 0) return false
-  const target = opponent.board[index]!
-
-  // 核心机制：打中弱点维度越高的模型越疼，逼玩家去读对手的弱点画像。
-  const damage = card.damage + target.weaknesses[card.targetWeakness]
-  target.integrity -= damage
-  events.push({
-    type: 'PROMPT_RESOLVED',
-    player: playerId,
-    cardId: card.id,
-    instanceId,
-    weakness: card.targetWeakness,
-    targetInstanceId: target.instanceId,
-    damage,
-  })
-  events.push({
-    type: 'MODEL_DAMAGED',
-    instanceId: target.instanceId,
-    amount: damage,
-    integrity: target.integrity,
-  })
-  if (target.integrity <= 0) {
-    opponent.board.splice(index, 1)
-    opponent.discard.push({
-      instanceId: target.instanceId,
-      cardId: target.cardId,
-      owner: opponentId,
-    })
-    events.push({ type: 'MODEL_DESTROYED', instanceId: target.instanceId, owner: opponentId })
-  }
-  return true
-}
-
-function endTurn(state: GameState, playerId: PlayerId): ExecuteResult {
+function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult {
   const next = clone(state)
-  const events: GameEvent[] = [{ type: 'TURN_ENDED', player: playerId }]
-  next.activePlayer = other(playerId)
-  beginTurn(next, events)
+  const onBoard = new Set(
+    [...next.players[0].board, ...next.players[1].board].map((a) => a.instanceId),
+  )
+  // 用 delete 的返回值一次挡掉三种情况：混进不在场的、重复提交同一个、漏掉在场的
+  // （前两种当场为 false，第三种靠数量相等推出来）。
+  if (results.length !== onBoard.size) return reject(state, '答题结果与场上 AI 不符')
+  for (const result of results) {
+    if (!onBoard.delete(result.instanceId)) return reject(state, '答题结果与场上 AI 不符')
+  }
+
+  const events: GameEvent[] = []
+  for (const result of results) {
+    // 上面刚校验过 results 和场上一一对应，所以这里必定找得到人。
+    const owner = next.players.find((p) =>
+      p.board.some((a) => a.instanceId === result.instanceId),
+    )!
+    const index = owner.board.findIndex((a) => a.instanceId === result.instanceId)
+    const ai = owner.board[index]!
+    events.push({
+      type: 'AI_ANSWERED',
+      instanceId: ai.instanceId,
+      owner: ai.owner,
+      correct: result.correct,
+      answerText: result.answerText,
+    })
+    if (!result.correct) {
+      owner.board.splice(index, 1)
+      owner.discard.push({
+        instanceId: ai.instanceId,
+        cardId: ai.cardId,
+        owner: ai.owner,
+      })
+      events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
+    }
+  }
+
+  // 计分：罚下之后各自数一遍还站着几个 AI，就是本轮拿多少分。
+  // 场上一个 AI 都没有也照样走完剩下的轮次，只是这轮拿 0 分。
+  const gains: [number, number] = [next.players[0].board.length, next.players[1].board.length]
+  next.players[0].score += gains[0]
+  next.players[1].score += gains[1]
+  const scores: [number, number] = [next.players[0].score, next.players[1].score]
+  events.push({ type: 'ROUND_SCORED', gains, scores })
+
+  if (next.round >= next.totalRounds) {
+    next.phase = 'finished'
+    next.winner = scores[0] === scores[1] ? 'draw' : scores[0] > scores[1] ? 0 : 1
+    events.push({ type: 'GAME_OVER', winner: next.winner })
+    return { state: next, events }
+  }
+
+  next.round += 1
+  next.firstPlayer = other(next.firstPlayer)
+  next.activePlayer = next.firstPlayer
+  next.phase = 'play'
+  // 第 2 轮起每轮开始双方各补一张，起手 5 张之外的牌都是这么来的。
+  for (const player of next.players) {
+    drawCards(player, 1, events)
+  }
+  announceRound(next, events)
   return { state: next, events }
 }
 
-/** 当前玩家的回合开始：涨算力、回满、抽一张。 */
-function beginTurn(state: GameState, events: GameEvent[]): void {
-  state.turn += 1
-  const player = state.players[state.activePlayer]
-  player.computeMax = Math.min(player.computeMax + 1, MAX_COMPUTE)
-  player.compute = player.computeMax
-  events.push({ type: 'TURN_STARTED', player: player.id, turn: state.turn })
+/** 宣告新一轮开始并让先手行动。开局和每轮换手都走这里，保证两处事件序一致。 */
+function announceRound(state: GameState, events: GameEvent[]): void {
   events.push({
-    type: 'COMPUTE_CHANGED',
-    player: player.id,
-    compute: player.compute,
-    computeMax: player.computeMax,
+    type: 'ROUND_STARTED',
+    round: state.round,
+    firstPlayer: state.firstPlayer,
+    category: currentQuestion(state).category,
   })
-  drawCards(player, 1, events)
+  events.push({ type: 'PLAY_TURN_STARTED', player: state.firstPlayer })
 }
 
-/** 抽牌。牌堆空了就是抽不到，不做疲劳伤害——黑客松阶段牌组够长，先不管。 */
+/**
+ * 本轮的题。
+ * round 由引擎自己推进且永远不超过 totalRounds，取不到只可能是外部塞了一份坏状态，
+ * 属于数据错误而不是玩家操作能触发的情况，所以直接抛错而不是回 COMMAND_REJECTED。
+ */
+function currentQuestion(state: GameState): Question {
+  const question = state.questions[state.round - 1]
+  if (!question) throw new Error(`第 ${state.round} 轮没有对应的题目`)
+  return question
+}
+
+/** 抽牌。牌堆空了就是抽不到，不做疲劳伤害——牌组比一局用得到的张数长，先不管。 */
 function drawCards(player: PlayerState, count: number, events: GameEvent[]): void {
   for (let i = 0; i < count; i++) {
     const card = player.deck.pop()
@@ -364,36 +388,6 @@ function debugRemoveCard(
   return {
     state: next,
     events: [{ type: 'CARD_REMOVED', player: playerId, instanceId: removed.instanceId }],
-  }
-}
-
-/** 测试房：把算力和算力上限一起拉满，省掉为了测高费卡连过十几个回合。 */
-function debugRefillCompute(state: GameState, playerId: PlayerId): ExecuteResult {
-  const next = clone(state)
-  const player = next.players[playerId]
-  player.computeMax = MAX_COMPUTE
-  player.compute = MAX_COMPUTE
-  return {
-    state: next,
-    events: [
-      {
-        type: 'COMPUTE_CHANGED',
-        player: playerId,
-        compute: player.compute,
-        computeMax: player.computeMax,
-      },
-    ],
-  }
-}
-
-function checkGameOver(state: GameState, events: GameEvent[]): void {
-  for (const player of state.players) {
-    if (player.integrity <= 0) {
-      state.phase = 'finished'
-      state.winner = other(player.id)
-      events.push({ type: 'GAME_OVER', winner: state.winner })
-      return
-    }
   }
 }
 

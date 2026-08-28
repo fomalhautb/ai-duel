@@ -36,6 +36,8 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
   const view = useMatch(driver)
 
   // 测试局不记胜场：那是随手摆出来的局面，不该刷胜场和抽卡。
+  // winner 还可能是 'draw'（总分打平）或 null（没打完），两种都不是胜利，
+  // 所以这里判的是"和本方座位号相等"，不是"不等于对方"。
   const won = !testMode && view.status === 'finished' && view.state?.winner === view.seat
   useEffect(() => {
     if (!won || recordedMatches.has(driver)) return

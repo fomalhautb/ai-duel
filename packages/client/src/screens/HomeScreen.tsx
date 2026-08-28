@@ -21,12 +21,17 @@
  *
  * 整页的图会先全部加载完再一次性亮出来，中途只显示加载动画（见下面的 HomeScreen）。
  *
- * 素材分辨率：public/home/ 下的整幅切图都是 1x（1672×941），和设计稿等大。
- * 舞台要撑满视口，所以这些图在高分屏上一律被放大——1440×810 视口配 DPR 2 时舞台宽 1439 CSS px，
- * 要铺满 2878 个物理像素，等于放大 1.72 倍，屏幕越大倍数越高（2560 宽的屏上超过 3 倍）。
- * 放大用的插值会把边缘抹平，这就是画面发糊的来源。
- * 现在的图在导出时都做过一遍锐化补偿（半径 0.8px、力度 70%、阈值 3），让放大后的边缘不那么平，
- * 但锐化补不回丢掉的分辨率。真要清晰只能换 2x 素材：按 3344×1882 重新导出、同名覆盖就行，
+ * 素材分辨率：大部分图已经换成 2x——七张人物抠图（cast-*.webp）、夜空底 home-bg、桌面弧 home-table
+ * 都是 3344×1882（设计稿 1672×941 的两倍），开始按钮的牌匾 home-plaque 是单独一小块，
+ * 按它自己 1x 尺寸 521×125 的两倍导出成 1042×250。这几张在高分屏上基本不再靠插值撑大。
+ * 全部统一成 webp 是因为 2x 存 PNG 太大：桌面弧那张 PNG 要 5.3MB，webp 只要 87KB。
+ * 还是 1x 的只剩前景道具 home-props（1672×941，和设计稿等大；它只是从 PNG 换成 webp，分辨率没变）。
+ * 舞台要撑满视口，所以它在高分屏上仍被放大：1440×810 视口配 DPR 2 时舞台宽 1439 CSS px，
+ * 要铺满 2878 个物理像素，等于放大 1.72 倍，屏幕越大倍数越高（2560 宽的屏上超过 3 倍），
+ * 放大用的插值会把边缘抹平，这就是这一层发糊的来源。
+ * 它在导出时做过一遍锐化补偿（半径 0.8px、力度 70%、阈值 3），让放大后的边缘不那么平，
+ * 但锐化补不回丢掉的分辨率——这套参数现在只对 home-props 这一张还有意义。
+ * 真要清晰只能它也换 2x：按 3344×1882 重新导出、同名覆盖就行，
  * 代码一行都不用改——所有图层都是 width/height: 100%，多大的图都按舞台尺寸铺满。
  *
  * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
@@ -42,7 +47,7 @@ import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
-import { placeholderArtFor } from '../ui/cardArt'
+import { cardArtFor } from '../ui/cardArt'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
@@ -90,14 +95,11 @@ const SEATS: Seat[] = [
     rot: -9,
     card: {
       id: 'home-chatgpt',
-      kind: 'model',
+      kind: 'ai',
       name: 'ChatGPT',
-      skillName: '通识问答',
-      cost: 4,
-      power: 7,
-      integrity: 6,
+      model: 'GPT',
       text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
     },
   },
   {
@@ -106,14 +108,11 @@ const SEATS: Seat[] = [
     rot: -3,
     card: {
       id: 'home-claude',
-      kind: 'model',
+      kind: 'ai',
       name: 'Claude',
-      skillName: '长文推敲',
-      cost: 5,
-      power: 6,
-      integrity: 8,
+      model: 'Claude',
       text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
-      backText: '占位背面：稀有度 ★★★ · 这里之后会放模型的六维弱点画像。',
+      backText: '占位背面：稀有度 ★★★ · 这里之后会放这张卡的更多信息。',
     },
   },
   {
@@ -122,14 +121,11 @@ const SEATS: Seat[] = [
     rot: 3,
     card: {
       id: 'home-deepseek',
-      kind: 'model',
+      kind: 'ai',
       name: 'DeepSeek',
-      skillName: '逻辑推演',
-      cost: 3,
-      power: 8,
-      integrity: 5,
+      model: 'DeepSeek',
       text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
     },
   },
   {
@@ -138,14 +134,11 @@ const SEATS: Seat[] = [
     rot: 9,
     card: {
       id: 'home-gemini',
-      kind: 'model',
+      kind: 'ai',
       name: 'Gemini',
-      skillName: '多模态理解',
-      cost: 4,
-      power: 7,
-      integrity: 7,
+      model: 'Gemini',
       text: '占位描述：看得见听得见，就是记性差了点。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放模型的六维弱点画像。',
+      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
     },
   },
 ]
@@ -287,7 +280,7 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
  * 首页要用到的全部图片：舞台各层 + 匾额按钮的背景图 + 四张展示卡的插画。
  * 全部加载完之前首页不上场（见紧跟其后的 HomeScreen）。
  *
- * 卡面插画走 placeholderArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
+ * 卡面插画走 cardArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
  * 四张卡有两张会分到同一张图，Set 去重一下，别为同一个地址排两次队。
  *
  * index.html 里给 /home/ 下这几张写了 <link rel="preload">，那份清单要跟这里对得上：
@@ -297,13 +290,13 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
  */
 const HOME_ASSETS = Array.from(
   new Set([
-    '/home/home-bg.jpg',
+    '/home/home-bg.webp',
     ...CAST.map((member) => `/home/${member.file}.webp`),
-    ...CAST_OCCLUDERS.map((file) => `/home/${file}.png`),
+    ...CAST_OCCLUDERS.map((file) => `/home/${file}.webp`),
     // 匾额是「开始游戏」按钮的 CSS 背景图（见 styles.css 的 .home__start），
     // 页面里没有对应的 <img>，但同样得等它，否则按钮会先空着一块。
-    '/home/home-plaque.png',
-    ...SEATS.map((seat) => placeholderArtFor(seat.card.id)),
+    '/home/home-plaque.webp',
+    ...SEATS.map((seat) => cardArtFor(seat.card.id)),
   ]),
 )
 
@@ -354,7 +347,7 @@ function HomeStage() {
     let alive = true
     const srcs = [
       ...CAST.map((member) => `/home/${member.file}.webp`),
-      ...CAST_OCCLUDERS.map((file) => `/home/${file}.png`),
+      ...CAST_OCCLUDERS.map((file) => `/home/${file}.webp`),
     ]
     void loadCastAlphaMaps(srcs).then((maps) => {
       if (!alive) return
@@ -523,7 +516,7 @@ function HomeStage() {
         onPointerMove={handleStagePointerMove}
         onPointerLeave={handleStagePointerLeave}
       >
-        <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
+        <img className="home__layer" src="/home/home-bg.webp" alt="" draggable={false} />
 
         <div className="home__cards" ref={cardsRef}>
           {SEATS.map((seat) => (
@@ -542,7 +535,7 @@ function HomeStage() {
                 <div className="home__card-tilt">
                   {/* 里面是整张 150×210 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
                   <div className="home__card-inner">
-                    <HandCardFace card={seat.card} showCombatStats={false} />
+                    <HandCardFace card={seat.card} />
                   </div>
                 </div>
               </div>
@@ -579,7 +572,7 @@ function HomeStage() {
           <img
             key={file}
             className="home__layer"
-            src={`/home/${file}.png`}
+            src={`/home/${file}.webp`}
             alt=""
             draggable={false}
           />
@@ -610,19 +603,22 @@ function HomeStage() {
           <span className="home__start-label">开始游戏</span>
         </button>
 
-        {/* 英雄页尚未实现；牌组与图鉴复用对局卡面组件。 */}
+        {/*
+          英雄 / 牌组 / 图鉴还没有对应页面。这里刻意不用 <button> 或 <a>：
+          做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+        */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
             英雄
           </span>
           <Sparkle className="home__nav-dot" />
-          <button type="button" className="home__nav-item home__nav-link" onClick={() => navigate('/deck')}>
+          <span className="home__nav-item" title="敬请期待">
             牌组
-          </button>
+          </span>
           <Sparkle className="home__nav-dot" />
-          <button type="button" className="home__nav-item home__nav-link" onClick={() => navigate('/card')}>
+          <span className="home__nav-item" title="敬请期待">
             图鉴
-          </button>
+          </span>
         </nav>
 
         <span className="home__settings" title="敬请期待">

@@ -16,6 +16,7 @@ import { MatchScreen } from './screens/MatchScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
 import { CardGallery } from './dev/CardGallery'
+import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 
 export function App() {
@@ -26,13 +27,15 @@ export function App() {
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
+        {/* 开发页导航：下面这几个开发页正式流程里都没有入口，这一页把它们列在一处。 */}
+        <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
         {/* 组建牌组的交互 demo 页：卡池用的是 screens/deckDemoCards.ts 里那批假卡，
             选出来的牌组不落盘也进不了对局，只用来跑通选卡的手势和版式。真卡池落地后重做。 */}
         <Route path="/deck" component={DeckScreen} />
-        {/* 卡牌图鉴 / 卡面调试页：把全部卡牌按真实尺寸摆开，改卡面排版时用来一眼对照，
-            也方便和协作的 AI 隔着屏幕指同一张卡。 */}
+        {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
+            加全部数值，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />
         {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，

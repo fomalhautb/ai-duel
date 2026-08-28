@@ -254,20 +254,29 @@ body,
   top: 15%;
   right: 0;
   left: 0;
-  margin: 0;
+  /* 收成刚好包住字：左右各 0 加 auto 外边距照样居中，但盒子从整个舞台宽收到文字宽。
+     下面那道手绘滤镜的计算区域是按盒子算的（还要外扩 40%），
+     铺满舞台的话等于每次重绘都白算两千多像素宽的一圈空白噪声。 */
+  width: fit-content;
+  margin: 0 auto;
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 7.3cqi;
-  /* 600 比原来的 700 收一档：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
-     上限还是 700——Noto Serif SC 只引到 700，再往上写 800/900 不会更粗，
-     只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
-  font-weight: 600;
+  /* 一路从 700 收到 500：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
+     中英两套字体都必须有这一档才行，所以 index.html 里 EB Garamond 也引了 500，
+     否则「AI」会掉回 400，和前面的中文粗细对不上。
+     下限到 300 为止（Noto Serif SC 引到 300），上限 700；写出这个范围浏览器会自己
+     拉出一份伪粗 / 伪细，笔画会发糊。 */
+  font-weight: 500;
   line-height: 1;
   text-align: center;
   /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
   text-shadow:
     0.24cqi 0.3cqi 0 rgb(20 26 34 / 60%),
     0 0.5cqi 1.1cqi rgb(10 14 20 / 50%);
+  /* 和 /design 页同一套手绘抖动（定义见 HandDrawnFilterDefs）。这一页上的文字类 UI
+     各用一个不同 seed 的滤镜：同一个 id 抖出来的噪声是一样的，几处一起用会歪成同一条线。 */
+  filter: url('#ai-duel-rough-frame');
 }
 
 .home__title-bang {
@@ -298,6 +307,7 @@ body,
      不用负 margin 收掉的话，整行看起来是偏左的。 */
   margin-right: -0.5em;
   letter-spacing: 0.5em;
+  filter: url('#ai-duel-rough-alt');
 }
 
 .home__flourish {
@@ -317,9 +327,11 @@ body,
   background: linear-gradient(to left, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
+/* 细横线不套滤镜：它只有 1px 高，位移量比线本身还大，会被抖成一串断点。 */
 .home__flourish-star {
   width: 1.5cqi;
   height: 1.5cqi;
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__cards {
@@ -431,6 +443,10 @@ body,
   /* 两处补偿：横向抵消末字后面多出的一格字距，取字距的一半正好把整行推回视觉居中；
      纵向是因为切图带着下缘的投影，几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
   transform: translate(0.14em, -0.5cqi);
+  /* 和 /design 页的匾额按钮 .plaque-button__label 用同一个滤镜，两处按钮的字保持一种抖法。
+     滤镜只加在文字上，不加在按钮那张铜牌切图上：切图边缘是照着背景里桌面的凹槽对齐的，
+     一歪就和凹槽错开了。 */
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__start:hover {
@@ -470,8 +486,12 @@ body,
 /* 三个入口都还没有页面，所以只有"能读"没有"能按"：光标保持默认，别做出可点的样子。 */
 .home__nav-item {
   margin-right: -0.24em;
+  /* 上下留白不是为了排版（flex 居中，撑高了三项一起居中，位置不动），是给滤镜留计算区域：
+     区域按盒子外扩 20% 算，紧贴文字的话 hover 那圈 1.2cqi 的光晕会被直接切掉一条硬边。 */
+  padding: 0.6em 0;
   letter-spacing: 0.24em;
   cursor: default;
+  filter: url('#ai-duel-rough-frame');
   transition:
     color 0.16s ease,
     text-shadow 0.16s ease;
@@ -486,6 +506,7 @@ body,
   width: 1.1cqi;
   height: 1.1cqi;
   color: rgb(232 198 159 / 70%);
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__settings {
@@ -502,6 +523,8 @@ body,
   font-size: 1.8cqi;
   letter-spacing: 0.16em;
   cursor: default;
+  /* 齿轮和"设置"两个字一起套一层，比各套一层少算一遍噪声。 */
+  filter: url('#ai-duel-rough-button');
   transition: color 0.16s ease;
 }
 

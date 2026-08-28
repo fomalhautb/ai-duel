@@ -1355,52 +1355,79 @@ body:has(.battle) {
   pointer-events: none;
 }
 
-/* 空占位：撑住三栏网格的左列宽度，让中间的导航保持视觉居中（见 BattleTopBar.tsx 里的说明） */
+/* 空占位：撑住三栏网格的左列宽度，让中间那块保持视觉居中（见 BattleTopBar.tsx 里的说明） */
 .battle-topbar__brand {
   min-width: 0;
 }
 
-.battle-topbar__nav {
-  display: flex;
-  align-items: stretch;
-  gap: clamp(12px, 2vw, 38px);
+/*
+ * 顶栏正中的「第几轮 + 比分」。
+ * 用 grid 而不是 flex：两块字号差得多（比分数字 30px、轮次 18px），要按基线对齐才不歪，
+ * 而 flex 的 align-items: baseline 会把整行顶到顶栏上沿；grid 的 align-content 和
+ * align-items 各管一件事，才能同时做到「整块垂直居中」和「块之间按基线对齐」。
+ */
+.battle-topbar__status {
+  display: grid;
+  grid-auto-flow: column;
+  align-content: center;
+  align-items: baseline;
+  justify-content: center;
+  gap: clamp(14px, 1.8vw, 28px);
+  min-width: 0;
+  white-space: nowrap;
 }
 
-.battle-topbar__tab {
-  position: relative;
-  min-width: 76px;
-  padding: 3px 14px 0;
-  border: 0;
-  background: transparent;
+.battle-topbar__round {
   color: #53525a;
-  font: inherit;
   font-size: 18px;
+  /* text-indent 抵掉最后一个字后面多出来的那格字距，这块才是真的居中。 */
   letter-spacing: 0.18em;
   text-indent: 0.18em;
-  cursor: pointer;
 }
 
-.battle-topbar__tab::after {
-  content: '';
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  left: 8px;
-  height: 2px;
-  background: var(--battle-ink);
-  box-shadow: 0 2px 0 rgb(255 255 255 / 55%);
-  transform: scaleX(0);
-  transition: transform 160ms ease;
-}
-
-.battle-topbar__tab:hover::after,
-.battle-topbar__tab.is-active::after {
-  transform: scaleX(1);
-}
-
-.battle-topbar__tab.is-active {
+.battle-topbar__round-num {
   color: var(--battle-ink);
+  font-size: 24px;
   font-weight: 600;
+  letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-topbar__diamond {
+  /* 菱形没有文字基线，跟着基线对齐会贴到字的下沿，这里单独改成居中。 */
+  align-self: center;
+  width: 11px;
+  height: 11px;
+  color: var(--battle-line-dark);
+  opacity: 0.72;
+  fill: currentColor;
+  /* 这里不套 #ai-duel-rough-icon：那个滤镜的位移量按 3.2px 算，
+     加在 11px 的菱形上会把它揉成一团糊，只有大一点的线稿图标才吃得住。 */
+}
+
+.battle-topbar__score {
+  color: #53525a;
+  font-size: 17px;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+}
+
+.battle-topbar__score-num {
+  /* JSX 里几个 span 之间没有空格，间距全靠这里的外边距。 */
+  margin: 0 7px;
+  color: var(--battle-navy);
+  font-size: 30px;
+  font-weight: 700;
+  /* 等宽数字：比分从个位跳到两位时顶栏不会跟着抖一下。 */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+}
+
+.battle-topbar__score-colon {
+  margin: 0 1px;
+  color: var(--battle-ink-muted);
+  font-size: 22px;
+  letter-spacing: normal;
 }
 
 .battle-topbar__actions {
@@ -1695,7 +1722,8 @@ body:has(.battle) {
   font-size: 12px;
 }
 
-/* 右侧栏上半块：轮次、比分、下一题类别、状态行，自上而下一列。 */
+/* 右侧栏上半块：下一题类别、状态行，自上而下一列。
+   轮次和比分不放这儿，顶栏正中已经有一份。 */
 .battle__turn {
   display: flex;
   flex-direction: column;
@@ -1703,19 +1731,6 @@ body:has(.battle) {
   gap: 4px;
   margin-top: auto;
   text-align: center;
-}
-
-.battle__turn-round {
-  color: var(--battle-ink);
-  font-size: 20px;
-  letter-spacing: 0.14em;
-}
-
-.battle__turn-score {
-  color: var(--battle-navy);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
 }
 
 .battle__turn-next {
@@ -2993,8 +3008,13 @@ body:has(.battle) {
     grid-template-columns: minmax(180px, 1fr) auto minmax(120px, 1fr);
   }
 
-  .battle-topbar__nav {
-    gap: 6px;
+  .battle-topbar__status {
+    gap: 12px;
+  }
+
+  .battle-topbar__score-num {
+    margin: 0 5px;
+    font-size: 26px;
   }
 
   .battle-topbar__actions {
@@ -3031,6 +3051,14 @@ body:has(.battle) {
   .battle__board {
     padding-top: 48px;
     padding-bottom: 12px;
+  }
+
+  .battle-topbar__round-num {
+    font-size: 21px;
+  }
+
+  .battle-topbar__score-num {
+    font-size: 26px;
   }
 
   .battle__sidebar-frame--actions .ornate-frame__content {

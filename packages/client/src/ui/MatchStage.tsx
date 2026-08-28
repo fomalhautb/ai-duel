@@ -1580,7 +1580,7 @@ function BattleField({
   return (
     <div className="battle">
       <HandDrawnFilterDefs />
-      <BattleTopBar />
+      <BattleTopBar status={{ round: state.round, myScore: me.score, foeScore: foe.score }} />
 
       <div className="battle__layout">
         <aside className="battle__sidebar battle__sidebar--left" aria-label="双方状态">
@@ -1649,12 +1649,6 @@ function BattleField({
         <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
             <div className="battle__turn">
-              <span className="battle__turn-round">
-                第 {state.round}/{state.totalRounds} 轮
-              </span>
-              <span className="battle__turn-score">
-                你 {me.score} : {foe.score} 对方
-              </span>
               {/*
                 只报类别不报题面：题目全文要到答题阶段才揭晓，这里是"下一题考什么方向"。
                 终局后没有下一题了，整行不渲染——state.round 停在最后一轮，

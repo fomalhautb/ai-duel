@@ -8,8 +8,10 @@
  * 它不写 localStorage，所以刷新页面这局就没了——和架构文档"不存对局"一致。
  */
 
+import { useEffect } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
+import { startBackgroundPreload } from './ui/backgroundPreload'
 import { HomeScreen } from './screens/HomeScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
@@ -20,7 +22,12 @@ import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 
+/** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
+const IDLE_FALLBACK_MS = 1000
+
 export function App() {
+  useBackgroundPreload()
+
   return (
     <MatchSessionProvider>
       <Switch>
@@ -49,6 +56,45 @@ export function App() {
       </Switch>
     </MatchSessionProvider>
   )
+}
+
+/**
+ * 挑一个不打扰首页的时机，开始后台预加载剩下的素材。
+ *
+ * 为什么要等 load 事件：index.html 里给首页的关键图写了 <link rel="preload">，
+ * 玩家这会儿正盯着 loader 等它们。这时候再插进去几十张后台图，会和它们抢同一批连接，
+ * 首页反而更晚出来。load 事件的含义正好是"页面自己的资源都下完了"，从这一刻起带宽才是空的。
+ *
+ * 再等一个 idle：load 之后紧接着是首页的入场动画和 GSAP 初始化，
+ * 挑浏览器闲下来的那一帧再开始，图片解码就不会插在动画中间掉帧。
+ */
+function useBackgroundPreload(): void {
+  useEffect(() => {
+    let cancel: (() => void) | undefined
+
+    function schedule(): void {
+      // requestIdleCallback 在 Safari 16.4 之前没有，退回定时器等一秒——
+      // 差别只是开始得早一点晚一点，反正后面的加载本来就是慢慢来的。
+      if (typeof requestIdleCallback === 'function') {
+        const handle = requestIdleCallback(() => startBackgroundPreload())
+        cancel = () => cancelIdleCallback(handle)
+      } else {
+        const handle = window.setTimeout(startBackgroundPreload, IDLE_FALLBACK_MS)
+        cancel = () => window.clearTimeout(handle)
+      }
+    }
+
+    // 从别的页面回到这里时 App 早就挂载过了，load 事件不会再来，所以要先查一次状态。
+    if (document.readyState === 'complete') {
+      schedule()
+    } else {
+      window.addEventListener('load', schedule, { once: true })
+      cancel = () => window.removeEventListener('load', schedule)
+    }
+
+    // schedule 跑过之后 cancel 会被换成取消 idle 回调的那个，load 监听器 once 已经自己摘了。
+    return () => cancel?.()
+  }, [])
 }
 
 function NotFound() {

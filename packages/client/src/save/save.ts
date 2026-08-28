@@ -11,10 +11,13 @@ import type { CardId } from '@ai-duel/core'
 /**
  * key 带版本号。存档结构要改时直接换成下一个版本号：旧数据读不到就回落成新号，
  * 不用写迁移代码（项目不做向后兼容）。
- * v4 存的卡 id 全部来自当前卡池（AI 卡 + 技能卡两类，见 core 的 CARDS）；
- * 英雄不进牌组也不进收藏，所以这里不存英雄。
+ * v2 → v3 删掉了 tutorialDone（新手教程整个下线了）。
+ * v3 → v4 是卡池整个换了一批（模型卡/提示卡 → AI 牌/技能牌），旧存档里的卡 id 一个都不剩。
+ * v4 → v5 卡 id 全部换名（agent-* → ai-*），术语统一为英雄牌/AI 牌/技能牌，旧存档直接作废。
+ * 存的卡 id 全部来自当前卡池（AI 牌 + 技能牌两类，见 core 的 CARDS）；
+ * 英雄牌不进牌组也不进收藏，所以这里不存英雄。
  */
-const SAVE_KEY = 'ai-duel-save-v4'
+const SAVE_KEY = 'ai-duel-save-v5'
 
 export interface SaveData {
   /** 已拥有的卡牌定义 id。 */

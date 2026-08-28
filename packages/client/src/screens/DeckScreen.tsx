@@ -46,8 +46,8 @@ const RETURN_DUR = 0.28
 /** kind 页签。数组顺序就是页签从左到右的顺序。 */
 const KIND_TABS = [
   { id: 'all', label: '全部' },
-  { id: 'agent', label: 'AI 卡' },
-  { id: 'skill', label: '技能卡' },
+  { id: 'ai', label: 'AI 牌' },
+  { id: 'skill', label: '技能牌' },
 ] as const
 
 type KindTabId = (typeof KIND_TABS)[number]['id']
@@ -58,7 +58,7 @@ type KindTabId = (typeof KIND_TABS)[number]['id']
  */
 const KIND_COUNTS: Record<KindTabId, number> = {
   all: DECK_DEMO_CARDS.length,
-  agent: DECK_DEMO_CARDS.filter((card) => card.kind === 'agent').length,
+  ai: DECK_DEMO_CARDS.filter((card) => card.kind === 'ai').length,
   skill: DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').length,
 }
 
@@ -128,17 +128,17 @@ export function DeckScreen() {
   const copiesOf = (cardId: string) => copies.get(cardId) ?? 0
   const canAdd = (cardId: string) => !deckFull && copiesOf(cardId) < MAX_COPIES
 
-  /** 牌组里 AI 卡 / 技能卡各多少张。 */
+  /** 牌组里 AI 牌 / 技能牌各多少张。 */
   const mix = useMemo(() => {
-    let agent = 0
+    let ai = 0
     let skill = 0
     for (const entry of deck) {
       const card = CARD_BY_ID.get(entry.cardId)
       if (card === undefined) continue
-      if (card.kind === 'agent') agent += 1
+      if (card.kind === 'ai') ai += 1
       else skill += 1
     }
-    return { agent, skill }
+    return { ai, skill }
   }, [deck])
 
   const addCard = (cardId: string) => {
@@ -416,7 +416,7 @@ export function DeckScreen() {
                       已选 <b>{deck.length}</b> / {DECK_SIZE}
                     </span>
                     <span className="deck-tally__mix">
-                      AI 卡 {mix.agent} · 技能卡 {mix.skill}
+                      AI 牌 {mix.ai} · 技能牌 {mix.skill}
                     </span>
                   </div>
 

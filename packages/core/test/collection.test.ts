@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { CARD_POOL, CARDS, drawNewCard, INITIAL_COLLECTION, STARTER_DECK } from '../src/index'
+import {
+  CARD_POOL,
+  CARDS,
+  drawNewCard,
+  HEROES,
+  INITIAL_COLLECTION,
+  STARTER_DECK,
+} from '../src/index'
 
 describe('卡池与初始收藏', () => {
   it('卡池覆盖全部卡牌定义', () => {
@@ -16,6 +23,16 @@ describe('卡池与初始收藏', () => {
   it('示例牌组只用初始收藏里的卡', () => {
     for (const id of STARTER_DECK) {
       expect(INITIAL_COLLECTION).toContain(id)
+    }
+  })
+
+  it('英雄牌不进卡表、不进卡池、也不进牌组', () => {
+    // 英雄牌是开局前单独选的，一旦漏进这三张表就会被当成能抽、能进牌组的普通牌。
+    expect(Object.keys(HEROES)).toEqual(['grace-hopper'])
+    for (const id of Object.keys(HEROES)) {
+      expect(CARDS).not.toHaveProperty(id)
+      expect(CARD_POOL).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
     }
   })
 })

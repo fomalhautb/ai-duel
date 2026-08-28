@@ -1,10 +1,10 @@
 /**
- * 英雄卡的卡面数据。
+ * 英雄牌的卡面数据。
  *
- * 英雄不进牌组也不进手牌，但画出来仍然是一张卡，所以借手牌那套 HandCardData 和
+ * 英雄牌不进牌组也不进手牌，但画出来仍然是一张卡，所以借手牌那套 HandCardData 和
  * HandCardFace 渲染，只是 kind 换成 'hero'（底部标识印「英雄」，配色见 .card-face--hero）。
  *
- * 对局侧栏（ui/MatchStage）和图鉴页（dev/CardGallery）都要画同一张英雄卡，拼法只留这一份：
+ * 对局侧栏（ui/MatchStage）和图鉴页（dev/CardGallery）都要画同一张英雄牌，拼法只留这一份：
  * 两边各拼一次的话，改了正面印技能还是印简介，图鉴就开始骗人。
  */
 

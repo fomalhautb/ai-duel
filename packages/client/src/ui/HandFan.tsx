@@ -50,7 +50,7 @@ gsap.registerPlugin(useGSAP)
 /**
  * 一张手牌的展示数据。
  *
- * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 AgentInstance）拼出来。
+ * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 AiInstance）拼出来。
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
@@ -60,11 +60,11 @@ export interface HandCardData {
   id: string
   name: string
   /**
-   * 卡种。'hero' 是英雄卡：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
    * 借的是同一份卡面排版（见 ui/heroCard.ts）。
    */
-  kind: 'agent' | 'skill' | 'hero'
-  /** AI 卡印在卡面上的模型名，纯展示。技能卡和英雄卡没有这一项。 */
+  kind: 'ai' | 'skill' | 'hero'
+  /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
   model?: string
   /** 卡面正面的描述文案。 */
   text: string
@@ -821,7 +821,7 @@ export function HandFan({
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
  * 卡名、描述、底部那一行标识都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
  *
- * 现在卡面上没有任何数值：出牌不要费用，AI 卡也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
+ * 现在卡面上没有任何数值：出牌不要费用，AI 牌也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
  * 排版是占位程度，等正式卡面设计出来再重排。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
@@ -839,7 +839,7 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
         <div className="card-face__stats">
-          {/* AI 卡印模型名，技能卡和英雄卡印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+          {/* AI 牌印模型名，技能牌和英雄牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
           <span>{faceStamp(card)}</span>
         </div>
       </div>
@@ -857,9 +857,9 @@ export function HandCardFace({ card }: { card: HandCardData }) {
 /**
  * 卡面底部那一行印什么。
  *
- * AI 卡印模型名（没填就退回"AI"，卡面上留空比印错更难看），其余按卡种印两个字。
+ * AI 牌印模型名（没填就退回"AI"，卡面上留空比印错更难看），其余按卡种印两个字。
  */
 function faceStamp(card: HandCardData): string {
-  if (card.kind === 'agent') return card.model ?? 'AI'
+  if (card.kind === 'ai') return card.model ?? 'AI'
   return card.kind === 'hero' ? '英雄' : '技能'
 }

@@ -95,7 +95,7 @@ const SEATS: Seat[] = [
     rot: -9,
     card: {
       id: 'home-chatgpt',
-      kind: 'agent',
+      kind: 'ai',
       name: 'ChatGPT',
       model: 'GPT',
       text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
@@ -108,7 +108,7 @@ const SEATS: Seat[] = [
     rot: -3,
     card: {
       id: 'home-claude',
-      kind: 'agent',
+      kind: 'ai',
       name: 'Claude',
       model: 'Claude',
       text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
@@ -121,7 +121,7 @@ const SEATS: Seat[] = [
     rot: 3,
     card: {
       id: 'home-deepseek',
-      kind: 'agent',
+      kind: 'ai',
       name: 'DeepSeek',
       model: 'DeepSeek',
       text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
@@ -134,7 +134,7 @@ const SEATS: Seat[] = [
     rot: 9,
     card: {
       id: 'home-gemini',
-      kind: 'agent',
+      kind: 'ai',
       name: 'Gemini',
       model: 'Gemini',
       text: '占位描述：看得见听得见，就是记性差了点。',

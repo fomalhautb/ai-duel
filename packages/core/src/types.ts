@@ -41,30 +41,31 @@ interface CardBase {
   text: string
 }
 
-/** AI 卡：打出后作为单位留在场上，每轮跟着答题，答错才罚下。 */
-export interface AgentCard extends CardBase {
-  kind: 'agent'
+/** AI 牌：打出后作为单位留在场上，每轮答题阶段跟着答题，答错才罚下。 */
+export interface AiCard extends CardBase {
+  kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
 }
 
-/** 技能卡：打出后直接进弃牌堆。本迭代只有卡面和动画，没有任何效果。 */
+/**
+ * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
+ * 本迭代只有卡面和动画，没有任何效果。
+ */
 export interface SkillCard extends CardBase {
   kind: 'skill'
 }
 
-export type Card = AgentCard | SkillCard
-
-/** 英雄 id。英雄很少，直接用字面量联合，写错卡名当场就是类型错误。 */
+/** 英雄 id。英雄很少，直接用字面量联合，写错名字当场就是类型错误。 */
 export type HeroId = 'grace-hopper'
 
 /**
- * 英雄卡：开局就跟着玩家，不是牌组里的一张牌。
+ * 英雄牌：开局就跟着玩家，不是牌组里的一张牌。
  *
  * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
  *
- * **它刻意不进 Card 联合、CARDS、CARD_POOL、STARTER_DECK**：
- * 英雄技能不占 20 张牌的牌组空间（见 docs/Agent卡牌对战游戏_游戏机制与流程_V0.1.md 第 4 节），
+ * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / STARTER_DECK**：
+ * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 4 节），
  * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
  * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。
  */
@@ -83,6 +84,15 @@ export interface HeroCard {
   skillText: string
 }
 
+/** 牌组、手牌、弃牌堆里唯二可能出现的牌。 */
+export type HandCard = AiCard | SkillCard
+
+/**
+ * 全部三类牌。只有需要"任意一张牌"的展示代码才用它（卡面渲染、图鉴、背面文案）；
+ * 一切和牌组沾边的地方一律用 HandCard，英雄牌进不去。
+ */
+export type Card = HandCard | HeroCard
+
 /** 牌堆/手牌/弃牌堆里的一张牌。 */
 export interface CardInstance {
   instanceId: InstanceId
@@ -95,7 +105,7 @@ export interface CardInstance {
  * 目前没有会被改动的数值，所以只留身份三件套；
  * 之后要加"上场后被增益/削弱"的属性时再往这里拷贝卡面数值。
  */
-export interface AgentInstance {
+export interface AiInstance {
   instanceId: InstanceId
   cardId: CardId
   owner: PlayerId
@@ -123,7 +133,7 @@ export interface PlayerState {
   hand: CardInstance[]
   /** 牌堆，数组末尾是牌堆顶（抽牌用 pop）。 */
   deck: CardInstance[]
-  board: AgentInstance[]
+  board: AiInstance[]
   discard: CardInstance[]
   /**
    * 这一方选的英雄。英雄不进牌组，只是挂在玩家身上的一份身份 + 一个技能。
@@ -199,7 +209,7 @@ export type GameEvent =
   /** 开局抛硬币的结果，客户端拿它播全场硬币动画。 */
   | { type: 'GAME_STARTED'; firstPlayer: PlayerId }
   | { type: 'CARD_DRAWN'; player: PlayerId; card: CardInstance }
-  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AGENT_DEPLOYED / SKILL_PLAYED）。 */
+  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AI_DEPLOYED / SKILL_PLAYED）。 */
   | { type: 'CARD_REMOVED'; player: PlayerId; instanceId: InstanceId }
   | {
       type: 'ROUND_STARTED'
@@ -210,8 +220,8 @@ export type GameEvent =
     }
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
-  | { type: 'AGENT_DEPLOYED'; player: PlayerId; agent: AgentInstance }
-  /** 技能卡打出：中央亮相一下再进弃牌堆。 */
+  | { type: 'AI_DEPLOYED'; player: PlayerId; ai: AiInstance }
+  /** 技能牌打出：中央亮相一下再进弃牌堆。 */
   | {
       type: 'SKILL_PLAYED'
       player: PlayerId
@@ -223,13 +233,13 @@ export type GameEvent =
       instanceId: InstanceId
     }
   /**
-   * 一张技能卡的效果被英雄技能抵消。
+   * 一张技能牌的效果被英雄技能抵消。
    *
    * 紧跟在被抵消的那张牌的 SKILL_PLAYED 之后：牌照常打出、照常进弃牌堆，只是效果作废，
    * 客户端也就先演出牌、再演抵消。
    *
    * 两个玩家 id 方向相反，别弄混：
-   * - `player` 是打出这张技能卡的一方（被抵消的那一方）；
+   * - `player` 是打出这张技能牌的一方（被抵消的那一方）；
    * - `by` 是发动英雄技能的一方，也就是 `player` 的对手。
    */
   | {
@@ -244,14 +254,14 @@ export type GameEvent =
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */
   | { type: 'QUESTION_REVEALED'; question: Question }
   | {
-      type: 'AGENT_ANSWERED'
+      type: 'AI_ANSWERED'
       instanceId: InstanceId
       owner: PlayerId
       correct: boolean
       answerText: string
     }
   /** 答错被罚下，从场上移进弃牌堆。 */
-  | { type: 'AGENT_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
+  | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
   /** 本轮计分：gains/scores 按座位号排，[0] 是 0 号玩家。 */
   | { type: 'ROUND_SCORED'; gains: [number, number]; scores: [number, number] }
   | { type: 'GAME_OVER'; winner: PlayerId | 'draw' }

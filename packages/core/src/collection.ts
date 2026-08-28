@@ -10,8 +10,9 @@ import { CARDS } from './cards'
 import type { CardId } from './types'
 
 /**
- * 完整卡池：目前就是全部卡牌定义。
- * 将来如果出现"不进抽卡池"的卡（活动卡、测试卡），改成显式列表即可。
+ * 完整卡池：目前就是全部能进牌组的卡牌定义（CARDS）。
+ * 英雄牌是开局前单独选的，既不进卡池也不进牌组，所以 heroes.ts 的 HEROES 不在这里。
+ * 将来如果出现"不进抽卡池"的手牌（活动卡、测试卡），把这里改成显式列表即可。
  */
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
@@ -24,10 +25,10 @@ export const CARD_POOL: CardId[] = Object.keys(CARDS)
  * 解锁流程会自动重新生效，不需要改代码。
  */
 export const INITIAL_COLLECTION: CardId[] = [
-  'agent-gpt',
-  'agent-claude',
-  'agent-gemini',
-  'agent-deepseek',
+  'ai-gpt',
+  'ai-claude',
+  'ai-gemini',
+  'ai-deepseek',
   'placeholder-skill',
 ]
 

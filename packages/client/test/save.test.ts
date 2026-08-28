@@ -11,7 +11,7 @@ import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
 import { loadSave, recordWin, resetSave } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
-const SAVE_KEY = 'ai-duel-save-v4'
+const SAVE_KEY = 'ai-duel-save-v5'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()

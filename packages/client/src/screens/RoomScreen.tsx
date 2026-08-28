@@ -43,8 +43,11 @@ const ROOM_CODE_PATTERN = /^\d{4}$/
  * 切片是 assets/slice-room-ui.py 从 assets/room-ui-sheet.png 切出来的，改素材要重跑那个脚本。
  *
  * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ *
+ * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
+ * 两边各写一遍迟早会对不上。
  */
-const ROOM_ASSETS = [
+export const ROOM_ASSETS = [
   '/hero/hero-bg.webp',
   '/room/back-arrow.webp',
   '/room/book.webp',

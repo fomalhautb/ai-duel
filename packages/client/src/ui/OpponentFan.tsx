@@ -86,8 +86,9 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
   const applyLayout = (mode: LayoutMode) => {
-    // 锚点 .opponent-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条）。
-    // 和 HandFan 用同一个口径，两排扇形的水平间距才对得上，别混用 innerWidth。
+    // 锚点 .opponent-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），别混用 innerWidth。
+    // 这排牌可以按整个视口宽摊开：它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
+    //（玩家那边量的是战场中栏，见 HandFan 的 fanAreaWidth）。
     const viewportWidth = document.documentElement.clientWidth
     const count = cards.length
 

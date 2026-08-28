@@ -26,9 +26,11 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('英雄牌不进卡池也不进牌组', () => {
-    // 英雄牌是开局前单独选的，一旦漏进卡池就会被当成能抽、能进牌组的普通牌。
+  it('英雄牌不进卡表、不进卡池、也不进牌组', () => {
+    // 英雄牌是开局前单独选的，一旦漏进这三张表就会被当成能抽、能进牌组的普通牌。
+    expect(Object.keys(HEROES)).toEqual(['grace-hopper'])
     for (const id of Object.keys(HEROES)) {
+      expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }

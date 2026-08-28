@@ -56,8 +56,8 @@ export interface HandCardData {
   id: string
   name: string
   /**
-   * 对局里只会出现 AI 牌和技能牌；'hero' 是给卡牌图鉴页（dev/CardGallery）用的，
-   * 英雄牌不进手牌，但那一页要拿同一份卡面把它画出来。
+   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 借的是同一份卡面排版（见 ui/heroCard.ts）。
    */
   kind: 'ai' | 'skill' | 'hero'
   /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
@@ -729,13 +729,6 @@ export function HandFan({
   )
 }
 
-/** 卡面底部那一行的卡种标识。AI 牌不走这张表，它印的是自己的模型名。 */
-const KIND_BADGES: Record<HandCardData['kind'], string> = {
-  ai: 'AI',
-  skill: '技能',
-  hero: '英雄',
-}
-
 /**
  * 卡牌正面。
  *
@@ -763,8 +756,8 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
         <div className="card-face__stats">
-          {/* AI 牌印模型名，其余印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
-          <span>{card.kind === 'ai' ? (card.model ?? 'AI') : KIND_BADGES[card.kind]}</span>
+          {/* AI 牌印模型名，技能牌和英雄牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+          <span>{faceStamp(card)}</span>
         </div>
       </div>
       {/*
@@ -776,4 +769,14 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       <div className="card-glare" />
     </div>
   )
+}
+
+/**
+ * 卡面底部那一行印什么。
+ *
+ * AI 牌印模型名（没填就退回"AI"，卡面上留空比印错更难看），其余按卡种印两个字。
+ */
+function faceStamp(card: HandCardData): string {
+  if (card.kind === 'ai') return card.model ?? 'AI'
+  return card.kind === 'hero' ? '英雄' : '技能'
 }

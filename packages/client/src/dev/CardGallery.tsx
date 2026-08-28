@@ -19,20 +19,23 @@ import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { CARD_ART_PLACEHOLDERS, placeholderArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
+import { heroCardData } from '../ui/heroCard'
 
 const HERO_CARDS: HeroCard[] = Object.values(HEROES)
-// 英雄牌不进牌组，所以 core 把它和 CARDS 分开放；这一页要把三种牌都列出来，在这里合并。
-const ALL_CARDS: Card[] = [...HERO_CARDS, ...Object.values(CARDS)]
-const AI_CARDS = ALL_CARDS.filter((card): card is AiCard => card.kind === 'ai')
-const SKILL_CARDS = ALL_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
+/** 进牌组的那两类牌。英雄牌不在 CARDS 里，所以页头的张数也按这一份算。 */
+const DECK_CARDS = Object.values(CARDS)
+const AI_CARDS = DECK_CARDS.filter((card): card is AiCard => card.kind === 'ai')
+const SKILL_CARDS = DECK_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
+// 英雄牌不进牌组，所以 core 把它和 CARDS 分成两张表；这一页要三类牌都列出来、还要按 id 反查，
+// 在这里合成一张。
+const ALL_CARDS: Card[] = [...HERO_CARDS, ...DECK_CARDS]
+const CARD_BY_ID = new Map<CardId, Card>(ALL_CARDS.map((card) => [card.id, card]))
 
 const KIND_LABELS: Record<Card['kind'], string> = {
   hero: '英雄牌',
   ai: 'AI 牌',
   skill: '技能牌',
 }
-
-const CARD_BY_ID = new Map<CardId, Card>(ALL_CARDS.map((card) => [card.id, card]))
 
 /**
  * core 的 Card 转成卡面要的展示数据。
@@ -43,6 +46,8 @@ const CARD_BY_ID = new Map<CardId, Card>(ALL_CARDS.map((card) => [card.id, card]
  * 它自己的立绘（assets/人物卡简介/）还没接进构建，先跟着分一张占位图。
  */
 function toHandCardData(card: Card): HandCardData {
+  // 英雄牌的正面拼法只有一份（ui/heroCard.ts），对局侧栏画的就是这一张。
+  if (card.kind === 'hero') return heroCardData(card)
   const base = {
     id: card.id,
     name: card.name,
@@ -51,9 +56,6 @@ function toHandCardData(card: Card): HandCardData {
   }
   if (card.kind === 'ai') {
     return { ...base, kind: 'ai', model: card.model }
-  }
-  if (card.kind === 'hero') {
-    return { ...base, kind: 'hero' }
   }
   return { ...base, kind: 'skill' }
 }
@@ -69,12 +71,15 @@ export function CardGallery() {
       <aside className="gallery__list">
         <header className="gallery__header">
           <h1 className="gallery__title">卡牌图鉴</h1>
-          <p className="gallery__lead">core 里共 {ALL_CARDS.length} 张卡。</p>
+          <p className="gallery__lead">
+            core 里共 {DECK_CARDS.length} 张进牌组的牌，外加 {HERO_CARDS.length} 位英雄。
+          </p>
           <button type="button" className="gallery__back" onClick={() => navigate('/')}>
             回首页
           </button>
         </header>
 
+        {/* 英雄牌单独一组：它不在 CARDS 里，也进不了牌组，只是借同一套卡面画出来。 */}
         <CardPicker
           title={`英雄牌（${HERO_CARDS.length}）`}
           cards={HERO_CARDS}
@@ -190,11 +195,15 @@ function CardDetail({ card }: { card: Card }) {
           <code>{card.id}</code>
         </MetaRow>
         {card.kind === 'ai' ? <MetaRow label="模型名">{card.model}</MetaRow> : null}
-        {/* 英雄牌没有模型名，它那一格换成专属技能（内容目前是占位，见 core 的 heroes.ts）。 */}
+        {/* 英雄牌没有模型名，它那几格换成英文名和专属技能。 */}
         {card.kind === 'hero' ? (
-          <MetaRow label="英雄技能">
-            {card.skill.name}——{card.skill.text}
-          </MetaRow>
+          <>
+            <MetaRow label="英文名">{card.enName}</MetaRow>
+            <MetaRow label="技能">
+              {card.skillName}：{card.skillText}
+            </MetaRow>
+            <MetaRow label="进牌组">不进：英雄技能不占 20 张牌的牌组空间</MetaRow>
+          </>
         ) : null}
         <MetaRow label="占位插画">
           <code>{placeholderArtFor(card.id)}</code>

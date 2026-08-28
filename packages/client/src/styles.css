@@ -2524,6 +2524,175 @@ body:has(.battle) {
   mask-composite: exclude;
 }
 
+/* ---------- 选目标（干扰类技能） ---------- */
+
+/*
+ * 点一下「必须回答」这类要选目标的技能牌之后的全屏压暗：整个画面只剩"能打谁"这一件事。
+ *
+ * 铺满视口、压过顶栏（70）：战场、侧栏（30）、双方手牌（20）一起暗下去。
+ * 亮着的只有两样，各自被抬到这一层之上：
+ * 可选目标的小卡（76，见 .battle__tile--target-lift）和整个手牌扇形（77，见 .hand-fan[data-casting]，
+ * 那一排里只有正在施放的那张不被 GSAP 压暗）。
+ * 挂在 .battle 根下而不是塞进战场：战场那几层刻意不建层叠上下文（见 .battle__board 的注释），
+ * 而且压暗必须盖到侧栏和顶栏上去。
+ *
+ * 刻意**吃**指针事件：点这一层的任何位置都是取消，被它盖住的东西也就顺带点不动了。
+ *
+ * 拖拽路不铺这一层：拖着的那张牌是扇形里的一员（z-index 20），压暗层会连它一起压黑，
+ * 那条路只亮目标的橙圈。
+ */
+.battle__targeting {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  background: rgb(6 11 22 / 62%);
+  cursor: pointer;
+}
+
+/*
+ * 提示条吊在视口顶边正中。
+ *
+ * 原来摆在正中那条"无人区"，实测会被战场上的东西挡住（两行小卡一挤，中间那段就没了）；
+ * 顶边这一条则永远是空的。它盖住的是顶栏（70）和对手的倒扇形手牌（20）——
+ * 那两样此刻都在压暗层底下暗着，压上去没有信息损失，只留 16px 边距别贴死视口。
+ *
+ * width: max-content 不能省：绝对定位盒子在 left: 50% 之后只剩右半边可用，
+ * 默认的收缩宽度会被压到视口的一半，桌面宽度下文案就被迫折行了。
+ * 撑成一行后再用 max-width 收住，窄窗口下仍会折行（卡名靠下面的 nowrap 保完整）。
+ */
+.battle__targeting-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 9px 12px 9px 20px;
+  border: 1px solid rgb(255 229 164 / 55%);
+  border-radius: 999px;
+  background: rgb(14 21 36 / 90%);
+  box-shadow: 0 6px 22px rgb(4 9 19 / 55%);
+  translate: -50% 0;
+}
+
+.battle__targeting-text {
+  color: #ffeec5;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+}
+
+/*
+ * 括注里是卡名，中文默认逐字断行，窄窗口下会把「必须回答」劈成两半。
+ * 卡名长度可变，所以不写死宽度，只禁止它内部换行；真放不下时整条提示会在括号前折。
+ */
+.battle__targeting-card {
+  white-space: nowrap;
+}
+
+.battle__targeting-cancel {
+  flex: none;
+  padding: 4px 14px;
+  border: 1px solid rgb(226 213 184 / 45%);
+  border-radius: 999px;
+  background: rgb(37 49 73 / 90%);
+  color: #e7e1d4;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.battle__targeting-cancel:hover {
+  border-color: #cb9d7b;
+  background: rgb(48 63 92 / 92%);
+}
+
+/*
+ * 选目标态下的手牌扇形（data-casting 由 HandFan 在有 castingId 时打上）。
+ *
+ * 整层抬到压暗层（75）之上，正在施放的那张牌才亮着；同一排其余的牌由 HandFan 用 GSAP
+ * 把 opacity 压到 0.3（那一层的 opacity 本来就归它管，CSS 再插一手会打架）。
+ * 扇形是 fixed + z-index 的层叠上下文，抬的只能是整层，抬不了单张牌。
+ *
+ * 整排同时不吃指针事件：点出这张牌时指针八成还压在它身上，留着 hover 它会一直保持
+ * 1.9 倍放大、把要选的战场整个挡住（用户实测踩的就是这个）。
+ * 抬到压暗层之上之后如果还收指针事件，玩家甚至能在压暗态里继续摸别的牌。
+ */
+.hand-fan[data-casting='true'] {
+  z-index: 77;
+}
+
+.hand-fan[data-casting='true'] .hand-fan__slot {
+  pointer-events: none;
+}
+
+/*
+ * 拖着要选目标的技能牌时，收起战场落点区那颗「松手 放到场上」的药丸：
+ * 这张牌不是往场上放的，得松手在某张亮着橙圈的小卡身上，留着提示就是在骗人。
+ * 落点区的边框高亮照常亮（它说的是"松手会有事发生"，这条仍然成立）。
+ */
+.battle__board[data-picking='true'] .battle__drop-cue--board {
+  display: none;
+}
+
+/*
+ * 点击路（全屏压暗）下的可选目标：整个格子抬到压暗层之上，于是它既亮着、也照常收得到点击。
+ *
+ * **只有点击路加这个类**。拖拽路那档（.battle__tile--targetable 单独出现）绝不能抬：
+ * 拖着的那张牌在扇形里，扇形是 z-index 20 的层叠上下文，牌自己那个 1000 出不了扇形，
+ * 小卡一旦抬到 20 以上就会盖在手上那张牌前面。
+ *
+ * 这里只能改 z-index，不能顺手加 scale / :hover 放大：
+ * 小卡的 transform 归 Flip 飞行和 cardTilt 管，写了也会被它们的内联样式压住（见 5.7）。
+ * hover 时的轻微放大本来就由 cardTilt 的 hoverScale 负责，选目标态下照常生效。
+ */
+.battle__tile--target-lift {
+  z-index: 76;
+}
+
+/*
+ * 合法目标那圈会呼吸的**橙色**描边（opacity / scale 由 MatchStage 的循环补间驱动）。
+ * 拖拽路和点击路共用这一圈：两条路指的是同一件事，颜色和节奏必须一样。
+ *
+ * 橙色是"可以打这里"的专用色。战场上另外两处金色各有含义（上场追光、卡面 accent #ffc158），
+ * 再用金色就分不出"这是刚上场"还是"这是能选的目标"了。
+ *
+ * 单开一层而不是给小卡加 box-shadow：描边要能被补间，而小卡那几层的 transform 各有主人。
+ * 位置和上场追光一样在裁剪层（overflow: hidden）**外面**，否则环外的辉光会被整圈切掉。
+ * 圆角 12px = 裁剪层的 9px 加上外扩的 3px，环的内沿才和卡角贴合。
+ */
+.battle__tile-target-ring {
+  position: absolute;
+  inset: -3px;
+  border: 2px solid rgb(255 138 61 / 95%);
+  border-radius: 12px;
+  box-shadow:
+    0 0 20px rgb(255 122 40 / 65%),
+    inset 0 0 12px rgb(255 138 61 / 35%);
+  pointer-events: none;
+}
+
+/*
+ * 「已干扰」角标：被干扰技能命中过的 AI 常驻挂着它，说明这张卡不能再被选中。
+ * 不吃指针事件，免得挡住小卡自己的点击热区；同样放在裁剪层外面，不跟着卡一起倾斜。
+ */
+.battle__tile-mark {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 2px 7px;
+  border: 1px solid rgb(255 196 96 / 60%);
+  border-radius: 999px;
+  background: rgb(12 18 30 / 88%);
+  color: #ffd98a;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+  pointer-events: none;
+}
+
 /* ---------- 屏幕中央的展示层 ---------- */
 
 /*

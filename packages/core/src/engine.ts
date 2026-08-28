@@ -116,7 +116,7 @@ export function execute(state: GameState, command: Command): ExecuteResult {
     case 'PLAY_CARD':
       if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
       if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
-      return playCard(state, command.player, command.instanceId)
+      return playCard(state, command.player, command.instanceId, command.targetInstanceId)
     case 'END_PLAY':
       if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
       if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
@@ -132,7 +132,7 @@ export function execute(state: GameState, command: Command): ExecuteResult {
     case 'DEBUG_PLAY_CARD':
       // 和 PLAY_CARD 只差"轮到谁"这一条检查：测试房要能替对手出牌看结算动画。
       if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
-      return playCard(state, command.player, command.instanceId)
+      return playCard(state, command.player, command.instanceId, command.targetInstanceId)
     case 'DEBUG_SKIP_TO_QUIZ':
       if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
       return skipToQuiz(state)
@@ -141,9 +141,14 @@ export function execute(state: GameState, command: Command): ExecuteResult {
 
 /**
  * 打出一张手牌。
- * 本迭代出牌没有费用、不选目标，一轮内想打几张打几张。
+ * 出牌没有费用，一轮内想打几张打几张；只有卡面标了 `target` 的技能牌要指定目标。
  */
-function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId): ExecuteResult {
+function playCard(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: InstanceId,
+  targetInstanceId?: InstanceId,
+): ExecuteResult {
   const next = clone(state)
   const player = next.players[playerId]
   const handIndex = player.hand.findIndex((c) => c.instanceId === instanceId)
@@ -151,6 +156,19 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
+
+  // 目标先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
+  // 而下面这些改动全落在副本 next 上，顺序写反了以后加分支时容易漏掉。
+  // 找到的是 next 里的那个单位，直接给它盖 interfered 就行。
+  let target: AgentInstance | undefined
+  if (card.kind === 'skill' && card.target === 'foe-agent') {
+    if (targetInstanceId === undefined) return reject(state, '这张技能牌要先指定目标')
+    target = next.players[other(playerId)].board.find((a) => a.instanceId === targetInstanceId)
+    // 两条分开报：客户端选错人和选了个已经被干扰的，玩家该看到的提示不一样。
+    if (target === undefined) return reject(state, '目标必须是对方场上的 AI')
+    if (target.interfered === true) return reject(state, '这个 AI 已经被干扰过了')
+  }
+
   player.hand.splice(handIndex, 1)
 
   const events: GameEvent[] = []
@@ -165,6 +183,9 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
     player.board.push(agent)
     events.push({ type: 'AGENT_DEPLOYED', player: playerId, agent })
   } else {
+    // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰，战场小卡上也会挂个角标。
+    // 它不影响答题——真正往 AI 上下文里塞话的效果还没做。
+    if (target !== undefined) target.interfered = true
     player.discard.push(instance)
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
@@ -173,6 +194,8 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
       player: playerId,
       cardId: card.id,
       instanceId: instance.instanceId,
+      // 无目标技能不带这个字段，客户端据此决定亮相完是原地淡出还是飞向目标格。
+      ...(target === undefined ? {} : { targetInstanceId: target.instanceId }),
     })
   }
   return { state: next, events }

@@ -41,8 +41,11 @@ zone 就建在跑这个 Worker 的同一个 Cloudflare 账号下。
 ]
 ```
 
-Worker 原本的 `ai-duel.<你的账号>.workers.dev` 仍然能访问，但**国内 DNS 会污染
-`workers.dev`**——买域名就是为了绕开这一点，演示时用正式域名。
+Worker 原本的 `ai-duel.<你的账号>.workers.dev` 地址**已经停用**：配置里声明了
+`routes` 之后，wrangler 部署时会默认关掉 workers.dev 路由（部署日志里有对应警告）。
+不恢复它是有意的——**国内 DNS 会污染 `workers.dev`**，买域名就是为了绕开这一点，
+留着旧地址只会多一个不可用的入口。真要恢复的话在 `wrangler.jsonc` 里加
+`"workers_dev": true` 即可。
 
 ## 3. 房间码就是 Durable Object 的名字
 

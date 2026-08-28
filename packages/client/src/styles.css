@@ -1,6 +1,15 @@
 :root {
   color-scheme: dark;
-  font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /*
+   * 全站唯一的字体栈，和设计参考 paper-demo.html 一致：EB Garamond 管拉丁字母和数字，
+   * Noto Serif SC 管中文，两者都从 Google Fonts 拿（引入写在 index.html）。
+   * 后面三个本地宋体是兜底：断网或字体没加载成功时至少还是衬线体，
+   * 不会一下掉回黑体、把整个古典调子毁掉。
+   *
+   * 注意 Noto Serif SC 只引到 700，全站字重别写超过 700，
+   * 否则浏览器会自己拉伸出一份很难看的伪粗体。
+   */
+  font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
   color: #e5e7eb;
   background: #0d1117;
 
@@ -18,6 +27,18 @@
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * 表单控件不会自动继承页面字体：浏览器自带样式表给 button/input 硬写了一份 Arial 之类的字体，
+ * 中文还会顺势掉到系统黑体上，在这套全衬线的画面里一眼就看得出不对（首页那块匾额按钮最明显）。
+ * 全站只有一套字体栈，所以在这里一次性收回来，不用每个按钮各写一遍 font-family: inherit。
+ */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 html,
@@ -120,6 +141,344 @@ body,
   color: #e5e7eb;
   font-size: 20px;
   letter-spacing: 0.16em;
+}
+
+/* ---------- 首页 ---------- */
+
+/*
+ * 首页复原的是一整张 1672×941 的设计稿，做法是"固定宽高比的舞台 + 容器查询单位"：
+ * 舞台按原比例撑到视口里最大的那一档，里面所有尺寸都写成 cqi（= 舞台宽的百分之一），
+ * 于是换窗口大小只是整体等比缩放，图和字的关系一点不变，也就不用写断点。
+ * 舞台之外露出的那圈米色，就是设计稿画布外沿的纸色。
+ */
+.home {
+  /* 画面上所有米色字的颜色，从设计稿里取的。 */
+  --home-ink: #e8c69f;
+  --home-ink-lit: #fbe6c4;
+  /* 夜空底色。人物占位方块要按它调透明度，所以拆成分量存。 */
+  --home-night: 26 34 44;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  background: #ddcab7;
+  user-select: none;
+}
+
+.home__stage {
+  container-type: size;
+  position: relative;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+}
+
+/* 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
+   桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。 */
+.home__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 人物层压在卡牌上面（见 HomeScreen 里的层叠说明），所以这层同样一点指针事件都不能收，
+   否则两侧的方块会把它们盖住的那半张卡挡得 hover 不到。 */
+.home__cast {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/*
+ * 人物抠图还没做，先用方块占位。虚线边是故意的：一眼就能看出这不是成品。
+ * 方块下半截会被桌面弧和前景道具盖住，这和设计稿里人物半身埋在桌后是一致的。
+ */
+.home__figure {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgb(232 198 159 / 45%);
+  border-radius: 1.2cqi;
+  background: rgb(var(--home-night) / 55%);
+  color: rgb(232 198 159 / 62%);
+  font-size: 1cqi;
+  letter-spacing: 0.2em;
+}
+
+/* top 配 translateY(-50%) 是让文字**行盒的中心**落在这个高度上，
+   比按顶边定位稳：字号一改，顶边定位的整行都会跟着挪。下面几处同理。 */
+.home__title {
+  position: absolute;
+  top: 15%;
+  right: 0;
+  left: 0;
+  margin: 0;
+  transform: translateY(-50%);
+  color: var(--home-ink);
+  font-size: 7.3cqi;
+  /* 700 是 Noto Serif SC 引进来的最重一档。再往上写 800/900 不会更粗，
+     只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
+  text-shadow:
+    0.24cqi 0.3cqi 0 rgb(20 26 34 / 60%),
+    0 0.5cqi 1.1cqi rgb(10 14 20 / 50%);
+}
+
+.home__title-bang {
+  padding-left: 0.42em;
+}
+
+.home__subtitle {
+  position: absolute;
+  top: 27.2%;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.8cqi;
+  margin: 0;
+  transform: translateY(-50%);
+  color: var(--home-ink);
+  font-size: 1.75cqi;
+  line-height: 1;
+}
+
+.home__subtitle-text {
+  /* 字距很大是设计稿的调子。letter-spacing 会在最后一个字后面也留一格，
+     不用负 margin 收掉的话，整行看起来是偏左的。 */
+  margin-right: -0.5em;
+  letter-spacing: 0.5em;
+}
+
+.home__flourish {
+  display: flex;
+  align-items: center;
+  gap: 0.6cqi;
+}
+
+/* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
+.home__flourish-line {
+  width: 5.4cqi;
+  height: 1px;
+  background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
+}
+
+.home__flourish--right .home__flourish-line {
+  background: linear-gradient(to left, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
+}
+
+.home__flourish-star {
+  width: 1.5cqi;
+  height: 1.5cqi;
+}
+
+.home__cards {
+  position: absolute;
+  inset: 0;
+  /* 这层只是铺满舞台的定位框，本身不该是命中目标：指针事件只留给卡槽，
+     指针落在卡与卡之间的空隙时就当没碰到卡。 */
+  pointer-events: none;
+}
+
+/*
+ * 一张卡的槽位。left/top 定的是**卡面中心**，负 margin 把盒子挪回去。
+ *
+ * 槽比卡大一圈（上下各 2cqi、左右各 0.4cqi），留的是 hover 上浮加放大之后多出来的地方。
+ * 少了这圈余量，指针停在卡的下沿时卡一抬起来就跑出命中区，
+ * 于是"离开 → 落回 → 又进入"来回抖。
+ *
+ * 静止的倾角也放在槽上，而不是里面那层动画层：槽跟着一起转，命中区才和斜着的卡对得上。
+ */
+.home__card {
+  position: absolute;
+  width: 11.8cqi;
+  height: 19.4cqi;
+  margin-top: -9.7cqi;
+  margin-left: -5.9cqi;
+  transform: rotate(var(--home-card-rot));
+  pointer-events: auto;
+}
+
+/* GSAP 写上浮 / 放大 / 回正的那一层。
+   perspective 给里面的倾斜层用，数值按卡宽等比给（大卡 150px 配 1000px，这里 11cqi 配 73cqi）。 */
+.home__card-lift {
+  position: absolute;
+  top: 2cqi;
+  left: 0.4cqi;
+  width: 11cqi;
+  height: 15.4cqi;
+  perspective: 73cqi;
+}
+
+/*
+ * 倾斜层。裁剪放在这里而不是外面那层：这层跟着卡一起转，裁切边就跟着转；
+ * 留在不动的父层上，倾斜时卡角会被一条不动的直边削掉。
+ * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来。
+ * 投影也挂在这层：外投影画在盒子外面，不会被它自己的 overflow 裁掉。
+ */
+.home__card-tilt {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.9cqi;
+  overflow: hidden;
+  box-shadow: 0 0.8cqi 1.8cqi rgb(8 12 18 / 55%);
+}
+
+/* --home-card-scale 由 HomeScreen 量出来写在舞台上：
+   scale() 只吃无单位数字，而 CSS 里没法把 cqi 换算成数字。 */
+.home__card-inner {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--home-card-scale, 1));
+  transform-origin: top left;
+}
+
+/*
+ * 开始按钮就是那块匾额切图：宽高比取切图本身的 521:125，
+ * 位置直接用切图在设计稿里的 bbox，这样它和背景里桌面的凹槽严丝合缝。
+ */
+.home__start {
+  position: absolute;
+  top: 74.5%;
+  left: 34.45%;
+  display: grid;
+  place-items: center;
+  width: 31.16%;
+  aspect-ratio: 521 / 125;
+  padding: 0;
+  border: none;
+  background: url('/home/home-plaque.png') center / 100% 100% no-repeat;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    filter 0.16s ease;
+}
+
+.home__start-label {
+  color: #2c2926;
+  font-size: 3cqi;
+  font-weight: 700;
+  letter-spacing: 0.36em;
+  /* 两处补偿：横向抵消末字后面多出的一格字距；纵向是因为切图带着下缘的投影，
+     几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
+  transform: translate(0.18em, -0.5cqi);
+}
+
+.home__start:hover {
+  transform: translateY(-0.4cqi);
+  filter: brightness(1.06);
+}
+
+.home__start:active {
+  transform: translateY(0.15cqi);
+  filter: brightness(0.94);
+}
+
+.home__start:focus-visible {
+  outline: 2px solid var(--home-ink);
+  outline-offset: 0.4cqi;
+}
+
+.home__nav {
+  position: absolute;
+  top: 91.8%;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 星号几乎贴着字，是设计稿的疏密关系：三个词抱成一团，不是均匀撒开的一排。 */
+  gap: 0.9cqi;
+  transform: translateY(-50%);
+  color: var(--home-ink);
+  font-size: 2cqi;
+  line-height: 1;
+}
+
+/* 三个入口都还没有页面，所以只有"能读"没有"能按"：光标保持默认，别做出可点的样子。 */
+.home__nav-item {
+  margin-right: -0.24em;
+  letter-spacing: 0.24em;
+  cursor: default;
+  transition:
+    color 0.16s ease,
+    text-shadow 0.16s ease;
+}
+
+.home__nav-item:hover {
+  color: var(--home-ink-lit);
+  text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
+}
+
+.home__nav-dot {
+  width: 1.1cqi;
+  height: 1.1cqi;
+  color: rgb(232 198 159 / 70%);
+}
+
+.home__settings {
+  position: absolute;
+  top: 8%;
+  right: 6.5%;
+  display: flex;
+  align-items: center;
+  gap: 0.9cqi;
+  /* 和导航一样，末字后面那格字距要收掉，"设置"才真的贴着 6.5% 这条线收边。 */
+  margin-right: -0.16em;
+  transform: translateY(-50%);
+  color: var(--home-ink);
+  font-size: 1.8cqi;
+  letter-spacing: 0.16em;
+  cursor: default;
+  transition: color 0.16s ease;
+}
+
+.home__settings:hover {
+  color: var(--home-ink-lit);
+}
+
+.home__gear {
+  width: 2.4cqi;
+  height: 2.4cqi;
+}
+
+/* 开发期入口，压到角落里：这两个功能正式版不留，但现在天天要用。 */
+.home__dev {
+  position: absolute;
+  bottom: 3%;
+  left: 7.5%;
+  display: flex;
+  gap: 1.4cqi;
+}
+
+.home__dev-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgb(232 198 159 / 35%);
+  font-size: 0.9cqi;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.home__dev-link:hover,
+.home__dev-link:focus-visible {
+  color: rgb(232 198 159 / 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home__start,
+  .home__nav-item,
+  .home__settings,
+  .home__dev-link {
+    transition-duration: 1ms;
+  }
 }
 
 /* ---------- 对局界面（占位） ---------- */
@@ -656,7 +1015,6 @@ body:has(.demo) {
   touch-action: none;
   color: var(--demo-ink);
   background-color: var(--demo-paper);
-  font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;
 }
 
 /* ---------- 顶栏 ---------- */
@@ -704,15 +1062,15 @@ body:has(.demo) {
   white-space: nowrap;
 }
 
+/* 中英两半故意不再各挑一套字体：全站统一走 :root 那条栈，
+   区别只留在字号、字距和这里的倾斜上。 */
 .battle-topbar__brand-cn {
-  font-family: 'Kaiti SC', KaiTi, STKaiti, serif;
   font-size: 42px;
   line-height: 1;
   transform: rotate(-5deg);
 }
 
 .battle-topbar__brand-ai {
-  font-family: Georgia, serif;
   font-size: 31px;
   letter-spacing: 0.06em;
 }
@@ -1213,7 +1571,6 @@ body:has(.demo) {
   background-blend-mode: screen;
   clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
   color: #e7e1d4;
-  font-family: inherit;
   font-size: clamp(18px, 1.5vw, 24px);
   font-weight: 600;
   line-height: 1;

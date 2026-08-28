@@ -993,7 +993,7 @@ body,
  *
  * 插画自带装饰边框和羊皮纸底色，所以这里不再画"插画框"那种分区版式：
  * 图是底，卡名/描述/标识挤在底部的 .card-face__body 上。
- * 卡种（AI / 技能）的区分退到 --accent 上，现在只出现在底部那行标识上，
+ * 卡种（AI / 技能 / 英雄）的区分退到 --accent 上，现在只出现在底部那行标识上，
  * 边框保持墨色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
  */
 .card-face {
@@ -1018,6 +1018,12 @@ body,
 
 .card-face--skill {
   --accent: #ffc158;
+}
+
+/* 英雄卡。挑紫色是为了和 AI 卡的蓝、技能卡的橙都拉开距离——
+   对局侧栏里三种卡会同时出现在视野里，底部那行标识的颜色是唯一的区分。 */
+.card-face--hero {
+  --accent: #c9a6ff;
 }
 
 /*
@@ -1083,7 +1089,7 @@ body,
 }
 
 /*
- * 卡面最底下那一行标识：AI 卡印模型名，技能牌印"技能"。
+ * 卡面最底下那一行标识：AI 卡印模型名，技能卡印"技能"。
  *
  * 靠右排是给将来留位置的：正式卡面要加数值的话会从左边往这一行里填，
  * 标识留在右端不用挪。字号 11px 已经是下限——战场小卡是同一份排版按 0.73 缩小画的，
@@ -1624,19 +1630,73 @@ body:has(.battle) {
   padding: 26px 20px;
 }
 
-/* 一块玩家面板：左边名字和牌数，右边那个大数字是累计得分。 */
+/*
+ * 一块玩家面板：最左边一张小英雄卡，中间名字和牌数，右边那个大数字是累计得分。
+ *
+ * 英雄那一列跨两行，没有英雄时（hero 为 null）整个格子不渲染，
+ * grid 会让后面两列自己顶上去，不用为这种情况另写一套模板。
+ */
 .battle__player-panel {
   display: grid;
   grid-template-areas:
-    'name score'
-    'piles score';
-  grid-template-columns: 1fr auto;
+    'hero name score'
+    'hero piles score';
+  grid-template-columns: auto 1fr auto;
   align-content: center;
   gap: 2px 12px;
   padding: 14px 16px;
   border: 1px solid rgb(119 116 101 / 45%);
   border-radius: 4px;
   background: rgb(255 255 255 / 26%);
+}
+
+/*
+ * 侧栏里的小英雄卡。
+ *
+ * 卡面排版是照 150×210 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ */
+.battle__hero {
+  --hero-card-w: 62px;
+  --hero-card-h: 87px;
+  /* 62 / 150 = 0.413333，卡面高 210 × 0.413333 ≈ 87，和上面那对宽高对得上。 */
+  --hero-card-scale: 0.413333;
+
+  grid-area: hero;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  align-self: center;
+}
+
+.battle__hero-card {
+  width: var(--hero-card-w);
+  height: var(--hero-card-h);
+  overflow: hidden;
+}
+
+/* 里面这一层才是真正的 150×210 卡面，靠 scale 缩进上面那个盒子里。 */
+.battle__hero-card > * {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--hero-card-scale));
+  transform-origin: top left;
+}
+
+/* 卡下面那行技能名。技能用掉之后变成「Debug 已用」，配合整块置灰。 */
+.battle__hero-tag {
+  max-width: calc(var(--hero-card-w) + 16px);
+  color: var(--battle-ink-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+/* 技能已经用掉：整块褪色，一眼看出这一局指望不上它了。 */
+.battle__hero--used {
+  opacity: 0.55;
+  filter: grayscale(85%);
 }
 
 .battle__player-name {
@@ -2297,7 +2357,7 @@ body:has(.battle) {
 
 /*
  * 我方打出的技能卡，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。
- * 对方打出的技能牌不走这里，它要从对手手牌飞到中央翻正，归展示层管（见 .reveal-card）。
+ * 对方打出的技能卡不走这里，它要从对手手牌飞到中央翻正，归展示层管（见 .reveal-card）。
  */
 .battle__skill-show {
   position: absolute;
@@ -2528,7 +2588,7 @@ body:has(.battle) {
 
 /*
  * 这一族类名由两种展示共用：
- * 一是对手出牌的强制展示（牌从对手手牌飞到中央翻正、停 1.5 秒，模型卡接着飞向战场），
+ * 一是对手出牌的强制展示（牌从对手手牌飞到中央翻正、停 1.5 秒，AI 卡接着飞向战场），
  * 二是卡牌的放大查看（飞到中央停住，点遮罩再飞回原位）。
  *
  * 编排代码眼下有两份：/match 的两种都内联在 ui/MatchStage.tsx 里，/deck 的放大查看走通用组件
@@ -2657,10 +2717,10 @@ body:has(.battle) {
   transform-origin: top left;
 }
 
-/* ---------- 全屏过场：抛硬币 / 答题揭晓 ---------- */
+/* ---------- 全屏过场：抛硬币 / 答题揭晓 / 英雄技能抵消 ---------- */
 
 /*
- * 这两层的遮罩写法照 .reveal-overlay：压暗 + 背景模糊，层级同在 1100 那一档，
+ * 这三层的遮罩写法照 .reveal-overlay：压暗 + 背景模糊，层级同在 1100 那一档，
  * 高于顶栏（70）、手牌（20）、特效层（80）和结算层（90）。
  *
  * 和 .reveal-overlay 不同的是它们由 React 状态挂载/卸载（不是常驻 DOM 靠 autoAlpha 开关），
@@ -2672,11 +2732,12 @@ body:has(.battle) {
  *
  * 和展示遮罩同为 1100 却不会打架，靠的是两头一起管：
  * MatchStage 那边 startReveal 在过场演着时不受理新展示、QUESTION_REVEALED 会先 abortReveal；
- * 万一还是撞上，这两层在 DOM 里排在展示遮罩后面，同层级由后者胜出（展示卡的裁剪层是 1101，
+ * 万一还是撞上，这几层在 DOM 里排在展示遮罩后面，同层级由后者胜出（展示卡的裁剪层是 1101，
  * 但它跟着 reveal 状态一起被清掉，不会留在上面）。
  */
 .coin-toss,
-.quiz-reveal {
+.quiz-reveal,
+.skill-cancel {
   position: fixed;
   inset: 0;
   z-index: 1100;
@@ -2691,6 +2752,37 @@ body:has(.battle) {
   /* 和 opacity: 0 配成 GSAP 的 autoAlpha 初值。visibility 这一半是必须的：
      万一时间线没跑起来（拿不到 ref 之类），只有 opacity: 0 的话这层看不见却照样挡着点击。 */
   visibility: hidden;
+}
+
+/*
+ * 英雄技能抵消：一个技能名大字 + 一行说明，没有别的元件。
+ * 间距比上面那条通用规则的 26px 收紧一点，两行字才像一组。
+ */
+.skill-cancel {
+  gap: 14px;
+}
+
+.skill-cancel__title {
+  margin: 0;
+  color: #ffeec5;
+  font-size: 76px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  /* letter-spacing 会在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.1em;
+  text-shadow:
+    0 3px 0 rgb(20 26 34 / 70%),
+    0 8px 30px rgb(8 12 20 / 80%);
+}
+
+.skill-cancel__text {
+  max-width: min(720px, 88vw);
+  margin: 0;
+  color: rgb(255 238 197 / 88%);
+  font-size: 20px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-align: center;
 }
 
 /*

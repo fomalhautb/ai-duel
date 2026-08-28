@@ -17,6 +17,7 @@ import type {
   ExecuteResult,
   GameEvent,
   GameState,
+  HeroId,
   InstanceId,
   PlayerId,
   PlayerState,
@@ -26,10 +27,19 @@ import type {
 /** 开局手牌数。黑客松阶段不做先后手补偿，双方一样。 */
 export const STARTING_HAND_SIZE = 5
 
+/** 没指定英雄时用谁。选英雄的界面还没做，所以双方默认都是格蕾丝·霍珀。 */
+const DEFAULT_HERO: HeroId = 'grace-hopper'
+
 export interface PlayerSetup {
   name: string
   /** 牌组，元素是卡牌定义 id，可以重复。 */
   deck: CardId[]
+  /**
+   * 这一方的英雄，不填就是 DEFAULT_HERO。
+   * 暂时没有选英雄的界面，联机和测试房都不传这一项，双方都拿到默认英雄。
+   * 传 null 表示这一方不带英雄（现在只有测试会这么用）。
+   */
+  hero?: HeroId | null
 }
 
 export interface GameSetup {
@@ -68,6 +78,10 @@ export function createGame(setup: GameSetup): ExecuteResult {
       deck: shuffle(deck, rng),
       board: [],
       discard: [],
+      // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
+      // 英雄初始化不碰 rng，所以加了它也不影响下面抛硬币/洗牌那串随机数的顺序。
+      hero: config.hero === undefined ? DEFAULT_HERO : config.hero,
+      heroSkillUsed: false,
     }
   }
 
@@ -166,7 +180,7 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
     events.push({ type: 'AGENT_DEPLOYED', player: playerId, agent })
   } else {
     player.discard.push(instance)
-    // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
+    // 带上 instanceId 不是结算需要，是给客户端定位用的：技能卡打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
     events.push({
       type: 'SKILL_PLAYED',
@@ -174,6 +188,24 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
       cardId: card.id,
       instanceId: instance.instanceId,
     })
+    // 格蕾丝·霍珀的 Debug：抵消对方本局打出的第一张技能卡。
+    // 牌本身照常打出、照常进弃牌堆，作废的只是效果——所以这段排在 SKILL_PLAYED 之后，
+    // 客户端才能先演出牌、再演抵消。
+    //
+    // 技能卡眼下本来就没有任何实际效果，这里没什么可拦的；
+    // 将来给技能卡实现效果时，效果必须写在"没被抵消"的分支里，否则 Debug 只剩一层动画。
+    const foe = next.players[other(playerId)]
+    if (foe.hero === 'grace-hopper' && !foe.heroSkillUsed) {
+      foe.heroSkillUsed = true
+      events.push({
+        type: 'SKILL_CANCELED',
+        player: playerId,
+        by: foe.id,
+        heroId: foe.hero,
+        cardId: card.id,
+        instanceId: instance.instanceId,
+      })
+    }
   }
   return { state: next, events }
 }

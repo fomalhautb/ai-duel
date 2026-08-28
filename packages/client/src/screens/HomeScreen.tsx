@@ -317,10 +317,13 @@ export function HomeScreen() {
           设置
         </span>
 
-        {/* 开发期入口，压到角落里：这两个功能正式版不留，但现在天天要用。 */}
+        {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。 */}
         <div className="home__dev">
           <button type="button" className="home__dev-link" onClick={() => navigate('/dev/hand')}>
             手牌演示
+          </button>
+          <button type="button" className="home__dev-link" onClick={() => navigate('/loader')}>
+            加载动画
           </button>
           <button type="button" className="home__dev-link" onClick={() => setSave(resetSave())}>
             重置存档

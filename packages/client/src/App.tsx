@@ -14,6 +14,7 @@ import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { HandDemo } from './dev/HandDemo'
+import { LoaderDemo } from './dev/LoaderDemo'
 
 export function App() {
   return (
@@ -24,6 +25,10 @@ export function App() {
         <Route path="/match" component={MatchScreen} />
         {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}
         <Route path="/dev/hand" component={HandDemo} />
+        {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
+            没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
+            短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
+        <Route path="/loader" component={LoaderDemo} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

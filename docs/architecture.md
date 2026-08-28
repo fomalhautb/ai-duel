@@ -392,12 +392,32 @@ hover 放大最容易出的毛病是抖动：卡放大之后指针落到了卡�
 | 手牌 | 战场小卡 | 负责 |
 |---|---|---|
 | `.hand-fan__slot` | `.battle__tile` | 摆位：扇形的 x / y / rotation / scale；小卡这边是 Flip 飞行 |
-| `.hand-fan__tilt` | `.battle__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY |
+| `.hand-fan__tilt` | `.battle__tile-tilt` | 跟着指针的倾斜：rotationX / rotationY（手牌这一层还挂着 `zoom`，见下） |
 | `.hand-fan__inner` | — | 翻到背面的 3D 翻转：rotationY 180° |
 | — | `.battle__tile-inner` | 写死在 CSS 里的一条 `scale`，把整张 150×210 的卡面缩到小卡尺寸 |
 
 战场小卡多出来的那一层是为了**整张卡等比缩小**，而不是重画一套小卡面：
 卡面组件（`HandCardFace`）和手牌共用同一份，字号内边距全按大卡写死，缩放交给这一层。
+
+**手牌的 hover 放大不能靠 transform 撑大**，否则放大后的卡面是糊的。
+Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整棵子树栅格化成一张贴图，
+再把贴图贴到三维平面上。倾斜一生效（实测 0.3° 就够），靠外层 `scale` 放大的卡就是
+那张 150×210 的贴图被拉伸 1.9 倍，字和插画都发虚。
+
+所以手牌反过来做：`.hand-fan__slot` 的盒子直接按放大到顶的尺寸布局
+（`--card-w/--card-h` 乘 `--hand-card-zoom`），`.hand-fan__tilt` 用 `zoom` 把卡面内部那套
+照 150×210 写死的 px 一起放大成真实布局，静置时再由 slot 的 `scale` 缩回去
+（`HandFan` 的 `slotScale`：传进去的是"想让人看到多大"，出来的是写给 GSAP 的值）。
+于是放大到顶那一刻卡面的 `scale` 正好是 1，按 285×399 排版也按这个尺寸栅格化。
+
+两个配套约束：
+
+- `--hand-card-zoom` 由 `HandFan` 写在 `.hand-fan` 上，值就是 `HOVER_SCALE`
+  （按扇形最大倾角算出来的，见 5.6），CSS 里不能再写死一份。
+- `zoom` 只能落在倾斜层或更里面。slot 上的 `x / y` 平移会被 `zoom` 乘一遍，
+  扇形摆位的坐标就全错位了；倾斜层上 GSAP 只写角度，才轮得到它。
+  同理，扇形几何（`fanMath` 的 `CARD_WIDTH/CARD_HEIGHT`、拖拽跟随的偏移）
+  用的一律是**显示尺寸**那套口径，和 slot 盒子实际有多大无关。
 它必须独立于上面两层——`scale` 混进 Flip 飞行那一层会被飞行补间覆盖掉，
 混进倾斜层则会被 cardTilt 每帧写的旋转覆盖掉。
 

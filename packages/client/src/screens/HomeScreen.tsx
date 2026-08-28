@@ -19,6 +19,8 @@
  * 拿归一化坐标去查预先抽好的 alpha 通道，判断指针停在哪个人身上（见 castHitTest.ts）。
  * 桌面弧和前景道具压住的地方要从命中区里减掉，UI 控件上也不触发，否则会"指着桌子/按钮高亮人"。
  *
+ * 整页的图会先全部加载完再一次性亮出来，中途只显示加载动画（见下面的 HomeScreen）。
+ *
  * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
  */
 
@@ -27,10 +29,14 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
+import { placeholderArtFor } from '../ui/cardArt'
+import { LoadingScreen } from '../ui/LoadingScreen'
+import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -207,7 +213,8 @@ const CAST: CastMember[] = [
  *
  * 它们既是画面的一部分（照数组顺序渲染），又是命中检测的"遮挡层"——
  * 人物下半身被桌沿和地球仪压住的那部分在屏幕上根本看不见，不减掉就会"指着桌子高亮人"
- * （见 castHitTest.ts 的 hitTestAlphaMaps）。两个用途共用这一份清单，免得改图时只改一边。
+ * （见 castHitTest.ts 的 hitTestAlphaMaps）。下面的 HOME_ASSETS 预加载清单也读这一份。
+ * 三个用途共用一份，免得换图时只改了一边。
  */
 const CAST_OCCLUDERS = ['home-table', 'home-props']
 
@@ -263,7 +270,44 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
     : { top: `${top}%`, right: `calc(${(1 - bbox.minX) * 100}% + ${CAST_PANEL_GAP_CQI}cqi)` }
 }
 
+/**
+ * 首页要用到的全部图片：舞台各层 + 匾额按钮的背景图 + 四张展示卡的插画。
+ * 全部加载完之前首页不上场（见紧跟其后的 HomeScreen）。
+ *
+ * 卡面插画走 placeholderArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
+ * 四张卡有两张会分到同一张图，Set 去重一下，别为同一个地址排两次队。
+ *
+ * index.html 里给 /home/ 下这几张写了 <link rel="preload">，那份清单要跟这里对得上：
+ * 少写了只是晚一点开始下载，多写了会白下一张用不上的图。
+ *
+ * 人物的发光副本用的是和本人完全相同的 src，浏览器按地址认图，所以这里不用为它多列七条。
+ */
+const HOME_ASSETS = Array.from(
+  new Set([
+    '/home/home-bg.jpg',
+    ...CAST.map((member) => `/home/${member.file}.webp`),
+    ...CAST_OCCLUDERS.map((file) => `/home/${file}.png`),
+    // 匾额是「开始游戏」按钮的 CSS 背景图（见 styles.css 的 .home__start），
+    // 页面里没有对应的 <img>，但同样得等它，否则按钮会先空着一块。
+    '/home/home-plaque.png',
+    ...SEATS.map((seat) => placeholderArtFor(seat.card.id)),
+  ]),
+)
+
+/**
+ * 首页的加载闸门。
+ *
+ * 图没齐就只显示加载动画，不显示半张画面。做成两个组件而不是在一个组件里写条件渲染，
+ * 是因为下面 HomeStage 的 GSAP 绑定和量卡牌缩放的 ResizeObserver 都只在挂载时跑一次，
+ * 必须等真实 DOM 就位再挂；同一个组件里"先渲染 loader 再切成首页"的话，
+ * 那些 effect 会在没有 DOM 的第一帧就跑掉，之后不会再补跑。
+ */
 export function HomeScreen() {
+  const ready = useAssetsReady(HOME_ASSETS)
+  return ready ? <HomeStage /> : <LoadingScreen />
+}
+
+function HomeStage() {
   const [, navigate] = useLocation()
   // 首页在 MatchSessionProvider 里面，所以 dev 入口可以直接建一局测试对局再跳过去。
   const session = useMatchSession()
@@ -283,8 +327,16 @@ export function HomeScreen() {
    */
   const castAlphaRef = useRef<{ cast: AlphaMap[]; occluders: AlphaMap[] } | null>(null)
 
-  // 抠图解码 + 抽 alpha 是异步的，加载完成前 hover 静默不生效（宁可没反应，也别乱高亮）。
-  // 九张图一次请完，是为了让它们共用同一块离屏画布（见 loadCastAlphaMaps）。
+  /*
+   * 抠图解码 + 抽 alpha 是异步的，加载完成前 hover 静默不生效（宁可没反应，也别乱高亮）。
+   * 九张图一次请完，是为了让它们共用同一块离屏画布（见 loadCastAlphaMaps）。
+   *
+   * 这九个地址全都在 HOME_ASSETS 里，而 HomeStage 要等那批图就绪才挂载，
+   * 所以这里的 new Image 命中的是浏览器缓存，不会再下一遍，decode() 也基本当场返回。
+   * 剩下的开销是画进离屏画布再逐像素扫一遍，正好落在首页淡入那段时间（见 castHitTest.ts）。
+   * 没把这一步并进加载闸门：hover 高亮晚几百毫秒无所谓，
+   * 为它多顶一会儿 loader 却是每个玩家都要付的代价。
+   */
   useEffect(() => {
     let alive = true
     const srcs = [
@@ -448,6 +500,10 @@ export function HomeScreen() {
 
   return (
     <div className="home grain">
+      {/* CSS 里的 url(#ai-duel-rough-*) 要在同一个文档里找得到滤镜定义，每个页面各挂一次。
+          本身是 0 尺寸的 svg，不占布局。 */}
+      <HandDrawnFilterDefs />
+
       <div
         className={`home__stage${hoveredCast !== null ? ' is-cast-hover' : ''}`}
         ref={stageRef}

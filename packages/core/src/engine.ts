@@ -169,7 +169,14 @@ function playCard(
   if (card.kind === 'model') {
     deployModel(next, playerId, instance, card, events)
   } else {
-    const resolved = resolvePrompt(next, playerId, card, targetInstanceId, events)
+    const resolved = resolvePrompt(
+      next,
+      playerId,
+      card,
+      instance.instanceId,
+      targetInstanceId,
+      events,
+    )
     // 指定了目标却找不到，说明客户端拿的是过期状态，整条指令作废。
     if (!resolved) return reject(state, '目标不存在')
     player.discard.push(instance)
@@ -198,11 +205,17 @@ function deployModel(
   events.push({ type: 'MODEL_DEPLOYED', player: playerId, model })
 }
 
-/** 结算提示卡。目标找不到时返回 false，由调用方作废整条指令。 */
+/**
+ * 结算提示卡。目标找不到时返回 false，由调用方作废整条指令。
+ *
+ * instanceId 是打出的那张手牌自己的实例 id，只是原样带进 PROMPT_RESOLVED 事件里，
+ * 不参与结算：客户端要靠它在出牌方的手牌里找到起飞的那张牌（见 PROMPT_RESOLVED 的说明）。
+ */
 function resolvePrompt(
   state: GameState,
   playerId: PlayerId,
   card: PromptCard,
+  instanceId: InstanceId,
   targetInstanceId: InstanceId | undefined,
   events: GameEvent[],
 ): boolean {
@@ -216,6 +229,7 @@ function resolvePrompt(
       type: 'PROMPT_RESOLVED',
       player: playerId,
       cardId: card.id,
+      instanceId,
       weakness: card.targetWeakness,
       targetInstanceId: null,
       damage: card.damage,
@@ -240,6 +254,7 @@ function resolvePrompt(
     type: 'PROMPT_RESOLVED',
     player: playerId,
     cardId: card.id,
+    instanceId,
     weakness: card.targetWeakness,
     targetInstanceId: target.instanceId,
     damage,

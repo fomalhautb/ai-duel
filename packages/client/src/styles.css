@@ -55,8 +55,10 @@ body,
 /* ---------- 页面外壳 ---------- */
 
 /*
- * 首页 / 匹配房 / 404 这类静态页共用的排版。
- * 全是占位样式：这一版只保证信息看得清、按钮点得到，美术另做。
+ * 没有专属样式的静态页排版。首页、匹配房、选择英雄都已经各自成页，
+ * 眼下只剩 App.tsx 里的 404 还在用这一套占位样式：只保证信息看得清、按钮点得到，美术另做。
+ * 所以这里只留 404 真正用到的四条（外壳、标题、次要文字、按钮）。
+ * 别往这加「将来可能用得上」的规则：新页面一律自己开一份私有样式（见 hero.css / room.css）。
  */
 .page {
   max-width: 720px;
@@ -69,47 +71,9 @@ body,
   color: #38bdf8;
 }
 
-.page h2 {
-  margin: 0 0 8px;
-  font-size: 15px;
-  color: #9ca3af;
-  font-weight: 600;
-}
-
-.page__lead {
-  line-height: 1.7;
-  color: #c9d1d9;
-}
-
-.page__cta {
-  margin: 24px 0;
-  padding: 14px 28px;
-  border: none;
-  border-radius: 10px;
-  background: #38bdf8;
-  color: #0d1117;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.page__section {
-  margin-top: 32px;
-  padding-top: 20px;
-  border-top: 1px solid #21262d;
-}
-
-.page__section--dev {
-  opacity: 0.65;
-}
-
 .page__muted {
   color: #6b7280;
   font-size: 13px;
-}
-
-.page__error {
-  color: #f87171;
 }
 
 .page button {
@@ -121,30 +85,6 @@ body,
   color: #e5e7eb;
   font-size: 14px;
   cursor: pointer;
-}
-
-.page button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.room__code {
-  margin: 8px 0;
-  font-size: 44px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: #38bdf8;
-}
-
-.room__input {
-  width: 160px;
-  padding: 8px 12px;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  background: #0d1117;
-  color: #e5e7eb;
-  font-size: 20px;
-  letter-spacing: 0.16em;
 }
 
 /* ---------- 首页 ---------- */

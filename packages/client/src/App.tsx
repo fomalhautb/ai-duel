@@ -13,6 +13,7 @@ import { MatchSessionProvider } from './match/MatchSession'
 import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { DesignScreen } from './screens/DesignScreen'
 import { HandDemo } from './dev/HandDemo'
 
 export function App() {
@@ -22,6 +23,8 @@ export function App() {
         <Route path="/" component={HomeScreen} />
         <Route path="/room" component={RoomScreen} />
         <Route path="/match" component={MatchScreen} />
+        {/* 设计参考页，纸面元素的样板间。 */}
+        <Route path="/design" component={DesignScreen} />
         {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}
         <Route path="/dev/hand" component={HandDemo} />
         <Route component={NotFound} />

@@ -208,7 +208,7 @@
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
   display: grid;
-  /* 卡是 150×210 的固定尺寸，列数跟着面板宽度自己变。 */
+  /* 卡是 150×225 的固定尺寸，列数跟着面板宽度自己变。 */
   grid-template-columns: repeat(auto-fill, var(--card-w));
   gap: 20px 18px;
   justify-content: center;
@@ -534,7 +534,7 @@
   height: calc(var(--card-h) * var(--deck-mini-scale));
 }
 
-/* 空格里的「空卡槽」：PaperCardBack 是写死的 150×210，整张按同一个比例缩到格子大小。
+/* 空格里的「空卡槽」：PaperCardBack 是写死的 150×225，整张按同一个比例缩到格子大小。
    transform-origin 取左上角，缩完正好落在格子的原点上。 */
 .deck-slot__back {
   position: absolute;

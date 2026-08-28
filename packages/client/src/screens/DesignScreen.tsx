@@ -289,7 +289,7 @@ export function DesignScreen() {
           </div>
 
           <p className="design-note">
-            150×210 纸白卡：外框 + <code>.paper-card__frame</code> 内框构成双线，
+            150×225 纸白卡：外框 + <code>.paper-card__frame</code> 内框构成双线，
             四角是旋转 45° 的小方块当菱形花饰。 费用是细线圆底座（圆环内还有一道主题色细圆）。
             中央放射线是 16 根内联 SVG 细线，染 <code>currentColor</code> 走主题色、套{' '}
             <code>#ai-duel-rough-rays</code> 歪扭，中间那个图标是水彩 logo 的占位。
@@ -320,7 +320,7 @@ export function DesignScreen() {
           <p className="design-note">
             原始插画不烘焙文字。<code>CardFaceOverlay</code> 独立绘制左上费用圆章和底部双线铭牌，
             上排是 4～6 字技能简称，下排是卡名；<code>cost / skillName / name / accent</code> 都可单独传入。
-            费用章保持正圆，铭牌按卡宽缩放，5:7 手牌和 2:3 原图使用同一套布局。
+            费用章保持正圆，铭牌按卡宽缩放，手牌和原图同为 2:3，使用同一套布局。
             配色沿用本页色板，纸面复用 <code>.grain</code>，文字不套滤镜以保留小尺寸可读性。
             Token 数值仅作原设计展示，不改变当前答题制规则。<a href="/card">打开卡牌图鉴</a>
           </p>

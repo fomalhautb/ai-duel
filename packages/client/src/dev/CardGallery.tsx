@@ -179,8 +179,8 @@ function CardDetail({ card }: { card: Card }) {
         <label>
           预览尺寸
           <select value={previewSize} onChange={(event) => setPreviewSize(event.target.value)}>
-            <option value="large">放大 · 300 × 420</option>
-            <option value="actual">手牌 · 150 × 210</option>
+            <option value="large">放大 · 300 × 450</option>
+            <option value="actual">手牌 · 150 × 225</option>
             <option value="original">原图比例 · 300 × 450</option>
           </select>
         </label>
@@ -199,7 +199,7 @@ function CardDetail({ card }: { card: Card }) {
         </figure>
         <figure className="gallery__face">
           {/* .card-back 是宽高各 100%，尺寸本来由 HandFan 的翻面层给（见 .hand-fan__face）；
-              脱开手牌单独渲染时得自己套一个 150×210 的盒子，否则它会塌成 0 高。 */}
+              脱开手牌单独渲染时得自己套一个 150×225 的盒子，否则它会塌成 0 高。 */}
           <div className="gallery__card">
             <div className="card-back">
               <span className="card-back__title">{card.name}</span>

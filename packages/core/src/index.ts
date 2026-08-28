@@ -1,5 +1,6 @@
 export * from './types'
 export * from './cards'
+export * from './aiModels'
 export * from './collection'
 export * from './engine'
 export * from './heroes'

@@ -1,3 +1,5 @@
+import { useLocation } from 'wouter'
+
 function ConstellationMark() {
   return (
     <svg className="battle-topbar__constellation" viewBox="0 0 54 30" aria-hidden="true">
@@ -29,6 +31,7 @@ function SettingsIcon() {
 }
 
 export function BattleTopBar() {
+  const [, navigate] = useLocation()
   return (
     <header className="battle-topbar">
       <div className="battle-topbar__brand" aria-label="斗 AI">
@@ -41,10 +44,10 @@ export function BattleTopBar() {
         <button className="battle-topbar__tab is-active" type="button" aria-current="page">
           对战
         </button>
-        <button className="battle-topbar__tab" type="button">
+        <button className="battle-topbar__tab" type="button" onClick={() => navigate('/deck')}>
           牌组
         </button>
-        <button className="battle-topbar__tab" type="button">
+        <button className="battle-topbar__tab" type="button" onClick={() => navigate('/card')}>
           图鉴
         </button>
       </nav>

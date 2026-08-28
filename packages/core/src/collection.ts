@@ -7,6 +7,7 @@
  */
 
 import { CARDS } from './cards'
+import { AI_MODEL_CARD_IDS } from './aiModels'
 import type { CardId } from './types'
 
 /**
@@ -17,20 +18,13 @@ import type { CardId } from './types'
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
 /**
- * 新玩家开局就拥有的卡。
+ * 新玩家开局就拥有的卡：十八张 AI 加那张技能牌。
  *
  * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
- * 现在卡池只有 5 张、示例牌组把它们全用上了，所以这份收藏暂时等于整个卡池，
- * `drawNewCard` 也就抽不到新卡（返回 null）——等卡池扩到超出示例牌组，
- * 解锁流程会自动重新生效，不需要改代码。
+ * 现在卡池里的牌全在这份收藏里，所以 `drawNewCard` 抽不到新卡（返回 null）——
+ * 等卡池扩到超出这份收藏，解锁流程会自动重新生效，不需要改代码。
  */
-export const INITIAL_COLLECTION: CardId[] = [
-  'ai-gpt',
-  'ai-claude',
-  'ai-gemini',
-  'ai-deepseek',
-  'placeholder-skill',
-]
+export const INITIAL_COLLECTION: CardId[] = [...AI_MODEL_CARD_IDS, 'placeholder-skill']
 
 /**
  * 从还没拥有的卡里等概率抽一张。

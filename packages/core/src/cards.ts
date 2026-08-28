@@ -1,43 +1,16 @@
 import type { CardId, HandCard } from './types'
+import { AI_MODEL_CARDS, AI_MODEL_CARD_IDS } from './aiModels'
 
 /**
- * 示例卡牌。
- * 目前只是让引擎跑通用的占位数据，卡面文案和模型名都是占位，正式卡池另行设计。
+ * 全部能进牌组的牌：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
+ * 加上技能牌。
  *
- * AI 牌取了四家真实模型的味道，方便一眼看出场上是谁；
  * 技能牌本迭代只有一张占位卡：能打出、播动画、进弃牌堆，不产生任何效果。
  *
  * 这里只收牌组里能出现的牌（HandCard）。英雄牌不进牌组，单独放在 heroes.ts。
  */
 export const CARDS: Record<CardId, HandCard> = {
-  'ai-gpt': {
-    kind: 'ai',
-    id: 'ai-gpt',
-    name: '通用选手',
-    model: 'GPT',
-    text: '什么都会一点，什么都敢答一点。',
-  },
-  'ai-claude': {
-    kind: 'ai',
-    id: 'ai-claude',
-    name: '谨慎书记员',
-    model: 'Claude',
-    text: '答之前先把题目读三遍。',
-  },
-  'ai-gemini': {
-    kind: 'ai',
-    id: 'ai-gemini',
-    name: '多模态目击者',
-    model: 'Gemini',
-    text: '看图这件事它最有话说。',
-  },
-  'ai-deepseek': {
-    kind: 'ai',
-    id: 'ai-deepseek',
-    name: '深度推理员',
-    model: 'DeepSeek',
-    text: '想得久，绕得开陷阱。',
-  },
+  ...AI_MODEL_CARDS,
   'placeholder-skill': {
     kind: 'skill',
     id: 'placeholder-skill',
@@ -57,25 +30,16 @@ export function getCard(cardId: CardId): HandCard {
 }
 
 /**
- * 调试和测试用的示例牌组：四种 AI 各两张 + 四张技能牌，共 12 张。
+ * 默认牌组：十八张 AI 各一张 + 两张技能牌，凑满 20 张（/deck 页的牌组容量就是 20）。
  *
- * 一局最多摸 5（起手）+ 4（第 2~5 轮各 1 张）= 9 张，12 张管够，不会抽空。
+ * 一局最多摸 5（起手）+ 4（第 2~5 轮各 1 张）= 9 张，20 张管够，不会抽空。
  *
  * 只用 `INITIAL_COLLECTION` 里的卡，否则新玩家会拿到自己还没解锁的卡；
  * 这条约束由 collection 的测试守着（这里不 import collection.ts，
  * 因为它反过来依赖本文件，直接引会成环）。
  */
 export const STARTER_DECK: CardId[] = [
-  'ai-gpt',
-  'ai-claude',
-  'ai-gemini',
-  'ai-deepseek',
-  'ai-gpt',
-  'ai-claude',
-  'ai-gemini',
-  'ai-deepseek',
-  'placeholder-skill',
-  'placeholder-skill',
+  ...AI_MODEL_CARD_IDS,
   'placeholder-skill',
   'placeholder-skill',
 ]

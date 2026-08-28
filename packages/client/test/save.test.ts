@@ -61,13 +61,17 @@ describe('本地存档', () => {
     expect(loadSave()).toEqual(save)
   })
 
-  it('收藏还缺卡时，赢一局会补上一张之前没有的卡', () => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [CARD_POOL[0]], wins: 0 }))
-    const { save, drawn } = recordWin()
-    expect(save.wins).toBe(1)
-    expect(drawn).not.toBeNull()
-    expect(save.ownedCards).toContain(drawn)
-    expect(loadSave()).toEqual(save)
+  // 基础收藏始终开放：默认牌组里的卡不能因为"存档里没写"就变成没解锁，
+  // 否则改一次默认牌组，老玩家的牌组里就会出现打不出来的卡。
+  it('读存档时把基础收藏并回来，额外解锁的卡和胜场都留着', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [CARD_POOL[0]], wins: 5 }))
+    const save = loadSave()
+    expect(save.wins).toBe(5)
+    for (const id of INITIAL_COLLECTION) {
+      expect(save.ownedCards).toContain(id)
+    }
+    // 并回来的时候不能并出重复项，否则 drawNewCard 的候选集会被算错。
+    expect(new Set(save.ownedCards).size).toBe(save.ownedCards.length)
   })
 
   it('卡已经集齐时再赢一局，抽卡结果是 null，收藏不再增长', () => {

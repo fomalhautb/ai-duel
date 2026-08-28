@@ -156,7 +156,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
 实际的随机数和存档读写都在客户端（见 5.9）。
 
-眼下卡池只有 5 张、示例牌组把它们全用上了，`INITIAL_COLLECTION` 因此暂时等于整个卡池，
+眼下卡池是 18 张 AI 牌加一张技能牌，示例牌组把它们全用上了，`INITIAL_COLLECTION` 因此暂时等于整个卡池，
 `drawNewCard` 恒返回 `null`——赢一局只涨胜场，抽不到新卡。这条链路是通的，
 等卡池扩到超出示例牌组会自动重新生效，不需要改代码。
 
@@ -786,7 +786,7 @@ value { "ownedCards": ["..."], "wins": 3 }
 
 对外只有三个函数：
 
-- `loadSave()` 读存档，任何一处读不通都回落到初始收藏。
+- `loadSave()` 读存档，任何一处读不通都回落到初始收藏；基础收藏始终开放，和额外解锁合并，不清空胜场。
 - `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
 - `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
 
@@ -814,6 +814,7 @@ packages/core/
   src/index.ts                包的唯一出口，把下面几个模块整个转出去
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
   src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
+  src/aiModels.ts             18 张具名 AI 牌的定义，被 cards.ts 并进 CARDS；默认牌组 = 这 18 张 + 2 张技能牌
   src/heroes.ts               英雄牌数据 + 查表（不进牌组，和卡牌是两张表）；
                               名单已定 7 位，技能设计好一位才进表，眼下只有格蕾丝·霍珀
                               （卡面素材在 assets/人物卡简介/，未接入构建）
@@ -876,11 +877,13 @@ packages/client/
     flipCard.ts               绕 Y 轴翻面的公共实现，正反互斥靠角度驱动 opacity 硬切
     playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份
     cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
+    aiModelArt.ts             18 张具名 AI 牌各自的原画（public/cards/models/），按卡牌 id 查表；
+                              查不到的卡才退回 cardArt.ts 的占位图
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
     LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
     preloadAssets.ts          等一批图片（和字体）就绪的 useAssetsReady，带超时兜底，绝不卡死
     BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
-                              （除「对战」外都还没有对应页面，是占位）
+                              （牌组进入 /deck、图鉴进入 /card，返回对局保留当前 driver；手册/设置尚未实现）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用

@@ -6,7 +6,7 @@
  * 这时跳回首页。
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useLocation } from 'wouter'
 import { useMatchSession } from '../match/MatchSession'
 import { useMatch } from '../match/useMatch'
@@ -14,6 +14,9 @@ import type { MatchDriver } from '../match/driver'
 import { MatchStage } from '../ui/MatchStage'
 import { DevPanel } from '../dev/DevPanel'
 import { recordWin } from '../save/save'
+
+// 去牌组页再返回会重建 Match 组件，结算标记必须跟随 driver，而不是组件实例。
+const recordedMatches = new WeakSet<MatchDriver>()
 
 export function MatchScreen() {
   const [, navigate] = useLocation()
@@ -31,18 +34,16 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
   const [, navigate] = useLocation()
   const { end } = useMatchSession()
   const view = useMatch(driver)
-  /** 一局只记一次胜场，否则结算界面每重渲染一次就多抽一张卡。 */
-  const recorded = useRef(false)
 
   // 测试局不记胜场：那是随手摆出来的局面，不该刷胜场和抽卡。
   // winner 还可能是 'draw'（总分打平）或 null（没打完），两种都不是胜利，
   // 所以这里判的是"和本方座位号相等"，不是"不等于对方"。
   const won = !testMode && view.status === 'finished' && view.state?.winner === view.seat
   useEffect(() => {
-    if (!won || recorded.current) return
-    recorded.current = true
+    if (!won || recordedMatches.has(driver)) return
+    recordedMatches.add(driver)
     recordWin()
-  }, [won])
+  }, [won, driver])
 
   function leave(to: string): void {
     end()

@@ -41,7 +41,8 @@ function parseSave(raw: string): SaveData | null {
   const owned = ownedCards.filter((id) => typeof id === 'string' && CARD_POOL.includes(id))
   // 一张都不剩说明这份存档已经和当前卡池对不上了，当作新号处理。
   if (owned.length === 0) return null
-  return { ownedCards: owned, wins }
+  // 基础收藏始终可用，存档只决定额外解锁的卡；更新默认牌组不会清掉胜场。
+  return { ownedCards: [...new Set([...owned, ...INITIAL_COLLECTION])], wins }
 }
 
 /** 读存档。读不到、解析失败、浏览器不让读，一律回落到初始收藏。 */

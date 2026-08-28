@@ -30,7 +30,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { placeholderArtFor } from './cardArt'
+import { cardArtFor } from './cardArt'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -831,7 +831,7 @@ export function HandCardFace({ card }: { card: HandCardData }) {
           念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
       <img
         className="card-face__art"
-        src={card.art ?? placeholderArtFor(card.id)}
+        src={card.art ?? cardArtFor(card.id)}
         alt=""
         draggable={false}
       />

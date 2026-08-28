@@ -158,7 +158,7 @@ describe('开局', () => {
 
 describe('出牌阶段', () => {
   it('一轮里想出几张出几张：AI 牌上场，技能牌进弃牌堆', () => {
-    const game = newGame({ deck0: [...deckOf('ai-gpt', 6), ...deckOf('placeholder-skill', 6)] })
+    const game = newGame({ deck0: [...deckOf('gpt-3-5', 6), ...deckOf('placeholder-skill', 6)] })
     const hand = game.state.players[0].hand
     const result = run(
       game.state,
@@ -186,8 +186,8 @@ describe('出牌阶段', () => {
   })
 
   it('AI 牌上场后沿用手牌那一份实例 id', () => {
-    const game = newGame({ deck0: deckOf('ai-claude') })
-    const card = handCard(game.state, 0, 'ai-claude')
+    const game = newGame({ deck0: deckOf('claude-5-sonnet') })
+    const card = handCard(game.state, 0, 'claude-5-sonnet')
     const result = execute(game.state, {
       type: 'PLAY_CARD',
       player: 0,
@@ -195,13 +195,13 @@ describe('出牌阶段', () => {
     })
 
     expect(board(result.state, 0)).toEqual([
-      { instanceId: card.instanceId, cardId: 'ai-claude', owner: 0 },
+      { instanceId: card.instanceId, cardId: 'claude-5-sonnet', owner: 0 },
     ])
     expect(result.events).toEqual([
       {
         type: 'AI_DEPLOYED',
         player: 0,
-        ai: { instanceId: card.instanceId, cardId: 'ai-claude', owner: 0 },
+        ai: { instanceId: card.instanceId, cardId: 'claude-5-sonnet', owner: 0 },
       },
     ])
   })
@@ -267,7 +267,7 @@ describe('结束出牌', () => {
 describe('答题结算', () => {
   /** 摆一个"甲两个 AI、乙一个 AI"的答题阶段局面。 */
   function twoVsOne() {
-    const game = newGame({ deck0: deckOf('ai-gpt'), deck1: deckOf('ai-claude') })
+    const game = newGame({ deck0: deckOf('gpt-3-5'), deck1: deckOf('claude-5-sonnet') })
     const mine = game.state.players[0].hand.slice(0, 2)
     const theirs = game.state.players[1].hand[0]!
     return run(game.state, [
@@ -416,8 +416,8 @@ describe('胜负', () => {
   /** 只有一道题的一局：第一次结算就是最后一轮。 */
   function oneRoundGame(aiCount0: number, aiCount1: number) {
     const game = newGame({
-      deck0: deckOf('ai-gpt'),
-      deck1: deckOf('ai-claude'),
+      deck0: deckOf('gpt-3-5'),
+      deck1: deckOf('claude-5-sonnet'),
       questions: [QUESTION_POOL[0]!],
     })
     const play = (player: PlayerId, count: number): Command[] =>
@@ -540,15 +540,15 @@ describe('调试指令：DEBUG_ADD_CARD', () => {
     const deckBefore = game.state.players[0].deck.length
     const handBefore = game.state.players[0].hand.length
     const result = run(game.state, [
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gemini' },
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gemini' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gemini' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gemini' },
     ])
 
     const player = result.state.players[0]
     expect(player.deck).toHaveLength(deckBefore)
     expect(player.hand).toHaveLength(handBefore + 2)
     const added = player.hand.slice(-2)
-    expect(added.map((c) => c.cardId)).toEqual(['ai-gemini', 'ai-gemini'])
+    expect(added.map((c) => c.cardId)).toEqual(['gemini', 'gemini'])
     expect(added[0]!.instanceId).not.toBe(added[1]!.instanceId)
     // 造出来的实例不属于任何一副牌组，客户端靠 dbg- 前缀就能认出来。
     expect(added.every((c) => c.instanceId.startsWith('dbg-'))).toBe(true)
@@ -578,8 +578,8 @@ describe('调试指令：DEBUG_ADD_CARD', () => {
 
   it('答题阶段也能用：测试房要能提前把手牌摆好', () => {
     const quiz = toQuiz(newGame().state)
-    const result = execute(quiz, { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gpt' })
-    expect(result.state.players[0].hand.at(-1)!.cardId).toBe('ai-gpt')
+    const result = execute(quiz, { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-3-5' })
+    expect(result.state.players[0].hand.at(-1)!.cardId).toBe('gpt-3-5')
     expect(result.state.phase).toBe('quiz')
   })
 })
@@ -637,17 +637,17 @@ describe('调试指令：DEBUG_REMOVE_CARD', () => {
 
 describe('调试指令：DEBUG_PLAY_CARD', () => {
   it('还没轮到的一方也能出牌，结算和正常出牌一致', () => {
-    const game = newGame({ deck1: deckOf('ai-deepseek') })
+    const game = newGame({ deck1: deckOf('deepseek-r1') })
     expect(game.state.activePlayer).toBe(0)
 
-    const card = handCard(game.state, 1, 'ai-deepseek')
+    const card = handCard(game.state, 1, 'deepseek-r1')
     const result = execute(game.state, {
       type: 'DEBUG_PLAY_CARD',
       player: 1,
       instanceId: card.instanceId,
     })
 
-    expect(board(result.state, 1).map((a) => a.cardId)).toEqual(['ai-deepseek'])
+    expect(board(result.state, 1).map((a) => a.cardId)).toEqual(['deepseek-r1'])
     expect(result.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
     // 只免掉"轮到谁"这一条检查，出牌本身仍然要在出牌阶段。
     expect(result.state.activePlayer).toBe(0)
@@ -699,8 +699,8 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
 
 describe('调试指令的边界', () => {
   it('加牌/弃牌/替对手出牌都不推进轮次', () => {
-    const game = newGame({ deck1: deckOf('ai-gpt') })
-    const card = handCard(game.state, 1, 'ai-gpt')
+    const game = newGame({ deck1: deckOf('gpt-3-5') })
+    const card = handCard(game.state, 1, 'gpt-3-5')
     const result = run(game.state, [
       { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'placeholder-skill' },
       { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId },
@@ -874,8 +874,8 @@ describe('题库与剧本', () => {
   it('按传入顺序返回，每张卡对同一道题的结果稳定不变', () => {
     const question = QUESTION_POOL[0]!
     const aiUnits = [
-      { instanceId: 'a', cardId: 'ai-gpt', owner: 0 as PlayerId },
-      { instanceId: 'b', cardId: 'ai-claude', owner: 1 as PlayerId },
+      { instanceId: 'a', cardId: 'gpt-3-5', owner: 0 as PlayerId },
+      { instanceId: 'b', cardId: 'claude-5-sonnet', owner: 1 as PlayerId },
     ]
     const first = scriptedAnswers(question, aiUnits)
     expect(first.map((r) => r.instanceId)).toEqual(['a', 'b'])

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AI_MODEL_CARD_IDS,
   CARD_POOL,
   CARDS,
   drawNewCard,
@@ -9,6 +10,31 @@ import {
 } from '../src/index'
 
 describe('卡池与初始收藏', () => {
+  it('AI 牌就是 aiModels 里那 18 张，占位模型牌已经没了', () => {
+    // 卡池换过一轮：早期那四张占位 AI（ai-gpt / ai-claude / ai-gemini / ai-deepseek）
+    // 已经被 18 张具名模型顶掉，这里守着别有人把旧 id 又捡回来。
+    for (const id of ['ai-gpt', 'ai-claude', 'ai-gemini', 'ai-deepseek']) {
+      expect(CARDS[id]).toBeUndefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
+    }
+    expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(
+      Object.values(CARDS)
+        .filter((card) => card.kind === 'ai')
+        .map((card) => card.id),
+    ).toEqual(AI_MODEL_CARD_IDS)
+  })
+
+  it('18 张 AI 都已解锁，且在默认的 20 张牌组里各有一张', () => {
+    expect(STARTER_DECK).toHaveLength(20)
+    for (const id of AI_MODEL_CARD_IDS) {
+      expect(INITIAL_COLLECTION).toContain(id)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
+    }
+  })
+
   it('卡池覆盖全部卡牌定义', () => {
     expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
@@ -38,7 +64,7 @@ describe('卡池与初始收藏', () => {
 })
 
 describe('drawNewCard', () => {
-  // 现在卡池只有 5 张、示例牌组把它们全用上了，初始收藏只能等于整个卡池（见 collection.ts），
+  // 现在示例牌组把卡池里的卡全用上了，初始收藏只能等于整个卡池（见 collection.ts），
   // 所以这里不拿 INITIAL_COLLECTION 当"已拥有"，改用手搓的列表，
   // 免得卡池一扩这些用例的前提就变了。
   const owned = CARD_POOL.slice(0, 2)

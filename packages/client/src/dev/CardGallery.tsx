@@ -17,7 +17,7 @@ import { CARDS, HEROES } from '@ai-duel/core'
 import type { AiCard, Card, CardId, HeroCard, SkillCard } from '@ai-duel/core'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
-import { CARD_ART_PLACEHOLDERS, placeholderArtFor } from '../ui/cardArt'
+import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
 import { heroCardData } from '../ui/heroCard'
 
@@ -206,7 +206,7 @@ function CardDetail({ card }: { card: Card }) {
           </>
         ) : null}
         <MetaRow label="占位插画">
-          <code>{placeholderArtFor(card.id)}</code>
+          <code>{cardArtFor(card.id)}</code>
         </MetaRow>
       </dl>
 

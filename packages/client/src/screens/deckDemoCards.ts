@@ -39,7 +39,8 @@ export const FACTIONS = [
 /**
  * 一张 demo 卡。
  *
- * art 不填：让卡面按 id 稳定地分一张占位插画（见 ui/cardArt.ts 的 placeholderArtFor）。
+ * art 不填：让卡面按 id 挑图（见 ui/cardArt.ts 的 cardArtFor）：
+ * id 和真卡对上的那几张会拿到具名 AI 的原画，其余按 id 稳定地分一张占位插画。
  * 也正因如此，下面的 id 必须稳定——改 id 会连带换掉那张卡的插画。
  */
 export type DeckDemoCard = HandCardData & { faction: DeckFaction }

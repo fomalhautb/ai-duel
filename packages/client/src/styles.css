@@ -760,6 +760,14 @@ body,
 /*
  * 高度为 0 的定位锚点：钉在视口底边中央，每张牌相对它绝对定位。
  * 这样"卡牌底边贴着视口底边"就是坐标原点，GSAP 只要补间 x / y / rotation 就够了。
+ *
+ * fixed + z-index 让它自成一个层叠上下文，整排手牌对页面而言恒定是第 20 层：
+ * 里面每张牌的 z-index（1..n，右压左）只在扇形内部有效，改它影响不到手牌和战场的前后关系。
+ * 而 hover 放大后的牌高约 400px，必然戳进我方战场行——落位后的战场格子是 z-index auto，
+ * 压不过第 20 层，所以"抬起来的手牌盖住战场小卡"是这套层级下的必然结果，也是想要的：
+ * 玩家正在看的那张牌就该在最上面。
+ * 演出期间（牌在飞、在落地、展示层演着）不能出现这种遮挡，靠的不是层级而是不让 hover 发生
+ * ——HandFan 的 frozen 会把整排手牌冻住（见 HandFanProps.frozen）。
  */
 .hand-fan {
   position: fixed;
@@ -1790,7 +1798,14 @@ body:has(.battle) {
  * 否则拖回底部的卡也会被 isInsideDropZone 判成打出。
  *
  * absolute 本身不会形成层叠上下文；这里刻意不设 z-index / isolation，
- * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面。
+ * 这样 Flip 飞行中的卡仍然能靠自己的 z-index 盖到手牌上面（飞行途中是 60 或 1200，
+ * 都高过手牌那一层的 20）。
+ *
+ * 但那个层级只在飞行途中有效：Flip 是把 z-index 写死在元素的内联样式上的，飞完不会自己收，
+ * 所以每段飞行的 onComplete 都要点名 clearProps: 'zIndex'（见 MatchStage 的三处 Flip.from）。
+ * 清掉之后 tile 回到 z-index auto，也就重新落在手牌（20）下面——这是刻意的，
+ * 理由见 .hand-fan 上面那段注释。不清的话场上会出现三种层级的小卡，有的盖得住手牌、
+ * 有的盖不住，而停在 1200 的那张连展示遮罩（1100）都能戳穿。
  */
 .battle__board {
   position: absolute;

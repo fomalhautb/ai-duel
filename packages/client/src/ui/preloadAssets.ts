@@ -27,10 +27,18 @@ const PRELOAD_TIMEOUT_MS = 10_000
  */
 const settled = new Set<string>()
 
-function loadImage(url: string): Promise<void> {
+/**
+ * 加载一张图，等它解码完就算数（成功失败都算）。
+ *
+ * priority 传 'low' 用于后台预加载：让浏览器把这张图排在当前页面真正要用的资源后面。
+ */
+function loadImage(url: string, priority: 'auto' | 'low' = 'auto'): Promise<void> {
   if (settled.has(url)) return Promise.resolve()
 
   const image = new Image()
+  // 必须赶在 src 之前设：请求一发出去，再改优先级就没有意义了。
+  // 老浏览器没有这个属性，赋值只是往对象上多挂一个字段，不影响加载。
+  if (priority === 'low') image.fetchPriority = 'low'
   image.src = url
   // 用 decode() 而不是只等 onload：onload 只代表下载完，解码还留在首次绘制那一帧里做，
   // 十几张整幅大图一起解码足够卡掉几帧——正是这次要消灭的"画面一块块拼出来"。
@@ -72,11 +80,50 @@ export function preloadAssets(
   urls: readonly string[],
   timeoutMs: number = PRELOAD_TIMEOUT_MS,
 ): Promise<void> {
-  const everything = Promise.all([...urls.map(loadImage), fontsReady()]).then(() => undefined)
+  // 包一层箭头函数而不是直接 map(loadImage)：map 会把下标当第二个参数传进去，正好撞上 priority。
+  const everything = Promise.all([...urls.map((url) => loadImage(url)), fontsReady()]).then(
+    () => undefined,
+  )
   const deadline = new Promise<void>((resolve) => {
     setTimeout(resolve, timeoutMs)
   })
   return Promise.race([everything, deadline])
+}
+
+/**
+ * 后台悄悄把一批图拉下来，不挡任何界面。
+ *
+ * 和 preloadAssets 的区别是"谁在等"：那个是玩家正盯着 loader 等这批图，
+ * 所以要一次全发出去、还要有超时兜底；这个是玩家正在玩别的页面，
+ * 图晚一点到没关系，反而不能挤掉当前页面的请求。所以这里：
+ * - 限制并发（默认 3 条），不一口气占满浏览器对同一域名的连接；
+ * - 每张图都标 fetchPriority: 'low'，排在页面自己的资源后面；
+ * - 不设超时，慢就慢着，反正没人等。
+ *
+ * 已经加载过的（settled 里有的）直接跳过，所以进过的页面不会被重复排队。
+ * 和 loadImage 一样永远不 reject。
+ */
+export function preloadAssetsInBackground(
+  urls: readonly string[],
+  concurrency = 3,
+): Promise<void> {
+  const pending = urls.filter((url) => !settled.has(url))
+  if (pending.length === 0) return Promise.resolve()
+
+  // 固定几个 worker 轮流从同一个下标往后取，取完就收工——
+  // 比按数量切成几段好在：某张图特别慢时，其他 worker 会继续消化剩下的，不会有人空等。
+  let next = 0
+  async function worker(): Promise<void> {
+    for (;;) {
+      const url = pending[next]
+      next += 1
+      if (url === undefined) return
+      await loadImage(url, 'low')
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, pending.length) }, () => worker())
+  return Promise.all(workers).then(() => undefined)
 }
 
 /**

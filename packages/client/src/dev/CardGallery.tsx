@@ -16,10 +16,9 @@ import { useLocation } from 'wouter'
 import { CARDS, HEROES } from '@ai-duel/core'
 import type { AiCard, Card, CardId, HeroCard, SkillCard } from '@ai-duel/core'
 import { HandCardFace } from '../ui/HandFan'
-import type { HandCardData } from '../ui/HandFan'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
-import { heroCardData } from '../ui/heroCard'
+import { toHandCardData } from '../ui/handCardData'
 
 const HERO_CARDS: HeroCard[] = Object.values(HEROES)
 /** 进牌组的那两类牌。英雄牌不在 CARDS 里，所以页头的张数也按这一份算。 */
@@ -35,29 +34,6 @@ const KIND_LABELS: Record<Card['kind'], string> = {
   hero: '英雄牌',
   ai: 'AI 牌',
   skill: '技能牌',
-}
-
-/**
- * core 的 Card 转成卡面要的展示数据。
- *
- * backText 走 cardBackText，和对局里那张卡完全一样——这一页就是拿来照着对局检查排版的。
- * art 不填，交给 HandCardFace 按 id 查找原画或占位插画（见 ui/cardArt.ts），
- * 这样这一页看到的配图也和对局里那张卡是同一张。英雄牌也走同一条路：
- * 它自己的立绘（assets/人物卡简介/）还没接进构建，先跟着分一张占位图。
- */
-function toHandCardData(card: Card): HandCardData {
-  // 英雄牌的正面拼法只有一份（ui/heroCard.ts），对局侧栏画的就是这一张。
-  if (card.kind === 'hero') return heroCardData(card)
-  const base = {
-    id: card.id,
-    name: card.name,
-    text: card.text,
-    backText: cardBackText(card),
-  }
-  if (card.kind === 'ai') {
-    return { ...base, kind: 'ai', model: card.model }
-  }
-  return { ...base, kind: 'skill' }
 }
 
 export function CardGallery() {

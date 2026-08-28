@@ -59,8 +59,12 @@ gsap.registerPlugin(useGSAP)
 export interface HandCardData {
   id: string
   name: string
-  kind: 'agent' | 'skill'
-  /** AI 卡印在卡面上的模型名，纯展示。技能牌没有这一项。 */
+  /**
+   * 卡种。'hero' 是英雄卡：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 借的是同一份卡面排版（见 ui/heroCard.ts）。
+   */
+  kind: 'agent' | 'skill' | 'hero'
+  /** AI 卡印在卡面上的模型名，纯展示。技能卡和英雄卡没有这一项。 */
   model?: string
   /** 卡面正面的描述文案。 */
   text: string
@@ -835,8 +839,8 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
         <div className="card-face__stats">
-          {/* AI 卡印模型名，技能牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
-          <span>{card.kind === 'agent' ? (card.model ?? 'AI') : '技能'}</span>
+          {/* AI 卡印模型名，技能卡和英雄卡印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+          <span>{faceStamp(card)}</span>
         </div>
       </div>
       {/*
@@ -848,4 +852,14 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       <div className="card-glare" />
     </div>
   )
+}
+
+/**
+ * 卡面底部那一行印什么。
+ *
+ * AI 卡印模型名（没填就退回"AI"，卡面上留空比印错更难看），其余按卡种印两个字。
+ */
+function faceStamp(card: HandCardData): string {
+  if (card.kind === 'agent') return card.model ?? 'AI'
+  return card.kind === 'hero' ? '英雄' : '技能'
 }

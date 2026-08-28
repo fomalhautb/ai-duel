@@ -20,14 +20,21 @@
 export const CARD_WIDTH = 150
 export const CARD_HEIGHT = 210
 
-/** 手牌张开的总角度上限。 */
-export const MAX_SPREAD_DEG = 40
-/** 每多一张牌多张开的角度，和上限一起决定小手牌不会张得太开。 */
-export const DEG_PER_CARD = 5
+/**
+ * 手牌张开的总角度，几张牌都是这个数。
+ *
+ * 以前是"每多一张多张开 5°、封顶 40°"，弧线跟着牌数变：出一张牌，剩下的整排会重新拱一次，
+ * 明明只少了一张牌，看上去却像整只手换了个握法。固定下来之后，加减牌只改牌与牌的间距，
+ * 拱的形状从头到尾是同一个，两端也永远是 ±SPREAD_DEG/2 = 20°
+ *（HandFan 的 MIN_HOVER_SCALE 按这个最大倾角算防抖动的几何下限）。
+ */
+export const SPREAD_DEG = 40
 /** 每张牌理想的水平间距；卡宽 150，所以到这个间距时相邻卡已经互相压住一部分。 */
 export const GAP_PER_CARD = 95
 /** 手牌总宽上限，超过就压缩间距让牌重叠。 */
 export const MAX_SPAN = 900
+/** 扇形最外侧那张牌和可用区域边缘之间至少留出的空隙，纯观感。 */
+export const EDGE_MARGIN = 16
 /**
  * 重排（加牌 / 减牌 / 改窗口大小）的时长。
  * 两侧手牌共用同一个值，加减牌时上下两排的节奏才是一套的。
@@ -51,10 +58,21 @@ export interface FanGeometry {
   arcRadius: number
 }
 
-/** 玩家手牌：默认露出卡高的 85%，剩下的藏在视口下方。 */
+/**
+ * 玩家手牌：整排抬进视口 32px，牌沉出屏幕的只有两端那两个角。
+ *
+ * arcRadius 一路收到 250，两端的下垂量只剩 15px（最早是 800/48px）：拱还认得出来，
+ * 但整排牌基本是平着摊开的。
+ *
+ * sink 取负，是因为卡面最下面那块名字铭牌紧贴着卡的底边，整张牌往下沉一点就被视口切掉，
+ * 而铭牌上的名字是必须看清的。32 是"尽量沉、又不切字"之间的那个点：
+ * 两端下垂 15，牌又以底边中点为轴转了 20°、最低那个角还要再往下探 (卡宽/2)·sin 20° ≈ 26，
+ * 于是最外侧那两个角落在视口下方 9px 处——而铭牌底边比那个角还高 15px，正好留在屏幕里。
+ * 想再沉就要动铭牌的位置了：这 9px 已经吃掉了角和铭牌之间的大半空隙。
+ */
 export const PLAYER_FAN: FanGeometry = {
-  sink: Math.round(CARD_HEIGHT * 0.15),
-  arcRadius: 800,
+  sink: -32,
+  arcRadius: 400,
 }
 
 /**
@@ -66,16 +84,16 @@ export const PLAYER_FAN: FanGeometry = {
  * 露出高度 = 卡高 210 × 0.64 − sink − 下垂量 − 顶栏 72 = 62.4 − sink − 下垂量。
  * 缩到 0.64 之后卡只剩 134.4 高，再照旧沉 8 就只露四十来像素，一排牌看着像一条边框，
  * 所以 sink 直接归 0：牌的底边（也就是缩放和旋转的轴）正好压在视口顶边上，一点都不外沉。
- * 5 张牌时最外侧下垂约 6px、12 张（一排摆满的档位）时约 16px，于是中间那张露 62px、
- * 5 张牌的两端露 56px、12 张时的两端露 47px。
+ * 张角固定在 40°（见 SPREAD_DEG），两端的下垂量因此恒定在 16px，几张牌都一样：
+ * 中间那张露 62px、两端露 47px，加减牌不会让这排牌忽高忽低。
  * 还想再多露一点的话 sink 可以取负值（整排往屏幕里挪）：顶栏不透明，只要 |sink|
  * 小于顶栏高度，牌和视口边之间空出来的那条缝就一直藏在顶栏后面，看不出破绽；
  * 现在没这么做只是因为 0 已经落在想要的露出量里。
  * 矮窗口那一档（styles.css 里 max-height: 741px）顶栏收成 62px，露出的部分跟着多 10px，
  * 观感上仍是同一回事，不用为它单独调 sink。
- * arcRadius 保持在 260、没跟着卡面一起缩（玩家那档是 800）：下垂量是父坐标系里的位移，
- * 卡缩小并不意味着扇形也要压平，而 260 这个值本来就是照顾露出量选的——
- * 沿用 800 的话 12 张牌时最外侧要垂 48px，边上那几张只剩十来像素，看不出是一张牌。
+ * arcRadius 260 和玩家那档的 250 撞得这么近是巧合，两边是各按各的理由选的：
+ * 这边挑的是"两端还能露出多少"（垂 16px 时露 47px，再垂就看着像一条边框），
+ * 玩家那边挑的是拱得好不好看。改一边不用跟着改另一边。
  */
 export const OPPONENT_FAN: FanGeometry = {
   sink: 0,
@@ -91,6 +109,9 @@ export interface SlotTransform {
 /**
  * 算出第 index 张牌在扇形里的基准位置。
  *
+ * areaWidth 是"这排扇形可以铺开多宽"，不是视口宽：玩家手牌传的是战场中栏的宽度
+ * （见 HandFan 的 fanAreaWidth），对手手牌顶栏那排没人跟它抢地方，传的就是视口宽。
+ *
  * 以底边中点为旋转轴是防抖动的第一步：hover 时只放大、只往上长，绝不往下移，
  * 卡底始终不会往锚点内侧跑（玩家那档还额外沉了 sink，hover 时也还差 HOVER_BOTTOM）。
  * 第二步是放大倍数的下限（见 HandFan 的 MIN_HOVER_SCALE）：只有横向也盖过倾斜卡牌最远的那个角，
@@ -100,15 +121,32 @@ export interface SlotTransform {
 export function fanTransform(
   index: number,
   count: number,
-  viewportWidth: number,
+  areaWidth: number,
   geometry: FanGeometry,
 ): SlotTransform {
   if (count <= 1) return { x: 0, y: geometry.sink, rotation: 0 }
 
-  const spread = Math.min(MAX_SPREAD_DEG, count * DEG_PER_CARD)
+  const spread = SPREAD_DEG
   const rotation = -spread / 2 + (spread / (count - 1)) * index
 
-  const span = Math.min(viewportWidth * 0.7, MAX_SPAN, count * GAP_PER_CARD)
+  /*
+   * 能张多宽由三条一起卡：理想间距、总宽上限，以及"最外侧那张牌不许越过可用区域的边"。
+   *
+   * 第三条要按倾斜后的实际占位算，不能拿卡宽了事：以底边中点为轴倾斜 θ 的牌，
+   * 横向要伸到 (卡宽/2)·cos θ + 卡高·sin θ——20°（张角到顶那一档）时是 142px，
+   * 比半个卡宽 75 多出快一倍。早先这里写的是 viewportWidth × 0.7，
+   * 既没扣掉这块伸出量，也没考虑对局界面两侧的栏（它们 z-index 30，压在手牌之上），
+   * 手牌一多两端就整片钻到侧栏底下去了。
+   *
+   * span 是"每张牌摊一格"的总宽，最外侧牌心只到 span/2 × (count−1)/count，
+   * 所以反推可用的 span 时要再乘回 count/(count−1)。
+   */
+  const tilt = ((spread / 2) * Math.PI) / 180
+  const halfExtent = (CARD_WIDTH / 2) * Math.cos(tilt) + CARD_HEIGHT * Math.sin(tilt)
+  const fitHalf = Math.max(0, areaWidth / 2 - EDGE_MARGIN - halfExtent)
+  const fitSpan = ((fitHalf * 2) * count) / (count - 1)
+
+  const span = Math.min(fitSpan, MAX_SPAN, count * GAP_PER_CARD)
   const gap = span / count
   const x = (index - (count - 1) / 2) * gap
 

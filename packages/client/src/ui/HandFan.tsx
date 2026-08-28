@@ -40,7 +40,7 @@ import {
   CARD_HEIGHT,
   CARD_WIDTH,
   LAYOUT_DUR,
-  MAX_SPREAD_DEG,
+  SPREAD_DEG,
   PLAYER_FAN,
   fanTransform,
 } from './fanMath'
@@ -179,9 +179,9 @@ const HOVER_BOTTOM = 6
  * 而且这一块正好在视口里）。指针停在那一小块上就会
  * 「放大 → 指针掉到卡外 → 缩回 → 又被 hover 到」无限循环，
  * LEAVE_DELAY_MS 只挡得住扫过去又折返的指针，挡不住停着不动的。
- * 写成公式而不是常数，是为了改 MAX_SPREAD_DEG 时不用手工重新对表。
+ * 写成公式而不是常数，是为了改 SPREAD_DEG 时不用手工重新对表。
  */
-const MAX_TILT_RAD = ((MAX_SPREAD_DEG / 2) * Math.PI) / 180
+const MAX_TILT_RAD = ((SPREAD_DEG / 2) * Math.PI) / 180
 const MIN_HOVER_SCALE =
   ((CARD_WIDTH / 2) * Math.cos(MAX_TILT_RAD) + CARD_HEIGHT * Math.sin(MAX_TILT_RAD)) / (CARD_WIDTH / 2)
 /**
@@ -225,7 +225,7 @@ const LEAVE_DELAY_MS = 50
 /**
  * 放大后的卡跟着指针倾斜的最大角度。
  *
- * 只给放大的那张牌用。扇形里的小卡本身就是斜的（最多 MAX_SPREAD_DEG / 2），
+ * 只给放大的那张牌用。扇形里的小卡本身就是斜的（最多 SPREAD_DEG / 2），
  * 再叠一层三维倾斜看着就是一团乱，所以那时候不启用（见 attachCardTilt 的 enabled）。
  * 10° 是看着调出来的：再小几乎看不出"卡在跟着手动"，再大卡面的透视就开始明显变形。
  */
@@ -262,26 +262,51 @@ type LayoutMode = 'hover' | 'reflow'
  * 只按各自的需求算的话，被推开的内侧牌会直接怼到外侧牌身上叠成一坨。
  * 这样整侧牌是"被推着走"的，彼此间距不变，越靠外让得越少，够远的牌一动不动。
  */
-function neighborPushes(hoverIndex: number, count: number, viewportWidth: number): number[] {
+/**
+ * 扇形可以铺开多宽。
+ *
+ * 不能拿视口宽了事：对局界面两侧是不透明的侧栏，而且 z-index 30 压在手牌（20）之上，
+ * 手牌一多，扇形两端就整片钻到侧栏底下去了。所以量的是中间那栏（.battle__battlefield）。
+ * 这栏并不严格居中（左右侧栏的 clamp 宽度不一样，差十来个像素），而扇形是以视口中线
+ * 为对称轴摊开的，所以取"中线到左右两边距离里较小的那个"再翻倍——按窄的那侧算，
+ * 宽的那侧自然也放得下。
+ *
+ * 量不到这个元素（比如手牌被搬到别的页面上用）就退回视口宽：
+ * 口径是 documentElement.clientWidth，和锚点 .hand-fan（fixed + width: 100%）
+ * 以及 dragTargetOf 一致，别混用 innerWidth。
+ */
+function fanAreaWidth(): number {
+  const viewportWidth = document.documentElement.clientWidth
+  const field = document.querySelector('.battle__battlefield')
+  if (field === null) return viewportWidth
+
+  const rect = field.getBoundingClientRect()
+  if (rect.width === 0) return viewportWidth
+
+  const center = viewportWidth / 2
+  return Math.min(center - rect.left, rect.right - center) * 2
+}
+
+function neighborPushes(hoverIndex: number, count: number, areaWidth: number): number[] {
   const pushes = new Array<number>(count).fill(0)
   if (hoverIndex < 0) return pushes
 
-  const hovered = fanTransform(hoverIndex, count, viewportWidth, PLAYER_FAN)
+  const hovered = fanTransform(hoverIndex, count, areaWidth, PLAYER_FAN)
   const half = (CARD_WIDTH / 2) * HOVER_SCALE + NEIGHBOR_CLEARANCE
   // 一张牌朝扇形中间伸出多远：底边那个角，随倾角变小。
   const reachOf = (index: number) =>
     (CARD_WIDTH / 2) *
-    Math.cos((fanTransform(index, count, viewportWidth, PLAYER_FAN).rotation * Math.PI) / 180)
+    Math.cos((fanTransform(index, count, areaWidth, PLAYER_FAN).rotation * Math.PI) / 180)
 
   let carry = 0
   for (let i = hoverIndex - 1; i >= 0; i -= 1) {
-    const base = fanTransform(i, count, viewportWidth, PLAYER_FAN)
+    const base = fanTransform(i, count, areaWidth, PLAYER_FAN)
     carry = Math.min(carry, hovered.x - half - reachOf(i) - base.x)
     pushes[i] = carry
   }
   carry = 0
   for (let i = hoverIndex + 1; i < count; i += 1) {
-    const base = fanTransform(i, count, viewportWidth, PLAYER_FAN)
+    const base = fanTransform(i, count, areaWidth, PLAYER_FAN)
     carry = Math.max(carry, hovered.x + half + reachOf(i) - base.x)
     pushes[i] = carry
   }
@@ -353,9 +378,7 @@ export function HandFan({
    * 已经打出、正在等结果的牌（playedRef）同样不参与，原因见下面 laid 那里。
    */
   const applyLayout = (mode: LayoutMode) => {
-    // 扇形锚点 .hand-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），
-    // 和 dragTargetOf 用同一个口径，别混用 innerWidth。
-    const viewportWidth = document.documentElement.clientWidth
+    const areaWidth = fanAreaWidth()
     // 走 ref 不走闭包：这个函数常常是上一次渲染留下的那一份（见 castingIdRef）。
     const casting = castingIdRef.current
     const ids = new Set(cards.map((card) => card.id))
@@ -401,13 +424,13 @@ export function HandFan({
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
     // 邻牌要让到 hover 那张牌放大后的轮廓之外；放大不改 x，所以让位量只跟基准位有关，
     // 全部在 neighborPushes 里按几何算好。
-    const pushes = neighborPushes(hoverIndex, count, viewportWidth)
+    const pushes = neighborPushes(hoverIndex, count, areaWidth)
 
     laid.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
       if (!slot) return
 
-      const base = fanTransform(index, count, viewportWidth, PLAYER_FAN)
+      const base = fanTransform(index, count, areaWidth, PLAYER_FAN)
       const isCasting = card.id === casting
       // 选目标态下父组件会一并打开 frozen，上面那行已经把 hover 抹平了；
       // 判 isCasting 优先只是兜底，免得哪天两个开关没一起给，这张牌又被摆成放大的样子。

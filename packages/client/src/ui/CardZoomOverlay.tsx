@@ -107,7 +107,7 @@ export function ShowcaseCard({ card, flipId, clipRef, cardRef, back }: ShowcaseC
         {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。 */}
         <div className="reveal-card__inner">
           <div className="reveal-card__face" data-flip-face="front">
-            {/* 卡面布局尺寸仍是 150×210，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
+            {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
             <div className="reveal-card__scale">
               <HandCardFace card={card} />
             </div>

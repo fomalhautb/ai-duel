@@ -18,7 +18,9 @@
 ```
 
 前端和转发器同域名，所以客户端连 WebSocket 直接用相对路径（`/room/1234?role=host`），
-不需要配 CORS，也不需要维护第二个服务的地址。
+线上不依赖 CORS，也不需要维护第二个服务的地址。
+（`/api/room` 上确实带了 `Access-Control-Allow-Origin: *`，那是给本地开发用的——
+本地 Vite 在 5173、`wrangler dev` 在 8787，是两个 origin。）
 
 选 Cloudflare 的原因就一条：**免费档能挂长连接且不休眠**。
 常见的免费 PaaS（Render、Fly 之类）在免费档上会把闲置的实例睡掉，

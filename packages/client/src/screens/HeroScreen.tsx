@@ -67,8 +67,11 @@ const DEFAULT_HERO_ID: HeroId = HEROES[0].id
  * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  * 没往 index.html 的 preload 清单里加——那份清单只服务首页的关键路径，
  * 多写一条就是每个玩家进首页都白下一张用不上的图。
+ *
+ * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
+ * 两边各写一遍迟早会对不上。
  */
-const HERO_ASSETS = [
+export const HERO_ASSETS = [
   '/hero/hero-bg.webp',
   ...HEROES.map((hero) => `/hero/card-${hero.id}.webp`),
 ]

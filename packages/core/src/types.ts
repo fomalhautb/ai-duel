@@ -50,10 +50,18 @@ export interface AiCard extends CardBase {
 
 /**
  * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有卡面和动画，没有任何效果。
+ * 本迭代只有「必须回答」有实际结算（把目标标成已干扰），其余只有卡面和动画。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'
+  /**
+   * 打出时必须指定的目标；不填就是无目标技能，打出即结算。
+   *
+   * `'foe-ai'` = 对方场上一个还没被干扰过的 AI（`AiInstance.interfered` 不为 true）。
+   * 目标规则写在卡牌定义上而不是引擎里：再加一张干扰类技能只要标这个字段，
+   * `playCard` 那段校验一行都不用改。
+   */
+  target?: 'foe-ai'
 }
 
 /** 英雄 id。英雄很少，直接用字面量联合，写错名字当场就是类型错误。 */
@@ -102,13 +110,21 @@ export interface CardInstance {
 
 /**
  * 场上的 AI 单位。
- * 目前没有会被改动的数值，所以只留身份三件套；
- * 之后要加"上场后被增益/削弱"的属性时再往这里拷贝卡面数值。
+ * 除了身份三件套，只有一个被干扰标记；
+ * 之后要加"上场后被增益/削弱"的数值时再往这里拷贝卡面数值。
  */
 export interface AiInstance {
   instanceId: InstanceId
   cardId: CardId
   owner: PlayerId
+  /**
+   * 被干扰类技能命中过。
+   *
+   * 本迭代它只管两件事：这个 AI 不能再被第二张干扰技能选中，以及战场小卡上挂一个「已干扰」角标。
+   * **不影响答题**——真正往上下文里塞话的效果还没做。
+   * 写成可选字段，没被干扰过的单位就不带这一项，JSON 深拷贝和联机转发都少一份冗余。
+   */
+  interfered?: boolean
 }
 
 /** 一次答题的结果，由房主/本地 driver 生成后喂进引擎。 */
@@ -179,8 +195,19 @@ export interface GameState {
 
 /** 玩家能对引擎发出的全部指令。 */
 export type Command =
-  /** 打出一张手牌。本迭代没有费用也不选目标，一轮内想打几张打几张。 */
-  | { type: 'PLAY_CARD'; player: PlayerId; instanceId: InstanceId }
+  /**
+   * 打出一张手牌。本迭代没有费用，一轮内想打几张打几张。
+   *
+   * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
+   * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；
+   * 无目标的卡带上它则直接忽略。
+   */
+  | {
+      type: 'PLAY_CARD'
+      player: PlayerId
+      instanceId: InstanceId
+      targetInstanceId?: InstanceId
+    }
   /** 结束本方出牌：先手发就轮到后手，后手发就进答题阶段。 */
   | { type: 'END_PLAY'; player: PlayerId }
   /**
@@ -196,8 +223,13 @@ export type Command =
   | { type: 'DEBUG_ADD_CARD'; player: PlayerId; cardId?: CardId }
   /** 弃掉某位玩家的一张手牌：不带 instanceId 移最后一张，带则移指定那张；被移的牌进弃牌堆。 */
   | { type: 'DEBUG_REMOVE_CARD'; player: PlayerId; instanceId?: InstanceId }
-  /** 无视出牌轮次打出一张手牌，其余结算与 PLAY_CARD 完全一致。 */
-  | { type: 'DEBUG_PLAY_CARD'; player: PlayerId; instanceId: InstanceId }
+  /** 无视出牌轮次打出一张手牌，其余结算与 PLAY_CARD 完全一致（含选目标那套校验）。 */
+  | {
+      type: 'DEBUG_PLAY_CARD'
+      player: PlayerId
+      instanceId: InstanceId
+      targetInstanceId?: InstanceId
+    }
   /** 直接结束本轮双方出牌跳到答题阶段，省掉为了看结算连点两次「结束出牌」。 */
   | { type: 'DEBUG_SKIP_TO_QUIZ' }
 
@@ -231,6 +263,15 @@ export type GameEvent =
        * 对手出牌时要从他手牌里揪出这张牌飞到屏幕中央，而不是让它凭空出现。
        */
       instanceId: InstanceId
+      /**
+       * 这张技能打向的那个 AI（只有干扰类技能才有）。
+       *
+       * 同样是给客户端定位用的：技能牌亮相完要飞向这个 AI 的战场格子并在那儿播命中特效。
+       * 结算在事件发出前就做完了，但**别拿它当"目标一定被干扰了"的凭据**：
+       * 这张牌可能紧接着被一条 SKILL_CANCELED 抵消掉，那时目标身上什么标记都没留下。
+       * 谁被干扰了永远以快照里的 `AiInstance.interfered` 为准。
+       */
+      targetInstanceId?: InstanceId
     }
   /**
    * 一张技能牌的效果被英雄技能抵消。

@@ -8,7 +8,7 @@
  * 纸底色 + 两层纸纹 + 暗角，纹理只出现在舞台外面（怎么做到的见 styles.css 的 .home__stage）。
  *
  * 舞台内部层叠自下而上是：夜空底 → 四张展示卡 → 七张人物抠图（每个人自带一张垫在身下的发光副本）
- * → 桌面弧 → 前景道具 → 文字类 UI（标题、副标题、开始按钮、导航、设置、调试入口）→ 人物介绍卡片。
+ * → 桌面弧 → 前景道具 → 文字类 UI（标题、副标题、开始按钮、导航、调试入口）→ 人物介绍卡片。
  * 顺序完全由 JSX 的先后决定，舞台里没有一处 z-index（舞台自己有一个，那是用来压住外层纸纹的，
  * 和内部层叠无关）。
  * 桌面弧夹在人物和道具中间，对应的是现实关系：人站在桌子后面被桌沿挡住下半身，
@@ -225,7 +225,7 @@ const CAST: CastMember[] = [
 const CAST_OCCLUDERS = ['home-table', 'home-props']
 
 /** 人物 hover 不该被这些控件触发：指针停在按钮上时，该有反馈的是按钮而不是它身后的人。 */
-const UI_CONTROL_SELECTOR = '.home__start, .home__nav, .home__settings, .home__dev'
+const UI_CONTROL_SELECTOR = '.home__start, .home__nav, .home__dev'
 
 /**
  * 介绍卡片相对人物包围盒的横向间距，单位 cqi（舞台是容器，1cqi = 舞台宽的 1%）。
@@ -533,7 +533,7 @@ function HomeStage() {
             >
               <div className="home__card-lift">
                 <div className="home__card-tilt">
-                  {/* 里面是整张 150×210 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
+                  {/* 里面是整张 150×225 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
                   <div className="home__card-inner">
                     <HandCardFace card={seat.card} />
                   </div>
@@ -604,12 +604,12 @@ function HomeStage() {
         </button>
 
         {/*
-          英雄 / 牌组 / 图鉴还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
-            英雄
+            图鉴
           </span>
           <Sparkle className="home__nav-dot" />
           <span className="home__nav-item" title="敬请期待">
@@ -617,14 +617,9 @@ function HomeStage() {
           </span>
           <Sparkle className="home__nav-dot" />
           <span className="home__nav-item" title="敬请期待">
-            图鉴
+            信息
           </span>
         </nav>
-
-        <span className="home__settings" title="敬请期待">
-          <GearIcon />
-          设置
-        </span>
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。
             其余开发页不往这里堆，都收在 /dev 那一页里。 */}
@@ -659,7 +654,7 @@ function HomeStage() {
           aria-hidden 是有意的：整块内容只有 hover 得到的人看得见，读屏和键盘用户本来就到不了，
           留在无障碍树里只会变成一段没有上下文、还会随指针来回出现的游离文字。
           TODO：角色文案从占位换成真设定之后，这些信息就不能只挂在 hover 上了，
-          得另给一个可聚焦、触屏也点得到的入口（比如"英雄"页），那时再把这里接进无障碍树。
+          得另给一个可聚焦、触屏也点得到的入口（比如"图鉴"页），那时再把这里接进无障碍树。
         */}
         {castPanel !== null && (
           <aside
@@ -700,21 +695,3 @@ function Sparkle({ className }: { className: string }) {
   )
 }
 
-/** 描边风格的齿轮。路径是按 8 齿等分算出来的，圆心 (12,12)，齿顶半径 10.4、齿根 8。 */
-function GearIcon() {
-  return (
-    <svg
-      className="home__gear"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M10.1 1.77 A10.4 10.4 0 0 1 13.9 1.77 L13.94 4.24 A8 8 0 0 1 16.12 5.14 L17.89 3.43 A10.4 10.4 0 0 1 20.57 6.11 L18.86 7.88 A8 8 0 0 1 19.76 10.06 L22.23 10.1 A10.4 10.4 0 0 1 22.23 13.9 L19.76 13.94 A8 8 0 0 1 18.86 16.12 L20.57 17.89 A10.4 10.4 0 0 1 17.89 20.57 L16.12 18.86 A8 8 0 0 1 13.94 19.76 L13.9 22.23 A10.4 10.4 0 0 1 10.1 22.23 L10.06 19.76 A8 8 0 0 1 7.88 18.86 L6.11 20.57 A10.4 10.4 0 0 1 3.43 17.89 L5.14 16.12 A8 8 0 0 1 4.24 13.94 L1.77 13.9 A10.4 10.4 0 0 1 1.77 10.1 L4.24 10.06 A8 8 0 0 1 5.14 7.88 L3.43 6.11 A10.4 10.4 0 0 1 6.11 3.43 L7.88 5.14 A8 8 0 0 1 10.06 4.24 Z" />
-      <circle cx="12" cy="12" r="3.5" />
-    </svg>
-  )
-}

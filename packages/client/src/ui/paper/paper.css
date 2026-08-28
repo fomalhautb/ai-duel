@@ -210,7 +210,7 @@
    ============================================================ */
 .paper-card {
   position: relative;
-  width: 150px; height: 210px;
+  width: 150px; height: 225px;
   border: 1px solid var(--line-dark);
   border-radius: 10px;
   background-color: var(--paper);
@@ -330,7 +330,7 @@
    ============================================================ */
 .paper-back {
   position: relative;
-  width: 150px; height: 210px;
+  width: 150px; height: 225px;
   border: 1px solid var(--line-dark);
   border-radius: 10px;
   background-color: var(--navy);

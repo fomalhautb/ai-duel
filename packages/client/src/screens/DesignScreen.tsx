@@ -15,7 +15,7 @@
  * 所以只该挂在这一页，别搬去对局界面。
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { PlaqueButton } from '../ui/PlaqueButton'
@@ -32,7 +32,16 @@ import {
   TurnBadge,
 } from '../ui/paper'
 import type { PaperIconName, PaperIconRough } from '../ui/paper'
+import { CardFaceOverlay } from '../ui/CardFaceOverlay'
+import { CARD_ART_PLACEHOLDERS } from '../ui/cardArt'
 import './design.css'
+
+const OVERLAY_SAMPLES = [
+  { art: CARD_ART_PLACEHOLDERS[0], name: '星火先知', skillName: '洞察先机', cost: 2 },
+  { art: CARD_ART_PLACEHOLDERS[1], name: '青瓷学者', skillName: '博览集智', cost: 3 },
+  { art: CARD_ART_PLACEHOLDERS[2], name: '灵感织梦师', skillName: '多模态创作', cost: 6 },
+  { art: CARD_ART_PLACEHOLDERS[3], name: '边界漫游者', skillName: '突破思维边界', cost: 10 },
+]
 
 /** 主题色色板：变量名 + 中文标签，区块六直接照这份渲染。 */
 const TONES: { label: string; varName: string }[] = [
@@ -81,6 +90,9 @@ function IconCell({
 }
 
 export function DesignScreen() {
+  useEffect(() => {
+    if (window.location.hash === '#card-overlay') document.getElementById('card-overlay')?.scrollIntoView()
+  }, [])
   /* tab 在 demo 里是死的，这里接上状态：组件本来就支持 onChange，
      能点一下才验证得了「切换后下划线跟着走」。 */
   const [activeTab, setActiveTab] = useState(0)
@@ -277,7 +289,7 @@ export function DesignScreen() {
           </div>
 
           <p className="design-note">
-            150×210 纸白卡：外框 + <code>.paper-card__frame</code> 内框构成双线，
+            150×225 纸白卡：外框 + <code>.paper-card__frame</code> 内框构成双线，
             四角是旋转 45° 的小方块当菱形花饰。 费用是细线圆底座（圆环内还有一道主题色细圆）。
             中央放射线是 16 根内联 SVG 细线，染 <code>currentColor</code> 走主题色、套{' '}
             <code>#ai-duel-rough-rays</code> 歪扭，中间那个图标是水彩 logo 的占位。
@@ -291,6 +303,26 @@ export function DesignScreen() {
             全卡换色只需要传 <code>accent</code>，组件把它翻成容器上的 <code>--accent</code>，
             四角菱形、费用内圈、放射线和分隔线菱形一起跟着走。 卡内三处图标（logo / 攻 / 防）在组件里固定用
             rough 1 / 2 / 3，同屏不会歪成同一条线。
+          </p>
+        </section>
+
+        {/* ========== 插画卡共用图层 ========== */}
+        <section className="design-section" id="card-overlay">
+          <OrnateTitle>插画卡 · 通用信息图层</OrnateTitle>
+          <div className="design-card-row">
+            {OVERLAY_SAMPLES.map((sample) => (
+              <div className="design-overlay-card" key={sample.art}>
+                <img className="card-face__art" src={sample.art} alt="" />
+                <CardFaceOverlay {...sample} />
+              </div>
+            ))}
+          </div>
+          <p className="design-note">
+            原始插画不烘焙文字。<code>CardFaceOverlay</code> 独立绘制左上费用圆章和底部双线铭牌，
+            上排是 4～6 字技能简称，下排是卡名；<code>cost / skillName / name / accent</code> 都可单独传入。
+            费用章保持正圆，铭牌按卡宽缩放，手牌和原图同为 2:3，使用同一套布局。
+            配色沿用本页色板，纸面复用 <code>.grain</code>，文字不套滤镜以保留小尺寸可读性。
+            Token 数值仅作原设计展示，不改变当前答题制规则。<a href="/card">打开卡牌图鉴</a>
           </p>
         </section>
 

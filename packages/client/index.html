@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>出牌吧，AI！</title>
+    <!-- 站点图标。只给一张 SVG：现代浏览器都认，放大不糊，也不用维护多个尺寸的 PNG。
+         图形（两块深蓝箭头夹住金色四角星）见 public/favicon.svg。 -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- 全站字体，和 /design 设计参考页（纸张 token 在 src/ui/paper/paper.css）用的是同一套：
          EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文。
          Noto Serif SC 多引一档 300 给首页副标题用；EB Garamond 没有 300，
@@ -76,11 +79,11 @@
         padding-top: 32.4px;
       }
 
-      /* 51.43 = 72 × 5 / 7，和游戏卡面 150:210 同比例。 */
+      /* 48 = 72 × 2 / 3，和游戏卡面 150:225 同比例。 */
       .boot-loader__card {
         position: relative;
         box-sizing: border-box;
-        width: 51.43px;
+        width: 48px;
         height: 72px;
         border: 2px solid #ddcab7;
         border-radius: 4.32px;
@@ -112,7 +115,7 @@
       }
 
       .boot-loader__shadow {
-        width: 51.43px;
+        width: 48px;
         height: 5.04px;
         border-radius: 50%;
         background: #ddcab7;

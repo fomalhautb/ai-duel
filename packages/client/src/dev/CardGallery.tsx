@@ -2,7 +2,7 @@
  * 卡牌图鉴 / 卡面调试页（/card）。
  *
  * 左右分栏：左边按 英雄牌 / AI 牌 / 技能牌列出 core 里的全部卡牌，点一张，右边就是这张卡的完整档案
- * ——正反两面、卡面之外的字段、分到的占位插画，最后附一份卡牌定义的原始 JSON。
+ * ——正反两面、卡面之外的字段、绑定的插画，最后附一份卡牌定义的原始 JSON。
  * 这是给开发和卡面调试用的，不是给玩家看的图鉴界面，所以只求信息全、找得快，不做美化。
  *
  * 卡面用的就是对局那套 HandCardFace，背面也是对局翻面那套 .card-back 结构和同一份文案
@@ -41,7 +41,7 @@ const KIND_LABELS: Record<Card['kind'], string> = {
  * core 的 Card 转成卡面要的展示数据。
  *
  * backText 走 cardBackText，和对局里那张卡完全一样——这一页就是拿来照着对局检查排版的。
- * art 不填，交给 HandCardFace 按 id 分配占位插画（见 ui/cardArt.ts），
+ * art 不填，交给 HandCardFace 按 id 查找原画或占位插画（见 ui/cardArt.ts），
  * 这样这一页看到的配图也和对局里那张卡是同一张。英雄牌也走同一条路：
  * 它自己的立绘（assets/人物卡简介/）还没接进构建，先跟着分一张占位图。
  */
@@ -165,20 +165,41 @@ function CardPicker({
 
 /** 右栏：选中那张卡的全部信息。 */
 function CardDetail({ card }: { card: Card }) {
+  const [showOverlay, setShowOverlay] = useState(true)
+  const [previewSize, setPreviewSize] = useState('large')
   return (
     <article>
       <h2 className="gallery__detail-title">{card.name}</h2>
 
-      <div className="gallery__faces">
+      <div className="gallery__controls">
+        <label>
+          <input type="checkbox" checked={showOverlay} onChange={(event) => setShowOverlay(event.target.checked)} />
+          显示卡面图层
+        </label>
+        <label>
+          预览尺寸
+          <select value={previewSize} onChange={(event) => setPreviewSize(event.target.value)}>
+            <option value="large">放大 · 300 × 450</option>
+            <option value="actual">手牌 · 150 × 225</option>
+            <option value="original">原图比例 · 300 × 450</option>
+          </select>
+        </label>
+        <a href="/design#card-overlay">查看设计组件</a>
+      </div>
+      <div className="gallery__faces" data-preview-size={previewSize}>
         <figure className="gallery__face">
           <div className="gallery__card">
-            <HandCardFace card={toHandCardData(card)} />
+            {showOverlay ? (
+              <HandCardFace card={toHandCardData(card)} />
+            ) : (
+              <img className="gallery__original" src={cardArtFor(card.id)} alt={`${card.name}原始插画`} />
+            )}
           </div>
           <figcaption className="gallery__face-name">正面</figcaption>
         </figure>
         <figure className="gallery__face">
           {/* .card-back 是宽高各 100%，尺寸本来由 HandFan 的翻面层给（见 .hand-fan__face）；
-              脱开手牌单独渲染时得自己套一个 150×210 的盒子，否则它会塌成 0 高。 */}
+              脱开手牌单独渲染时得自己套一个 150×225 的盒子，否则它会塌成 0 高。 */}
           <div className="gallery__card">
             <div className="card-back">
               <span className="card-back__title">{card.name}</span>
@@ -205,7 +226,7 @@ function CardDetail({ card }: { card: Card }) {
             <MetaRow label="进牌组">不进：英雄技能不占 20 张牌的牌组空间</MetaRow>
           </>
         ) : null}
-        <MetaRow label="占位插画">
+        <MetaRow label="卡牌插画">
           <code>{cardArtFor(card.id)}</code>
         </MetaRow>
       </dl>

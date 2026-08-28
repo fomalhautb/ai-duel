@@ -13,7 +13,7 @@ import type { CSSProperties } from 'react'
 
 export interface CardLoaderProps {
   /**
-   * 卡片高度，单位 px。宽度按 5:7 自动算出来，和游戏卡面 150:210 同比例。
+   * 卡片高度，单位 px。宽度按 2:3 自动算出来，和游戏卡面 150:225 同比例。
    * 默认 72，比 ldrs 默认的 45 大一档——这张卡上面有内框和菱形，太小就糊成一团了。
    */
   size?: number

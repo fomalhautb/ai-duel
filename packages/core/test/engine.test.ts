@@ -3,6 +3,7 @@ import {
   CARDS,
   createGame,
   execute,
+  getCard,
   other,
   QUESTION_POOL,
   scriptedAnswers,
@@ -223,6 +224,246 @@ describe('出牌阶段', () => {
     const result = execute(game.state, { type: 'PLAY_CARD', player: 0, instanceId: '不存在' })
     expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '手牌里没有这张卡' }])
     expect(result.state).toBe(game.state)
+  })
+})
+
+describe('要选目标的技能牌', () => {
+  /**
+   * 摆一个「甲满手必须回答、乙场上两个 AI」的出牌阶段局面。
+   *
+   * 乙的 AI 用调试指令上场：这时行动方是甲，走正常出牌轮不到乙。
+   * 双方都不带英雄：默认英雄格蕾丝·霍珀会抵消对方本局第一张技能牌，
+   * 而抵消掉的技能不留 interfered（见 playCard），那样这一组用例测的就不是目标规则了。
+   * 抵消和目标撞在一起的情况单独有一节（见下面「英雄抵消 × 要选目标的技能牌」）。
+   */
+  function foeHasAis() {
+    const game = newGame({
+      deck0: deckOf('skill-must-answer'),
+      deck1: deckOf('gpt-3-5'),
+      hero0: null,
+      hero1: null,
+    })
+    const theirs = game.state.players[1].hand.slice(0, 2)
+    return run(
+      game.state,
+      theirs.map(
+        (card): Command => ({ type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId }),
+      ),
+    ).state
+  }
+
+  it('不带目标时被拒', () => {
+    const state = foeHasAis()
+    const skill = handCard(state, 0, 'skill-must-answer')
+    const result = execute(state, { type: 'PLAY_CARD', player: 0, instanceId: skill.instanceId })
+    expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '这张技能牌要先指定目标' }])
+    expect(result.state).toBe(state)
+  })
+
+  it('目标不在场上时被拒', () => {
+    const state = foeHasAis()
+    const skill = handCard(state, 0, 'skill-must-answer')
+    const result = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skill.instanceId,
+      targetInstanceId: '不存在',
+    })
+    expect(result.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '目标必须是对方场上的 AI' },
+    ])
+    expect(result.state).toBe(state)
+  })
+
+  it('目标是自己场上的 AI 时被拒（干扰只能打对面）', () => {
+    // 甲的牌组里全是技能牌，所以自己那个 AI 得靠调试指令凭空造一张再打出来。
+    const withMine = run(foeHasAis(), [{ type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-3-5' }])
+    const added = withMine.state.players[0].hand.at(-1)!
+    const deployed = execute(withMine.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: added.instanceId,
+    }).state
+
+    const skill = handCard(deployed, 0, 'skill-must-answer')
+    const result = execute(deployed, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skill.instanceId,
+      targetInstanceId: board(deployed, 0)[0]!.instanceId,
+    })
+    expect(result.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '目标必须是对方场上的 AI' },
+    ])
+    expect(result.state).toBe(deployed)
+  })
+
+  it('打中之后目标被标成已干扰，事件带上目标 id', () => {
+    const state = foeHasAis()
+    const skill = handCard(state, 0, 'skill-must-answer')
+    const target = board(state, 1)[0]!
+    const result = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skill.instanceId,
+      targetInstanceId: target.instanceId,
+    })
+
+    expect(board(result.state, 1)[0]).toEqual({ ...target, interfered: true })
+    // 只标中选的那一个，同排另一个不受影响。
+    expect(board(result.state, 1)[1]!.interfered).toBeUndefined()
+    // 技能牌自己照常进弃牌堆。
+    expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([skill.instanceId])
+    expect(result.events).toEqual([
+      {
+        type: 'SKILL_PLAYED',
+        player: 0,
+        cardId: 'skill-must-answer',
+        instanceId: skill.instanceId,
+        targetInstanceId: target.instanceId,
+      },
+    ])
+  })
+
+  it('同一个 AI 不能被干扰两次', () => {
+    const state = foeHasAis()
+    const [first, second] = state.players[0].hand
+    const target = board(state, 1)[0]!
+    const once = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: first!.instanceId,
+      targetInstanceId: target.instanceId,
+    }).state
+
+    const result = execute(once, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: second!.instanceId,
+      targetInstanceId: target.instanceId,
+    })
+    expect(result.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '这个 AI 已经被干扰过了' },
+    ])
+    expect(result.state).toBe(once)
+  })
+
+  it('替对方打出时走同一套校验，目标是发牌方的对面（也就是我方）', () => {
+    // 测试房里点对方手牌就是这条路：DEBUG_PLAY_CARD 只免掉"轮到谁"，目标规则原样生效。
+    const state = run(foeHasAis(), [
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'claude-5-sonnet' },
+    ]).state
+    const mine = state.players[0].hand.at(-1)!
+    const deployed = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: mine.instanceId,
+    }).state
+
+    const theirSkill = run(deployed, [
+      { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'skill-must-answer' },
+    ]).state
+    const skill = theirSkill.players[1].hand.at(-1)!
+    const result = execute(theirSkill, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: skill.instanceId,
+      targetInstanceId: board(theirSkill, 0)[0]!.instanceId,
+    })
+
+    expect(board(result.state, 0)[0]!.interfered).toBe(true)
+    expect(result.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
+  })
+
+  it('不选目标的技能牌行为不变：带了目标也照打不误', () => {
+    const state = run(foeHasAis(), [
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'placeholder-skill' },
+    ]).state
+    const skill = state.players[0].hand.at(-1)!
+    const result = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skill.instanceId,
+      targetInstanceId: board(state, 1)[0]!.instanceId,
+    })
+
+    // 没有 target 声明的卡不看这个字段：目标不会被标记，事件里也不带它。
+    expect(board(result.state, 1)[0]!.interfered).toBeUndefined()
+    expect(result.events).toEqual([
+      {
+        type: 'SKILL_PLAYED',
+        player: 0,
+        cardId: 'placeholder-skill',
+        instanceId: skill.instanceId,
+      },
+    ])
+  })
+})
+
+describe('英雄抵消 × 要选目标的技能牌', () => {
+  /**
+   * 「甲满手必须回答、乙场上两个 AI」，但**乙带着默认英雄**（格蕾丝·霍珀）。
+   * 甲每打一张技能牌，乙的 Debug 就会抵消本局第一张。
+   */
+  function foeWithHero() {
+    const game = newGame({
+      deck0: deckOf('skill-must-answer'),
+      deck1: deckOf('gpt-3-5'),
+      hero0: null,
+    })
+    const theirs = game.state.players[1].hand.slice(0, 2)
+    return run(
+      game.state,
+      theirs.map(
+        (card): Command => ({ type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId }),
+      ),
+    ).state
+  }
+
+  it('被抵消的干扰技能不留下 interfered 标记，那个 AI 之后还能被选中', () => {
+    const state = foeWithHero()
+    const [first, second] = state.players[0].hand
+    const target = board(state, 1)[0]!
+
+    const canceled = execute(state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: first!.instanceId,
+      targetInstanceId: target.instanceId,
+    })
+    // 牌照常打出、照常进弃牌堆，作废的只是效果：目标身上什么都不该留下。
+    expect(board(canceled.state, 1)[0]!.interfered).toBeUndefined()
+    expect(canceled.state.players[0].discard.map((c) => c.cardId)).toEqual(['skill-must-answer'])
+    expect(canceled.state.players[1].heroSkillUsed).toBe(true)
+    // 事件序：先出牌（带着本来要打谁），紧跟着抵消。
+    expect(canceled.events).toEqual([
+      {
+        type: 'SKILL_PLAYED',
+        player: 0,
+        cardId: 'skill-must-answer',
+        instanceId: first!.instanceId,
+        targetInstanceId: target.instanceId,
+      },
+      {
+        type: 'SKILL_CANCELED',
+        player: 0,
+        by: 1,
+        heroId: 'grace-hopper',
+        cardId: 'skill-must-answer',
+        instanceId: first!.instanceId,
+      },
+    ])
+
+    // Debug 一局只发动一次，所以第二张打同一个目标就该真的生效了
+    // ——上一张要是错误地留下了标记，这里会被"已经被干扰过了"拒掉。
+    const second_ = execute(canceled.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: second!.instanceId,
+      targetInstanceId: target.instanceId,
+    })
+    expect(board(second_.state, 1)[0]!.interfered).toBe(true)
+    expect(second_.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
   })
 })
 
@@ -471,10 +712,20 @@ describe('胜负', () => {
       if (state.phase === 'play') {
         const seat = state.activePlayer
         for (const card of [...state.players[seat].hand]) {
+          // 要选目标的技能牌得照客户端那样挑一个对方还没被干扰的 AI。
+          // 挑不到就跳过这张牌：硬打会被引擎拒掉，而这个用例要求整局一条 COMMAND_REJECTED 都没有。
+          const definition = getCard(card.cardId)
+          const target =
+            definition.kind === 'skill' && definition.target === 'foe-ai'
+              ? state.players[other(seat)].board.find((a) => a.interfered !== true)
+              : undefined
+          if (definition.kind === 'skill' && definition.target !== undefined && target === undefined)
+            continue
           const played = execute(state, {
             type: 'PLAY_CARD',
             player: seat,
             instanceId: card.instanceId,
+            ...(target === undefined ? {} : { targetInstanceId: target.instanceId }),
           })
           state = played.state
           events.push(...played.events)

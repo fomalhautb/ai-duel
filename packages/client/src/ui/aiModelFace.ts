@@ -1,0 +1,21 @@
+/** 卡面展示配置：Token 沿用设计稿设定，当前答题制不扣费，也不据此计算胜负。 */
+export const AI_MODEL_FACE: Record<string, { tokenCost: number; skillName: string; accent: string }> = {
+  'gpt-2': { tokenCost: 1, skillName: '文本续写', accent: '#46584b' },
+  'gpt-3-5': { tokenCost: 2, skillName: '对话启蒙', accent: '#46584b' },
+  'gpt-4o': { tokenCost: 4, skillName: '多模感知', accent: '#46584b' },
+  'chatgpt-5-6-sol': { tokenCost: 7, skillName: '统筹推演', accent: '#46584b' },
+  'claude-5-sonnet': { tokenCost: 4, skillName: '文理兼修', accent: '#87502d' },
+  'claude-fable-5': { tokenCost: 6, skillName: '深思织文', accent: '#87502d' },
+  'deepseek-r1': { tokenCost: 3, skillName: '链式推理', accent: '#304e70' },
+  'deepseek-v4': { tokenCost: 5, skillName: '深海求索', accent: '#304e70' },
+  'gemini': { tokenCost: 4, skillName: '多模融会', accent: '#655580' },
+  'qwen': { tokenCost: 3, skillName: '万语通晓', accent: '#37646b' },
+  'kimi-k2-6': { tokenCost: 3, skillName: '长卷寻踪', accent: '#343e48' },
+  'kimi-k3': { tokenCost: 5, skillName: '群星协作', accent: '#343e48' },
+  'doubao': { tokenCost: 2, skillName: '灵感相伴', accent: '#505b77' },
+  'glm-5': { tokenCost: 4, skillName: '知行合一', accent: '#3d4a64' },
+  'minimax': { tokenCost: 3, skillName: '声影共鸣', accent: '#95465f' },
+  'yuanbao': { tokenCost: 3, skillName: '博览集智', accent: '#465d49' },
+  'grok': { tokenCost: 4, skillName: '破界直言', accent: '#303939' },
+  'wenxin-yiyan': { tokenCost: 3, skillName: '文心妙笔', accent: '#40596b' },
+}

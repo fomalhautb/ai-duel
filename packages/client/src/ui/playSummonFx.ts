@@ -1,5 +1,8 @@
 /**
- * 卡牌落到战场上的"上场特效"，三样叠在一起放：震屏、烟尘扑腾、金色边缘追光。
+ * 战场小卡身上的两种落点特效：卡牌上场（playSummonFx）和技能命中（playSkillHitFx）。
+ * 两者共用同一圈金色追光，轻重靠"还叠了什么"拉开，写在一处才不会各自跑偏。
+ *
+ * 卡牌上场的"上场特效"，三样叠在一起放：震屏、烟尘扑腾、金色边缘追光。
  *
  * 我方（拖拽出牌）和对方（强制展示之后落场）走的是同一个函数，连配色也一样，
  * 所以两边的落地手感永远是一致的——分开写两份迟早会各自跑偏。
@@ -23,6 +26,8 @@ import gsap from 'gsap'
 
 /** 震屏里每一小段位移的时长。五段拼成一次抖动，末段翻倍收尾，全程约 0.3 秒。 */
 const SHAKE_STEP = 0.05
+/** 技能命中时目标格抖动的每小段时长。比震屏少一段、幅度也小一号，全程约 0.2 秒。 */
+const HIT_SHAKE_STEP = 0.04
 /** 烟尘团数：太少不像扑起来的灰，太多在 110px 的小卡上就糊成一坨。 */
 const SMOKE_COUNT = 5
 /** 追光绕卡牌边缘跑满一圈的时长。淡入淡出都叠在这段里，所以它就是整条追光的总时长。 */
@@ -56,6 +61,34 @@ export function playSummonFx(tile: HTMLElement) {
   }
 
   if (edge !== null) runEdgeLight(edge)
+}
+
+/**
+ * 播一次技能命中特效：目标格自己抖一下 + 边缘追光闪一圈。
+ *
+ * 和上场特效共用同一圈追光，但**不震屏也不扬尘**：命中是"技能打在一张卡上"，
+ * 动静必须比"一张卡砸到场上"小一圈，两种事件在画面上才分得出轻重。
+ *
+ * 抖的是 tile 自己而不是倾斜层：那一层归 cardTilt 每帧改写（架构 5.7），
+ * 往上面写位移会被它当场覆盖。tile 自己的 transform 只有 Flip 飞行会用，
+ * 而命中发生时目标格早就落定了，两者碰不上。
+ *
+ * 同一个 tile 不会被连播两次：被干扰过的 AI 不能再当干扰技能的目标（见 core 的 playCard）。
+ *
+ * 和 playSummonFx 一样必须在 useGSAP 的 context 里调用（延迟回调要 contextSafe 包一层）。
+ */
+export function playSkillHitFx(tile: HTMLElement) {
+  const edge = tile.querySelector<HTMLElement>('.battle__tile-edge')
+  if (edge !== null) runEdgeLight(edge)
+
+  gsap
+    // 收尾把 transform 整个抹掉，不留一个 translate(0, 0)：
+    // tile 上带着 transform 就成了内部 fixed 元素的包含块，也会多一个层叠上下文。
+    .timeline({ onComplete: () => gsap.set(tile, { clearProps: 'transform' }) })
+    .to(tile, { x: 3, y: -2, duration: HIT_SHAKE_STEP, ease: 'power1.inOut' })
+    .to(tile, { x: -2.5, y: 2, duration: HIT_SHAKE_STEP, ease: 'power1.inOut' })
+    .to(tile, { x: 1.5, y: -1, duration: HIT_SHAKE_STEP, ease: 'power1.inOut' })
+    .to(tile, { x: 0, y: 0, duration: HIT_SHAKE_STEP * 2, ease: 'power2.out' })
 }
 
 /**

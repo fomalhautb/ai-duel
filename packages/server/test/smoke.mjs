@@ -3,7 +3,7 @@
  *
  * 跑法：先 `pnpm --filter @ai-duel/client build` 出静态资源，
  * 另开一个终端 `pnpm --filter @ai-duel/server dev`，然后 `pnpm --filter @ai-duel/server smoke`。
- * 换地址用环境变量：SMOKE_BASE=https://ai-duel.xxx.workers.dev node test/smoke.mjs
+ * 换地址用环境变量：SMOKE_BASE=https://playyourcardai.online node test/smoke.mjs
  *
  * 用 Node 内置的全局 WebSocket（Node 22+），不引第三方库。
  */

@@ -583,7 +583,9 @@ packages/client/
   src/screens/                一个界面一个文件
     HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
                               角落 dev 区有测试对局 / 加载动画 / 重置存档；
-                              整页的图先加载完再一次性亮出来，之前只显示加载动画
+                              整页的图先加载完再一次性亮出来，之前只显示加载动画。
+                              整幅切图放在 public/home/，现在只有 1x，高分屏上要放大 1.7 倍以上所以偏糊；
+                              换成 3344×1882 的 2x 图同名覆盖即可，代码不用改（细节见该文件头注释）
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试

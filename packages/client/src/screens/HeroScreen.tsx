@@ -27,6 +27,7 @@ import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { prefersReducedMotion } from '../ui/reducedMotion'
 import './hero.css'
 
 gsap.registerPlugin(useGSAP)
@@ -83,17 +84,6 @@ const CARD_HOVER_SCALE = 1.035
 const CARD_HOVER_DUR = 0.25
 /** 选中 / 确认时那一下弹跳的峰值。比 hover 再大一点点，一眼看得出是「刚被选中」而不是「指针路过」。 */
 const CARD_POP_SCALE = 1.08
-
-/**
- * 系统的「减少动效」开关。每次现读不缓存：这个设置能在页面开着的时候改，
- * 读一次存下来就会一直沿用旧值。
- *
- * hero.css 末尾那块 @media 只管得到 CSS 过渡，GSAP 写的位移得在 JS 里自己让路，
- * 所以这一页两边都要做——它是全站第一个有入场动画的页面。
- */
-function prefersReducedMotion() {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 /**
  * 加载闸门。

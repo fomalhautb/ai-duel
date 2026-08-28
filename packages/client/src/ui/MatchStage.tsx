@@ -42,7 +42,7 @@ import type { MatchDriver, MatchView } from '../match/driver'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
-import type { CardPlayVia, HandCardData } from './HandFan'
+import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
@@ -1437,6 +1437,28 @@ function BattleField({
    * 不冻的话它会一直保持放大，把玩家要选的战场整个挡住。
    */
   const handFrozen = landing || showcasing || targeting !== null
+  /**
+   * 轮到对方出牌。回合牌匾只认它，手牌的灰墨态也只认它（和下面的 quizWait）。
+   *
+   * 刻意不复用 actionsLocked：那个口径里还压着 awaiting / landing / showcasing 这些瞬态锁，
+   * 自己回合里每打一张牌都会开关一次，拿它当灰墨态的判据，整排手牌会跟着一亮一灰地闪。
+   * 这两个只跟着"该谁动"走，一整段等待里恒定不变。
+   *
+   * 复用 myPlayTurn 是为了让"该谁动"只有一份口径：它已经含了 phase === 'play'，
+   * 所以这里再判一次 phase 之后，!myPlayTurn 就等价于 activePlayer !== mySeat。
+   */
+  const waitingForFoe = view.status === 'playing' && state.phase === 'play' && !myPlayTurn
+  /** 答题阶段：双方都出不了牌，等场上的 AI 答完。 */
+  const quizWait = view.status === 'playing' && state.phase === 'quiz'
+  /**
+   * 交给 HandFan 的"为什么出不了牌"。它不挡操作（那仍归上面的 actionsLocked），
+   * 只决定手牌要不要进灰墨态、点上去弹哪句提示（见 HandFanProps.lockReason）。
+   */
+  const handLockReason: HandLockReason | null = waitingForFoe
+    ? 'foe-turn'
+    : quizWait
+      ? 'quiz'
+      : null
 
   /**
    * 现算的话每次渲染都是个新数组，两个 Fan 的 useGSAP 会跟着重跑一遍归位补间；
@@ -1975,23 +1997,67 @@ function BattleField({
               )}
               <span className="battle__turn-who">{statusTextOf(view, state, mySeat)}</span>
             </div>
+            {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
+                三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
+                换文案撑不破框。 */}
             <PlaqueButton
               disabled={actionsLocked}
               onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
             >
-              结束出牌
+              {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
             </PlaqueButton>
           </OrnateFrame>
         </aside>
       </div>
+
+      {/*
+        回合牌匾：一块吊在顶栏正下方的小匾，只在对方出牌那段时间挂出来。
+
+        常驻 DOM 靠 data-on 开关，隐藏态才淡得出去——挂在条件渲染上的话元素一没就没了，
+        谈不上退场过渡。整层不吃指针事件。
+        只认 waitingForFoe：答题阶段两边都不出牌，"对方回合"是句错话，那时留给手牌的
+        小字提示和侧栏状态行去说；终局后更没有回合可言。
+
+        它会盖住对手倒扇形（z-index 20）中间那一两张牌背，这是接受的：牌匾正好标在行动方
+        头上，位置本身就是信息，而手牌张数侧栏的玩家面板另有一份。
+
+        测试房整个不挂（和上面的 OpponentFan 同理）：那边顶部换成了摊开的对方手牌条，
+        而且是玩家亲自替对方出牌，"对方回合"在那儿既是句错话，牌匾还会盖住那排卡面。
+      */}
+      {testMode ? null : (
+        <div className="battle__turn-plaque" data-on={waitingForFoe ? 'true' : undefined}>
+          <span className="battle__turn-plaque-cords" aria-hidden="true" />
+          <div className="battle__turn-plaque-body">
+            {/* 框线单独画成 SVG 才好套手绘滤镜：CSS 的 border 直接 filter 会把匾里的字一起抖歪
+                （PlaqueButton 那边同理，见它的 .plaque-button__frame）。 */}
+            <svg
+              className="battle__turn-plaque-frame"
+              viewBox="0 0 168 44"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <rect x="0.75" y="0.75" width="166.5" height="42.5" rx="5.5" />
+            </svg>
+            <span className="battle__turn-plaque-label">对方回合</span>
+            {/* 三个跳动的点：静止的一行字看着像界面卡住了，这里要说的恰恰是"对方还在动"。 */}
+            <span className="battle__turn-plaque-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 对手手牌：吊在视口顶边的倒扇形，只显示张数、当强制展示的起飞点。
           恒 disabled——本项目不防作弊（架构 4.1），客人手里确实有对手的牌，
           但玩家不该点得动它。张数信息侧栏的玩家面板本来就有一份。 */}
       {testMode ? null : <OpponentFan cards={foeHandCards} onReveal={noopReveal} disabled />}
 
-      {/* disabled 和 frozen 分工不同：前者是"出不了牌但还能 hover 看牌"（不是我的回合、
-          等回包……），后者是演出期间整排手牌冻住，连 hover 都不接。见 HandFanProps。 */}
+      {/* 三个开关分工不同：disabled 是"出不了牌但还能 hover 看牌"（不是我的回合、等回包……），
+          frozen 是演出期间整排手牌冻住连 hover 都不接，lockReason 是 disabled 加一句"为什么"，
+          自带禁用，另外把"在等对方 / 在等答题"画成灰墨态和点击反馈。见 HandFanProps。
+          disabled 这里照旧传 actionsLocked：它比 lockReason 宽，还含着那些瞬态锁。 */}
       <HandFan
         cards={handCards}
         dropZoneRef={boardRef}
@@ -1999,6 +2065,7 @@ function BattleField({
         onPlay={handlePlay}
         disabled={actionsLocked}
         frozen={handFrozen}
+        lockReason={handLockReason}
         // 选目标态下这张牌留在扇形里抬起来亮着，整排其余的压暗（不接指针那件事归 frozen，
         // 上面那行已经把选目标态算进去了）。
         castingId={targeting?.instanceId ?? null}

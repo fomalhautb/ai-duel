@@ -748,6 +748,9 @@ body,
   height: 0;
   z-index: 20;
   pointer-events: none;
+  /* 灰墨态那一下整排下沉（见下面的 [data-locked]）。这个 transform 只有 CSS 在写：
+     扇形的所有补间都打在里面的 slot / tilt / inner 上，GSAP 从不碰根节点。 */
+  transition: transform 0.45s ease;
 }
 
 /*
@@ -840,6 +843,8 @@ body,
 .hand-fan__face {
   position: absolute;
   inset: 0;
+  /* 灰墨态的褪色（见下面的 [data-locked]）。filter 全归 CSS，GSAP 在这一层只写 opacity。 */
+  transition: filter 0.45s ease;
 }
 
 .hand-fan__face--front {
@@ -911,6 +916,92 @@ body,
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
+}
+
+/* ---------- 出不了牌时的手牌（灰墨态） ---------- */
+
+/*
+ * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题）。
+ * 值就是那个原因，现在只当开关用，样式不分档。
+ *
+ * 这一整套刻意只走 CSS，而且只挑 GSAP 碰不到的属性：
+ * 根节点的 transform（扇形的补间全打在 slot / tilt / inner 上，根节点一次都没被写过）
+ * 和卡面的 filter（GSAP 只改这几层的 transform 和 opacity）。
+ * 同一个属性两边各写一半必然打架——被内联样式压住的那一份看起来就是"样式没生效"。
+ *
+ * 整排往下沉一点，是想让它读起来像"手放下了"：牌面褪色单独看容易被当成图片没加载完，
+ * 配上这一下位移才是"这排牌现在不参与"。
+ *
+ * :not(:has(...)) 是给"拖到一半才轮到对方"那种情况让路：下沉打在根节点上，抓在手上的
+ * 那张牌是根节点的后代，会跟着一起往下走，而 HandFan 的 dragTargetOf 把光标换算成 slot
+ * 坐标时并不知道这 12px，牌就会永远浮在光标下方 12px 处。拖着的时候整排先不沉，
+ * 等松手回了扇形再沉。
+ */
+.hand-fan[data-locked]:not(:has([data-dragging])) {
+  transform: translateY(12px);
+}
+
+/*
+ * 褪色挂在 .hand-fan__face 而不是更外面的 .hand-fan__inner：inner 是 preserve-3d 的翻面层，
+ * 给它加 filter 会把里面的两个面拍成一张平面，翻面途中的立体感就没了。
+ * face 这一层本来就是平的，滤上去没有副作用。
+ */
+.hand-fan[data-locked] .hand-fan__face {
+  filter: saturate(0.5) brightness(0.9);
+}
+
+/*
+ * hover 的那张牌恢复本色：轮不到自己时玩家仍然要能把牌抬起来看清楚
+ *（这正是 disabled 和 frozen 的分工，见 HandFanProps），看的时候不该隔着一层灰。
+ * 用 CSS 的 :hover 而不是等 JS 那份 hover 状态：slot 各自接指针事件，两者的判定一致，
+ * 而且这样在补间开始之前就已经变色了。
+ */
+.hand-fan[data-locked] .hand-fan__slot:hover .hand-fan__face {
+  filter: none;
+}
+
+/* 光标要和"点了也没用"对得上，抓手收回默认箭头。
+   :not 是给拖到一半才轮到对方的那张牌让路——它还抓在手上，该继续是握拳
+   （见 HandFanProps.disabled 里"拖到一半才变成 true"那段）。 */
+.hand-fan[data-locked] .hand-fan__slot:not([data-dragging]) {
+  cursor: default;
+}
+
+/*
+ * 点一张出不了的牌时，浮在牌顶上方的小字提示。整排共用一个节点，位置由 JS 现算
+ * （见 HandFan 的 showLockTip），所以这里不写 left / top。
+ *
+ * 位置基准是 .hand-fan 那个高度为 0、钉在视口底边的锚点，和每张牌 slot 用的是同一个。
+ * 样式照抄选目标那条提示药丸（.battle__targeting-hint），两处说的都是"现在这一步怎么回事"。
+ * 淡入淡出归 GSAP 的 autoAlpha 管，所以这里不写 transition，只给一个隐藏的初值。
+ */
+.hand-fan__lock-tip {
+  position: absolute;
+  /* 要压过同层的每一张牌：slot 的 z-index 全由 GSAP 写成正数（静置按序 1..N、
+     选目标态 50、拖拽期间 1000），提示不比它们高就会被 hover 抬起来的那张牌整块挡住，
+     而提示恰恰是贴着被点的那张牌顶上弹出来的。 */
+  z-index: 1001;
+  padding: 4px 12px;
+  border: 1px solid rgb(255 229 164 / 55%);
+  border-radius: 999px;
+  background: rgb(14 21 36 / 90%);
+  box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
+  color: #ffeec5;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 下沉和褪色本身还留着（它们是状态，不是动效），只是不再补间。
+     摇头和解锁回弹那两段 GSAP 动画由 HandFan 自己让路（见那边的 prefersReducedMotion）。 */
+  .hand-fan,
+  .hand-fan__face {
+    transition-duration: 1ms;
+  }
 }
 
 /* ---------- 对手的倒扇形手牌 ---------- */
@@ -2255,6 +2346,182 @@ body:has(.battle) {
   height: var(--card-h);
   transform: scale(var(--tile-scale));
   transform-origin: top left;
+}
+
+/* ---------- 回合牌匾 ---------- */
+
+/*
+ * 吊在顶栏正下方的小匾，只在轮到对方出牌时挂出来（data-on 由 MatchStage 打）。
+ *
+ * fixed 而不是塞进战场：它要从顶栏下沿往下吊，而顶栏和战场是 .battle 那张网格里的两行，
+ * 挂在战场里就只能从战场顶边算起，两个基准差着 4px 的顶栏描边。
+ * 居中靠 inset-inline: 0 撑满两边再用 margin-inline: auto 把固定宽度顶到中间，
+ * 不用 translate——transform 已经让给了下面进出场那点纵向位移，横向再占一份就得两处合写，
+ * 改一边忘一边就会跑偏。
+ *
+ * z-index 40 夹在对手手牌（20）之上、顶栏（70）之下：牌匾要盖住倒扇形中间那一两张牌背，
+ * 自己则不该越过顶栏。全层不吃指针事件。
+ */
+.battle__turn-plaque {
+  position: fixed;
+  top: var(--battle-topbar-h);
+  inset-inline: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 168px;
+  margin-inline: auto;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  /* 隐藏态还要退出无障碍树和命中测试，光靠 opacity 不够。
+     它的时长是 0，靠延迟排在淡出之后，所以不能和上面两条一起写进 transition 简写。 */
+  visibility: hidden;
+  transition:
+    opacity 0.35s ease-out,
+    transform 0.35s ease-out,
+    visibility 0s linear 0.35s;
+}
+
+.battle__turn-plaque[data-on] {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 0.35s ease-out,
+    transform 0.35s ease-out,
+    visibility 0s;
+}
+
+/* 两根挂绳：把匾和顶栏连起来，看着像是钉在顶栏下沿的。
+   一个容器加两个伪元素，比两个空 span 省 DOM。 */
+.battle__turn-plaque-cords {
+  position: relative;
+  width: 100%;
+  height: 14px;
+}
+
+.battle__turn-plaque-cords::before,
+.battle__turn-plaque-cords::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: #8a92ad;
+}
+
+.battle__turn-plaque-cords::before {
+  left: 30px;
+}
+
+.battle__turn-plaque-cords::after {
+  right: 30px;
+}
+
+/*
+ * 匾体。双线框里的外框是下面那层 SVG（要套手绘滤镜，只能画成图形），
+ * 内衬那道高光走 inset 阴影——它贴着圆角走，不需要跟着抖。
+ */
+.battle__turn-plaque-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  border-radius: 6px;
+  background: var(--battle-navy);
+  box-shadow:
+    0 4px 12px rgb(10 14 24 / 50%),
+    inset 0 0 0 1px rgb(255 255 255 / 18%);
+}
+
+/*
+ * 外框线。单独画成 SVG 才好套手绘滤镜：直接给匾体加 border 再 filter，
+ * 里面的字会跟着一起抖歪（PlaqueButton 那边同理，见 .plaque-button__frame）。
+ * preserveAspectRatio: none 让 168×44 的 viewBox 直接铺满匾体，描边宽度按 1.5 画、
+ * 一半压在边界外，看到的正好是 1px 左右。
+ */
+.battle__turn-plaque-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: #8a92ad;
+  stroke-width: 1.5;
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.battle__turn-plaque-label {
+  /* 和框线分开套滤镜，抖法也换一种，免得字和框歪成同一条线。 */
+  filter: url('#ai-duel-rough-icon');
+  color: #b8c2d9;
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
+  text-indent: 0.3em;
+}
+
+.battle__turn-plaque-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.battle__turn-plaque-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #b8c2d9;
+  opacity: 0.5;
+}
+
+/* 跳动只挂在亮相态上：牌匾大多数时候是隐藏的，动画挂在基础样式里就会在看不见的时候
+   一直空转，而且再挂出来时是从上一轮停在的随便哪一拍接着走。挂在 [data-on] 上，
+   每次亮相都从第一拍开始。下面两条 animation-delay 留在原处即可——
+   没有 animation-name 的时候它什么都不做。 */
+.battle__turn-plaque[data-on] .battle__turn-plaque-dots i {
+  animation: battle-turn-plaque-dot 1.4s ease-in-out infinite;
+}
+
+.battle__turn-plaque-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.battle__turn-plaque-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes battle-turn-plaque-dot {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 进出场改成瞬时。visibility 那条的延迟也要一起归零，否则隐藏会慢半拍。 */
+  .battle__turn-plaque,
+  .battle__turn-plaque[data-on] {
+    transition-duration: 1ms;
+    transition-delay: 0s;
+  }
+
+  /* 选择器要和上面那条一样带上 [data-on]，否则特指度不够，压不掉跳动。 */
+  .battle__turn-plaque[data-on] .battle__turn-plaque-dots i {
+    animation: none;
+  }
 }
 
 /* ---------- 事件动画层 ---------- */

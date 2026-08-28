@@ -3796,3 +3796,16 @@ body:has(.battle) {
     transition-duration: 1ms;
   }
 }
+
+.gallery__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.gallery__controls label { display: flex; align-items: center; gap: 6px; }
+.gallery__faces[data-preview-size='large'] .gallery__card { width: 300px; height: 420px; }
+.gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 210px; }
+.gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
+.gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }

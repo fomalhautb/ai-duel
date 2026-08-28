@@ -672,34 +672,6 @@ body,
   filter: url('#ai-duel-rough-icon');
 }
 
-.home__settings {
-  position: absolute;
-  top: 8%;
-  right: 6.5%;
-  display: flex;
-  align-items: center;
-  gap: 0.9cqi;
-  /* 和导航一样，末字后面那格字距要收掉，"设置"才真的贴着 6.5% 这条线收边。 */
-  margin-right: -0.16em;
-  transform: translateY(-50%);
-  color: var(--home-ink);
-  font-size: 1.8cqi;
-  letter-spacing: 0.16em;
-  cursor: default;
-  /* 齿轮和"设置"两个字一起套一层，比各套一层少算一遍噪声。 */
-  filter: url('#ai-duel-rough-button');
-  transition: color 0.16s ease;
-}
-
-.home__settings:hover {
-  color: var(--home-ink-lit);
-}
-
-.home__gear {
-  width: 2.4cqi;
-  height: 2.4cqi;
-}
-
 /* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。 */
 .home__dev {
   position: absolute;
@@ -728,7 +700,6 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .home__start,
   .home__nav-item,
-  .home__settings,
   .home__dev-link {
     transition-duration: 1ms;
   }

@@ -2060,7 +2060,7 @@ function BattleField({
                 放大查看不翻面，只用 setFlipAngle 把它定死在正面。 */}
             <div className="reveal-card__inner">
               <div className="reveal-card__face" data-flip-face="front">
-                {/* 卡面布局尺寸仍是 150×210，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
+                {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
                 <div className="reveal-card__scale">
                   <HandCardFace card={showcase.card} />
                 </div>

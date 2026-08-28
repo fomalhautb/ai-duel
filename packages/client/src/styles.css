@@ -18,13 +18,13 @@
      那两个常量决定卡牌沉出视口的深度和 hover 放大的下限，
      和这里对不上号，hover 防抖动的几何前提就不成立了（卡会开始抖）。 */
   --card-w: 150px;
-  --card-h: 210px;
-  /* 战场上的小卡：宽 110，比例和卡面一样（110 / 150 = 0.733333，210 × 0.733333 = 154）。
+  --card-h: 225px;
+  /* 战场上的小卡：宽 110，比例和卡面一样（110 / 150 = 0.733333，225 × 0.733333 = 165）。
      比例必须一致，否则打出时的飞行会把卡面拉变形。 */
   --tile-w: 110px;
-  --tile-h: 154px;
+  --tile-h: 165px;
   --tile-scale: 0.733333;
-  /* 强制展示时那张大卡的放大倍数：150×210 × 1.7 = 255×357。
+  /* 强制展示时那张大卡的放大倍数：150×225 × 1.7 = 255×382.5。
      和下面 .reveal-card 的宽高是同一组数，改一处必须改另一处，否则起飞那一帧会跳变。 */
   --reveal-scale: 1.7;
 }
@@ -538,13 +538,13 @@ body,
 /*
  * 倾斜层。裁剪放在这里而不是外面那层：这层跟着卡一起转，裁切边就跟着转；
  * 留在不动的父层上，倾斜时卡角会被一条不动的直边削掉。
- * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来。
+ * 要裁是因为里面那张卡的布局尺寸仍是 150×225，只是被缩小画出来。
  * 投影也挂在这层：外投影画在盒子外面，不会被它自己的 overflow 裁掉。
  */
 .home__card-tilt {
   position: absolute;
   inset: 0;
-  border-radius: 0.9cqi;
+  border-radius: 0.6cqi;
   overflow: hidden;
   box-shadow: 0 0.8cqi 1.8cqi rgb(8 12 18 / 55%);
 }
@@ -755,7 +755,7 @@ body,
  *
  * 盒子按「hover 放大到顶」的尺寸布局（--card-w 乘上 --hand-card-zoom），静置时靠 GSAP
  * 写在 transform 上的 scale 缩回 --card-w 那么大（见 HandFan.tsx 的 slotScale）。
- * 反过来做——盒子按 150×210 布局、hover 时 transform 放大——画面会糊，原因见下面 .hand-fan__tilt。
+ * 反过来做——盒子按 150×225 布局、hover 时 transform 放大——画面会糊，原因见下面 .hand-fan__tilt。
  *
  * --hand-card-zoom 由 HandFan 写在 .hand-fan 上，值就是那边的 HOVER_SCALE，
  * 它是按扇形最大倾角算出来的，所以不能在这里写死一个数。
@@ -792,11 +792,11 @@ body,
  * position 也不能去掉：问号的透明热区就挂在这一层里，靠它当绝对定位的基准
  * （这里 inset: 0，和卡面同一个框，所以热区的 top / right 落在卡面右上角）。
  *
- * zoom 是这张牌不糊的关键。卡面内部（.card-face 那一套、问号、背面）仍然照 150×210 的
+ * zoom 是这张牌不糊的关键。卡面内部（.card-face 那一套、问号、背面）仍然照 150×225 的
  * 口径写 px，zoom 把这一整套按 --hand-card-zoom 倍放大成**真实布局**，于是放大到顶的那一刻，
  * 卡面是按 285×399 排版、也按这个尺寸栅格化的，字和插画都是原生分辨率。
  * 必须这么绕，是因为 Chrome 对带 3D 旋转的元素走贴图路径：先按布局尺寸栅格化成一张贴图，
- * 再把贴图贴到三维平面上。放大要是靠外层 transform 做的，贴图就还是 150×210 那张，
+ * 再把贴图贴到三维平面上。放大要是靠外层 transform 做的，贴图就还是 150×225 那张，
  * 一旦 cardTilt 写进哪怕 0.3° 的倾斜，整张卡就是被拉伸 1.9 倍的糊图（实测如此）。
  *
  * zoom 只能落在这一层或更里面：slot 上的 x / y 平移会被 zoom 乘一遍，
@@ -939,7 +939,7 @@ body,
 }
 
 /*
- * 尺寸和玩家手牌一样是 150×210，但屏幕上看到的是它的 0.64 倍（134.4 高）：缩放由 OpponentFan
+ * 尺寸和玩家手牌一样是 150×225，但屏幕上看到的是它的 0.64 倍（134.4 高）：缩放由 OpponentFan
  * 写在每次布局补间里（见那边的 CARD_SCALE），牌心间距也乘同一个系数，整排是等比收紧的。
  * 缩放不能挪到这里来——slot 的 transform 归 GSAP 管，写在 CSS 上会被每一帧的补间覆盖掉。
  */
@@ -973,22 +973,45 @@ body,
  * 插画自带装饰边框和羊皮纸底色，所以这里不再画"插画框"那种分区版式：
  * 图是底，卡名/描述/标识挤在底部的 .card-face__body 上。
  * 卡种（AI / 技能 / 英雄）的区分退到 --accent 上，现在只出现在底部那行标识上，
- * 边框保持墨色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
+ * 边框统一走白色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
  */
 .card-face {
+  /* 边缘羽化的宽度。插画在这条带子里淡出到卡面底色（也是白的），
+     白边和画面之间就没有一条硬邦邦的接缝。 */
+  --card-edge-feather: 7px;
+
   position: relative;
   width: 100%;
   height: 100%;
-  border: 1px solid rgb(32 24 16 / 55%);
-  border-radius: 12px;
-  /* 图还没加载完时垫的底色。深色是为了和下面 body 的黑色渐变接得上，
-     不至于在加载那一瞬间露出一块和卡面无关的亮色。 */
-  background: #17140f;
+  border: 1px solid rgb(255 255 255 / 92%);
+  border-radius: 8px;
+  /* 卡面底色，同时是羽化带淡出的去处，所以必须是白的：
+     图还没加载完时露出来的也是它。 */
+  background: #f6f3ec;
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
   /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
      （相邻的牌、战场底色）当混合底，高光会溢出卡面边缘。 */
   isolation: isolate;
+}
+
+/*
+ * 白边内侧那圈羽化。做成伪元素而不是 .card-face 自己的 inset 阴影，
+ * 是因为 inset 阴影画在背景之上、子元素之下，会被铺满卡面的插画整个盖住。
+ * 伪元素排在所有子节点后面，才压得住插画和底部信息层——底部那层是不透明的黑渐变，
+ * 只羽化插画的话，下边缘仍会是一条黑硬边。
+ */
+.card-face::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* 两层白：窄而实的一层贴着白边收口，宽而淡的一层把过渡拖长，
+     合起来才像"融进去"，而不是描了第二条边。 */
+  box-shadow:
+    inset 0 0 var(--card-edge-feather) calc(var(--card-edge-feather) / 3.5) rgb(246 243 236 / 62%),
+    inset 0 0 calc(var(--card-edge-feather) * 2.4) var(--card-edge-feather) rgb(246 243 236 / 30%);
 }
 
 .card-face--ai {
@@ -1008,7 +1031,7 @@ body,
 /*
  * 插画：铺满整个卡面当底图。
  *
- * 图是 2:3，卡面是 5:7，cover 会把上下各裁掉一点点，构图中心留得住。
+ * 图和卡面都是 2:3，cover 下正好铺满、不裁边。
  * 圆角自己也写一份而不是全靠父级的 overflow: hidden：卡面整棵子树在手牌里是被 3D 变换
  * 带着转的，WebKit 会把它提成独立合成层，这时祖先的圆角裁剪偶尔会漏掉，四角露出直角。
  */
@@ -1096,7 +1119,7 @@ body,
   height: 100%;
   padding: 14px 12px;
   border: 1px solid #30363d;
-  border-radius: 12px;
+  border-radius: 8px;
   background: linear-gradient(160deg, #101922 0%, #0d1117 100%);
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   /* 和 .card-face 一样：裁掉高光层溢出的部分，并把混合关在这张卡里面。 */
@@ -1142,7 +1165,7 @@ body,
   width: 100%;
   height: 100%;
   border: 1px solid color-mix(in srgb, var(--battle-navy, #253149) 62%, transparent);
-  border-radius: 12px;
+  border-radius: 8px;
   background-color: var(--battle-paper-shade, #e2dbc8);
   /* 纸纹放在**最上面**一层用 multiply 压下去，底下是"中间亮一点、四周退到 --battle-paper-shade"
      的纸面。反过来把纸纹垫在底下的话，上面那层不透明的渐变会把中间那块颗粒盖掉。 */
@@ -1581,13 +1604,13 @@ body:has(.battle) {
 /*
  * 侧栏里的小英雄牌。
  *
- * 卡面排版是照 150×210 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
  * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
  */
 .battle__hero {
   --hero-card-w: 62px;
-  --hero-card-h: 87px;
-  /* 62 / 150 = 0.413333，卡面高 210 × 0.413333 ≈ 87，和上面那对宽高对得上。 */
+  --hero-card-h: 93px;
+  /* 62 / 150 = 0.413333，卡面高 225 × 0.413333 ≈ 93，和上面那对宽高对得上。 */
   --hero-card-scale: 0.413333;
 
   grid-area: hero;
@@ -1604,7 +1627,7 @@ body:has(.battle) {
   overflow: hidden;
 }
 
-/* 里面这一层才是真正的 150×210 卡面，靠 scale 缩进上面那个盒子里。 */
+/* 里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。 */
 .battle__hero-card > * {
   width: var(--card-w);
   height: var(--card-h);
@@ -1691,10 +1714,10 @@ body:has(.battle) {
    * 战场顶上给对方手牌留出的高度（下面 .battle__board 的 top inset 用它）。
    *
    * 正式对局里对方手牌是 fixed 的倒扇形（.opponent-fan），不占文档流，
-   * 它在顶栏下方露出约 62px（推导见 ui/fanMath.ts 的 OPPONENT_FAN），74 正好给它让开；
+   * 它在顶栏下方露出约 72px（推导见 ui/fanMath.ts 的 OPPONENT_FAN），84 正好给它让开；
    * 测试房里则是下面那条真占位置的摊开手牌条，要摆下真实卡面，所以那一档更高（见 --test）。
    */
-  --battle-foe-hand-h: 74px;
+  --battle-foe-hand-h: 84px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1782,7 +1805,7 @@ body:has(.battle) {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
-  /* 上下留白比单行时紧了一圈：同一块高度要塞两排 154px 的小卡，
+  /* 上下留白比单行时紧了一圈：同一块高度要塞两排 165px 的小卡，
      1440×900 这类常见窗口下多留 20px 就会让两排挤到互相压边。
      顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。 */
   padding: 52px 24px 18px;
@@ -2208,9 +2231,9 @@ body:has(.battle) {
  *
  * 裁剪（overflow + border-radius）也放在这里而不是外层：这一层跟着卡一起倾斜，
  * 裁切边就跟着一起转；留在外层的话，倾斜时卡角会被一条不动的直边削掉。
- * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
+ * 要裁是因为里面那张卡的布局尺寸仍是 150×225，只是被缩小画出来，
  * 不裁掉溢出的部分会把整页撑出滚动条。
- * 这里的 9px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .battle__tile-edge-ring）。
+ * 这里的 6px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .battle__tile-edge-ring）。
  *
  * hover 时的略微放大也在这一层，但整个交给 cardTilt 用 GSAP 做（见它的 hoverScale 选项，
  * 幅度是 MatchStage 里的 TILE_HOVER_SCALE），CSS 这边一个字都不写：
@@ -2220,7 +2243,7 @@ body:has(.battle) {
 .battle__tile-tilt {
   position: absolute;
   inset: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   overflow: hidden;
   /* 这一层被 cardTilt 每帧改 3D 旋转。不预先声明的话，WebKit 要等到第一帧真的转起来
      才隐式给它提一层合成层，而提层要重建合成树——这一下正好卡在手势刚开始、最该跟手的时候。 */
@@ -2483,15 +2506,15 @@ body:has(.battle) {
  *
  * 两张 mask 叠 exclude 是画环的老办法：一张只盖内容盒、一张盖整个边框盒，
  * 相减剩下的正好是 padding 那一圈，所以 padding 就是环厚。
- * 圆角写 11px：外层已经往外扩了 2px，环的外沿正好落在卡的轮廓外 2px；
- * 而内容盒的圆角会自动减去 padding（11 − 2 = 9px），
- * 于是环的内沿和裁剪层那 9px 的卡角严丝合缝，四个角上的环也不会忽粗忽细。
+ * 圆角写 8px：外层已经往外扩了 2px，环的外沿正好落在卡的轮廓外 2px；
+ * 而内容盒的圆角会自动减去 padding（8 − 2 = 6px），
+ * 于是环的内沿和裁剪层那 6px 的卡角严丝合缝，四个角上的环也不会忽粗忽细。
  */
 .battle__tile-edge-ring {
   position: absolute;
   inset: 0;
   padding: 2px;
-  border-radius: 11px;
+  border-radius: 8px;
   background: conic-gradient(
     from var(--edge-angle),
     rgb(255 213 121 / 0%) 0deg,
@@ -2638,13 +2661,13 @@ body:has(.battle) {
  *
  * 单开一层而不是给小卡加 box-shadow：描边要能被补间，而小卡那几层的 transform 各有主人。
  * 位置和上场追光一样在裁剪层（overflow: hidden）**外面**，否则环外的辉光会被整圈切掉。
- * 圆角 12px = 裁剪层的 9px 加上外扩的 3px，环的内沿才和卡角贴合。
+ * 圆角 9px = 裁剪层的 6px 加上外扩的 3px，环的内沿才和卡角贴合。
  */
 .battle__tile-target-ring {
   position: absolute;
   inset: -3px;
   border: 2px solid rgb(255 138 61 / 95%);
-  border-radius: 12px;
+  border-radius: 9px;
   box-shadow:
     0 0 20px rgb(255 122 40 / 65%),
     inset 0 0 12px rgb(255 138 61 / 35%);
@@ -2742,7 +2765,7 @@ body:has(.battle) {
 }
 
 /*
- * 屏幕中央那张放大的展示卡：150×210 的 1.7 倍。
+ * 屏幕中央那张放大的展示卡：150×225 的 1.7 倍。
  *
  * 定位用 left/top + 负 margin，**不能**用 transform: translate(-50%, -50%)——
  * 这个元素的 transform 归 Flip 飞行和呼吸浮动管，写在这里会被它们整个覆盖掉，
@@ -2779,7 +2802,7 @@ body:has(.battle) {
 .reveal-card__face {
   position: absolute;
   inset: 0;
-  border-radius: calc(12px * var(--reveal-scale));
+  border-radius: calc(8px * var(--reveal-scale));
   box-shadow:
     0 26px 60px rgb(0 0 0 / 62%),
     0 6px 18px rgb(0 0 0 / 45%),
@@ -2793,8 +2816,8 @@ body:has(.battle) {
 }
 
 /*
- * 卡面的布局尺寸仍然是 150×210，靠整体缩放变大，字号、描边、圆角才等比放大。
- * 直接把卡面撑到 255×357 的话，文字不会跟着变大，排版会散架。
+ * 卡面的布局尺寸仍然是 150×225，靠整体缩放变大，字号、描边、圆角才等比放大。
+ * 直接把卡面撑到 255×382.5 的话，文字不会跟着变大，排版会散架。
  */
 .reveal-card__scale {
   width: var(--card-w);
@@ -3111,23 +3134,23 @@ body:has(.battle) {
 }
 
 /*
- * 745px 这个阈值是算出来的，不是拍的：战场两行各要 154px 才放得下一张小卡，
- * 而战场高度 = 视口高 − 顶栏 72 − 对方手牌条 74 − 手牌区 210
+ * 777px 这个阈值是算出来的，不是拍的：战场两行各要 165px 才放得下一张小卡，
+ * 而战场高度 = 视口高 − 顶栏 72 − 对方手牌条 84 − 手牌区 210
  * （27vh 在这个高度段恒被 clamp 到下限）− 内边距 52/18 − 边框 2 − 行间距 10，两行平分，
- * 解出来要 746px 高才够。差一点点的话小卡不会自己变矮（.battle__tile 高度写死），
+ * 解出来要 778px 高才够。差一点点的话小卡不会自己变矮（.battle__tile 高度写死），
  * 而是整条 flex line 溢出行盒：对方行往上顶进拖拽提示药丸，
  * 我方行往下戳破战场的虚线框，一直捅到手牌区里。
  * 所以 1366×768 这类笔记本（视口高约 690~720）必须走这一档。
- * 缩一号之后的下限是 656px，再矮连 119px 的小卡也放不下——窗口小到那个程度这页本来就没法看了。
+ * 缩一号之后的下限是 693px，再矮连 127.5px 的小卡也放不下——窗口小到那个程度这页本来就没法看了。
  */
-@media (max-height: 745px) {
+@media (max-height: 777px) {
   .battle {
     --battle-topbar-h: 62px;
-    /* 矮窗口下战场那块只剩三百来像素，两排 154px 的小卡放不下，整体缩一号。
-       比例必须仍是 85 / 150 = 0.566667（210 × 0.566667 = 119），
+    /* 矮窗口下战场那块只剩三百来像素，两排 165px 的小卡放不下，整体缩一号。
+       比例必须仍是 85 / 150 = 0.566667（225 × 0.566667 = 127.5），
        比例一变，打出时的飞行就会把卡面拉变形。 */
     --tile-w: 85px;
-    --tile-h: 119px;
+    --tile-h: 127.5px;
     --tile-scale: 0.566667;
   }
 
@@ -3262,7 +3285,7 @@ body:has(.battle) {
 }
 
 /*
- * 一张可点的缩略卡。外层按钮只占缩放后的尺寸，卡面本体在里面按原始 150×210 排版再整张缩
+ * 一张可点的缩略卡。外层按钮只占缩放后的尺寸，卡面本体在里面按原始 150×225 排版再整张缩
  * （和战场小卡同一个套路，见 .battle__foe-card-inner）：卡面的字号、间距全不用改，
  * 这一页看到的排版才和对局里是同一份。
  */
@@ -3271,7 +3294,7 @@ body:has(.battle) {
   height: calc(var(--card-h) * var(--gallery-pick-scale));
   padding: 0;
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   background: none;
   cursor: pointer;
 }
@@ -3398,7 +3421,7 @@ body:has(.battle) {
 /* ---------- 卡片加载动画 ---------- */
 
 /*
- * 仿 ldrs（uiball loaders）的线框卡 loader：一张 5:7 的空心卡在原地弹跳，底下跟着一块影子。
+ * 仿 ldrs（uiball loaders）的线框卡 loader：一张 2:3 的空心卡在原地弹跳，底下跟着一块影子。
  * 组件在 ui/CardLoader.tsx，它只负责把 size / speed / color 写成下面三个自定义属性。
  *
  * 全程纯 CSS、不碰 GSAP：同一套视觉还要在 index.html 里当首屏 loader，
@@ -3410,8 +3433,8 @@ body:has(.battle) {
   --cl-size: 72px;
   --cl-speed: 1.75s;
   --cl-color: #ddcab7;
-  /* 5:7 就是游戏卡面 150:210 的比例，loader 和真卡才像同一种东西。 */
-  --cl-card-w: calc(var(--cl-size) * 5 / 7);
+  /* 2:3 就是游戏卡面 150:225 的比例，loader 和真卡才像同一种东西。 */
+  --cl-card-w: calc(var(--cl-size) * 2 / 3);
   /* 描边跟着尺寸走，但夹在 1.5~3px 之间：小号下太粗会把内框糊死，大号下太细又撑不住画面。
      除以 36 是为了让默认的 72px 正好落在 2px 上。 */
   --cl-stroke: clamp(1.5px, calc(var(--cl-size) / 36), 3px);
@@ -3805,7 +3828,7 @@ body:has(.battle) {
   margin-bottom: 18px;
 }
 .gallery__controls label { display: flex; align-items: center; gap: 6px; }
-.gallery__faces[data-preview-size='large'] .gallery__card { width: 300px; height: 420px; }
-.gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 210px; }
+.gallery__faces[data-preview-size='large'] .gallery__card { width: 300px; height: 450px; }
+.gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 225px; }
 .gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
-.gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }

@@ -18,9 +18,9 @@ import { preloadAssetsInBackground } from './preloadAssets'
 /**
  * 对局界面的图。
  *
- * battle-bg.webp 在整个 tsx 里搜不到，它只出现在 styles.css 的 .battle__battlefield 背景简写里
- * （见 styles.css 的「战场背景图」一段）——改那条 CSS 的图片地址时记得同步这里，
- * 不然对局页会先空一块背景再刷出来。两张硬币是开局猜先动画里条件挂载的 <img>，
+ * battle-bg.webp 在整个 tsx 里搜不到，它只出现在 CSS 的背景简写里：
+ * styles.css 的 .battle__battlefield（战场）和 screens/deck.css 的 .deck-pool（组卡池，同一张图）——
+ * 改图片地址时这三处要一起改，不然对局页会先空一块背景再刷出来。两张硬币是开局猜先动画里条件挂载的 <img>，
  * 等真要用时才开始下载就已经晚了。
  */
 export const BATTLE_ASSETS: readonly string[] = [

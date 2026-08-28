@@ -1,7 +1,7 @@
 /* ============================================================
    /deck 组建牌组 demo 页的私有样式
    ------------------------------------------------------------
-   只放这一页自己用得上的东西：两栏外壳、星图卡池面板、筛选栏、
+   只放这一页自己用得上的东西：两栏外壳、卡池面板、筛选栏、
    卡池卡片、牌组格子和迷你卡。凡是别的页面也会用到的一律留在
    src/ui/paper/paper.css 或 styles.css，别往这搬。
 
@@ -11,14 +11,16 @@
    模块求值顺序，靠特指度赢比靠书写顺序赢可靠。这一条和 design.css 同源。
 
    ------------------------------------------------------------
-   为什么整页滚动，而不是「两块面板各自内部滚动」的固定高布局
+   整页锁死在一屏内，只有卡池网格自己滚
    ------------------------------------------------------------
-   卡池的牌要拖到右面板里去，牌组的牌要拖出右面板才算移除——两条路径都要
-   跨过面板边界。而 overflow: auto/hidden 的容器会把溢出的子元素裁掉，
-   拖着的牌一越过面板边缘就会凭空消失（position: fixed 才不被裁，但那要
-   把牌从文档流里拿走，剩下的牌会立刻塌陷补位）。
-   所以这一页没有任何一个祖先容器开 overflow：卡池有多高就多高，页面整体滚，
-   右面板用 position: sticky 钉在视口上，滚到哪儿都能拖得到。
+   页面高度就是视口高度、不出现整页滚动条：顶栏和右侧牌组面板永远在原位，
+   要滚的只有左边那格卡池网格（.deck-grid）。
+
+   代价是卡池网格成了 overflow 容器，会把溢出的子元素裁掉，而卡池的牌恰恰要
+   拖出网格才能丢进右面板。解决办法在 DeckScreen 的 liftCardOut：起拖那一刻
+   把这张牌切成 position: fixed（fixed 不受祖先 overflow 裁剪），松手回位后再切回来；
+   它原来占的格子由外层 .deck-pool-slot 撑着，所以邻牌不会塌陷补位。
+   反方向（牌组的牌拖出右面板算移除）不需要这套：右面板一路到 .deck-page 都没有 overflow。
    ============================================================ */
 
 .deck-page {
@@ -37,8 +39,31 @@
   /* 牌组格子里那张迷你卡的缩放比。
      卡面里的字号、内边距全是写死的像素，只能整张按比例缩（同 HomeScreen 的做法）。
      这个值同时决定格子的宽高，而格子网格是写死的五列，所以改它要连
-     .deck-body 右栏那个 clamp 一起验算，否则一行五个会放不下。 */
-  --deck-mini-scale: 0.46;
+     .deck-body 右栏那个 clamp 一起验算，否则一行五个会放不下。
+
+     跟着视口高走：整页锁死在一屏内，牌组那 4 行格子必须和面板的其余部分一起塞进这一屏。
+     公式是照实测的固定高反推的——面板除格子之外的部分约 284px（标题、进度条、底部按钮），
+     加上面板距顶 112px 和页面下边距 24px，共 420px；格子自身是 4 × 225 × scale + 3 × 8 的间距，
+     于是 scale = (视口高 − 444) ÷ 900。上限 0.46 是设计稿的原值，再大就撑破右栏宽度；
+     下限 0.28 是牌面上的字还认得出来的底线，屏幕再矮就只能让面板顶出去一点。
+     改面板里的任何固定高（标题、进度条、底部）都要重新验算这里的 444。
+     末尾的 “/ 1px” 是把算出来的长度除成无单位数：scale 和用它的那几个乘法都只吃纯数字。
+   */
+  --deck-mini-scale: clamp(0.28, calc((100vh - 444px) / 900 / 1px), 0.46);
+
+  /* 整页锁在一屏内。dvh 是给移动端浏览器地址栏伸缩用的，桌面端和 vh 等价。 */
+  height: 100dvh;
+  /* 兜底：正常情况下内部各块都定了高，不该有东西溢出到这里。 */
+  overflow: hidden;
+}
+
+/* 纸纹容器（styles.css 的 .paper-page__inner）默认按内容高，这里要它撑满并成为纵向弹性容器，
+   下面 .deck-body 的 flex: 1 才有可分配的高度。 */
+.deck-page .paper-page__inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 /* ============================================================
@@ -101,16 +126,21 @@
      5 × 150 × 0.46 + 4 × 8 的格子网格 = 377px，加左右各 24px 内边距和 1px 边框。
      改 --deck-mini-scale 或格子间距都要重新验算这个下限。 */
   grid-template-columns: minmax(0, 1fr) clamp(444px, 30vw, 496px);
-  /* 两栏各自按内容定高：右栏要 sticky，拉伸成等高就没法钉了。 */
-  align-items: start;
+  /* 左栏（卡池）要吃掉顶栏之外的全部高度，自己内部再滚；
+     右栏按内容定高，所以单独 align-self: start（见 .deck-side）。 */
+  align-items: stretch;
+  /* min-height: 0 是让卡池网格的 overflow 生效的关键：
+     不写的话 grid 项目的最小高度是内容高，卡池会顶着页面撑出去而不是出滚动条。 */
+  min-height: 0;
+  flex: 1;
   gap: 20px;
-  padding: 0 30px 40px;
+  padding: 0 30px 24px;
 }
 
 /* ============================================================
-   左：卡池（深蓝星图面板）
+   左：卡池（深色背景面板）
    ------------------------------------------------------------
-   和对局界面「纸侧栏夹着深色战场」的关系一致：整页是纸，卡池是嵌在纸上的一块夜空。
+   和对局界面「纸侧栏夹着深色战场」的关系一致：整页是纸，卡池用的就是对局战场那张背景图。
    ============================================================ */
 .deck-pool {
   /*
@@ -125,48 +155,34 @@
   --line-dark: rgb(226 214 186 / 46%);
   --deck-pool-edge: #4a5169;
 
+  /* 卡池分成三段：筛选栏、滚动网格、底部提示；只有中间那段滚。 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
   border: 1px solid var(--deck-pool-edge);
   border-radius: 4px;
-  background-color: var(--night);
-  /*
-   * 前八层是星点：各画一颗，共用 260px 的平铺尺寸，靠各自的百分比位置散开——
-   * 位置是相对每一块图块算的，所以平铺出来是一片不规则的星空而不是整齐的点阵。
-   * 最后两层是铺满整块的大光晕（顶亮底沉），让夜空有个焦点，不至于平得像色块；
-   * 它们排在星点后面（也就是画在星点底下），所以星星不会被光晕洗掉。
-   * 光晕没有做成 ::before，是因为那样它会盖在内容上，得给每个子元素补 z-index 才压得回去。
-   */
-  background-image:
-    radial-gradient(circle at 12% 18%, rgb(255 249 231 / 72%) 0 1.1px, transparent 1.8px),
-    radial-gradient(circle at 63% 8%, rgb(255 249 231 / 42%) 0 0.9px, transparent 1.6px),
-    radial-gradient(circle at 84% 31%, rgb(255 249 231 / 60%) 0 1.2px, transparent 1.9px),
-    radial-gradient(circle at 33% 47%, rgb(255 249 231 / 34%) 0 0.8px, transparent 1.5px),
-    radial-gradient(circle at 8% 71%, rgb(255 249 231 / 55%) 0 1px, transparent 1.7px),
-    radial-gradient(circle at 52% 83%, rgb(255 249 231 / 40%) 0 0.9px, transparent 1.6px),
-    radial-gradient(circle at 91% 66%, rgb(255 249 231 / 30%) 0 0.8px, transparent 1.5px),
-    radial-gradient(circle at 71% 57%, rgb(255 249 231 / 50%) 0 1px, transparent 1.7px),
-    radial-gradient(ellipse 120% 60% at 50% 0%, rgb(96 114 158 / 42%), transparent 70%),
-    radial-gradient(ellipse 150% 50% at 50% 100%, rgb(10 14 26 / 58%), transparent 70%);
-  background-repeat: repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, no-repeat,
-    no-repeat;
-  background-size: 260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px,
-    260px 260px, 260px 260px, 100% 100%, 100% 100%;
+  /* 和对局战场（styles.css 的 .battle__battlefield）用同一张背景图，两个界面的深色底看起来是一套的。
+     改图片地址时两处要一起改，同时同步 ui/backgroundPreload.ts 里的 BATTLE_ASSETS。 */
+  background: #26334c url('/battle/battle-bg.webp') center / cover no-repeat;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
 }
 
 /* ---------- 筛选栏 ---------- */
 .deck-pool__head {
-  /* 卡池很长，筛选栏跟着滚出去就没法换筛选了，所以钉在视口顶上。
-     背景要不透明，否则滚上来的卡牌会从字缝里透出来。 */
-  position: sticky;
-  top: 0;
+  /* 在滚动区之外，不跟着卡片滚，所以不用 sticky。
+     背景仍然要不透明：它压在卡池那张背景图上。 */
+  position: relative;
   z-index: 2;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 18px 22px 14px;
   border-bottom: 1px solid var(--line);
   border-radius: 3px 3px 0 0;
-  background-color: var(--night);
+  /* 取战场背景图的底色，钉住时和下面滚动的图接得上。 */
+  background-color: #26334c;
 }
 
 .deck-factions {
@@ -207,12 +223,29 @@
 
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
+  /* 整页唯一的滚动区。它是 overflow 容器，所以卡被拖出去时要先切成 fixed，
+     否则会被裁掉（见文件头的说明和 DeckScreen 的 liftCardOut）。 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+
   display: grid;
-  /* 卡是 150×210 的固定尺寸，列数跟着面板宽度自己变。 */
+  /* 卡是 150×225 的固定尺寸，列数跟着面板宽度自己变。 */
   grid-template-columns: repeat(auto-fill, var(--card-w));
   gap: 20px 18px;
   justify-content: center;
   padding: 20px 22px 24px;
+}
+
+/*
+ * 每张卡外面的占位格子。
+ *
+ * 存在的唯一理由：拖拽时卡本身会被切成 position: fixed 脱离文档流，
+ * 由这个盒子替它把格子占住，邻牌才不会塌陷补位、松手也才有原位可回。
+ */
+.deck-pool-slot {
+  width: var(--card-w);
+  height: var(--card-h);
 }
 
 /*
@@ -285,12 +318,11 @@
   pointer-events: none;
 }
 
-/* 和筛选栏一样钉住：卡池整个铺开有一千多像素高，写在末尾的提示会被滚到看不见的地方，
-   而它说的正是"现在这块面板能怎么操作"，得一直在。 */
+/* 和筛选栏一样在滚动区之外：它说的是"现在这块面板能怎么操作"，得一直看得见。 */
 .deck-pool__hint {
-  position: sticky;
-  bottom: 0;
+  position: relative;
   z-index: 2;
+  flex: none;
   margin: 0;
   padding: 12px 22px 14px;
   border-top: 1px solid var(--line);
@@ -379,12 +411,12 @@
    右：我的牌组
    ============================================================ */
 .deck-side {
-  /* 卡池能滚很长，面板得一直跟着，否则滚到下面就没地方拖了。 */
-  position: sticky;
-  top: 18px;
+  /* 页面不滚了，面板本来就一直在视口里，按内容定高即可。 */
+  position: relative;
+  align-self: start;
   /*
-   * 整块面板要压过卡池那两条钉住的横条（.deck-pool__head / .deck-pool__hint，都是 z-index: 2）。
-   * 迷你卡被拖出面板时 hook 给它写的 zIndex 1000 出不了这里——sticky 无条件建层叠上下文——
+   * 整块面板要压过卡池那两条横条（.deck-pool__head / .deck-pool__hint，都是 z-index: 2）。
+   * 迷你卡被拖出面板时 hook 给它写的 zIndex 1000 出不了这里——这里有 z-index 就建了层叠上下文——
    * 只能靠面板自己的层级把它带出去，否则卡经过筛选栏和提示条时会整个被挡住。
    * 值必须留在展示遮罩（1100）之下，放大查看时面板才吃得到压暗。
    */
@@ -416,7 +448,7 @@
 
 /*
  * 关掉放大查看、格子里那张卡正飞回原位的 0.6 秒（标记由 DeckScreen 的 liftSideForFlight 打上）：
- * 面板临时压过展示遮罩（1100），否则被 sticky 关在面板里的那张卡，
+ * 面板临时压过展示遮罩（1100），否则被面板层叠上下文关住的那张卡，
  * 飞行的前半程会被正在淡出的遮罩压暗 + 模糊。取值和代价见 liftSideForFlight 的注释。
  */
 .deck-side[data-zoom-flight='true'] {
@@ -534,7 +566,7 @@
   height: calc(var(--card-h) * var(--deck-mini-scale));
 }
 
-/* 空格里的「空卡槽」：PaperCardBack 是写死的 150×210，整张按同一个比例缩到格子大小。
+/* 空格里的「空卡槽」：PaperCardBack 是写死的 150×225，整张按同一个比例缩到格子大小。
    transform-origin 取左上角，缩完正好落在格子的原点上。 */
 .deck-slot__back {
   position: absolute;

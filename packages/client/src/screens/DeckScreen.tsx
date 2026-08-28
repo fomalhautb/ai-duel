@@ -6,7 +6,7 @@
  * 目的是把"选卡"这套手势先跑通：圆圈按钮加减、卡池 ↔ 牌组拖拽、点开放大看牌面。
  *
  * 三块复用件：
- * - 卡面用对局那套 HandCardFace（150×210），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
+ * - 卡面用对局那套 HandCardFace（150×225），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
  *   （不传 veilRef），点遮罩和 ESC 都能关。
@@ -223,12 +223,42 @@ export function DeckScreen() {
   // ---------- 拖拽 ----------
 
   /**
+   * 把卡池里的这张牌从文档流里"拎出来"：切成 position: fixed，钉在它此刻所在的屏幕位置。
+   *
+   * 为的是绕开 .deck-grid 的 overflow——卡池网格是整页唯一的滚动容器，会把溢出的子元素裁掉，
+   * 而这张牌正要被拖出网格丢进右面板。fixed 元素不受祖先 overflow 裁剪。
+   * 它原来占的格子由外层 .deck-pool-slot 撑着，所以这一步不会让邻牌塌陷补位。
+   *
+   * 要在 hook 接管补间之前调（onDragStart 里），此刻牌身上还没有 transform，量到的 rect 就是原位。
+   */
+  const liftCardOut = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect()
+    element.style.position = 'fixed'
+    element.style.left = `${rect.left}px`
+    element.style.top = `${rect.top}px`
+    element.style.width = `${rect.width}px`
+    element.style.height = `${rect.height}px`
+  }
+
+  /** liftCardOut 的反操作：清掉内联定位，牌回到格子里。位置和 fixed 时完全重合，所以看不出切换。 */
+  const dropCardBack = (element: HTMLElement) => {
+    element.style.position = ''
+    element.style.left = ''
+    element.style.top = ''
+    element.style.width = ''
+    element.style.height = ''
+  }
+
+  /**
    * 拖拽失败（或加入成功之后卡还留在卡池里）时把元素送回原位。
    *
    * hook 只负责把牌停在松手那一刻，不知道原位在哪。这一页的牌全按文档流摆位，
    * 所以"回原位"就是把 hook 写上去的那套 transform 清零。
+   *
+   * lifted 传 true 表示这张牌起拖时被 liftCardOut 切成了 fixed，归位跑完要再切回文档流；
+   * 牌组那边的迷你卡不需要（面板一路到页面根都没有 overflow），所以默认是 false。
    */
-  const returnHome = contextSafe((element: HTMLElement) => {
+  const returnHome = contextSafe((element: HTMLElement, lifted = false) => {
     gsap.to(element, {
       x: 0,
       y: 0,
@@ -241,6 +271,8 @@ export function DeckScreen() {
         // zIndex 是拖拽时为了压过邻牌写的内联样式，落回原位后必须清掉，
         // 否则这张牌会一直浮在同层所有牌之上（下一次 hover 的阴影会被它切掉）。
         gsap.set(element, { clearProps: 'zIndex' })
+        // 归位补间跑完才切回文档流：中途切的话 fixed 的坐标基准一换，牌会跳一下。
+        if (lifted) dropCardBack(element)
       },
     })
   })
@@ -259,14 +291,19 @@ export function DeckScreen() {
     // 圆圈按钮另有用途（加入 / 移除），按在它上面不算抓牌。
     ignoreSelector: '.deck-circle',
     onDragStart: (drag) => {
-      if (!canAdd(drag.id)) poolDragRef.current?.endDrag()
+      if (!canAdd(drag.id)) {
+        poolDragRef.current?.endDrag()
+        return
+      }
+      // 掐掉这次拖拽的分支要先返回：那种情况下牌一动不动，不该被拎出文档流。
+      liftCardOut(drag.element)
     },
     onDrop: (drag) => {
       addCard(drag.id)
       // 加入之后这张卡仍然留在卡池里（还能再加一份），所以照样要送回原位。
-      returnHome(drag.element)
+      returnHome(drag.element, true)
     },
-    onCancel: (drag) => returnHome(drag.element),
+    onCancel: (drag) => returnHome(drag.element, true),
     onTap: (id) => {
       const card = CARD_BY_ID.get(id)
       if (card !== undefined) openZoom(card, 'pool', poolFlipId(id))
@@ -369,31 +406,34 @@ export function DeckScreen() {
                 const picked = copiesOf(card.id)
                 const flipId = poolFlipId(card.id)
                 return (
-                  <div
-                    key={card.id}
-                    className="deck-pool-card"
-                    // 拖拽、Flip 起飞、藏起来，全都对着这一个元素：hook 写 transform 的是它，
-                    // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
-                    data-flip-id={flipId}
-                    data-picked={picked > 0 ? picked : undefined}
-                    style={hideIfZoomed(flipId)}
-                    {...poolDrag.bind(card.id)}
-                  >
-                    <HandCardFace card={card} />
-                    <button
-                      type="button"
-                      className="deck-circle deck-circle--add"
-                      disabled={!canAdd(card.id)}
-                      aria-label={`把「${card.name}」加入牌组`}
-                      onClick={() => addCard(card.id)}
+                  // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
+                  // 没有这个盒子的话邻牌会立刻塌陷补位。
+                  <div key={card.id} className="deck-pool-slot">
+                    <div
+                      className="deck-pool-card"
+                      // 拖拽、Flip 起飞、藏起来，全都对着这一个元素：hook 写 transform 的是它，
+                      // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
+                      data-flip-id={flipId}
+                      data-picked={picked > 0 ? picked : undefined}
+                      style={hideIfZoomed(flipId)}
+                      {...poolDrag.bind(card.id)}
                     >
-                      <CircleGlyph kind="add" />
-                    </button>
-                    {picked > 0 ? (
-                      <span className="deck-pool-card__mark" aria-hidden="true">
-                        {picked >= MAX_COPIES ? '×2' : '✓'}
-                      </span>
-                    ) : null}
+                      <HandCardFace card={card} />
+                      <button
+                        type="button"
+                        className="deck-circle deck-circle--add"
+                        disabled={!canAdd(card.id)}
+                        aria-label={`把「${card.name}」加入牌组`}
+                        onClick={() => addCard(card.id)}
+                      >
+                        <CircleGlyph kind="add" />
+                      </button>
+                      {picked > 0 ? (
+                        <span className="deck-pool-card__mark" aria-hidden="true">
+                          {picked >= MAX_COPIES ? '×2' : '✓'}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 )
               })}

@@ -16,7 +16,7 @@ function nameWidth(name: string): number {
 }
 
 /**
- * 与插画分离的正面图层。费用章单独保持正圆，铭牌按卡宽缩放，兼容 5:7 手牌和 2:3 原图。
+ * 与插画分离的正面图层。费用章单独保持正圆，铭牌按卡宽缩放，兼容 2:3 的手牌和原图。
  * 只装饰边框，不给文字套手绘滤镜，缩成手牌时仍能辨认费用和名称。
  */
 export function CardFaceOverlay({ cost, skillName, name, accent = 'var(--c-green)' }: CardFaceOverlayProps) {

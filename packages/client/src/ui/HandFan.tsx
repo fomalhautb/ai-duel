@@ -197,7 +197,7 @@ const HOVER_SCALE = Math.max(1.75, MIN_HOVER_SCALE)
  * 把「想让人看到多大」换算成写给 GSAP 的 scale。
  *
  * slot 的盒子已经是放大到顶的尺寸了（HOVER_SCALE 倍），所以静置那张牌反而要缩到
- * 1 / HOVER_SCALE 才是设计稿上的 150×210，放大到顶就是 scale 1。
+ * 1 / HOVER_SCALE 才是设计稿上的 150×225，放大到顶就是 scale 1。
  * 这么绕是为了让倾斜时的卡面按原生分辨率栅格化，理由写在 styles.css 的 .hand-fan__tilt 上。
  *
  * 注意只有 scale 要换算：x / y 是平移，不受盒子变大影响，照旧用显示尺寸那套坐标算。
@@ -616,7 +616,7 @@ export function HandFan({
    * slot 的坐标原点是锚点 .hand-fan 的底边中点、y 向下为正，变换原点又在卡牌底边中点，
    * 所以放大 DRAG_SCALE 之后卡牌中心跑到了原点上方 DRAG_SCALE × 卡高 / 2 处，
    * 想让这个中心对准光标就得把这段距离补回来。
-   * 这里的 DRAG_SCALE 和 CARD_HEIGHT 都是**显示尺寸**那套口径（拖着的牌看起来有 1.1 × 210 高），
+   * 这里的 DRAG_SCALE 和 CARD_HEIGHT 都是**显示尺寸**那套口径（拖着的牌看起来有 1.1 × 225 高），
    * 和 slot 盒子实际有多大无关——盒子被放大、scale 被 slotScale 折算，两下正好抵消。
    *
    * 尺寸取 documentElement 的 clientWidth / clientHeight 而不是 innerWidth / innerHeight：

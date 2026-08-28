@@ -941,8 +941,8 @@ packages/client/
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
     LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
     preloadAssets.ts          等一批图片（和字体）就绪的 useAssetsReady，带超时兜底，绝不卡死
-    BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
-                              （牌组进入 /deck、图鉴进入 /card，返回对局保留当前 driver；手册/设置尚未实现）
+    BattleTopBar.tsx          对局界面顶栏：只有正中那块「第几轮 + 我方比分:对方比分」
+                              （站名、页签和手册/设置图标都已撤掉；等房主开局时不传 status，顶栏整条空着）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用

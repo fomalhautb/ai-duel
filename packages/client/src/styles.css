@@ -1976,6 +1976,18 @@ body:has(.demo) {
   width: var(--tile-w);
   height: var(--tile-h);
   perspective: 700px;
+  cursor: pointer;
+}
+
+/*
+ * 这张小卡正被放大查看。
+ *
+ * 用 visibility 而不是把 tile 从 React 里卸掉：格子还得占着位置，
+ * 不然同一行剩下的小卡会当场往中间挤一下，等看完飞回来又挤回去。
+ * （Flip 的起飞位置是在点击那一刻、隐藏之前就量好的，所以隐藏不影响飞行。）
+ */
+.demo__tile--held {
+  visibility: hidden;
 }
 
 /*
@@ -1986,6 +1998,10 @@ body:has(.demo) {
  * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
  * 不裁掉溢出的部分会把整页撑出滚动条。
  * 这里的 9px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .demo__tile-edge-ring）。
+ *
+ * hover 时的略微放大也在这一层，但整个交给 cardTilt 用 GSAP 做（见它的 hoverScale 选项），
+ * CSS 这边一个字都不写：GSAP 接管这一层的 transform 之后会往内联样式里写死
+ * `translate: none; rotate: none; scale: none;`，任何 CSS 的 scale / :hover 规则都会被它压住。
  */
 .demo__tile-tilt {
   position: absolute;
@@ -2065,11 +2081,12 @@ body:has(.demo) {
  *
  * 常驻 DOM、默认 visibility: hidden，由 GSAP 的 autoAlpha 开关——
  * 挂在 React 状态上的话，展示一结束元素就没了，那 0.3s 的淡出根本演不出来。
- * visibility: hidden 顺带让它不吃指针事件；一旦淡入，它就吃掉全部指针事件，
- * 强制动画期间玩家什么都点不了。
+ * visibility: hidden 顺带让它不吃指针事件；一旦淡入，它就吃掉全部指针事件：
+ * 强制展示期间玩家什么都点不了，而放大查看战场小卡期间点它就是关闭查看
+ * （展示卡自己在 pointer-events: none 的裁剪层里，点在卡上也会落到这块遮罩）。
  *
  * z-index 1100 高于顶栏（70）、手牌（20）和拖拽中的牌（1000），低于展示卡的裁剪层（1101）
- * 和展示卡落场时的飞行层级（1200）。
+ * 和展示卡落场 / 飞回原格时的飞行层级（1200）。
  */
 .reveal-overlay {
   position: fixed;
@@ -2079,6 +2096,11 @@ body:has(.demo) {
   backdrop-filter: blur(7px);
   opacity: 0;
   visibility: hidden;
+}
+
+/* 只有放大查看时点遮罩才有用（关闭查看），这时才给出可点的光标。 */
+.reveal-overlay--closable {
+  cursor: pointer;
 }
 
 /*

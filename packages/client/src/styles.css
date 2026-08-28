@@ -1,6 +1,15 @@
 :root {
   color-scheme: dark;
-  font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /*
+   * 全站唯一的字体栈，和设计参考 paper-demo.html 一致：EB Garamond 管拉丁字母和数字，
+   * Noto Serif SC 管中文，两者都从 Google Fonts 拿（引入写在 index.html）。
+   * 后面三个本地宋体是兜底：断网或字体没加载成功时至少还是衬线体，
+   * 不会一下掉回黑体、把整个古典调子毁掉。
+   *
+   * 注意 Noto Serif SC 只引到 700，全站字重别写超过 700，
+   * 否则浏览器会自己拉伸出一份很难看的伪粗体。
+   */
+  font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
   color: #e5e7eb;
   background: #0d1117;
 
@@ -18,6 +27,18 @@
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * 表单控件不会自动继承页面字体：浏览器自带样式表给 button/input 硬写了一份 Arial 之类的字体，
+ * 中文还会顺势掉到系统黑体上，在这套全衬线的画面里一眼就看得出不对（首页那块匾额按钮最明显）。
+ * 全站只有一套字体栈，所以在这里一次性收回来，不用每个按钮各写一遍 font-family: inherit。
+ */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 html,
@@ -150,7 +171,6 @@ body,
   height: 100%;
   overflow: hidden;
   background: #ddcab7;
-  font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;
   user-select: none;
 }
 
@@ -162,7 +182,7 @@ body,
 }
 
 /* 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
-   前景道具那张尤其要紧：它铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。 */
+   桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。 */
 .home__layer {
   position: absolute;
   inset: 0;
@@ -181,7 +201,7 @@ body,
 
 /*
  * 人物抠图还没做，先用方块占位。虚线边是故意的：一眼就能看出这不是成品。
- * 方块会被前景道具（地球仪、望远镜那些）盖掉一部分，这和设计稿一致。
+ * 方块下半截会被桌面弧和前景道具盖住，这和设计稿里人物半身埋在桌后是一致的。
  */
 .home__figure {
   position: absolute;
@@ -206,7 +226,9 @@ body,
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 7.3cqi;
-  font-weight: 900;
+  /* 700 是 Noto Serif SC 引进来的最重一档。再往上写 800/900 不会更粗，
+     只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
+  font-weight: 700;
   line-height: 1;
   text-align: center;
   /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
@@ -448,7 +470,6 @@ body,
   border: none;
   background: none;
   color: rgb(232 198 159 / 35%);
-  font-family: inherit;
   font-size: 0.9cqi;
   letter-spacing: 0.1em;
   cursor: pointer;
@@ -1011,7 +1032,6 @@ body,
   overflow: hidden;
   color: var(--demo-ink);
   background-color: var(--demo-paper);
-  font-family: 'Songti SC', STSong, 'Noto Serif SC', SimSun, Georgia, serif;
 }
 
 /* ---------- 顶栏 ---------- */
@@ -1059,15 +1079,15 @@ body,
   white-space: nowrap;
 }
 
+/* 中英两半故意不再各挑一套字体：全站统一走 :root 那条栈，
+   区别只留在字号、字距和这里的倾斜上。 */
 .battle-topbar__brand-cn {
-  font-family: 'Kaiti SC', KaiTi, STKaiti, serif;
   font-size: 42px;
   line-height: 1;
   transform: rotate(-5deg);
 }
 
 .battle-topbar__brand-ai {
-  font-family: Georgia, serif;
   font-size: 31px;
   letter-spacing: 0.06em;
 }
@@ -1568,7 +1588,6 @@ body,
   background-blend-mode: screen;
   clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
   color: #e7e1d4;
-  font-family: inherit;
   font-size: clamp(18px, 1.5vw, 24px);
   font-weight: 600;
   line-height: 1;

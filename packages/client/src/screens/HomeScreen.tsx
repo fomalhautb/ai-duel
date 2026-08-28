@@ -5,10 +5,12 @@
  * 舞台内所有尺寸都用 cqi（1cqi = 舞台宽的 1%）。这样窗口怎么变都只是整体等比缩放，
  * 不用为各种分辨率写断点，也不会出现"字大了图小了"的错位。
  *
- * 层叠自下而上是：夜空底 → 桌面弧 → 四张展示卡 → 人物占位方块 → 前景道具 → 文字类 UI
+ * 层叠自下而上是：夜空底 → 四张展示卡 → 人物占位方块 → 桌面弧 → 前景道具 → 文字类 UI
  * （标题、副标题、开始按钮、导航、设置、调试入口）。顺序完全由 JSX 的先后决定，没有一处 z-index。
- * 人物层和道具层都是 pointer-events: none，压在卡牌上面也不会挡住 hover。
- * 人物抠图还没做，先用方块占住位置，被前景道具挡掉一部分正是设计稿里的效果。
+ * 桌面弧夹在人物和道具中间，对应的是现实关系：人站在桌子后面被桌沿挡住下半身，
+ * 而地球仪、望远镜这些道具又摆在桌沿上。
+ * 压在卡牌上面的那三层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
+ * 人物抠图还没做，先用方块占住位置，下半截被桌面弧和道具挡掉正是设计稿里的效果。
  *
  * 功能上仍然只有"一键开始"的分流：教程没通关完就接着打教程，通关完了直接进匹配房。
  */
@@ -125,7 +127,7 @@ const SEATS: Seat[] = [
  *
  * 数组顺序就是叠放顺序，后面的盖住前面的，所以站在前排的人排在后面。
  * 整层压在卡牌之上：设计稿里两侧的人是挡住最外侧那两张卡的边缘的。
- * 方块本身又会被前景道具（地球仪、望远镜那些）挡掉一部分，这和设计稿一致。
+ * 方块下半截又会被桌面弧和前景道具盖掉，这和设计稿里人物半身埋在桌后是一致的。
  */
 const CAST: Array<{ id: string; left: number; top: number; width: number; height: number }> = [
   { id: 'left-back', left: 14.5, top: 22.0, width: 13.0, height: 38.0 },
@@ -232,8 +234,6 @@ export function HomeScreen() {
       <div className="home__stage" ref={stageRef}>
         <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
 
-        <img className="home__layer" src="/home/home-table.png" alt="" draggable={false} />
-
         <div className="home__cards" ref={cardsRef}>
           {SEATS.map((seat) => (
             <div
@@ -276,12 +276,13 @@ export function HomeScreen() {
           ))}
         </div>
 
+        <img className="home__layer" src="/home/home-table.png" alt="" draggable={false} />
         <img className="home__layer" src="/home/home-props.png" alt="" draggable={false} />
 
         {/*
-          感叹号用半角而不是全角「！」：宋体把全角标点画在字身框左侧、右边空出大半格，
-          那半格算进行宽里，整行看上去就偏左了。半角号配一段 padding 自己撑出设计稿里
-          「I」和「!」之间的空当，行宽和视觉重心才对得上。
+          感叹号用半角而不是全角「！」：中文字体（现在是 Noto Serif SC）里全角标点独占一整格，
+          笔画只画在其中一侧，另外大半格是空的。那半格照样算进行宽，整行看上去就偏左了。
+          半角号配一段 padding 自己撑出设计稿里「I」和「!」之间的空当，行宽和视觉重心才对得上。
         */}
         <h1 className="home__title">
           出牌吧，AI<span className="home__title-bang">!</span>

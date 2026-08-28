@@ -42,11 +42,11 @@ import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
+import { cardBackText } from './cardText'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo, setFlipAngle } from './flipCard'
 import { playSummonFx } from './playSummonFx'
-import { WEAKNESS_LABELS } from './labels'
 
 gsap.registerPlugin(useGSAP, Flip)
 
@@ -1369,7 +1369,7 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
       integrity: card.integrity,
       weaknesses: exposedWeaknesses(card.weaknesses),
       text: card.text,
-      backText: `完整画像：${fullWeaknessText(card.weaknesses)}。对手的提示卡打中哪一维，伤害就加上这一维的数值。`,
+      backText: cardBackText(card),
     }
   }
   return {
@@ -1380,7 +1380,7 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
     damage: card.damage,
     targetWeakness: card.targetWeakness,
     text: card.text,
-    backText: `伤害 = 基础 ${card.damage} + 目标的「${WEAKNESS_LABELS[card.targetWeakness]}」暴露度。不选模型就直击对手本体。`,
+    backText: cardBackText(card),
   }
 }
 
@@ -1412,11 +1412,6 @@ function exposedWeaknesses(profile: Record<WeaknessKind, number>): Partial<Recor
     if (profile[kind] > 0) exposed[kind] = profile[kind]
   }
   return exposed
-}
-
-/** 背面用的完整六维画像，0 也列出来——"打哪一维没用"同样是要读的信息。 */
-function fullWeaknessText(profile: Record<WeaknessKind, number>): string {
-  return WEAKNESS_KINDS.map((kind) => `${WEAKNESS_LABELS[kind]}${profile[kind]}`).join(' ')
 }
 
 /** 正在选目标的那张提示卡，用来在提示条上写卡名。它还在我方手里，没离开手牌。 */

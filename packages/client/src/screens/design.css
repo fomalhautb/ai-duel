@@ -241,3 +241,7 @@
   font-size: 11px;
   letter-spacing: 0.04em;
 }
+.design-overlay-card {
+  width: 210px;
+  aspect-ratio: 2 / 3;
+}

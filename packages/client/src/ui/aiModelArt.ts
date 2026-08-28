@@ -1,0 +1,21 @@
+/** 插画按卡牌定义 id 固定关联；颜色取自原画，避免同一系列因实例 id 不同而换图。 */
+export const AI_MODEL_PRESENTATIONS: Record<string, { art: string; accent: string; skillName: string }> = {
+  'gpt-2': { art: '/cards/models/gpt-2.webp', accent: '#46584b', skillName: '文本续写' },
+  'gpt-3-5': { art: '/cards/models/gpt-3-5.webp', accent: '#46584b', skillName: '对话启蒙' },
+  'gpt-4o': { art: '/cards/models/gpt-4o.webp', accent: '#46584b', skillName: '多模感知' },
+  'chatgpt-5-6-sol': { art: '/cards/models/chatgpt-5-6-sol.webp', accent: '#46584b', skillName: '统筹推演' },
+  'claude-5-sonnet': { art: '/cards/models/claude-5-sonnet.webp', accent: '#87502d', skillName: '文理兼修' },
+  'claude-fable-5': { art: '/cards/models/claude-fable-5.webp', accent: '#87502d', skillName: '深思织文' },
+  'deepseek-r1': { art: '/cards/models/deepseek-r1.webp', accent: '#304e70', skillName: '链式推理' },
+  'deepseek-v4': { art: '/cards/models/deepseek-v4.webp', accent: '#304e70', skillName: '深海求索' },
+  'gemini': { art: '/cards/models/gemini.webp', accent: '#655580', skillName: '多模融会' },
+  'qwen': { art: '/cards/models/qwen.webp', accent: '#37646b', skillName: '万语通晓' },
+  'kimi-k2-6': { art: '/cards/models/kimi-k2-6.webp', accent: '#343e48', skillName: '长卷寻踪' },
+  'kimi-k3': { art: '/cards/models/kimi-k3.webp', accent: '#343e48', skillName: '群星协作' },
+  'doubao': { art: '/cards/models/doubao.webp', accent: '#505b77', skillName: '灵感相伴' },
+  'glm-5': { art: '/cards/models/glm-5.webp', accent: '#3d4a64', skillName: '知行合一' },
+  'minimax': { art: '/cards/models/minimax.webp', accent: '#95465f', skillName: '声影共鸣' },
+  'yuanbao': { art: '/cards/models/yuanbao.webp', accent: '#465d49', skillName: '博览集智' },
+  'grok': { art: '/cards/models/grok.webp', accent: '#303939', skillName: '破界直言' },
+  'wenxin-yiyan': { art: '/cards/models/wenxin-yiyan.webp', accent: '#40596b', skillName: '文心妙笔' },
+}

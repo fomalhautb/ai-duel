@@ -560,7 +560,7 @@ value { "ownedCards": ["..."], "wins": 3 }
 
 对外只有三个函数：
 
-- `loadSave()` 读存档，任何一处读不通都回落到初始收藏。
+- `loadSave()` 读存档，任何一处读不通都回落到初始收藏；基础收藏始终开放，和额外解锁合并，不清空胜场。
 - `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
 - `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
 
@@ -581,6 +581,7 @@ docs/architecture.md          本文档
 packages/core/
   src/types.ts                全部数据形状（状态、卡牌、指令、事件）
   src/cards.ts                卡牌数据 + 查表
+  src/aiModels.ts             18 张具名 AI 的游戏测试数值；默认牌组含这 18 张及 4 张基础提示牌
   src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/engine.ts               createGame / execute
   test/                       Vitest
@@ -626,21 +627,23 @@ packages/client/
     flipCard.ts               绕 Y 轴翻面的公共实现，正反互斥靠角度驱动 opacity 硬切
     playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份
     cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
+    aiModelArt.ts             18 张具名 AI 的专属原画、主题简称与配色
+    cardPresentation.ts       图鉴、牌组和对局共用的展示映射
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
     LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
     preloadAssets.ts          等一批图片（和字体）就绪的 useAssetsReady，带超时兜底，绝不卡死
     BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
-                              （除「对战」外都还没有对应页面，是占位）
+                              （牌组进入 /deck、图鉴进入 /card，返回对局保留当前 driver；手册/设置尚未实现）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 六个弱点维度的中文名
     cardText.ts               对局翻面与图鉴共用的卡牌背面文案拼法
     paper/                    纸面组件库（卡牌、卡背、图标、标题、算力条……），index.ts 统一出口
-  src/dev/                    开发页和开发用组件，正式流程里没有入口
+  src/dev/                    开发工具及图鉴、牌组共用页面
     DevIndex.tsx              开发页导航（/dev）：全部开发页加测试对局的入口一览
     DevPanel.tsx              dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
-    CardGallery.tsx           卡牌图鉴（/card）：左栏点缩略卡，右栏是这张卡的正反面、全部数值和原始 JSON
+    CardGallery.tsx           卡牌图鉴（/card）与默认牌组（/deck）：复用正反面详情，牌组另显示数量
     LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css

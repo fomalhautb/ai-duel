@@ -25,6 +25,8 @@ import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import type { WeaknessKind } from '@ai-duel/core'
 import { placeholderArtFor } from './cardArt'
+import { CardFaceOverlay } from './CardFaceOverlay'
+import { cardAccentForArt } from './cardPresentation'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -55,6 +57,8 @@ export interface HandCardData {
   id: string
   name: string
   cost: number
+  /** 正面铭牌的 4～6 字核心能力简称，不替代规则说明。 */
+  skillName: string
   kind: 'model' | 'prompt'
   power?: number
   integrity?: number
@@ -68,12 +72,14 @@ export interface HandCardData {
   weaknesses?: Partial<Record<WeaknessKind, number>>
   /** 提示卡打的那一个弱点维度。 */
   targetWeakness?: WeaknessKind
-  /** 卡面正面的描述文案。 */
+  /** 卡牌完整描述，翻面和详情使用；正面只显示 skillName。 */
   text: string
   /** 翻到背面时展示的补充说明。 */
   backText: string
   /** 卡面插画的图片地址。不填就按 id 稳定地分一张占位图（见 ui/cardArt.ts）。 */
   art?: string
+  /** 覆盖插画默认配色，可传 /design 的色板变量或自定义颜色。 */
+  accent?: string
 }
 
 export interface HandFanProps {
@@ -917,53 +923,60 @@ export function HandFan({
  * 画面前后是同一份排版，落位时不会突然换一套内容。
  *
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
- * 费用、卡名、描述、数值都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
+ * 费用、技能简称和卡名由 CardFaceOverlay 统一绘制；对局数值另放在铭牌上方。
+ * 图鉴可隐藏战斗信息来检查纯卡面，但对局默认显示，避免把出牌判断所需的数值藏起来。
  */
-export function HandCardFace({ card }: { card: HandCardData }) {
+export function HandCardFace({
+  card,
+  showCombatStats = true,
+}: {
+  card: HandCardData
+  showCombatStats?: boolean
+}) {
   // 只画真正暴露出来的那几维。传进来的 weaknesses 本来就该是过滤过的，
   // 这里再挡一道，免得调用方漏筛把六个 0 全画上去。
   const weakChips = Object.entries(card.weaknesses ?? {}).filter(([, value]) => value > 0)
+  const art = card.art ?? placeholderArtFor(card.id)
+  const accent = card.accent ?? cardAccentForArt(art)
   return (
-    <div className={`card-face card-face--${card.kind}`}>
+    <div className={`card-face card-face--${card.kind}`} style={{ '--card-accent': accent } as CSSProperties}>
       {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
           念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
       <img
         className="card-face__art"
-        src={card.art ?? placeholderArtFor(card.id)}
+        src={art}
         alt=""
         draggable={false}
       />
-      <div className="card-face__cost">{card.cost}</div>
-      <div className="card-face__body">
-        <div className="card-face__name">{card.name}</div>
-        <p className="card-face__text">{card.text}</p>
-        {/* 弱点行夹在描述和数值行之间：它是"这张模型哪里脆"，和下面的攻防数值一起读才有意义。
-            战场小卡是同一份排版按 0.73 缩小画的，所以这里的字号已经是压到最小的一档了。 */}
-        {card.kind === 'model' && weakChips.length > 0 ? (
-          <div className="card-face__weak">
-            {weakChips.map(([kind, value]) => (
-              <span className="card-face__weak-chip" key={kind}>
-                {WEAKNESS_LABELS[kind as WeaknessKind]}
-                {value}
-              </span>
-            ))}
+      <CardFaceOverlay cost={card.cost} skillName={card.skillName} name={card.name} accent={accent} />
+      {showCombatStats ? (
+        <div className="card-face__combat grain">
+          {card.kind === 'model' && weakChips.length > 0 ? (
+            <div className="card-face__weak">
+              {weakChips.map(([kind, value]) => (
+                <span className="card-face__weak-chip" key={kind}>
+                  {WEAKNESS_LABELS[kind as WeaknessKind]}
+                  {value}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <div className="card-face__stats">
+            {card.kind === 'model' ? (
+              <>
+                <span>算力 {card.power ?? 0}</span>
+                <span>完整度 {card.integrity ?? 0}</span>
+              </>
+            ) : (
+              <>
+                <span>伤害 {card.damage ?? 0}</span>
+                {/* 提示卡的目标维度决定它打谁更疼，和伤害数值一起保留。 */}
+                {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
+              </>
+            )}
           </div>
-        ) : null}
-        <div className="card-face__stats">
-          {card.kind === 'model' ? (
-            <>
-              <span>算力 {card.power ?? 0}</span>
-              <span>完整度 {card.integrity ?? 0}</span>
-            </>
-          ) : (
-            <>
-              <span>伤害 {card.damage ?? 0}</span>
-              {/* 提示卡的目标维度，决定了它打谁疼——比伤害数字本身更该被一眼看到。 */}
-              {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
-            </>
-          )}
         </div>
-      </div>
+      ) : null}
       {/*
         跟着指针跑的微高光（落在指针的镜像位置，见 cardTilt.ts）。
         战场小卡也用同一份卡面，所以这一层它们也有。

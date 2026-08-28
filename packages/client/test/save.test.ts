@@ -51,6 +51,23 @@ describe('本地存档', () => {
     expect(loadSave().ownedCards).toEqual(INITIAL_COLLECTION)
   })
 
+  it('基础收藏始终开放，同时保留额外解锁与胜场', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: ['gpt-3-5', 'context-flood'], wins: 5 }))
+    const save = loadSave()
+    expect(save.wins).toBe(5)
+    expect(save.ownedCards).toEqual(expect.arrayContaining([...INITIAL_COLLECTION, 'context-flood']))
+    expect(new Set(save.ownedCards).size).toBe(save.ownedCards.length)
+  })
+
+  it('读取收藏会移除已删除的占位模型，并开放 Gemini', () => {
+    const removed = ['hallucinating-oracle', 'context-goldfish', 'stereotype-parrot', 'benchmark-champion']
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [...removed, 'leading-question'], wins: 5 }))
+    const save = loadSave()
+    expect(save.wins).toBe(5)
+    expect(save.ownedCards).toContain('gemini')
+    for (const id of removed) expect(save.ownedCards).not.toContain(id)
+  })
+
   it('赢一局胜场 +1，并抽到一张之前没有的卡', () => {
     const { save, drawn } = recordWin()
     expect(save.wins).toBe(1)

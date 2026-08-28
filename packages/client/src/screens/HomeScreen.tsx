@@ -92,6 +92,7 @@ const SEATS: Seat[] = [
       id: 'home-chatgpt',
       kind: 'model',
       name: 'ChatGPT',
+      skillName: '通识问答',
       cost: 4,
       power: 7,
       integrity: 6,
@@ -107,6 +108,7 @@ const SEATS: Seat[] = [
       id: 'home-claude',
       kind: 'model',
       name: 'Claude',
+      skillName: '长文推敲',
       cost: 5,
       power: 6,
       integrity: 8,
@@ -122,6 +124,7 @@ const SEATS: Seat[] = [
       id: 'home-deepseek',
       kind: 'model',
       name: 'DeepSeek',
+      skillName: '逻辑推演',
       cost: 3,
       power: 8,
       integrity: 5,
@@ -137,6 +140,7 @@ const SEATS: Seat[] = [
       id: 'home-gemini',
       kind: 'model',
       name: 'Gemini',
+      skillName: '多模态理解',
       cost: 4,
       power: 7,
       integrity: 7,
@@ -538,7 +542,7 @@ function HomeStage() {
                 <div className="home__card-tilt">
                   {/* 里面是整张 150×210 的卡面，靠 scale 缩到 11cqi 宽，和战场小卡一个套路。 */}
                   <div className="home__card-inner">
-                    <HandCardFace card={seat.card} />
+                    <HandCardFace card={seat.card} showCombatStats={false} />
                   </div>
                 </div>
               </div>
@@ -606,22 +610,19 @@ function HomeStage() {
           <span className="home__start-label">开始游戏</span>
         </button>
 
-        {/*
-          英雄 / 牌组 / 图鉴还没有对应页面。这里刻意不用 <button> 或 <a>：
-          做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
-        */}
+        {/* 英雄页尚未实现；牌组与图鉴复用对局卡面组件。 */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
             英雄
           </span>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button type="button" className="home__nav-item home__nav-link" onClick={() => navigate('/deck')}>
             牌组
-          </span>
+          </button>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button type="button" className="home__nav-item home__nav-link" onClick={() => navigate('/card')}>
             图鉴
-          </span>
+          </button>
         </nav>
 
         <span className="home__settings" title="敬请期待">

@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { CARD_POOL, CARDS, drawNewCard, INITIAL_COLLECTION, STARTER_DECK } from '../src/index'
+import { AI_MODEL_CARD_IDS, CARD_POOL, CARDS, drawNewCard, INITIAL_COLLECTION, STARTER_DECK } from '../src/index'
 
 describe('卡池与初始收藏', () => {
+  it('四张占位模型已从卡池、收藏与牌组删除', () => {
+    const removed = ['hallucinating-oracle', 'context-goldfish', 'stereotype-parrot', 'benchmark-champion']
+    for (const id of removed) {
+      expect(CARDS[id]).toBeUndefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
+    }
+    expect(Object.values(CARDS).filter((card) => card.kind === 'model').map((card) => card.id)).toEqual(AI_MODEL_CARD_IDS)
+  })
+  it('18 张 AI 均已解锁，且在默认 22 张牌组中各有一张', () => {
+    expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(STARTER_DECK).toHaveLength(22)
+    for (const id of AI_MODEL_CARD_IDS) {
+      expect(CARDS[id]?.kind).toBe('model')
+      expect(INITIAL_COLLECTION).toContain(id)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
+    }
+  })
   it('卡池覆盖全部卡牌定义', () => {
     expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)

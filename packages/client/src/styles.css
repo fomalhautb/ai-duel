@@ -646,7 +646,7 @@ body,
   line-height: 1;
 }
 
-/* 三个入口都还没有页面，所以只有"能读"没有"能按"：光标保持默认，别做出可点的样子。 */
+/* 未开放的入口保持默认光标，已开放的按钮单独覆盖。 */
 .home__nav-item {
   margin-right: -0.24em;
   /* 上下留白不是为了排版（flex 居中，撑高了三项一起居中，位置不动），是给滤镜留计算区域：
@@ -663,6 +663,14 @@ body,
 .home__nav-item:hover {
   color: var(--home-ink-lit);
   text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
+}
+
+.home__nav-link {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 .home__nav-dot {
@@ -992,9 +1000,8 @@ body,
  * 卡面 = 一张铺满的整版插画 + 浮在上面的信息层。
  *
  * 插画自带装饰边框和羊皮纸底色，所以这里不再画"插画框"那种分区版式：
- * 图是底，费用角标压左上角，卡名/描述/数值挤在底部的 .card-face__body 上。
- * 卡种（模型 / 提示）的区分退到 --accent 上，只出现在角标和数值那两处，
- * 边框改成墨色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
+ * 图是底，CardFaceOverlay 负责费用圆章与纸面铭牌；战斗信息单独放在铭牌上方。
+ * 配色跟随插画，而不是卡种；缩略图和放大图都用卡宽作为排版基准。
  */
 .card-face {
   position: relative;
@@ -1002,22 +1009,13 @@ body,
   height: 100%;
   border: 1px solid rgb(32 24 16 / 55%);
   border-radius: 12px;
-  /* 图还没加载完时垫的底色。深色是为了和下面 body 的黑色渐变接得上，
-     不至于在加载那一瞬间露出一块和卡面无关的亮色。 */
-  background: #17140f;
+  container-type: inline-size;
+  background: var(--paper);
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
   /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
      （相邻的牌、战场底色）当混合底，高光会溢出卡面边缘。 */
   isolation: isolate;
-}
-
-.card-face--model {
-  --accent: #7fd1ff;
-}
-
-.card-face--prompt {
-  --accent: #ffc158;
 }
 
 /*
@@ -1038,67 +1036,24 @@ body,
 }
 
 /*
- * 费用角标、下面的信息层、以及最后那层高光都不写 z-index：这四个孩子（插画、角标、
- * 信息层、高光）全是定位元素，层级就按 DOM 顺序来，高光排在最后自然盖在所有内容之上。
+ * 费用铭牌、战斗信息与高光都不写 z-index，层级按 DOM 顺序，高光自然盖在所有内容之上。
  * 给中间任何一层加上正的 z-index，都会把高光压到它下面，卡面上就会多出一条"反光到此为止"的边。
  */
-.card-face__cost {
+.card-face__combat.grain {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--accent);
-  border-radius: 50%;
-  /* 角标压在插画上，底色得够实才读得出数字；外面那圈黑影是让它从浅色羊皮纸里浮出来。 */
-  background: rgb(11 12 18 / 88%);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-/*
- * 底部信息层。渐变遮罩直接写在这一层的背景上，而不是另起一个节点：
- * 遮罩高度就自动跟着文字的多少走，描述短的卡不会白盖住一大块插画。
- */
-.card-face__body {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  right: 9%;
+  /* 铭牌高为卡宽的 80% × 230/760；额外留 2cqi 防止花饰与数值相碰。 */
+  bottom: calc(4.5% + 26.3cqi);
+  left: 9%;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  /* 上边留 26px 给渐变淡出，文字实际是从遮罩最实的那一段开始排的。 */
-  padding: 26px 10px 9px;
-  background: linear-gradient(
-    to top,
-    rgb(9 8 6 / 92%) 0%,
-    rgb(9 8 6 / 86%) 45%,
-    rgb(9 8 6 / 0%) 100%
-  );
-}
-
-.card-face__name {
-  color: #f4ecdb;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.card-face__text {
-  margin: 0;
-  color: rgb(226 217 199 / 82%);
-  font-size: 11px;
-  line-height: 1.4;
-  /* 卡面高度固定而描述长短不一，超过三行就截断，免得遮罩一路顶到插画主体上。 */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
+  gap: 2cqi;
+  padding: 3cqi;
+  border: 1px solid var(--line-dark);
+  border-radius: 4px;
+  background: var(--paper);
+  color: color-mix(in srgb, var(--card-accent) 25%, var(--ink));
+  pointer-events: none;
 }
 
 /*
@@ -1106,22 +1061,16 @@ body,
  *
  * 只列大于 0 的维度（筛选在 HandCardFace 里做）。允许换行是因为维度名长短差很多
  * （"幻觉" 两个字，"上下文遗忘" 五个字），写死一行的话长名字会被挤出卡面。
- * 字号 10px 是权衡出来的下限：战场小卡按 0.73 缩，这一行到那边就只剩 7px 出头，
- * 再小就真认不出了；再大则两个长名字的标签一行放不下、老是换行。
+ * 字号跟随卡宽，图鉴的 2 倍预览与对局手牌保持相同换行。
  */
 .card-face__weak {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 1cqi 2cqi;
 }
 
 .card-face__weak-chip {
-  padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-  font-size: 10px;
+  font-size: 6.5cqi;
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -1129,9 +1078,11 @@ body,
 .card-face__stats {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
-  color: var(--accent);
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 1cqi 3cqi;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5cqi;
+  font-size: 7cqi;
 }
 
 /*
@@ -1164,6 +1115,10 @@ body,
 
 .card-back__text {
   margin: 0;
+  min-height: 0;
+  overflow-y: auto;
+  white-space: pre-line;
+  scrollbar-width: thin;
   color: #9ca3af;
   font-size: 11px;
   line-height: 1.6;
@@ -2862,6 +2817,7 @@ body:has(.battle) {
 }
 
 .gallery__back {
+  margin: 0 6px 6px 0;
   padding: 5px 14px;
   border: 1px solid var(--gallery-line);
   border-radius: 2px;
@@ -2909,6 +2865,7 @@ body:has(.battle) {
  * 这一页看到的排版才和对局里是同一份。
  */
 .gallery__pick {
+  position: relative;
   width: calc(var(--card-w) * var(--gallery-pick-scale));
   height: calc(var(--card-h) * var(--gallery-pick-scale));
   padding: 0;
@@ -2916,6 +2873,21 @@ body:has(.battle) {
   border-radius: 12px;
   background: none;
   cursor: pointer;
+}
+
+.gallery__pick:has(.gallery__copy-count) {
+  margin-bottom: 32px;
+}
+
+.gallery__copy-count {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  color: var(--gallery-ink);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -2979,10 +2951,35 @@ body:has(.battle) {
 
 /* 正面和背面并排，宽度不够时换行。 */
 .gallery__faces {
+  --gallery-preview-scale: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 24px;
 }
+
+.gallery__faces[data-preview-size='actual'] { --gallery-preview-scale: 1; }
+
+.gallery__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.gallery__controls label { display: flex; align-items: center; gap: 6px; }
+.gallery__controls input { accent-color: var(--gallery-ink); }
+.gallery__controls select {
+  padding: 5px 8px;
+  border: 1px solid var(--gallery-line);
+  border-radius: 4px;
+  background: var(--gallery-paper);
+  color: var(--gallery-ink);
+  font: inherit;
+}
+
+.gallery__section-note a { color: var(--gallery-ink); text-underline-offset: 3px; }
 
 .gallery__face {
   margin: 0;
@@ -2990,9 +2987,21 @@ body:has(.battle) {
 
 /* 卡面和背面都是宽高 100% 的元素，尺寸得由外面这个盒子给。 */
 .gallery__card {
+  width: calc(var(--card-w) * var(--gallery-preview-scale));
+  height: calc(var(--card-h) * var(--gallery-preview-scale));
+}
+
+.gallery__faces[data-preview-size='original'] .gallery__card { height: 450px; }
+.gallery__faces[data-preview-size='original'] .gallery__back-inner { height: 225px; }
+
+.gallery__back-inner {
   width: var(--card-w);
   height: var(--card-h);
+  transform: scale(var(--gallery-preview-scale));
+  transform-origin: top left;
 }
+
+.gallery__original { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
 
 .gallery__face-name {
   margin-top: 8px;
@@ -3046,6 +3055,16 @@ body:has(.battle) {
   line-height: 1.55;
   /* 长行自己横滚，不去撑宽整栏（配合 .gallery__detail 的 min-width: 0）。 */
   overflow-x: auto;
+}
+
+/* 小屏仍能检查所有卡面；不改变对局的桌面布局。 */
+@media (max-width: 700px) {
+  .gallery { flex-direction: column; height: auto; min-height: 100%; }
+  .gallery__list { width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--gallery-line); }
+  .gallery__list .gallery__section { margin-top: 16px; }
+  .gallery__picks { flex-wrap: nowrap; overflow-x: auto; padding: 6px; }
+  .gallery__pick { flex: none; }
+  .gallery__detail { height: auto; overflow: visible; padding: 24px 20px 40px; }
 }
 
 /* ---------- 卡片加载动画 ---------- */

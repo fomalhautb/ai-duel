@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AI_MODEL_CARDS,
   createGame,
   execute,
   MAX_COMPUTE,
@@ -48,6 +49,24 @@ function handCard(state: GameState, player: PlayerId, cardId: CardId) {
 }
 
 describe('开局', () => {
+  it('新对局的手牌与牌堆共同保留完整默认牌组', () => {
+    const { state } = newGame()
+    for (const player of state.players) {
+      expect([...player.hand, ...player.deck].map((card) => card.cardId).sort()).toEqual([...STARTER_DECK].sort())
+    }
+  })
+
+  it.each(Object.values(AI_MODEL_CARDS))('$name 能正常抽到、支付费用并部署到场上', (card) => {
+    const game = newGame(deckOf(card.id))
+    const ready = execute(game.state, { type: 'DEBUG_REFILL_COMPUTE', player: 0 }).state
+    const instance = handCard(ready, 0, card.id)
+    const result = execute(ready, { type: 'PLAY_CARD', player: 0, instanceId: instance.instanceId })
+    expect(result.events.some((event) => event.type === 'COMMAND_REJECTED')).toBe(false)
+    expect(result.state.players[0].compute).toBe(MAX_COMPUTE - card.cost)
+    expect(result.state.players[0].board[0]).toMatchObject({ cardId: card.id, power: card.power, integrity: card.integrity, weaknesses: card.weaknesses })
+    expect(result.state.players[0].hand.some((held) => held.instanceId === instance.instanceId)).toBe(false)
+  })
+
   it('双方各抽起始手牌，先手多抽一张并拿到 1 点算力', () => {
     const { state, events } = newGame()
     expect(state.phase).toBe('playing')
@@ -70,19 +89,19 @@ describe('开局', () => {
 
 describe('一个最小回合', () => {
   it('出模型卡 -> 结束回合 -> 对手用提示卡打中它的弱点', () => {
-    const game = newGame(deckOf('hallucinating-oracle'), deckOf('leading-question'))
-    // 幻觉先知 2 费，先各过一轮把算力攒到 2。
+    const game = newGame(deckOf('gpt-3-5'), deckOf('leading-question'))
+    // GPT-3.5 2 费，先各过一轮把算力攒到 2。
     const warmup = run(game.state, [
       { type: 'END_TURN', player: 0 },
       { type: 'END_TURN', player: 1 },
     ])
-    const oracle = handCard(warmup.state, 0, 'hallucinating-oracle')
+    const modelInstance = handCard(warmup.state, 0, 'gpt-3-5')
     const deployed = run(warmup.state, [
-      { type: 'PLAY_CARD', player: 0, instanceId: oracle.instanceId },
+      { type: 'PLAY_CARD', player: 0, instanceId: modelInstance.instanceId },
       { type: 'END_TURN', player: 0 },
     ])
 
-    expect(deployed.state.players[0].board.map((m) => m.cardId)).toEqual(['hallucinating-oracle'])
+    expect(deployed.state.players[0].board.map((m) => m.cardId)).toEqual(['gpt-3-5'])
     expect(deployed.state.players[0].compute).toBe(0)
     expect(deployed.state.activePlayer).toBe(1)
     expect(deployed.events.some((e) => e.type === 'MODEL_DEPLOYED')).toBe(true)
@@ -93,21 +112,21 @@ describe('一个最小回合', () => {
         type: 'PLAY_CARD',
         player: 1,
         instanceId: prompt.instanceId,
-        targetInstanceId: oracle.instanceId,
+        targetInstanceId: modelInstance.instanceId,
       },
     ])
 
-    // 基础 2 点 + 幻觉先知在「幻觉」维度上的 3 点暴露 = 5 点，2 点完整度的它直接崩坏。
+    // 基础 2 点 + GPT-3.5在「幻觉」维度上的 3 点暴露 = 5 点，2 点完整度的它直接崩坏。
     // instanceId 是打出的那张提示卡自己，客户端靠它定位起飞的手牌。
     expect(attacked.events.find((e) => e.type === 'PROMPT_RESOLVED')).toMatchObject({
       instanceId: prompt.instanceId,
       weakness: 'hallucination',
-      damage: 5,
+      damage: 4,
     })
     expect(attacked.events.some((e) => e.type === 'MODEL_DESTROYED')).toBe(true)
     expect(attacked.state.players[0].board).toHaveLength(0)
     expect(attacked.state.players[0].discard.map((c) => c.cardId)).toEqual([
-      'hallucinating-oracle',
+      'gpt-3-5',
     ])
   })
 })
@@ -121,12 +140,12 @@ describe('非法指令', () => {
   })
 
   it('算力不够时被拒绝', () => {
-    const game = newGame(deckOf('hallucinating-oracle'))
-    const oracle = handCard(game.state, 0, 'hallucinating-oracle')
+    const game = newGame(deckOf('gpt-3-5'))
+    const modelInstance = handCard(game.state, 0, 'gpt-3-5')
     const result = execute(game.state, {
       type: 'PLAY_CARD',
       player: 0,
-      instanceId: oracle.instanceId,
+      instanceId: modelInstance.instanceId,
     })
     expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '算力不足' }])
     expect(result.state).toBe(game.state)
@@ -177,15 +196,15 @@ describe('调试指令：DEBUG_ADD_CARD', () => {
     const deckBefore = game.state.players[0].deck.length
     const handBefore = game.state.players[0].hand.length
     const result = run(game.state, [
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'benchmark-champion' },
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'benchmark-champion' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gemini' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gemini' },
     ])
 
     const player = result.state.players[0]
     expect(player.deck).toHaveLength(deckBefore)
     expect(player.hand).toHaveLength(handBefore + 2)
     const added = player.hand.slice(-2)
-    expect(added.map((c) => c.cardId)).toEqual(['benchmark-champion', 'benchmark-champion'])
+    expect(added.map((c) => c.cardId)).toEqual(['gemini', 'gemini'])
     expect(added[0]!.instanceId).not.toBe(added[1]!.instanceId)
     // 造出来的实例不属于任何一副牌组，客户端靠 dbg- 前缀就能认出来。
     expect(added.every((c) => c.instanceId.startsWith('dbg-'))).toBe(true)
@@ -268,28 +287,28 @@ describe('调试指令：DEBUG_REMOVE_CARD', () => {
 describe('调试指令：DEBUG_PLAY_CARD', () => {
   it('非行动方也能出模型卡，且不检查也不扣算力', () => {
     // 开局是 0 号玩家的回合，1 号玩家算力还是 0，正常路径连 1 费卡都出不了。
-    const game = newGame(STARTER_DECK, deckOf('hallucinating-oracle'))
+    const game = newGame(STARTER_DECK, deckOf('gpt-3-5'))
     expect(game.state.players[1].compute).toBe(0)
 
-    const oracle = handCard(game.state, 1, 'hallucinating-oracle')
+    const modelInstance = handCard(game.state, 1, 'gpt-3-5')
     const result = execute(game.state, {
       type: 'DEBUG_PLAY_CARD',
       player: 1,
-      instanceId: oracle.instanceId,
+      instanceId: modelInstance.instanceId,
     })
 
-    expect(result.state.players[1].board.map((m) => m.cardId)).toEqual(['hallucinating-oracle'])
+    expect(result.state.players[1].board.map((m) => m.cardId)).toEqual(['gpt-3-5'])
     expect(result.state.players[1].compute).toBe(0)
     expect(result.events.map((e) => e.type)).toEqual(['MODEL_DEPLOYED'])
   })
 
   it('提示卡照常按弱点结算并进弃牌堆', () => {
-    const game = newGame(deckOf('hallucinating-oracle'), deckOf('leading-question'))
-    const oracle = handCard(game.state, 0, 'hallucinating-oracle')
+    const game = newGame(deckOf('gpt-3-5'), deckOf('leading-question'))
+    const modelInstance = handCard(game.state, 0, 'gpt-3-5')
     const deployed = execute(game.state, {
       type: 'DEBUG_PLAY_CARD',
       player: 0,
-      instanceId: oracle.instanceId,
+      instanceId: modelInstance.instanceId,
     }).state
 
     const prompt = handCard(deployed, 1, 'leading-question')
@@ -297,14 +316,14 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
       type: 'DEBUG_PLAY_CARD',
       player: 1,
       instanceId: prompt.instanceId,
-      targetInstanceId: oracle.instanceId,
+      targetInstanceId: modelInstance.instanceId,
     })
 
-    // 和正常出牌一样：基础 2 点 + 幻觉维度 3 点暴露 = 5 点，2 点完整度的它当场崩坏。
+    // 和正常出牌一样：基础 2 点 + 幻觉暴露 2 点 = 4 点，恰好耗尽 4 点完整度。
     expect(result.events.find((e) => e.type === 'PROMPT_RESOLVED')).toMatchObject({
       instanceId: prompt.instanceId,
       weakness: 'hallucination',
-      damage: 5,
+      damage: 4,
     })
     expect(result.events.some((e) => e.type === 'MODEL_DESTROYED')).toBe(true)
     expect(result.events.some((e) => e.type === 'COMPUTE_CHANGED')).toBe(false)
@@ -348,12 +367,12 @@ describe('调试指令：DEBUG_REFILL_COMPUTE', () => {
 
 describe('调试指令的边界', () => {
   it('都不推进回合', () => {
-    const game = newGame(STARTER_DECK, deckOf('hallucinating-oracle'))
-    const oracle = handCard(game.state, 1, 'hallucinating-oracle')
+    const game = newGame(STARTER_DECK, deckOf('gpt-3-5'))
+    const modelInstance = handCard(game.state, 1, 'gpt-3-5')
     const result = run(game.state, [
       { type: 'DEBUG_REFILL_COMPUTE', player: 1 },
       { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'are-you-sure' },
-      { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: oracle.instanceId },
+      { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: modelInstance.instanceId },
       { type: 'DEBUG_REMOVE_CARD', player: 1 },
     ])
 

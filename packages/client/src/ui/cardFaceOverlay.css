@@ -1,0 +1,87 @@
+/* 共用 /design 的纸张、纸纹和色板；装饰线只在这里定义，换卡不重新生成图片。 */
+.card-overlay {
+  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--line-dark));
+  --card-metal-light: color-mix(in srgb, var(--paper) 76%, var(--c-gold));
+  --card-ink: color-mix(in srgb, var(--card-accent) 30%, var(--ink));
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* .grain 会设置 position: relative；这里提高选择器优先级，保证公共纸纹晚加载也不会挪动图层。 */
+.card-overlay__cost.grain {
+  position: absolute;
+  top: 2.8%;
+  left: 3.8%;
+  width: 18.5%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card-accent) 52%, var(--ink));
+  box-shadow: 0 1px 3px rgb(43 34 21 / 40%);
+  color: var(--paper);
+}
+
+.card-overlay__cost-art,
+.card-overlay__frame,
+.card-overlay__lettering {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.card-overlay__rim,
+.card-overlay__rim-light {
+  fill: none;
+  stroke: var(--card-metal);
+}
+
+.card-overlay__rim-light { stroke: var(--card-metal-light); }
+
+.card-overlay__cost-number {
+  fill: currentColor;
+  font-weight: 600;
+}
+
+.card-overlay__cost-unit {
+  fill: currentColor;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+.card-overlay__plaque {
+  position: absolute;
+  right: 10%;
+  bottom: 4.5%;
+  left: 10%;
+  aspect-ratio: 760 / 230;
+}
+
+.card-overlay__paper.grain {
+  position: absolute;
+  inset: 8% 3%;
+  border-radius: 13% / 36%;
+  background-color: var(--paper);
+  background-image: var(--vignette);
+}
+
+.card-overlay__frame-shadow {
+  fill: none;
+  stroke: var(--card-ink);
+  stroke-width: 8;
+  stroke-opacity: 0.24;
+}
+
+.card-overlay__flourish {
+  fill: var(--paper-shade);
+  stroke: var(--card-metal);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-overlay__lettering { fill: var(--card-ink); }
+.card-overlay__skill { font-size: 40px; font-weight: 600; }
+.card-overlay__name { font-size: 76px; font-weight: 600; }

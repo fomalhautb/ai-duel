@@ -7,6 +7,7 @@
  */
 
 import { CARDS } from './cards'
+import { AI_MODEL_CARD_IDS } from './aiModels'
 import type { CardId } from './types'
 
 /**
@@ -16,12 +17,11 @@ import type { CardId } from './types'
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
 /**
- * 新玩家开局就拥有的卡：两个模型 + 两张提示卡，刚好够凑一副能打的牌组。
+ * 基础收藏始终开放：18 张具名 AI 加两种基础提示卡。
  * 其余的卡是抽卡奖池，赢一局解锁一张。
  */
 export const INITIAL_COLLECTION: CardId[] = [
-  'hallucinating-oracle',
-  'context-goldfish',
+  ...AI_MODEL_CARD_IDS,
   'leading-question',
   'counting-trap',
 ]

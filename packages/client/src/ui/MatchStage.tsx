@@ -37,6 +37,7 @@ import type { MatchDriver, MatchView } from '../match/driver'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
+import { cardPresentation } from './cardPresentation'
 import type { HandCardData } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { OpponentFan } from './OpponentFan'
@@ -1361,6 +1362,7 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
   if (card.kind === 'model') {
     return {
+      ...cardPresentation(card),
       id: card.id,
       name: card.name,
       cost: card.cost,
@@ -1373,6 +1375,7 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
     }
   }
   return {
+    ...cardPresentation(card),
     id: card.id,
     name: card.name,
     cost: card.cost,
@@ -1392,6 +1395,7 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
 function handCardOfModel(model: ModelInstance): HandCardData {
   const card = getCard(model.cardId)
   return {
+    ...cardPresentation(card),
     id: model.instanceId,
     name: card.name,
     cost: card.cost,

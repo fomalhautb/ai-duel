@@ -7,13 +7,12 @@
  * 根节点带 .grain（定义在 src/ui/paper/paper.css）：舞台之外的留边铺成纸张——
  * 纸底色 + 两层纸纹 + 暗角，纹理只出现在舞台外面（怎么做到的见 styles.css 的 .home__stage）。
  *
- * 舞台内部层叠自下而上是：夜空底 → 四张展示卡 → 人物占位方块 → 桌面弧 → 前景道具 → 文字类 UI
+ * 舞台内部层叠自下而上是：夜空底 → 四张展示卡 → 七张人物抠图 → 桌面弧 → 前景道具 → 文字类 UI
  * （标题、副标题、开始按钮、导航、设置、调试入口）。顺序完全由 JSX 的先后决定，舞台里没有一处
  * z-index（舞台自己有一个，那是用来压住外层纸纹的，和内部层叠无关）。
  * 桌面弧夹在人物和道具中间，对应的是现实关系：人站在桌子后面被桌沿挡住下半身，
  * 而地球仪、望远镜这些道具又摆在桌沿上。
- * 压在卡牌上面的那三层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
- * 人物抠图还没做，先用方块占住位置，下半截被桌面弧和道具挡掉正是设计稿里的效果。
+ * 压在卡牌上面的那几层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
  *
  * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
  */
@@ -125,21 +124,25 @@ const SEATS: Seat[] = [
 ]
 
 /**
- * 七个人物的占位方块，位置是照着设计稿目测量的（单位都是舞台宽/高的百分比）。
+ * 七个人物的抠图文件名（在 public/home/ 下）。
+ *
+ * 每张都是和舞台等大的整幅透明图，人物已经画在各自该在的位置上，所以这里不需要任何坐标——
+ * 整张铺满舞台叠上去就是对的位置，和夜空底、桌面弧、前景道具是同一种用法（共用 .home__layer）。
+ * 换人只要重新导出同尺寸的整幅图，不用回来改代码。
  *
  * 数组顺序就是叠放顺序，后面的盖住前面的，所以站在前排的人排在后面。
  * 整层压在卡牌之上：设计稿里两侧的人是挡住最外侧那两张卡的边缘的。
- * 方块下半截又会被桌面弧和前景道具盖掉，这和设计稿里人物半身埋在桌后是一致的。
+ * 每个人下半截又会被桌面弧和前景道具盖掉，这和设计稿里人物半身埋在桌后是一致的。
  */
-const CAST: Array<{ id: string; left: number; top: number; width: number; height: number }> = [
-  { id: 'left-back', left: 14.5, top: 22.0, width: 13.0, height: 38.0 },
-  { id: 'left-officer', left: 1.5, top: 26.0, width: 15.5, height: 62.0 },
-  { id: 'left-front', left: 18.0, top: 41.0, width: 14.5, height: 44.0 },
-  { id: 'right-glasses', left: 82.0, top: 21.5, width: 14.5, height: 45.0 },
-  { id: 'right-laugh', left: 69.0, top: 18.5, width: 15.5, height: 57.0 },
-  { id: 'right-classic', left: 64.0, top: 42.5, width: 11.0, height: 50.0 },
-  { id: 'right-front', left: 76.0, top: 44.5, width: 20.0, height: 52.0 },
-]
+const CAST = [
+  'cast-left-back',
+  'cast-left-officer',
+  'cast-left-front',
+  'cast-right-glasses',
+  'cast-right-laugh',
+  'cast-right-classic',
+  'cast-right-front',
+] as const
 
 export function HomeScreen() {
   const [, navigate] = useLocation()
@@ -252,22 +255,15 @@ export function HomeScreen() {
           ))}
         </div>
 
-        <div className="home__cast">
-          {CAST.map((figure) => (
-            <div
-              key={figure.id}
-              className="home__figure"
-              style={{
-                left: `${figure.left}%`,
-                top: `${figure.top}%`,
-                width: `${figure.width}%`,
-                height: `${figure.height}%`,
-              }}
-            >
-              人物占位
-            </div>
-          ))}
-        </div>
+        {CAST.map((figure) => (
+          <img
+            key={figure}
+            className="home__layer"
+            src={`/home/${figure}.webp`}
+            alt=""
+            draggable={false}
+          />
+        ))}
 
         <img className="home__layer" src="/home/home-table.png" alt="" draggable={false} />
         <img className="home__layer" src="/home/home-props.png" alt="" draggable={false} />

@@ -169,7 +169,7 @@ body,
   height: 100%;
   overflow: hidden;
   /*
-   * 留边底色要和 16:9 背景图 /home/home-bg.jpg 的边缘无缝接上，所以取的是图片边缘实测
+   * 留边底色要和 16:9 背景图 /home/home-bg.webp 的边缘无缝接上，所以取的是图片边缘实测
    * 平均色 rgb(221 201 180)（≈#ddc9b4，暖棕），而不是全局纸张 token --paper（#f0ecdf，偏冷的米白）——
    * 那个白跟这张图接在一起会在图片四周留下一道明显的硬接缝。
    * 写进来的值比 #ddc9b4 再亮约 2%，是给上面叠的 .grain 留的补偿：斑驳层平均把底色压暗约 2%
@@ -572,7 +572,7 @@ body,
   aspect-ratio: 521 / 125;
   padding: 0;
   border: none;
-  background: url('/home/home-plaque.png') center / 100% 100% no-repeat;
+  background: url('/home/home-plaque.webp') center / 100% 100% no-repeat;
   cursor: pointer;
   transition:
     transform 0.16s ease,

@@ -17,10 +17,13 @@
  *
  * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
  * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
+ * 拖拽的那台指针状态机（阈值、指针捕获、跟随、落点高亮、松手判定）在 ui/useCardDrag.ts，
+ * 和卡组页共用；这里只保留扇形自己的部分：排布时把被拖的牌摘出去、抓起牌时收拾 hover 那一套、
+ * 以及"没落进落点就补间回扇形"。
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { placeholderArtFor } from './cardArt'
@@ -35,6 +38,8 @@ import {
   PLAYER_FAN,
   fanTransform,
 } from './fanMath'
+import { DRAG_SCALE, useCardDrag } from './useCardDrag'
+import type { CardDragInfo, CardDropZone } from './useCardDrag'
 
 gsap.registerPlugin(useGSAP)
 
@@ -168,60 +173,8 @@ const LEAVE_DELAY_MS = 50
  */
 const HOVER_TILT_DEG = 10
 
-/**
- * 按下之后指针要走过这么多像素才算拖拽，没走到就只是一次点击。
- *
- * 4px 足够吸收按鼠标时手抖带出来的一两个像素，又不至于让人觉得"拖了半天才动"。
- */
-const DRAG_THRESHOLD = 4
-/**
- * 拖拽时的放大倍数：比静置（1）大一点，好认出"这张牌被抓在手上"，
- * 又远小于 hover 的 1.9 倍——拖着的牌是要去找落点的，太大会把战场盖住看不见落在哪。
- */
-const DRAG_SCALE = 1.1
-/** 拖拽中的牌要压在所有手牌之上，也压过 hover 用的 999。 */
-const DRAG_Z = 1000
-/** 从 hover 姿态切到拖拽姿态（转正 + 缩到 DRAG_SCALE）的时长。 */
-const DRAG_POSE_DUR = 0.25
-/**
- * 卡牌中心追上光标的时长。
- *
- * 故意不设成 0：留一点滞后，牌才像被拽着走而不是钉在光标上。
- * 顺带还吃掉了 dragStart 那一下的姿态突变——从 1.9 倍缩到 1.1 倍会让卡牌中心位移，
- * 交给这个缓动去追，画面上就看不到跳变。
- */
-const DRAG_FOLLOW_DUR = 0.18
-
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
-
-/**
- * 一次拖拽的全部状态。
- *
- * 按下时就建，但此刻 active 还是 false——没过阈值的话它只是"按住"，松手什么都不做。
- */
-interface DragState {
-  id: string
-  /**
-   * 这张牌的 DOM 节点，按下时就存下来。
-   * 不能等到收尾时再去 slotsRef 里查：拖到一半被父组件从 cards 里拿掉的话，
-   * React 在 commit 阶段就把 slotsRef 里的记录删了，那时查不到节点，补间也就停不掉。
-   */
-  slot: HTMLDivElement
-  /** 只认这一个指针的后续事件，别的指针（多按键、第二根手指）一律不管。 */
-  pointerId: number
-  /** 按下时的指针位置，用来量有没有走过 DRAG_THRESHOLD。 */
-  originX: number
-  originY: number
-  /** 最后一次收到的指针位置。disabled 中途变化时要靠它重算落点区高亮，不用等下一次移动。 */
-  lastX: number
-  lastY: number
-  /** 过了阈值才为 true。只有 true 的拖拽才会改布局、才有松手后的打出/取消。 */
-  active: boolean
-  /** gsap.quickTo 出来的跟随函数，进入拖拽时才建。 */
-  moveX: ((value: number) => void) | null
-  moveY: ((value: number) => void) | null
-}
 
 /**
  * 算出 hover 某张牌时，其余每张牌要横向让开多少（下标和 laid 一致，正数向右）。
@@ -284,8 +237,6 @@ export function HandFan({
   const leaveTimerRef = useRef<number | null>(null)
   /** 每张牌的倾斜跟随，按 id 存着，抓起牌时要单独叫它归零。 */
   const tiltsRef = useRef(new Map<string, CardTiltHandle>())
-  /** 当前这次拖拽；没在拖就是 null。同样放 ref，拖动过程中一次都不该重渲染。 */
-  const dragRef = useRef<DragState | null>(null)
   /**
    * 最新的 disabled。松手那一帧的 rAF 回调只能读它：
    * 闭包里的 disabled 是松手那一刻的旧值，而父组件恰恰是在 onPlay 里才把它打开的。
@@ -321,9 +272,11 @@ export function HandFan({
     const ids = new Set(cards.map((card) => card.id))
 
     if (mode === 'reflow') {
-      // 拖着的牌被父组件从 cards 里拿掉了（测试面板的"去1张"弃的就是手牌末尾那张，可能正是它）：
+      // 按住的那张牌被父组件从 cards 里拿掉了（测试面板的"去1张"弃的就是手牌末尾那张，可能正是它）：
       // 它的 DOM 节点这一帧已经没了，再留着拖拽状态，松手时就会去动一个不存在的节点。
-      if (dragRef.current !== null && !ids.has(dragRef.current.id)) endDrag()
+      // 这里走 endDrag 而不是让它自然取消：牌都没了，没有"回扇形"这回事。
+      const pressedId = cardDrag.pressedId()
+      if (pressedId !== null && !ids.has(pressedId)) cardDrag.endDrag()
       // 只清理"已经不在手牌里"的记录。hover 期间调用得太频繁，不该顺手改这些状态。
       // 注意 reflow 也会被 resize 触发，所以这里不能把整份记录一股脑清空：
       // 拖一下窗口就把防重复的记录抹掉，同一张牌会被打出两次。
@@ -340,7 +293,7 @@ export function HandFan({
     // （拖一张牌进战场松手，牌会当场飞回手里）。
     // 豁免不需要额外的解除逻辑：两处收尾（disabled 关掉时的 layout effect、松手后的 rAF 兜底）
     // 都是先把 id 从 playedRef 删掉再 returnToFan，那一次 reflow 就会把牌送回扇形。
-    const draggingId = dragRef.current?.active === true ? dragRef.current.id : null
+    const draggingId = cardDrag.draggingId()
     const laid = cards.filter((card) => card.id !== draggingId && !playedRef.current.has(card.id))
     const count = laid.length
 
@@ -459,10 +412,8 @@ export function HandFan({
 
       // 组件卸载时 useGSAP 会 revert 掉所有内联样式，这些"已经摆过位"的记录也得跟着清空，
       // 否则严格模式下的二次挂载会以为牌都摆好了，跳过进场那一步。
-      // 拖到一半被卸载也在这里收尾：落点区是父组件的元素，手牌没了它还在，
-      // 高亮不清掉就会永远亮着。
+      // 拖到一半被卸载不用在这里管：useCardDrag 自己会在卸载时收尾（清落点高亮、停跟随补间）。
       return () => {
-        endDrag()
         detachTilts()
         placedRef.current.clear()
       }
@@ -486,10 +437,11 @@ export function HandFan({
   }
 
   const handleEnter = contextSafe((id: string) => {
-    // 只要鼠标还按着（不管进没进入拖拽）就不接 hover：指针被 capture 之后，
-    // 各浏览器发不发、什么时候发边界事件并不统一，与其猜它们的行为，不如在这里挡掉。
+    // 只要鼠标还按着（不管进没进入拖拽，所以判的是 pressedId 而不是 draggingId）就不接 hover：
+    // 指针被 capture 之后，各浏览器发不发、什么时候发边界事件并不统一，
+    // 与其猜它们的行为，不如在这里挡掉。
     // 松手时若指针确实已经不在牌上，浏览器会补一发 leave，hover 状态自己就对上了。
-    if (dragRef.current !== null) return
+    if (cardDrag.pressedId() !== null) return
     cancelLeaveTimer()
     if (hoverRef.current === id) return
     hoverRef.current = id
@@ -498,7 +450,7 @@ export function HandFan({
 
   const handleLeave = contextSafe((id: string) => {
     // 同 handleEnter：按着的时候一律不动 hover 状态。
-    if (dragRef.current !== null) return
+    if (cardDrag.pressedId() !== null) return
     if (hoverRef.current !== id) return
     cancelLeaveTimer()
     leaveTimerRef.current = window.setTimeout(() => {
@@ -520,48 +472,8 @@ export function HandFan({
     if (inner) flipTo(inner, 0, 0.4)
   })
 
-  /** 指针是不是落在指定区域里。每次移动现算：读一次 rect 的开销比缓存失效的坑小得多。 */
-  const isInsideZone = (
-    zoneRef: RefObject<HTMLElement | null> | undefined,
-    clientX: number,
-    clientY: number,
-  ) => {
-    const zone = zoneRef?.current
-    if (zone === null || zone === undefined) return false
-    const rect = zone.getBoundingClientRect()
-    return (
-      clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
-    )
-  }
-
-  const isInsideDropZone = (clientX: number, clientY: number) =>
-    isInsideZone(dropZoneRef, clientX, clientY)
-
   /**
-   * 两块落点的两级高亮，都由这里打在对应元素上（样式见 styles.css）：
-   * ready = 正在拖牌，hot = 指针已经进到区域里、这时松手就打出去了。
-   * “放回手牌”区的 hot 只描述取消结果，不参与出牌判定。
-   */
-  const markZone = (
-    zoneRef: RefObject<HTMLElement | null> | undefined,
-    ready: boolean,
-    hot: boolean,
-  ) => {
-    const zone = zoneRef?.current
-    if (zone === null || zone === undefined) return
-    if (ready) zone.dataset.dropReady = 'true'
-    else delete zone.dataset.dropReady
-    if (hot) zone.dataset.dropHot = 'true'
-    else delete zone.dataset.dropHot
-  }
-
-  const markDropZones = (ready: boolean, dropHot: boolean, returnHot: boolean) => {
-    markZone(dropZoneRef, ready, dropHot)
-    markZone(returnZoneRef, ready, returnHot)
-  }
-
-  /**
-   * 把光标位置换算成 slot 的 x / y 目标值。
+   * 把光标位置换算成 slot 的 x / y 目标值（交给 useCardDrag 当跟随目标）。
    *
    * slot 的坐标原点是锚点 .hand-fan 的底边中点、y 向下为正，变换原点又在卡牌底边中点，
    * 所以放大 DRAG_SCALE 之后卡牌中心跑到了原点上方 DRAG_SCALE × 卡高 / 2 处，
@@ -583,26 +495,6 @@ export function HandFan({
     }
   }
 
-  /**
-   * 收掉拖拽状态：停跟随补间、清高亮、清 dragRef，返回刚才那次拖拽。
-   *
-   * 跟随补间必须在这里停掉，牌才会停在松手那一刻的位置——
-   * 打出时父组件要拿这个位置当 Flip 的起点，取消时归位补间也要从这里接着走。
-   */
-  const endDrag = (): DragState | null => {
-    const drag = dragRef.current
-    if (drag === null) return null
-    dragRef.current = null
-    markDropZones(false, false, false)
-    // 用 drag.slot 而不是回 slotsRef 里查：最需要收尾的那条路径（拖到一半被父组件
-    // 从 cards 里拿掉）上，slotsRef 里的记录在 commit 阶段就被删了，查出来是 undefined，
-    // 跟随补间会一直挂在已经脱离文档的节点上，直到组件卸载才被 revert 掉。
-    delete drag.slot.dataset.dragging
-    // 没进入拖拽的话这张牌身上跑的是 hover 补间，不能顺手杀掉。
-    if (drag.active) gsap.killTweensOf(drag.slot)
-    return drag
-  }
-
   /** 让一张牌补间回扇形里自己的位置（拖拽取消、或者出牌被父组件拒了）。 */
   const returnToFan = () => {
     // 用 layoutRef 而不是直接调 applyLayout：这个函数也会在 requestAnimationFrame
@@ -611,39 +503,12 @@ export function HandFan({
   }
 
   /**
-   * disabled 变化时要立刻处理的两件事。
+   * 抓起一张牌时扇形自己要做的事：把 hover 那一套收干净，再让剩下的牌合拢。
    *
-   * 一是落点区高亮：它必须和"现在松手会发生什么"一致，disabled 期间松手一律按取消算，
-   * 那就连"正在拖牌"的 ready 都不该亮，更不能亮成"松手就打出"的 hot。
-   * 二是异步确认的收尾：父组件在 onPlay 里打开 disabled 去等回包，这段时间牌停在落点上；
-   * disabled 关掉时牌要是还在手牌里，说明这次出牌没被受理，这时才把它送回扇形。
-   *
-   * 用 layout effect 而不是 useEffect：handlePointerUp 里的 rAF 兜底要读 disabledRef，
-   * 而 passive effect 不保证赶在下一帧的 rAF 之前跑完。
+   * useCardDrag 保证这里跑在它换拖拽姿态（转正、放大、接管跟随）之前，
+   * 所以下面建的这些补间不会被它那一发 killTweensOf 顺手杀掉。
    */
-  useLayoutEffect(() => {
-    disabledRef.current = disabled
-    const drag = dragRef.current
-    if (drag !== null && drag.active) {
-      const dropHot = !disabled && isInsideDropZone(drag.lastX, drag.lastY)
-      const returnHot =
-        !disabled && !dropHot && isInsideZone(returnZoneRef, drag.lastX, drag.lastY)
-      markDropZones(!disabled, dropHot, returnHot)
-    }
-    if (disabled) return
-    for (const id of playedRef.current) {
-      // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
-      // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
-      if (!slotsRef.current.has(id)) continue
-      playedRef.current.delete(id)
-      returnToFan()
-    }
-  }, [disabled])
-
-  /** 真正进入拖拽：换姿态、接管跟随、把剩下的牌重排一遍。 */
-  const beginDrag = (drag: DragState) => {
-    const slot = drag.slot
-    drag.active = true
+  const handleDragStart = (drag: CardDragInfo) => {
     // hover 的放大补间和延迟缩回都得让位，不然它们会和拖拽姿态抢同一批属性。
     cancelLeaveTimer()
     // 清掉 hover 还顺手关掉了这张牌的倾斜跟随：attachCardTilt 的 enabled 回调判的就是
@@ -657,24 +522,6 @@ export function HandFan({
     // 而 React 的 onPointerMove 走根容器委托，所以越过阈值那一帧一定是它先跟随、这里才归零。
     // 归零能压住跟随，靠的是 cardTilt 在 settle 里先把跟随补间停掉（原因见那里）。
     tiltsRef.current.get(drag.id)?.reset()
-    gsap.killTweensOf(slot)
-    // 顺手把 opacity 补满：上面是无差别全杀，新牌进场那条 opacity 0→1 的补间也在里面，
-    // 而它是唯一负责淡入的补间（applyLayout 只在牌第一次登场时给 opacity）。
-    // 抓住一张正在淡入的牌却不补，这张牌就会永久停在半透明。
-    gsap.set(slot, { zIndex: DRAG_Z, opacity: 1 })
-    // 只为了换成"握拳"光标，样式在 styles.css 里。
-    slot.dataset.dragging = 'true'
-
-    // 跟随只动 x / y，姿态只动 rotation / scale，两组补间属性不重叠，可以同时跑。
-    drag.moveX = gsap.quickTo(slot, 'x', { duration: DRAG_FOLLOW_DUR, ease: 'power3.out' })
-    drag.moveY = gsap.quickTo(slot, 'y', { duration: DRAG_FOLLOW_DUR, ease: 'power3.out' })
-    gsap.to(slot, {
-      rotation: 0,
-      scale: slotScale(DRAG_SCALE),
-      duration: DRAG_POSE_DUR,
-      ease: 'power2.out',
-      overwrite: 'auto',
-    })
 
     // 问号淡出：拖着的牌不需要它。热区和正反两面的圆圈必须一起淡（见 helpPartsOf），
     // autoAlpha 到 0 顺手关掉 visibility，热区也就不吃指针事件了。
@@ -688,122 +535,109 @@ export function HandFan({
       flipTo(inner, 0, 0.3)
     }
 
+    // 这时 cardDrag.draggingId() 已经是这张牌，applyLayout 会把它从队里摘掉，
+    // 剩下的牌按"少了一张"重算扇形、自己合拢。
     applyLayout('hover')
-    // 按下之后、走够阈值之前 disabled 有可能被翻开，那就一开始就别亮。
-    const dropHot = !disabled && isInsideDropZone(drag.lastX, drag.lastY)
-    const returnHot =
-      !disabled && !dropHot && isInsideZone(returnZoneRef, drag.lastX, drag.lastY)
-    markDropZones(!disabled, dropHot, returnHot)
   }
 
-  const handlePointerDown = contextSafe((id: string, event: ReactPointerEvent<HTMLDivElement>) => {
-    // 只认鼠标主键：中键、右键、以及多指里的副指针都不该把牌抓起来。
-    if (!event.isPrimary || event.button !== 0) return
-    if (disabled || playedRef.current.has(id)) return
-    // 问号热区上按下不算抓牌，它只管翻面。
-    if ((event.target as HTMLElement).closest('.hand-fan__help') !== null) return
-    const slot = slotsRef.current.get(id)
-    if (!slot) return
-    // 挡掉浏览器默认的文字选中和图片拖拽，不然拖到一半会拖出一片蓝色选区。
-    event.preventDefault()
-    dragRef.current = {
-      id,
-      slot,
-      pointerId: event.pointerId,
-      originX: event.clientX,
-      originY: event.clientY,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      active: false,
-      moveX: null,
-      moveY: null,
-    }
-    // 立刻捕获指针：后面就算光标跑出卡面（拖拽时必然会），move / up 也还是发到这张牌上。
-    event.currentTarget.setPointerCapture(event.pointerId)
-  })
-
-  const handlePointerMove = contextSafe((id: string, event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (drag === null || drag.id !== id || drag.pointerId !== event.pointerId) return
-    drag.lastX = event.clientX
-    drag.lastY = event.clientY
-    if (!drag.active) {
-      const dx = event.clientX - drag.originX
-      const dy = event.clientY - drag.originY
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
-      beginDrag(drag)
-      if (!drag.active) return
-    }
-    const target = dragTargetOf(event.clientX, event.clientY)
-    drag.moveX?.(target.x)
-    drag.moveY?.(target.y)
-    // disabled 期间松手一律按取消算，那就一点都别亮：亮成 hot 却打不出去，
-    // 等于骗玩家"现在松手就能打"，牌却直接飞回手里。
-    const dropHot = !disabled && isInsideDropZone(event.clientX, event.clientY)
-    const returnHot =
-      !disabled && !dropHot && isInsideZone(returnZoneRef, event.clientX, event.clientY)
-    markDropZones(!disabled, dropHot, returnHot)
-  })
-
-  const handlePointerUp = contextSafe((id: string, event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (drag === null || drag.id !== id || drag.pointerId !== event.pointerId) return
-    const wasActive = drag.active
-    const inZone = isInsideDropZone(event.clientX, event.clientY)
-    endDrag()
-    // 没过阈值就是原地点了一下，等价于直接打出这张牌——不用真的拖进战场。
-    // 这时 slot 还停在点击前的扇形/hover 位置，onPlay 里查 DOM 拿到的就是这个位置当飞行起点，
-    // 不需要专门归位，也不存在"落在别处"的取消场景。
-    if (!wasActive) {
-      if (disabled || playedRef.current.has(id)) return
-      playedRef.current.add(id)
-      onPlay(id)
-      // 同下面拖拽分支：出牌没被受理的话，这张牌下一帧还会在手牌里，得把占用记录还回去，
-      // 否则之后再点它会被 playedRef 的防重复挡住，怎么点都没反应。
-      // 点击没有挪动过 slot，原地就是正确位置，不用像拖拽分支那样再 returnToFan。
-      requestAnimationFrame(() => {
-        if (!slotsRef.current.has(id)) return
-        if (disabledRef.current) return
-        playedRef.current.delete(id)
-      })
-      return
-    }
-    // 落在别处（包括拖回手牌上方）就是取消；拖到一半才被 disabled 的也按取消算。
-    if (disabled || !inZone) {
-      returnToFan()
-      return
-    }
-    playedRef.current.add(id)
-    // 父组件在这一步里同步截取 Flip 状态，所以此刻 slot 必须还停在松手那一刻的拖拽位置。
-    onPlay(id)
-    // 出牌被受理的话，React 会在这一帧结束前把这张牌从 DOM 里摘掉，slotsRef 的记录跟着没。
-    // 下一帧它还在，只有两种可能：父组件当场拒了（不是自己的出牌轮、局面已经结束……），
-    // 或者按 props 文档的约定打开 disabled 去等网络回包。
-    // 前者要立刻把牌送回扇形，否则它会僵在落点上再也拖不动——父组件拒绝时往往根本不改
-    // state，也就不会有下一次 reflow 来兜底；后者只能等，判据就是 disabledRef
-    // （闭包里的 disabled 是松手那一刻的旧值，父组件是在上面这行 onPlay 里才改的），
-    // 之后由 disabled 关掉时的 layout effect 接手决定送不送回去。
+  /**
+   * 打出之后的兜底：下一帧这张牌要是还在手牌里，就说明父组件没受理，得把占用记录还回去，
+   * 否则之后再打它会被 playedRef 的防重复挡住，怎么点都没反应。
+   *
+   * 出牌被受理的话，React 会在这一帧结束前把这张牌从 DOM 里摘掉，slotsRef 的记录跟着没。
+   * 下一帧它还在，只有两种可能：父组件当场拒了（不是自己的出牌轮、局面已经结束……），
+   * 或者按 props 文档的约定打开 disabled 去等网络回包。
+   * 前者要立刻收拾干净，否则牌会僵在原地再也拖不动——父组件拒绝时往往根本不改 state，
+   * 也就不会有下一次 reflow 来兜底；后者只能等，判据就是 disabledRef
+   * （闭包里的 disabled 是松手那一刻的旧值，父组件是在 onPlay 里才改的），
+   * 之后由 disabled 关掉时的 layout effect 接手决定送不送回去。
+   *
+   * settle 只有拖拽那条路要开：牌被挪到落点上了，得补间回扇形；
+   * 点击那条路压根没挪过 slot，原地就是正确位置。
+   */
+  const restoreIfRejected = (id: string, settle: boolean) => {
     requestAnimationFrame(() => {
       if (!slotsRef.current.has(id)) return
       if (disabledRef.current) return
       playedRef.current.delete(id)
-      returnToFan()
+      if (settle) returnToFan()
     })
+  }
+
+  const handleDrop = (drag: CardDragInfo) => {
+    playedRef.current.add(drag.id)
+    // 父组件在这一步里同步截取 Flip 状态，所以此刻 slot 必须还停在松手那一刻的拖拽位置
+    // ——useCardDrag 已经在调过来之前把跟随补间停掉了。
+    onPlay(drag.id)
+    restoreIfRejected(drag.id, true)
+  }
+
+  /**
+   * 按下之后原地松手（没走过拖拽阈值），等价于直接打出这张牌——不用真的拖进战场。
+   *
+   * 这时 slot 还停在点击前的扇形/hover 位置，onPlay 里查 DOM 拿到的就是这个位置当飞行起点，
+   * 不需要专门归位，也不存在"落在别处"的取消场景。
+   * disabled 期间走不到这里：useCardDrag 那边已经挡掉了。
+   */
+  const handleTap = (id: string) => {
+    if (playedRef.current.has(id)) return
+    playedRef.current.add(id)
+    onPlay(id)
+    restoreIfRejected(id, false)
+  }
+
+  /**
+   * 两块落点交给拖拽内核。数组顺序就是判定优先级：指针同时压在两块上时算战场。
+   *
+   * “放回手牌”区 accepts 为 false，只吃高亮、不改判定——反正没落进战场的都会飞回手牌。
+   */
+  const dropZones: CardDropZone[] = [
+    { ref: dropZoneRef },
+    ...(returnZoneRef ? [{ ref: returnZoneRef, accepts: false }] : []),
+  ]
+
+  const cardDrag = useCardDrag({
+    zones: dropZones,
+    enabled: !disabled,
+    // 拖拽建的补间要和布局补间归进同一个 useGSAP context，卸载时才会被一起 revert 掉。
+    contextSafe,
+    targetOf: dragTargetOf,
+    // slot 的盒子已经按 HOVER_SCALE 放大过了，写给 GSAP 的 scale 得折算回去（见 slotScale）。
+    dragScale: slotScale(DRAG_SCALE),
+    // 问号热区上按下不算抓牌，它只管翻面。
+    ignoreSelector: '.hand-fan__help',
+    // 已经打出、正在等父组件受理的牌不能再抓起来（防重复出牌）。
+    canDrag: (id) => !playedRef.current.has(id),
+    onDragStart: handleDragStart,
+    onDrop: handleDrop,
+    // 落在别处（包括拖回手牌上方）、拖到一半被 disabled、被浏览器中断，都是取消，一律回扇形。
+    onCancel: returnToFan,
+    onTap: handleTap,
   })
 
   /**
-   * 拖拽被浏览器中断（切窗口、按下 Esc、指针捕获被抢走）时的收尾，一律按取消处理。
+   * disabled 关掉时的异步确认收尾：父组件在 onPlay 里打开 disabled 去等回包，
+   * 这段时间牌停在落点上；disabled 关掉时牌要是还在手牌里，说明这次出牌没被受理，
+   * 这时才把它送回扇形。
    *
-   * 正常松手时 lostpointercapture 也会来一发，但那时 pointerup 已经把 dragRef 清空了，
-   * 这里就是个空转，不会重复归位。
+   * 落点区高亮同样得跟着 disabled 立刻变（disabled 期间松手一律按取消算，
+   * 那就连"正在拖牌"的 ready 都不该亮，更不能亮成"松手就打出"的 hot），
+   * 但那件事归 useCardDrag 自己的 effect 管，这里不用碰。
+   *
+   * 用 layout effect 而不是 useEffect：restoreIfRejected 的 rAF 兜底要读 disabledRef，
+   * 而 passive effect 不保证赶在下一帧的 rAF 之前跑完。
    */
-  const handlePointerAbort = contextSafe((id: string) => {
-    const drag = dragRef.current
-    if (drag === null || drag.id !== id) return
-    const wasActive = drag.active
-    endDrag()
-    if (wasActive) returnToFan()
-  })
+  useLayoutEffect(() => {
+    disabledRef.current = disabled
+    if (disabled) return
+    for (const id of playedRef.current) {
+      // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
+      // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
+      if (!slotsRef.current.has(id)) continue
+      playedRef.current.delete(id)
+      returnToFan()
+    }
+  }, [disabled])
 
   return (
     // --hand-card-zoom 是 slot 盒子的放大倍数，CSS 那边全靠它算宽高和 zoom；
@@ -824,11 +658,7 @@ export function HandFan({
           }}
           onPointerEnter={() => handleEnter(card.id)}
           onPointerLeave={() => handleLeave(card.id)}
-          onPointerDown={(event) => handlePointerDown(card.id, event)}
-          onPointerMove={(event) => handlePointerMove(card.id, event)}
-          onPointerUp={(event) => handlePointerUp(card.id, event)}
-          onPointerCancel={() => handlePointerAbort(card.id)}
-          onLostPointerCapture={() => handlePointerAbort(card.id)}
+          {...cardDrag.bind(card.id)}
         >
           {/*
             三层 transform 各管一件事，分开才不会互相覆盖：
@@ -871,7 +701,7 @@ export function HandFan({
             </div>
             {/*
               问号的触发热区：完全透明，只管交互（hover 翻面、拦住在它身上按下时抓起牌，
-              见 handlePointerDown），样子全交给上面 inner 里那两个圆圈。
+              靠的是传给 useCardDrag 的 ignoreSelector），样子全交给上面 inner 里那两个圆圈。
 
               视觉和热区必须分开，因为热区绝对不能跟着翻面：它要是跟着 inner 一起转，
               牌一翻到背面按钮就转到了指针够不着的地方，pointerleave 立刻把牌翻回正面，

@@ -16,8 +16,12 @@ import type { Card } from '@ai-duel/core'
  * ——这条规则卡面上印不下，可玩家每一轮都要据此决定出不出。
  */
 export function cardBackText(card: Card): string {
-  if (card.kind === 'agent') {
+  if (card.kind === 'ai') {
     return `模型：${card.model}。打出后留在场上，每轮跟着一起答题，答错才被罚下。`
+  }
+  if (card.kind === 'hero') {
+    // 英雄牌进不了手牌，这段话只有图鉴页会用到（对局里还没有选英雄这一步）。
+    return `英雄技能「${card.skill.name}」：${card.skill.text}开局前选定，每方一张，不进牌组。`
   }
   return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
 }

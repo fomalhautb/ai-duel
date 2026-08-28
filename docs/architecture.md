@@ -57,8 +57,8 @@ execute(state, command): { state, events }  // 执行一条指令
 `events` 描述"**已经发生的事实**"，例如一轮打完是这样一串：
 
 ```
-ROUND_STARTED → PLAY_TURN_STARTED → AGENT_DEPLOYED → SKILL_PLAYED → PLAY_TURN_STARTED
-  → QUESTION_REVEALED → AGENT_ANSWERED × N → AGENT_ELIMINATED → ROUND_SCORED → GAME_OVER
+ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → PLAY_TURN_STARTED
+  → QUESTION_REVEALED → AI_ANSWERED × N → AI_ELIMINATED → ROUND_SCORED → GAME_OVER
 ```
 
 客户端拿到这串事件后逐条播动画（卡牌飞出去、硬币转起来、题目全屏揭晓、比分跳动），
@@ -90,23 +90,32 @@ ROUND_STARTED → PLAY_TURN_STARTED → AGENT_DEPLOYED → SKILL_PLAYED → PLAY
 - `winner` 可以是座位号、`'draw'`（总分打平）或 `null`（还没打完）。平局是正经结果之一。
 - 每个玩家的 `score` 在每轮答题结算后加上「己方场上存活的 AI 数量」，逐轮累加。
 
-**卡牌和单位。** 卡牌分两类，靠 `kind` 区分：
+**卡牌和单位。** 卡牌分三类，靠 `kind` 区分：
 
-- `AgentCard`（`kind: 'agent'`）打出后作为 `AgentInstance` **留在场上跨轮答题**，
+- `AiCard`（`kind: 'ai'`）打出后作为 `AiInstance` **留在场上跨轮答题**，
   答错才罚下进弃牌堆。它的 `model` 字段（GPT / Claude / …）只印在卡面上，引擎不读。
 - `SkillCard`（`kind: 'skill'`）打出后直接进弃牌堆，本迭代只有卡面和亮相动画，没有任何效果。
+- `HeroCard`（`kind: 'hero'`）是开局前选的英雄，每方一张，**不进牌组也不进手牌**，
+  带一个 `skill: { name, text }` 的专属技能。`src/heroes.ts` 里的 `HEROES` 定义了 7 位
+  英雄（卡面素材在 `assets/人物卡简介/`，还没接进构建），技能内容眼下全是留白的占位壳。
+  英雄不在 `CARD_POOL` 里，引擎和对局界面都还没接：既没有选英雄的流程，也没有技能效果。
 
-两类卡都**没有费用字段**：出牌不花任何资源，一轮里想打几张打几张。
+所以 `HandCard = AiCard | SkillCard` 才是牌组、手牌、弃牌堆里实际会出现的类型，
+`Card = HandCard | HeroCard` 只在"泛指一张卡"时用。
 
-`Card` 是卡牌**定义**（同一张卡在牌组里可以有多份），`CardInstance` / `AgentInstance` 是
-**实例**，带独立的 `instanceId`。AI 卡上场时沿用手牌那一份 `instanceId`，罚下时才能原样塞回
-弃牌堆。`AgentInstance` 现在只有身份三件套（`instanceId` / `cardId` / `owner`），
+三类卡都**没有费用字段**：出牌不花任何资源。引擎眼下也不限制每轮出几张牌，
+但设计目标是**每轮至多打出一张 AI 牌**（技能牌不限张数，见机制文档 V0.2 §7.2），
+这条限制还没写进引擎。
+
+`Card` 是卡牌**定义**（同一张卡在牌组里可以有多份），`CardInstance` / `AiInstance` 是
+**实例**，带独立的 `instanceId`。AI 牌上场时沿用手牌那一份 `instanceId`，罚下时才能原样塞回
+弃牌堆。`AiInstance` 现在只有身份三件套（`instanceId` / `cardId` / `owner`），
 没有会被改动的数值——哪天有了"上场后被增益/削弱"的属性，再把卡面数值拷贝一份到实例上。
 
 **题库和答题结果。** `src/questions.ts` 是题库（`QUESTION_POOL`），每道题带类别
 （`bias` 偏见测试 / `vision` 视觉测试 / `brainteaser` 脑筋急转弯）、题面和正确答案。
-`src/script.ts` 的 `scriptedAnswers(question, agents)` 是一张写死的
-「题目 × AI 卡 → 对错 + 回答原文」静态表，纯函数、确定性。
+`src/script.ts` 的 `scriptedAnswers(question, aiUnits)` 是一张写死的
+「题目 × AI 牌 → 对错 + 回答原文」静态表，纯函数、确定性。
 它不是引擎的一部分：答题结果由 `SUBMIT_ANSWERS` 指令从外面喂进来（为什么这么分见 4.5）。
 
 **随机只在 `createGame` 里出现**，两处细节值得记一笔：
@@ -156,7 +165,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AGENT_DEPLOYED → SKILL_PLAYED → PLAY
   测试房要能替对手出牌，但摆出来的局面仍然必须是引擎认可的合法局面。
   加牌和弃牌两条例外地不限阶段：测试房要能在答题阶段先把下一轮的手牌摆好。
 - **`CARD_REMOVED` 是为它新增的事件。** 正常打法里"牌离开手牌"永远伴随着
-  `AGENT_DEPLOYED` 或 `SKILL_PLAYED`，没有单纯弃一张牌这回事。
+  `AI_DEPLOYED` 或 `SKILL_PLAYED`，没有单纯弃一张牌这回事。
 
 `GameState.seq` 是给凭空造牌兜底的下一个实例序号。造出来的牌要一个不撞车的 `instanceId`，
 而引擎里不许有 `Math.random` / `Date.now`（见 3.1），所以这个计数器只能存进状态本身，
@@ -238,7 +247,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AGENT_DEPLOYED → SKILL_PLAYED → PLAY
 
 ### 4.5 答题结果谁来生成
 
-答题是这个游戏唯一"结果不由规则算出来"的一步：一张 AI 卡答没答对，最终要去问真实的模型 API。
+答题是这个游戏唯一"结果不由规则算出来"的一步：一张 AI 牌答没答对，最终要去问真实的模型 API。
 而引擎必须是纯函数（见 3.1），不能联网、不能等一个 Promise。所以这件事被切成了两半：
 
 **引擎只接受结果，不生产结果。** 双方出牌结束后引擎进入 `phase: 'quiz'`，发一条
@@ -428,7 +437,7 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
   （要和淡入淡出排进同一条时间线，套不进 `flipCard.ts` 的 `flipTo`），
   但正反两面谁可见仍然复用 `syncFlipFaces` 那套角度硬切，不用 `backface-visibility`，
   原因见 5.7。
-- **答题全屏揭晓**（`QUESTION_REVEALED` → `AGENT_ANSWERED` × N → `ROUND_SCORED`）：
+- **答题全屏揭晓**（`QUESTION_REVEALED` → `AI_ANSWERED` × N → `ROUND_SCORED`）：
   一层盖住整个战场，显示类别、题面、正确答案和「场上 AI 作答中…」，结果逐条淡入，
   最后亮出「本轮 你 +a / 对方 +b」再淡出。
   **答题结果渲染在这一层内部，不去动战场上那张小卡**：事件是在 React 提交新快照**之前**
@@ -437,7 +446,7 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
   不回头读快照（快照里那个单位已经没了）。
 - **技能牌亮相**（`SKILL_PLAYED`）：双方都在战场中央把卡面亮一下再进弃牌堆。
   技能牌不上场，不亮出来的话画面上根本看不出有人打过牌。
-- **AI 上场**（`AGENT_DEPLOYED`）：我方那张走 Flip 从手牌原位飞进战场，不再叠进场动画；
+- **AI 上场**（`AI_DEPLOYED`）：我方那张走 Flip 从手牌原位飞进战场，不再叠进场动画；
   对方那张只能排队等下一次提交后播一个弹出——收到事件那一刻它的 DOM 还不存在。
 - **轮次横幅**（`ROUND_STARTED` / `PLAY_TURN_STARTED`）：一次只播一条，多的排队。
   一批事件里常常连着来两条，同时画在屏幕正中会糊成一团。
@@ -453,7 +462,8 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 ### 5.6 手牌组件
 
 `src/ui/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）：
-`kind`（`'agent' | 'skill'`）、`name`、`text`、AI 卡才有的 `model`，
+`kind`（`'ai' | 'skill' | 'hero'`，英雄牌只有图鉴页会拿它渲染卡面）、`name`、`text`、
+AI 牌才有的 `model`，
 外加两个 core 里没有、由调用方拼出来的展示字段——翻面时的补充说明 `backText`
 和插画地址 `art`（不填就按 id 稳定地分一张占位图）。
 出牌不花资源，所以卡面上没有费用角标；场上的 AI 也没有会变的数值，
@@ -641,11 +651,11 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 `.reveal-*` 那一族（遮罩 + 裁剪层 + 一张放大 1.7 倍的卡）由 `MatchStage` 的两条链路共用，
 它们**严格互斥**——只有一张展示卡、一条呼吸浮动，同时跑就是两条 Flip 抢同一个元素：
 
-- **强制展示**（对手出牌，不可打断）：收到对手的 `AGENT_DEPLOYED` / `SKILL_PLAYED`，
+- **强制展示**（对手出牌，不可打断）：收到对手的 `AI_DEPLOYED` / `SKILL_PLAYED`，
   在对手手牌里按 `data-flip-id` 找到那张牌当起飞点（正式对局是 `OpponentFan` 里的一张牌背，
   测试房是摊开的手牌条），遮罩淡入压暗，卡飞到屏幕中央——从倒扇形起飞的还要同时翻正
   （`flipTo` 从 180° 续转到 360°，同向续转不会半路掉头）——停 1.5 秒。
-  之后 AI 卡从展示位接着飞到对方战场行并播上场特效，技能牌没有落点，原地淡出。
+  之后 AI 牌从展示位接着飞到对方战场行并播上场特效，技能牌没有落点，原地淡出。
   `SKILL_PLAYED` 事件带的 `instanceId` 就是给这里定位起飞点用的，引擎结算完全用不到它。
 - **放大查看**（玩家点战场小卡，敌我两行一视同仁）：格子留在原地隐藏占位
   （`.battle__tile--held`），展示层多渲染一份放大的副本；点遮罩（也就是点屏幕任意处）
@@ -663,7 +673,7 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 理由和边界写在 `CardZoomOverlayProps.veilRef` 的注释里，动这块之前先看那里。
 `/deck` 只有一条链路会动遮罩，所以不传 `veilRef`，用组件自带的那块就行。
 
-我方自己打出的牌不走这一层：AI 卡直接从手牌 Flip 到战场（同样播上场特效），
+我方自己打出的牌不走这一层：AI 牌直接从手牌 Flip 到战场（同样播上场特效），
 技能牌在战场中央淡入亮相（`.battle__skill-show`）——自己打的什么牌不需要被强制看一遍。
 
 几个绕不开的点：
@@ -679,7 +689,7 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
   这是因为"对手出完最后一张牌就结束出牌"时两条指令挨得极近，展示的 1.5 秒停留
   必然会和揭晓层撞上。
 - **受理不了就降级，不排队**：展示层被占着（对手连着出牌）或找不到起飞点时，
-  对方的 AI 卡退回一段简易的放大淡入（`popQueueRef`），技能牌则跳过这次展示。
+  对方的 AI 牌退回一段简易的放大淡入（`popQueueRef`），技能牌则跳过这次展示。
   一次展示要两秒多，攒着挨个补播只会让画面越拖越远。
 
 ### 5.9 存档
@@ -687,7 +697,7 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 `src/save/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
 ```
-key   ai-duel-save-v4
+key   ai-duel-save-v5
 value { "ownedCards": ["..."], "wins": 3 }
 ```
 
@@ -701,8 +711,10 @@ value { "ownedCards": ["..."], "wins": 3 }
 
 - key 带版本号，结构要改就换下一个版本号：旧数据读不到自动当新号，不写迁移代码。
   v2 → v3 就是这么删掉 `tutorialDone` 的——教程下线，字段直接消失，没有任何迁移代码，
-  老存档整份作废重来。v3 → v4 则是卡池整个换了一批（模型卡/提示卡 → AI 卡/技能牌），
+  老存档整份作废重来。v3 → v4 则是卡池整个换了一批（模型卡/提示卡 → AI 牌/技能牌），
   旧存档里的卡 id 一个都不剩，同样整份作废。
+  v4 → v5 是这次的术语统一：卡 id 从 `agent-*` 改成 `ai-*`（`ai-gpt` / `ai-claude` /
+  `ai-gemini` / `ai-deepseek`），存档里存的正是这批 id，所以老存档同样整份作废。
 - 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
   `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
 - 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
@@ -712,13 +724,17 @@ value { "ownedCards": ["..."], "wins": 3 }
 
 ```
 docs/architecture.md          本文档
+docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md
+                              游戏机制（设计口径，不等于已实现的范围）
 packages/core/
   src/index.ts                包的唯一出口，把下面几个模块整个转出去
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
-  src/cards.ts                卡牌数据 + 查表 + 示例牌组
+  src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
+  src/heroes.ts               7 位英雄牌的占位定义，技能内容留白；不进卡池也不进牌组，
+                              引擎和对局界面都还没接（卡面素材在 assets/人物卡简介/，未接入构建）
   src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/questions.ts            题库：题目数量决定一局打几轮
-  src/script.ts               固定剧本：题目 × AI 卡 → 对错和回答原文（将来换成真实 API）
+  src/script.ts               固定剧本：题目 × AI 牌 → 对错和回答原文（将来换成真实 API）
   src/engine.ts               createGame / execute
   test/                       Vitest
 packages/client/
@@ -790,7 +806,9 @@ packages/client/
   src/dev/                    开发页和开发用组件，正式流程里没有入口
     DevIndex.tsx              开发页导航（/dev）：全部开发页加测试对局的入口一览
     DevPanel.tsx              dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
-    CardGallery.tsx           卡牌图鉴（/card）：左栏点缩略卡，右栏是这张卡的正反面、全部数值和原始 JSON
+    CardGallery.tsx           卡牌图鉴（/card）：左栏按「英雄牌 / AI 牌 / 技能牌」分组列缩略卡，
+                              右栏是这张卡的正反面、全部数值和原始 JSON；英雄牌只有这里看得到，
+                              对局里还进不去
     LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
@@ -838,19 +856,19 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 - 三个正式界面加三个开发页、路由；首页「开始游戏」直接进匹配房，不分流，
   首页本身是照设计稿做的分层场景。
 - 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画，`/card` 图鉴页一眼对照。
-- **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（AI 卡上场、技能牌亮相）→
+- **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（AI 牌上场、技能牌亮相）→
   全场 AI 答题、答错的罚下 → 按存活数逐轮计分 → 打满题库轮数后按总分分胜负，含平局。
   炉石式的旧玩法（伤害、完整度、弱点画像、算力）整套删掉了，不留兼容层。
 - `MatchDriver` 各个实现，外加答题自动驾驶（见 4.5）；`MatchStage` 只认一个 driver。
 - **对局界面已经是真 UI**：底部 `HandFan` 扇形手牌拖进战场（或原地点一下）出牌、
-  顶边吊着对手的倒扇形手牌、AI 卡用 Flip 从手牌原位飞到场上并播上场特效
+  顶边吊着对手的倒扇形手牌、AI 牌用 Flip 从手牌原位飞到场上并播上场特效
   （震屏 + 烟尘 + 边缘追光）、抛硬币和答题揭晓两层全屏过场、轮次横幅排队、
   右侧栏常驻比分和「下一题：<类别>」；对手出的牌会被强制展示在屏幕中央（见 5.8），
   点战场小卡也能放大查看。
 - **dev 测试房**：首页和匹配房各有一个入口，一个人就能把整套对局界面跑一遍——
   对方手牌摊开成真卡面、点一下替对方出牌，测试面板发 `DEBUG_*` 随手摆局面、
   显示当前轮次和阶段、一键跳到答题（指令见 3.6，和联机共用同一条渲染链见 5.1）。
-- 存档 v4（收藏 + 胜场）。
+- 存档 v5（收藏 + 胜场）。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
 
 **还没做的**，按建议顺序：
@@ -858,15 +876,18 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 1. **接真实模型 API**——答题结果现在是 `script.ts` 里写死的固定剧本，
    换的时候只动 autopilot 里那一次调用（见 4.5）。
 2. **技能牌的效果**——现在打出去只有卡面和亮相动画，不产生任何效果，也不选目标。
-3. **补卡池和题库**——卡池只有 4 张 AI 卡 + 1 张技能牌，题库 5 道占位题
+3. **英雄牌的选择与英雄技能**——类型（`HeroCard`）和 7 位人物的名单已经定义好了
+   （`core/src/heroes.ts`），但技能内容是留白的占位，引擎、联机协议和界面都还没接：
+   开局没有选英雄这一步，英雄技能也不会产生任何效果。
+4. **补卡池和题库**——卡池只有 4 张 AI 牌 + 1 张技能牌，题库 5 道占位题
    （也就是一局固定 5 轮），视觉测试那两道的图还没有，题面先用文字描述顶着。
    卡池扩容顺带让赢局抽卡重新生效（`INITIAL_COLLECTION` 现在等于整个卡池，见 3.5）。
-4. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
-5. **联机端到端实测**——协议和转发器都有测试，房主/客人 driver 也接好了，
+5. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
+6. **联机端到端实测**——协议和转发器都有测试，房主/客人 driver 也接好了，
    但答题制这一版没有在两台真机上跑过完整一局。
-6. **简单教程**（见 5.3）——第一版已经删掉，重做时先定流程再动手。
-7. **打磨**——音效、结算画面。对手倒扇形手牌、强制展示层和上场特效都已经接进对局界面
+7. **简单教程**（见 5.3）——第一版已经删掉，重做时先定流程再动手。
+8. **打磨**——音效、结算画面。对手倒扇形手牌、强制展示层和上场特效都已经接进对局界面
    （见 5.8），剩下的是配音效和把结算做得像样。
 
-如果时间不够，砍的顺序是倒过来的：4 往后都可以不要，
+如果时间不够，砍的顺序是倒过来的：5 往后都可以不要，
 现在这套界面已经够演示一局完整对战了。

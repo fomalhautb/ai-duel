@@ -8,7 +8,7 @@
  * 两条订阅各司其职：
  * - `useMatch` 拿快照，渲染"事件全部应用完"的结果；
  * - `useMatchEvents` 拿事件流，播过程动画（回合横幅、抛硬币、答题揭晓、对手出牌的强制展示：
- *   牌从对手手里飞到屏幕中央翻正停一会儿，AI 卡接着飞向对方战场行并播上场特效）。
+ *   牌从对手手里飞到屏幕中央翻正停一会儿，AI 牌接着飞向对方战场行并播上场特效）。
  *   事件订阅者全局只允许一个（架构 5.2），所以整个应用里只能有这一处 useMatchEvents。
  *
  * 阶段动画分三档：
@@ -26,7 +26,7 @@ import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
 import { getCard, other } from '@ai-duel/core'
 import type {
-  AgentInstance,
+  AiInstance,
   CardId,
   CardInstance,
   Command,
@@ -69,7 +69,7 @@ const TILE_TILT_DEG = 12
  * 放大必须和倾斜一样交给 cardTilt 用 GSAP 做，CSS 写了也没用（原因见 ui/cardTilt.ts 的文件头）。
  */
 const TILE_HOVER_SCALE = 1.05
-/** 我方打出的技能卡在战场中央停留多久（秒），停完淡出。 */
+/** 我方打出的技能牌在战场中央停留多久（秒），停完淡出。 */
 const SKILL_SHOWCASE_HOLD = 1.2
 
 /** 遮罩淡入 / 淡出。淡出比淡入慢一点，让"看完了"这一下收得柔和些。 */
@@ -105,7 +105,7 @@ const BANNER_IN = 0.3
 const BANNER_HOLD = 0.75
 const BANNER_OUT = 0.35
 
-/** 答题揭晓层里的一行结果，全部由 AGENT_ANSWERED 事件当场攒出来。 */
+/** 答题揭晓层里的一行结果，全部由 AI_ANSWERED 事件当场攒出来。 */
 interface QuizAnswerRow {
   instanceId: InstanceId
   /** 这个 AI 是我方的还是对方的。收到事件时就按当时的座位算好，渲染时不用再查局面。 */
@@ -126,7 +126,7 @@ interface QuizReveal {
   /** 每次揭晓换一个新的 key，用来重新触发下面几段 useGSAP，并识别"这条时间线是不是自己的"。 */
   key: number
   question: Question
-  /** AGENT_ANSWERED 逐条追加。 */
+  /** AI_ANSWERED 逐条追加。 */
   rows: QuizAnswerRow[]
   /** ROUND_SCORED 到了才有；它一到就说明这一轮播完了，可以走收尾。 */
   gains: { mine: number; theirs: number } | null
@@ -146,7 +146,7 @@ interface InspectTarget {
 /**
  * 正在被强制展示的那张对手牌。
  *
- * landingId 非空 = AI 卡，展示完要飞到对方战场行上那个 instanceId 对应的格子；
+ * landingId 非空 = AI 牌，展示完要飞到对方战场行上那个 instanceId 对应的格子；
  * 为 null = 技能牌，没有落点，展示完原地淡出。
  * flipId 是这张牌在对手手牌里的实例 id，也就是 Flip 用来把"手牌里的旧节点"和"展示卡"
  * 对上号的键——技能牌的卡面数据是按卡牌定义拼的（id 是 cardId），对不上，所以单独存一份。
@@ -427,9 +427,9 @@ function BattleField({
   /**
    * 受理一次对手出牌的强制展示：截下起飞位置，把牌交给展示层。
    *
-   * 返回 false 表示这次不播展示，调用方自己降级（AI 卡退回 popQueue 的简易进场，
+   * 返回 false 表示这次不播展示，调用方自己降级（AI 牌退回 popQueue 的简易进场，
    * 技能牌就只剩什么都不播）。requireOrigin 为 true 时找不到起飞的那张手牌也算不受理：
-   * AI 卡还有 popQueue 兜底，而技能牌没有别的地方能看到牌面，宁可从屏幕中央淡入
+   * AI 牌还有 popQueue 兜底，而技能牌没有别的地方能看到牌面，宁可从屏幕中央淡入
    * （见展示 useGSAP 里 revealFlipRef 为空的那条分支）。
    */
   const startReveal = (
@@ -519,13 +519,13 @@ function BattleField({
         case 'PLAY_TURN_STARTED':
           showBanner(event.player === seatRef.current ? '轮到你出牌' : '对方出牌中')
           break
-        case 'AGENT_DEPLOYED': {
+        case 'AI_DEPLOYED': {
           // 我方 AI 走 Flip 从手牌飞过去，不要再叠一层进场动画。
           if (event.player === seatRef.current) break
           // 对方的 AI 先强制展示、再从展示位飞到战场行；受理不了才退回简易进场。
           // 落场用的 id 和手牌里那张是同一个（playCard 沿用了手牌实例的 instanceId）。
-          const id = event.agent.instanceId
-          if (!startReveal(handCardOfAgent(event.agent), id, id, true)) {
+          const id = event.ai.instanceId
+          if (!startReveal(handCardOfAi(event.ai), id, id, true)) {
             popQueueRef.current.push(id)
           }
           break
@@ -555,7 +555,7 @@ function BattleField({
             gains: null,
           }))
           break
-        case 'AGENT_ANSWERED': {
+        case 'AI_ANSWERED': {
           // 结果渲染在揭晓层内部，不去动战场上那张即将被 React 移除的小卡。
           const row: QuizAnswerRow = {
             instanceId: event.instanceId,
@@ -578,7 +578,7 @@ function BattleField({
           break
         }
         default:
-          // AGENT_ELIMINATED 不单独播：揭晓层里那一行的 ✗ 和罚下样式已经说明了，
+          // AI_ELIMINATED 不单独播：揭晓层里那一行的 ✗ 和罚下样式已经说明了，
           // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被揭晓层盖住）。
           // CARD_DRAWN 的进场动画归 HandFan 自己管；GAME_OVER 由结算层接管；
           // COMMAND_REJECTED 走 view.lastRejection 那条提示。
@@ -587,7 +587,7 @@ function BattleField({
     }
   })
 
-  // 打出的技能卡：淡入、停一会儿、淡出，播完把 state 清掉（清掉会让这段再跑一次并直接返回）。
+  // 打出的技能牌：淡入、停一会儿、淡出，播完把 state 清掉（清掉会让这段再跑一次并直接返回）。
   useGSAP(
     () => {
       const node = skillShowRef.current
@@ -705,7 +705,7 @@ function BattleField({
   /**
    * 答题揭晓层收尾：结果逐条淡入 → 计分 → 停一下 → 整层淡出。
    *
-   * 触发条件是"计分到了"而不是"有结果行了"：AGENT_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
+   * 触发条件是"计分到了"而不是"有结果行了"：AI_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
    * React 把这一批合成一次重渲染，所以这段跑起来时结果行已经全在 DOM 里了，一次排完就行。
    */
   const quizScored = quizReveal !== null && quizReveal.gains !== null
@@ -788,13 +788,13 @@ function BattleField({
    * 手牌被打出（拖进战场松手，或者原地点一下）。
    *
    * 两种牌都是直接发 PLAY_CARD，没有费用也不选目标。差别只在动画：
-   * AI 卡要飞进战场，所以先截 Flip 状态；技能牌打完就进弃牌堆，战场上没有它的落点，
+   * AI 牌要飞进战场，所以先截 Flip 状态；技能牌打完就进弃牌堆，战场上没有它的落点，
    * 截了也没有目标元素可飞，它靠 SKILL_PLAYED 在中央亮相。
    */
   const handlePlay = (instanceId: string) => {
     const instance = me.hand.find((item) => item.instanceId === instanceId)
     if (instance === undefined) return
-    if (getCard(instance.cardId).kind === 'agent') {
+    if (getCard(instance.cardId).kind === 'ai') {
       // 此刻手牌那张卡还在 DOM 里、还停在松手那一刻的位置，正好当飞行起点。
       // 查询限定在 .hand-fan 里：战场小卡用的是同一套 data-flip-id，不限定会抓错元素。
       const slot = document.querySelector(`.hand-fan [data-flip-id="${CSS.escape(instanceId)}"]`)
@@ -813,7 +813,7 @@ function BattleField({
    *
    * 展示层同一时刻只归一条链路用，所以对手正在强制展示、或者上一次查看还没收干净时都不受理。
    */
-  const handleInspect = (agent: AgentInstance) => {
+  const handleInspect = (ai: AiInstance) => {
     if (reveal !== null || inspecting !== null) return
     if (
       revealBusyRef.current ||
@@ -825,11 +825,11 @@ function BattleField({
     // 此刻这张小卡还是可见的（held 要等下一次渲染才为 true），正好当飞行起点。
     // 而 Flip 把它和展示卡对上号靠的是两边同一个 data-flip-id（就是 instanceId）。
     const slot = boardRef.current?.querySelector(
-      `[data-flip-id="${CSS.escape(agent.instanceId)}"]`,
+      `[data-flip-id="${CSS.escape(ai.instanceId)}"]`,
     )
     if (slot == null) return
     inspectFlipRef.current = Flip.getState(slot)
-    openInspect({ card: handCardOfAgent(agent), instanceId: agent.instanceId })
+    openInspect({ card: handCardOfAi(ai), instanceId: ai.instanceId })
   }
 
   /**
@@ -900,7 +900,7 @@ function BattleField({
       popQueueRef.current = []
       for (const id of pops) {
         const tile = boardRef.current?.querySelector<HTMLElement>(
-          `[data-agent-id="${CSS.escape(id)}"]`,
+          `[data-ai-id="${CSS.escape(id)}"]`,
         )
         if (tile == null) continue
         gsap.fromTo(
@@ -915,7 +915,7 @@ function BattleField({
 
   // 强制展示：遮罩淡入 + 卡从对手手牌飞到屏幕中央并翻正 + 停 1.5 秒 + 收尾。
   // 两个分支各管一程：reveal 从空变成有牌时飞进展示位，
-  // 从有牌变回空时（AI 卡）从展示位接着飞到对方战场行并落地。
+  // 从有牌变回空时（AI 牌）从展示位接着飞到对方战场行并落地。
   useGSAP(
     (_context, safe) => {
       if (reveal !== null) {
@@ -954,7 +954,7 @@ function BattleField({
         const fromBack = pending?.fromBack === true
         if (inner !== null) setFlipAngle(inner, fromBack ? 180 : 0)
 
-        /** 停留到点：停浮动、遮罩淡出，AI 卡把位置交给下一段飞行，技能牌原地淡出。 */
+        /** 停留到点：停浮动、遮罩淡出，AI 牌把位置交给下一段飞行，技能牌原地淡出。 */
         const finish = () => {
           floatRef.current?.kill()
           floatRef.current = null
@@ -1257,16 +1257,16 @@ function BattleField({
             <div className="battle__smoke-layer" ref={smokeLayerRef} aria-hidden="true" />
 
             <div className="battle__row battle__row--foe">
-              {foe.board.map((agent) => (
+              {foe.board.map((ai) => (
                 <BoardTile
-                  key={agent.instanceId}
-                  agent={agent}
+                  key={ai.instanceId}
+                  ai={ai}
                   // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
                   held={
-                    inspecting?.instanceId === agent.instanceId ||
-                    reveal?.landingId === agent.instanceId
+                    inspecting?.instanceId === ai.instanceId ||
+                    reveal?.landingId === ai.instanceId
                   }
-                  onInspect={() => handleInspect(agent)}
+                  onInspect={() => handleInspect(ai)}
                 />
               ))}
             </div>
@@ -1275,12 +1275,12 @@ function BattleField({
               {me.board.length === 0 ? (
                 <span className="battle__board-hint">将手牌拖入战场</span>
               ) : (
-                me.board.map((agent) => (
+                me.board.map((ai) => (
                   <BoardTile
-                    key={agent.instanceId}
-                    agent={agent}
-                    held={inspecting?.instanceId === agent.instanceId}
-                    onInspect={() => handleInspect(agent)}
+                    key={ai.instanceId}
+                    ai={ai}
+                    held={inspecting?.instanceId === ai.instanceId}
+                    onInspect={() => handleInspect(ai)}
                   />
                 ))
               )}
@@ -1343,7 +1343,7 @@ function BattleField({
         disabled={actionsLocked}
       />
 
-      {/* 特效层：技能卡在中央亮相、横幅一条条排队播，整层不吃指针事件。 */}
+      {/* 特效层：技能牌在中央亮相、横幅一条条排队播，整层不吃指针事件。 */}
       <div className="battle__fx" aria-hidden="true">
         <div className="battle__banner-slot" ref={bannerSlotRef} />
         {skillShow !== null ? (
@@ -1542,29 +1542,29 @@ function PlayerPanel({ player }: { player: PlayerState }) {
 /**
  * 场上的一个 AI。三层结构：tile 管 Flip 飞行，tilt 管倾斜和裁剪，inner 是整张卡面缩小。
  *
- * held 表示这张卡此刻由展示层代管（玩家正放大查看它，或者对手打出的 AI 卡还停在展示位）：
+ * held 表示这张卡此刻由展示层代管（玩家正放大查看它，或者对手打出的 AI 牌还停在展示位）：
  * 格子还占着位置，但整张卡不可见（见 .battle__tile--held），
  * 免得屏幕中央和战场上同时出现两张一模一样的卡。
  */
 function BoardTile({
-  agent,
+  ai,
   held,
   onInspect,
 }: {
-  agent: AgentInstance
+  ai: AiInstance
   held: boolean
   onInspect: () => void
 }) {
-  const card = handCardOfAgent(agent)
+  const card = handCardOfAi(ai)
   return (
     <div
       className={held ? 'battle__tile battle__tile--held' : 'battle__tile'}
-      // data-agent-id 全场唯一，事件层靠它定位这个单位（现在只有对方上场的简易进场在用）。
+      // data-ai-id 全场唯一，事件层靠它定位这个单位（现在只有对方上场的简易进场在用）。
       // data-flip-id 敌我两侧都要给：它是 Flip 用来把两个容器里的节点对号的键，
       // 我方靠它把手牌里的旧节点接到战场上的新节点，对方靠它把展示卡接到落场的格子，
       // 放大查看的飞回也靠它。实例 id 形如 p1-c7，本来就全局唯一，标上不会撞车。
-      data-agent-id={agent.instanceId}
-      data-flip-id={agent.instanceId}
+      data-ai-id={ai.instanceId}
+      data-flip-id={ai.instanceId}
       role="button"
       tabIndex={0}
       aria-label={`查看 ${card.name}`}
@@ -1642,8 +1642,8 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
   // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
   const base = { id: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
-  if (card.kind === 'agent') {
-    return { ...base, kind: 'agent', model: card.model }
+  if (card.kind === 'ai') {
+    return { ...base, kind: 'ai', model: card.model }
   }
   return { ...base, kind: 'skill' }
 }
@@ -1656,8 +1656,8 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
  * backText 照常留着：战场小卡自己不翻面，但它被放大查看、或者对手打出时飞到屏幕中央，
  * 用的都是同一份数据，而展示卡是有背面的。
  */
-function handCardOfAgent(agent: AgentInstance): HandCardData {
-  return { ...handCardOfDefinition(agent.cardId), id: agent.instanceId }
+function handCardOfAi(ai: AiInstance): HandCardData {
+  return { ...handCardOfDefinition(ai.cardId), id: ai.instanceId }
 }
 
 /**
@@ -1669,8 +1669,8 @@ function handCardOfAgent(agent: AgentInstance): HandCardData {
  */
 function nameOfCard(instanceId: InstanceId, state: GameState): string {
   for (const player of state.players) {
-    const agent = player.board.find((item) => item.instanceId === instanceId)
-    if (agent !== undefined) return getCard(agent.cardId).name
+    const ai = player.board.find((item) => item.instanceId === instanceId)
+    if (ai !== undefined) return getCard(ai.cardId).name
   }
   return '场上 AI'
 }

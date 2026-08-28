@@ -9,7 +9,7 @@ import type { RandomGenerator } from 'pure-rand/types/RandomGenerator'
 import { CARDS, getCard } from './cards'
 import { QUESTION_POOL } from './questions'
 import type {
-  AgentInstance,
+  AiInstance,
   AnswerResult,
   CardId,
   CardInstance,
@@ -154,16 +154,16 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
   player.hand.splice(handIndex, 1)
 
   const events: GameEvent[] = []
-  if (card.kind === 'agent') {
-    // AI 卡进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
+  if (card.kind === 'ai') {
+    // AI 牌进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
     // 罚下时才能原样塞回弃牌堆。
-    const agent: AgentInstance = {
+    const ai: AiInstance = {
       instanceId: instance.instanceId,
       cardId: card.id,
       owner: playerId,
     }
-    player.board.push(agent)
-    events.push({ type: 'AGENT_DEPLOYED', player: playerId, agent })
+    player.board.push(ai)
+    events.push({ type: 'AI_DEPLOYED', player: playerId, ai })
   } else {
     player.discard.push(instance)
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
@@ -225,22 +225,22 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
       p.board.some((a) => a.instanceId === result.instanceId),
     )!
     const index = owner.board.findIndex((a) => a.instanceId === result.instanceId)
-    const agent = owner.board[index]!
+    const ai = owner.board[index]!
     events.push({
-      type: 'AGENT_ANSWERED',
-      instanceId: agent.instanceId,
-      owner: agent.owner,
+      type: 'AI_ANSWERED',
+      instanceId: ai.instanceId,
+      owner: ai.owner,
       correct: result.correct,
       answerText: result.answerText,
     })
     if (!result.correct) {
       owner.board.splice(index, 1)
       owner.discard.push({
-        instanceId: agent.instanceId,
-        cardId: agent.cardId,
-        owner: agent.owner,
+        instanceId: ai.instanceId,
+        cardId: ai.cardId,
+        owner: ai.owner,
       })
-      events.push({ type: 'AGENT_ELIMINATED', instanceId: agent.instanceId, owner: agent.owner })
+      events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
     }
   }
 

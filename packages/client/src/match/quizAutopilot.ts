@@ -66,8 +66,8 @@ export function createQuizAutopilot({
     if (question === undefined) return
     // 双方在场的 AI 合并成一批一起答题，顺序固定为「0 号玩家的场，然后 1 号玩家的场」，
     // 两端算出来的结果才完全一致。
-    const agents = [...state.players[0].board, ...state.players[1].board]
-    apply({ type: 'SUBMIT_ANSWERS', results: scriptedAnswers(question, agents) })
+    const aiUnits = [...state.players[0].board, ...state.players[1].board]
+    apply({ type: 'SUBMIT_ANSWERS', results: scriptedAnswers(question, aiUnits) })
   }
 
   return {

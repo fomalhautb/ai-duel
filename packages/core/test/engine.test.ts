@@ -80,9 +80,9 @@ function board(state: GameState, player: PlayerId) {
 
 /** 按场上顺序凑一份完整答题结果，wrong 里列出的实例算答错。 */
 function answersFor(state: GameState, wrong: InstanceId[] = []): AnswerResult[] {
-  return [...state.players[0].board, ...state.players[1].board].map((agent) => ({
-    instanceId: agent.instanceId,
-    correct: !wrong.includes(agent.instanceId),
+  return [...state.players[0].board, ...state.players[1].board].map((ai) => ({
+    instanceId: ai.instanceId,
+    correct: !wrong.includes(ai.instanceId),
     answerText: '占位回答',
   }))
 }
@@ -147,8 +147,8 @@ describe('开局', () => {
 })
 
 describe('出牌阶段', () => {
-  it('一轮里想出几张出几张：AI 卡上场，技能牌进弃牌堆', () => {
-    const game = newGame({ deck0: [...deckOf('agent-gpt', 6), ...deckOf('placeholder-skill', 6)] })
+  it('一轮里想出几张出几张：AI 牌上场，技能牌进弃牌堆', () => {
+    const game = newGame({ deck0: [...deckOf('ai-gpt', 6), ...deckOf('placeholder-skill', 6)] })
     const hand = game.state.players[0].hand
     const result = run(
       game.state,
@@ -163,7 +163,7 @@ describe('出牌阶段', () => {
     expect(result.state.phase).toBe('play')
     expect(result.events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
 
-    const deployed = result.events.filter((e) => e.type === 'AGENT_DEPLOYED')
+    const deployed = result.events.filter((e) => e.type === 'AI_DEPLOYED')
     expect(deployed).toHaveLength(player.board.length)
     expect(player.board.every((a) => a.owner === 0)).toBe(true)
     const skills = result.events.filter((e) => e.type === 'SKILL_PLAYED')
@@ -175,9 +175,9 @@ describe('出牌阶段', () => {
     )
   })
 
-  it('AI 卡上场后沿用手牌那一份实例 id', () => {
-    const game = newGame({ deck0: deckOf('agent-claude') })
-    const card = handCard(game.state, 0, 'agent-claude')
+  it('AI 牌上场后沿用手牌那一份实例 id', () => {
+    const game = newGame({ deck0: deckOf('ai-claude') })
+    const card = handCard(game.state, 0, 'ai-claude')
     const result = execute(game.state, {
       type: 'PLAY_CARD',
       player: 0,
@@ -185,13 +185,13 @@ describe('出牌阶段', () => {
     })
 
     expect(board(result.state, 0)).toEqual([
-      { instanceId: card.instanceId, cardId: 'agent-claude', owner: 0 },
+      { instanceId: card.instanceId, cardId: 'ai-claude', owner: 0 },
     ])
     expect(result.events).toEqual([
       {
-        type: 'AGENT_DEPLOYED',
+        type: 'AI_DEPLOYED',
         player: 0,
-        agent: { instanceId: card.instanceId, cardId: 'agent-claude', owner: 0 },
+        ai: { instanceId: card.instanceId, cardId: 'ai-claude', owner: 0 },
       },
     ])
   })
@@ -257,7 +257,7 @@ describe('结束出牌', () => {
 describe('答题结算', () => {
   /** 摆一个"甲两个 AI、乙一个 AI"的答题阶段局面。 */
   function twoVsOne() {
-    const game = newGame({ deck0: deckOf('agent-gpt'), deck1: deckOf('agent-claude') })
+    const game = newGame({ deck0: deckOf('ai-gpt'), deck1: deckOf('ai-claude') })
     const mine = game.state.players[0].hand.slice(0, 2)
     const theirs = game.state.players[1].hand[0]!
     return run(game.state, [
@@ -286,22 +286,22 @@ describe('答题结算', () => {
     // 事件序：逐个揭晓回答，答错的紧跟一条罚下，最后统一计分。
     expect(result.events.slice(0, 5)).toEqual([
       {
-        type: 'AGENT_ANSWERED',
+        type: 'AI_ANSWERED',
         instanceId: survivor!.instanceId,
         owner: 0,
         correct: true,
         answerText: '占位回答',
       },
       {
-        type: 'AGENT_ANSWERED',
+        type: 'AI_ANSWERED',
         instanceId: doomed!.instanceId,
         owner: 0,
         correct: false,
         answerText: '占位回答',
       },
-      { type: 'AGENT_ELIMINATED', instanceId: doomed!.instanceId, owner: 0 },
+      { type: 'AI_ELIMINATED', instanceId: doomed!.instanceId, owner: 0 },
       {
-        type: 'AGENT_ANSWERED',
+        type: 'AI_ANSWERED',
         instanceId: theirs.instanceId,
         owner: 1,
         correct: true,
@@ -404,10 +404,10 @@ describe('答题结算', () => {
 
 describe('胜负', () => {
   /** 只有一道题的一局：第一次结算就是最后一轮。 */
-  function oneRoundGame(agents0: number, agents1: number) {
+  function oneRoundGame(aiCount0: number, aiCount1: number) {
     const game = newGame({
-      deck0: deckOf('agent-gpt'),
-      deck1: deckOf('agent-claude'),
+      deck0: deckOf('ai-gpt'),
+      deck1: deckOf('ai-claude'),
       questions: [QUESTION_POOL[0]!],
     })
     const play = (player: PlayerId, count: number): Command[] =>
@@ -415,9 +415,9 @@ describe('胜负', () => {
         .slice(0, count)
         .map((card) => ({ type: 'PLAY_CARD', player, instanceId: card.instanceId }))
     return run(game.state, [
-      ...play(0, agents0),
+      ...play(0, aiCount0),
       { type: 'END_PLAY', player: 0 },
-      ...play(1, agents1),
+      ...play(1, aiCount1),
       { type: 'END_PLAY', player: 1 },
     ]).state
   }
@@ -475,10 +475,10 @@ describe('胜负', () => {
       } else {
         // driver 就是这么干的：拿本轮题目和场上全部 AI 去查剧本，再把结果喂回引擎。
         const question = state.questions[state.round - 1]!
-        const agents = [...state.players[0].board, ...state.players[1].board]
+        const aiUnits = [...state.players[0].board, ...state.players[1].board]
         const scored = execute(state, {
           type: 'SUBMIT_ANSWERS',
-          results: scriptedAnswers(question, agents),
+          results: scriptedAnswers(question, aiUnits),
         })
         state = scored.state
         events.push(...scored.events)
@@ -530,15 +530,15 @@ describe('调试指令：DEBUG_ADD_CARD', () => {
     const deckBefore = game.state.players[0].deck.length
     const handBefore = game.state.players[0].hand.length
     const result = run(game.state, [
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'agent-gemini' },
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'agent-gemini' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gemini' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gemini' },
     ])
 
     const player = result.state.players[0]
     expect(player.deck).toHaveLength(deckBefore)
     expect(player.hand).toHaveLength(handBefore + 2)
     const added = player.hand.slice(-2)
-    expect(added.map((c) => c.cardId)).toEqual(['agent-gemini', 'agent-gemini'])
+    expect(added.map((c) => c.cardId)).toEqual(['ai-gemini', 'ai-gemini'])
     expect(added[0]!.instanceId).not.toBe(added[1]!.instanceId)
     // 造出来的实例不属于任何一副牌组，客户端靠 dbg- 前缀就能认出来。
     expect(added.every((c) => c.instanceId.startsWith('dbg-'))).toBe(true)
@@ -568,8 +568,8 @@ describe('调试指令：DEBUG_ADD_CARD', () => {
 
   it('答题阶段也能用：测试房要能提前把手牌摆好', () => {
     const quiz = toQuiz(newGame().state)
-    const result = execute(quiz, { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'agent-gpt' })
-    expect(result.state.players[0].hand.at(-1)!.cardId).toBe('agent-gpt')
+    const result = execute(quiz, { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'ai-gpt' })
+    expect(result.state.players[0].hand.at(-1)!.cardId).toBe('ai-gpt')
     expect(result.state.phase).toBe('quiz')
   })
 })
@@ -627,18 +627,18 @@ describe('调试指令：DEBUG_REMOVE_CARD', () => {
 
 describe('调试指令：DEBUG_PLAY_CARD', () => {
   it('还没轮到的一方也能出牌，结算和正常出牌一致', () => {
-    const game = newGame({ deck1: deckOf('agent-deepseek') })
+    const game = newGame({ deck1: deckOf('ai-deepseek') })
     expect(game.state.activePlayer).toBe(0)
 
-    const card = handCard(game.state, 1, 'agent-deepseek')
+    const card = handCard(game.state, 1, 'ai-deepseek')
     const result = execute(game.state, {
       type: 'DEBUG_PLAY_CARD',
       player: 1,
       instanceId: card.instanceId,
     })
 
-    expect(board(result.state, 1).map((a) => a.cardId)).toEqual(['agent-deepseek'])
-    expect(result.events.map((e) => e.type)).toEqual(['AGENT_DEPLOYED'])
+    expect(board(result.state, 1).map((a) => a.cardId)).toEqual(['ai-deepseek'])
+    expect(result.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
     // 只免掉"轮到谁"这一条检查，出牌本身仍然要在出牌阶段。
     expect(result.state.activePlayer).toBe(0)
   })
@@ -679,8 +679,8 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
 
 describe('调试指令的边界', () => {
   it('加牌/弃牌/替对手出牌都不推进轮次', () => {
-    const game = newGame({ deck1: deckOf('agent-gpt') })
-    const card = handCard(game.state, 1, 'agent-gpt')
+    const game = newGame({ deck1: deckOf('ai-gpt') })
+    const card = handCard(game.state, 1, 'ai-gpt')
     const result = run(game.state, [
       { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'placeholder-skill' },
       { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId },
@@ -711,11 +711,11 @@ describe('题库与剧本', () => {
     )
   })
 
-  it('剧本覆盖全部题目 × 全部 AI 卡', () => {
-    const agentCards = Object.values(CARDS).filter((c) => c.kind === 'agent')
-    expect(agentCards.length).toBeGreaterThan(0)
+  it('剧本覆盖全部题目 × 全部 AI 牌', () => {
+    const aiCards = Object.values(CARDS).filter((c) => c.kind === 'ai')
+    expect(aiCards.length).toBeGreaterThan(0)
     for (const question of QUESTION_POOL) {
-      for (const card of agentCards) {
+      for (const card of aiCards) {
         const [answer] = scriptedAnswers(question, [
           { instanceId: 'x', cardId: card.id, owner: 0 },
         ])
@@ -728,13 +728,13 @@ describe('题库与剧本', () => {
 
   it('按传入顺序返回，每张卡对同一道题的结果稳定不变', () => {
     const question = QUESTION_POOL[0]!
-    const agents = [
-      { instanceId: 'a', cardId: 'agent-gpt', owner: 0 as PlayerId },
-      { instanceId: 'b', cardId: 'agent-claude', owner: 1 as PlayerId },
+    const aiUnits = [
+      { instanceId: 'a', cardId: 'ai-gpt', owner: 0 as PlayerId },
+      { instanceId: 'b', cardId: 'ai-claude', owner: 1 as PlayerId },
     ]
-    const first = scriptedAnswers(question, agents)
+    const first = scriptedAnswers(question, aiUnits)
     expect(first.map((r) => r.instanceId)).toEqual(['a', 'b'])
-    expect(scriptedAnswers(question, agents)).toEqual(first)
+    expect(scriptedAnswers(question, aiUnits)).toEqual(first)
   })
 
   it('剧本里没有的卡直接抛错，暴露数据没补齐', () => {

@@ -41,19 +41,40 @@ interface CardBase {
   text: string
 }
 
-/** AI 卡：打出后作为单位留在场上，每轮跟着答题，答错才罚下。 */
-export interface AgentCard extends CardBase {
-  kind: 'agent'
+/** AI 牌：打出后作为单位留在场上，每轮答题阶段跟着答题，答错才罚下。 */
+export interface AiCard extends CardBase {
+  kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
 }
 
-/** 技能牌：打出后直接进弃牌堆。本迭代只有卡面和动画，没有任何效果。 */
+/**
+ * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
+ * 本迭代只有卡面和动画，没有任何效果。
+ */
 export interface SkillCard extends CardBase {
   kind: 'skill'
 }
 
-export type Card = AgentCard | SkillCard
+/**
+ * 英雄牌：开局前选，每方一张，配一个专属技能。
+ *
+ * 它不进 20 张牌组，也不会出现在手牌、弃牌堆和抽卡池里，所以和 HandCard 是两套东西。
+ * 引擎和界面尚未接入：现在只有类型和 heroes.ts 里的数据壳。
+ */
+export interface HeroCard extends CardBase {
+  kind: 'hero'
+  skill: {
+    name: string
+    text: string
+  }
+}
+
+/** 牌组、手牌、弃牌堆里唯二可能出现的牌。 */
+export type HandCard = AiCard | SkillCard
+
+/** 全部卡牌。英雄牌只在选英雄的场合出现，别拿它当手牌用。 */
+export type Card = HandCard | HeroCard
 
 /** 牌堆/手牌/弃牌堆里的一张牌。 */
 export interface CardInstance {
@@ -67,7 +88,7 @@ export interface CardInstance {
  * 目前没有会被改动的数值，所以只留身份三件套；
  * 之后要加"上场后被增益/削弱"的属性时再往这里拷贝卡面数值。
  */
-export interface AgentInstance {
+export interface AiInstance {
   instanceId: InstanceId
   cardId: CardId
   owner: PlayerId
@@ -95,7 +116,7 @@ export interface PlayerState {
   hand: CardInstance[]
   /** 牌堆，数组末尾是牌堆顶（抽牌用 pop）。 */
   deck: CardInstance[]
-  board: AgentInstance[]
+  board: AiInstance[]
   discard: CardInstance[]
 }
 
@@ -158,7 +179,7 @@ export type GameEvent =
   /** 开局抛硬币的结果，客户端拿它播全场硬币动画。 */
   | { type: 'GAME_STARTED'; firstPlayer: PlayerId }
   | { type: 'CARD_DRAWN'; player: PlayerId; card: CardInstance }
-  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AGENT_DEPLOYED / SKILL_PLAYED）。 */
+  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AI_DEPLOYED / SKILL_PLAYED）。 */
   | { type: 'CARD_REMOVED'; player: PlayerId; instanceId: InstanceId }
   | {
       type: 'ROUND_STARTED'
@@ -169,7 +190,7 @@ export type GameEvent =
     }
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
-  | { type: 'AGENT_DEPLOYED'; player: PlayerId; agent: AgentInstance }
+  | { type: 'AI_DEPLOYED'; player: PlayerId; ai: AiInstance }
   /** 技能牌打出：中央亮相一下再进弃牌堆。 */
   | {
       type: 'SKILL_PLAYED'
@@ -184,14 +205,14 @@ export type GameEvent =
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */
   | { type: 'QUESTION_REVEALED'; question: Question }
   | {
-      type: 'AGENT_ANSWERED'
+      type: 'AI_ANSWERED'
       instanceId: InstanceId
       owner: PlayerId
       correct: boolean
       answerText: string
     }
   /** 答错被罚下，从场上移进弃牌堆。 */
-  | { type: 'AGENT_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
+  | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
   /** 本轮计分：gains/scores 按座位号排，[0] 是 0 号玩家。 */
   | { type: 'ROUND_SCORED'; gains: [number, number]; scores: [number, number] }
   | { type: 'GAME_OVER'; winner: PlayerId | 'draw' }

@@ -18,6 +18,30 @@
       rel="stylesheet"
     />
     <!--
+      首页那张画的各层切图，提前开始下载。
+
+      首页要等这些图全部到齐才肯上场（见 src/screens/HomeScreen.tsx），所以它们是首屏的关键路径。
+      写在这儿是为了让下载和 JS bundle 并行：不写的话得等 bundle 下完、解析完、组件跑起来
+      才开始请求，白白多等一截。清单要和 HomeScreen 里的 HOME_ASSETS 对得上。
+
+      卡面插画（/cards 下那几张）没写进来：具体用哪张是按卡 id 算出来的，
+      在这里写死等于把那套映射复制一份，改卡就会不一致；它们仍由 HomeScreen 负责等待。
+
+      整个站只有这一个 index.html，所以直接开 /room、/match 这些地址也会白下这些图。
+      玩家一律从首页进（房间是当场输 4 位码，没有可以直接分享的房间链接），所以不算亏。
+    -->
+    <link rel="preload" as="image" href="/home/home-bg.jpg" />
+    <link rel="preload" as="image" href="/home/cast-left-back.webp" />
+    <link rel="preload" as="image" href="/home/cast-left-officer.webp" />
+    <link rel="preload" as="image" href="/home/cast-left-front.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-glasses.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-laugh.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-classic.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-front.webp" />
+    <link rel="preload" as="image" href="/home/home-table.png" />
+    <link rel="preload" as="image" href="/home/home-props.png" />
+    <link rel="preload" as="image" href="/home/home-plaque.png" />
+    <!--
       首屏 loader 的样式。
 
       为什么内联在这里、不走 styles.css：styles.css 是被 main.tsx import 进来的，
@@ -180,6 +204,9 @@
       React 19 的 createRoot().render() 首次渲染会把容器里已有的子节点全部清掉，
       所以 App 一挂载这段 DOM 自己就消失了，不需要任何代码去删它。
       样式在 <head> 的内联 <style> 里，那儿也写了为什么必须内联。
+
+      消失之后不一定就轮到画面：首页还要等自己的图，那段时间由 src/ui/LoadingScreen.tsx
+      接着显示同一副 loader。两边看上去是一段连续的等待，中间没有换画面。
     -->
     <div id="root">
       <div class="boot-loader" role="status" aria-label="加载中">

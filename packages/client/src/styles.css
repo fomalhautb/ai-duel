@@ -184,6 +184,19 @@ body,
     radial-gradient(ellipse 130% 100% at 50% 42%, rgb(0 0 0 / 0%) 45%, rgb(122 106 74 / 0.189) 100%)
   );
   user-select: none;
+  /* 首页是等图全部加载完才整页挂上来的（见 screens/HomeScreen.tsx），
+     从深色的加载页直接硬切到这张亮画面太扎眼，用一段短淡入接上。
+     只播一次，时长压在 0.4s 以内：再长就成了"进场动画"，每次回首页都要等它演完。 */
+  animation: home-fade-in 0.36s ease-out;
+}
+
+@keyframes home-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .home__stage {
@@ -2896,6 +2909,34 @@ body:has(.battle) {
   }
 }
 
+/* ---------- 整屏加载页 ---------- */
+
+/*
+ * ui/LoadingScreen.tsx 用的壳：整屏铺满，正中一个 loader 加一行字。
+ * 页面在等自己的图片时（首页就是这样，见 screens/HomeScreen.tsx）拿它顶着。
+ *
+ * 底色、间距、字号都照着 index.html 的首屏 loader 抄：那一段负责 bundle 下载期间的等待，
+ * 这一段负责 React 挂载之后的等待，两段是连着的，看上去必须是同一个画面。
+ */
+.page-loader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: #0d1117;
+}
+
+.page-loader__text {
+  /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
+  margin: 0 -0.32em 0 0;
+  color: #9ca3af;
+  font-size: 15px;
+  letter-spacing: 0.32em;
+}
+
 /* ---------- 加载动画演示页 ---------- */
 
 .loader-demo {
@@ -2907,6 +2948,8 @@ body:has(.battle) {
 /*
  * 顶上这块占满一屏，是为了照着真实加载页的样子看：整屏就一个 loader 加一行字。
  * 变体墙在它下面，要滚一下才看得到——先看整体观感，再看参数对比。
+ * 里面那行提示直接借真实加载页的 .page-loader__text，字距和收尾的负边距不用再抄一遍；
+ * 这块不能整个换成 <LoadingScreen>，那个是 position: fixed，会把下面的变体墙盖住。
  */
 .loader-demo__hero {
   display: flex;
@@ -2915,14 +2958,6 @@ body:has(.battle) {
   justify-content: center;
   min-height: 100vh;
   gap: 20px;
-}
-
-.loader-demo__hint {
-  /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
-  margin: 0 -0.32em 0 0;
-  color: #9ca3af;
-  font-size: 15px;
-  letter-spacing: 0.32em;
 }
 
 .loader-demo__heading {

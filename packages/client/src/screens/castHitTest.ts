@@ -12,14 +12,14 @@
  * 压在人物之上的桌面弧和前景道具也要抽一份 alpha，当"遮挡层"从命中区里减掉，
  * 否则会出现"指着地球仪却高亮了它后面的人"（见 hitTestAlphaMaps 的注释）。
  *
- * 采样时按源图边长降采样到 1/4（现在的 1x 素材 1672×941 → 418×235），一张图约 96KB，
- * 七张人物加两张遮挡层不到 1MB，而轮廓在这个精度下误差只有 4 个屏幕像素，hover 判定完全够用。
+ * 采样不按源图的倍数缩，而是一律缩到固定的目标宽度 CAST_ALPHA_TARGET_WIDTH：
+ * 七张人物抠图已经换成 2x（3344×1882），两张遮挡层还是 1x（1672×941），
+ * 倍率不一致，按倍数缩就必然顾此失彼——够人物省内存的倍数会把遮挡层的精度砍掉一半。
+ * 按目标宽度采样后每张都落在约 418×235，一张约 96KB，九张不到 1MB，
+ * 轮廓误差约 4 个屏幕像素，hover 判定完全够用；今后素材再换成任何倍率，这里都不用动。
  *
  * 除了这个缓冲大小，其余部分和素材分辨率无关：坐标和包围盒一律归一化成 0~1，
  * 每张图各按自己的宽高采样，所以素材只要求和舞台**等比**，不要求等大，几张图之间也不必同尺寸。
- * 但降采样是按源图边长算的：素材换成 2x（3344×1882）后这些缓冲会涨到四倍（九张约 3.4MB），
- * 多出来的精度在屏幕上却看不出来——命中判定跟得上屏幕像素就够了。
- * 真换了 2x，把 CAST_ALPHA_DOWNSCALE 从 4 改成 8，内存和精度就都回到今天这样。
  */
 
 /** 归一化包围盒，四个值都是 0~1 的比例（相对图片宽高），方便直接换算成舞台里的百分比。 */
@@ -48,14 +48,14 @@ export interface AlphaMap {
  */
 export const CAST_ALPHA_THRESHOLD = 64
 
-/** 降采样倍数。命中精度和内存的折中，理由见文件头。 */
-export const CAST_ALPHA_DOWNSCALE = 4
+/** alpha 采样的目标宽度（1x 素材 1672 的 1/4）。命中精度和内存的折中，理由见文件头。 */
+export const CAST_ALPHA_TARGET_WIDTH = 418
 
 /**
  * 从 alpha 数组算不透明像素的归一化包围盒。
  *
- * 用的是"扫全图记录四个极值"的朴素做法：降采样之后一张图也就十万个像素上下（2x 素材是四十万），
- * 每张图一辈子只算一次，没必要为它做行/列的提前跳出。
+ * 用的是"扫全图记录四个极值"的朴素做法：采样一律缩到固定宽度，一张图恒定就是十万个像素上下，
+ * 不随素材倍率变；每张图一辈子只算一次，没必要为它做行/列的提前跳出。
  */
 export function computeAlphaBBox(
   alpha: Uint8Array,
@@ -153,11 +153,13 @@ async function loadAlphaMap(src: string, canvas: HTMLCanvasElement): Promise<Alp
     image.src = src
     await image.decode()
 
-    const width = Math.max(1, Math.round(image.naturalWidth / CAST_ALPHA_DOWNSCALE))
-    const height = Math.max(1, Math.round(image.naturalHeight / CAST_ALPHA_DOWNSCALE))
+    // 源图比目标还窄时按原宽采样，放大只会凭空多出内存，换不来精度。
+    const width = Math.max(1, Math.min(image.naturalWidth, CAST_ALPHA_TARGET_WIDTH))
+    // 高度按源图宽高比换算，免得素材万一不是标准比例时把 alpha 图压变形。
+    const height = Math.max(1, Math.round((width * image.naturalHeight) / image.naturalWidth))
     /*
      * willReadFrequently 的名字有点误导：它真正的意思是"这块画布的像素要回 CPU 读"，
-     * 而不是"要读很多次"。这里的用法正是它的主场——每张图只画一次（还是缩到 1/4 的小图，
+     * 而不是"要读很多次"。这里的用法正是它的主场——每张图只画一次（还是缩到几百像素宽的小图，
      * 用 CPU 后端画也很便宜），画完立刻 getImageData 全读走。
      * 走 GPU 后端的话这一次 getImageData 是同步的 GPU→CPU 回读，要等 GPU 排空才返回，
      * 而这段代码正好跑在首页入场动画期间，卡的是主线程。

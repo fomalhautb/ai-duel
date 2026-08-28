@@ -98,7 +98,9 @@ describe('一个最小回合', () => {
     ])
 
     // 基础 2 点 + 幻觉先知在「幻觉」维度上的 3 点暴露 = 5 点，2 点完整度的它直接崩坏。
+    // instanceId 是打出的那张提示卡自己，客户端靠它定位起飞的手牌。
     expect(attacked.events.find((e) => e.type === 'PROMPT_RESOLVED')).toMatchObject({
+      instanceId: prompt.instanceId,
       weakness: 'hallucination',
       damage: 5,
     })
@@ -300,6 +302,7 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
 
     // 和正常出牌一样：基础 2 点 + 幻觉维度 3 点暴露 = 5 点，2 点完整度的它当场崩坏。
     expect(result.events.find((e) => e.type === 'PROMPT_RESOLVED')).toMatchObject({
+      instanceId: prompt.instanceId,
       weakness: 'hallucination',
       damage: 5,
     })

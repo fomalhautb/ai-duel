@@ -1,9 +1,9 @@
 /**
  * MatchDriver：对局界面和"规则跑在哪"之间的唯一接口。
  *
- * 教程、本地热座、联机房主、联机客人，四种对局的界面完全一样，
+ * 本地热座、dev 测试房、联机房主、联机客人，这几种玩法的界面完全一样，
  * 区别只在于指令交给谁执行、局面从哪来。把这层差异收进 driver 之后，
- * MatchStage 根本不知道自己在打教程还是在联机——接联机时界面一行都不用改。
+ * MatchStage 根本不知道自己是在本地对局还是在联机——接联机时界面一行都不用改。
  */
 
 import type { Command, GameEvent, GameState, PlayerId } from '@ai-duel/core'
@@ -49,7 +49,7 @@ export interface MatchDriver {
   dispose(): void
 }
 
-/** driver 内部共用的订阅/快照管理，四个实现都基于它。 */
+/** driver 内部共用的订阅/快照管理，三个实现（localDriver / hostDriver / guestDriver）都基于它。 */
 export interface DriverCore {
   subscribe(listener: () => void): () => void
   getSnapshot(): MatchView

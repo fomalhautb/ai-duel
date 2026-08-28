@@ -6,20 +6,20 @@
    没有复用价值，所以不做成组件）。
    凡是别的页面也会用到的样式一律留在 src/ui/paper/paper.css，别往这搬。
 
-   页面私有类统一加 design- 前缀，避免和 styles.css 里的 .page、.demo
+   页面私有类统一加 design- 前缀，避免和 styles.css 里的 .page、.battle
    那些全站类撞名。需要盖过组件库默认值的地方一律写成
    .design-page .design-xxx（两个类）：design.css 和 paper.css 谁先加载
    取决于模块求值顺序，靠特指度赢比靠书写顺序赢可靠。
    ============================================================ */
 
 .design-page {
-  /* --demo-grain 的作用域补丁。
+  /* --battle-grain 的作用域补丁。
      .plaque-button（styles.css）的 background-image 里引用了这个变量，
-     而它只定义在 .demo 那个对局界面根类上。本页不在 .demo 里，变量取不到；
+     而它只定义在 .battle 那个对局界面根类上。本页不在 .battle 里，变量取不到；
      CSS 的规则是 var() 取不到值就让整条声明作废，于是同一条 background-image
      里的高光渐变也一起没了，按钮会变成一块死板的纯色。
      所以照抄一份定义放在页面根上。改 styles.css 里那份时记得同步这里。 */
-  --demo-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
 }
 
 /* ============================================================

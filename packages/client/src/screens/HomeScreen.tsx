@@ -27,6 +27,8 @@ import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
+import { createTestMatchDriver } from '../match/testMatch'
+import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
 
 gsap.registerPlugin(useGSAP)
@@ -143,6 +145,8 @@ const CAST: Array<{ id: string; left: number; top: number; width: number; height
 
 export function HomeScreen() {
   const [, navigate] = useLocation()
+  // 首页在 MatchSessionProvider 里面，所以 dev 入口可以直接建一局测试对局再跳过去。
+  const session = useMatchSession()
   // 首页现在不展示任何存档数据，留着 state 只是为了"重置存档"后触发一次重渲染。
   const [, setSave] = useState(loadSave)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -322,8 +326,15 @@ export function HomeScreen() {
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。 */}
         <div className="home__dev">
-          <button type="button" className="home__dev-link" onClick={() => navigate('/dev/hand')}>
-            手牌演示
+          <button
+            type="button"
+            className="home__dev-link"
+            onClick={() => {
+              session.start(createTestMatchDriver(), { test: true })
+              navigate('/match')
+            }}
+          >
+            测试对局
           </button>
           <button type="button" className="home__dev-link" onClick={() => navigate('/loader')}>
             加载动画

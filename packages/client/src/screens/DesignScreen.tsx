@@ -166,11 +166,11 @@ export function DesignScreen() {
             文字套 <code>#ai-duel-rough-icon</code>，都是页面上公共的手绘滤镜——
             同一个 id 浏览器只算一次噪声，不为按钮单开一份只差 seed 的私有滤镜。
             <br />
-            表面纹理是 styles.css 里的 <code>--demo-grain</code> 那张噪声图，配
+            表面纹理是 styles.css 里的 <code>--battle-grain</code> 那张噪声图，配
             <code>background-blend-mode: screen</code> 压在墨蓝底上（demo 里走的是{' '}
             <code>.grain.on-dark</code> 那套两层纸纹；按钮改用更轻的单层图，是因为它的两个伪元素
-            要留给内高光和压入时的内阴影）。本页不在 <code>.demo</code> 作用域里，
-            <code>--demo-grain</code> 在 design.css 的页面根类上补了一份，见那里的注释。
+            要留给内高光和压入时的内阴影）。本页不在 <code>.battle</code> 作用域里，
+            <code>--battle-grain</code> 在 design.css 的页面根类上补了一份，见那里的注释。
             <br />
             hover 时底色提亮、内线转赭红、文字转暖白；按下时整块以底边为支点压入 6px 并纵向压扁 4%，
             内阴影同步加深，看着像匾额被按进墙里而不是整体平移。<code>PlaqueButton</code> 用

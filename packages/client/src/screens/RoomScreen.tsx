@@ -13,6 +13,7 @@ import { connectRoom } from '../net/socket'
 import type { RoomHandle } from '../net/socket'
 import { createHostDriver } from '../match/hostDriver'
 import { createGuestDriver } from '../match/guestDriver'
+import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 
 /** 服务端摇的是 4 位数字码，输入框按同样的规则校验。 */
@@ -126,6 +127,17 @@ export function RoomScreen() {
 
       <button type="button" onClick={() => navigate('/')}>
         回首页
+      </button>
+
+      {/* 开发期入口：一个人也能把对局界面整套跑一遍，不依赖上面的房间连接建没建起来。 */}
+      <button
+        type="button"
+        onClick={() => {
+          session.start(createTestMatchDriver(), { test: true })
+          navigate('/match')
+        }}
+      >
+        测试房（dev）
       </button>
     </main>
   )

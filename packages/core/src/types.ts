@@ -117,6 +117,12 @@ export interface GameState {
   players: [PlayerState, PlayerState]
   phase: 'playing' | 'finished'
   winner: PlayerId | null
+  /**
+   * 下一个卡牌实例序号，开局发完双方牌组后接着往下走。
+   * 调试指令凭空造牌时靠它保证 instanceId 不撞车。引擎里不许用 Math.random / Date，
+   * 所以这个计数器必须留在状态里，才能跟着状态一起被拷贝和发给客人。
+   */
+  seq: number
 }
 
 /** 玩家能对引擎发出的全部指令。 */
@@ -129,6 +135,23 @@ export type Command =
       targetInstanceId?: InstanceId
     }
   | { type: 'END_TURN'; player: PlayerId }
+  // 下面四条是 dev 测试房专用的调试指令，走的是和正常指令一样的 execute 路径，
+  // 所以联机时客人发给房主也照样会被执行。本项目不防作弊（见 docs/architecture.md 4.1），
+  // 客户端只在测试房里给出入口，引擎这一层不做任何身份或来源限制。
+  /** 给某位玩家加一张手牌：不带 cardId 从他牌堆抽一张，带 cardId 则凭空造一张新实例（不消耗牌堆）。 */
+  | { type: 'DEBUG_ADD_CARD'; player: PlayerId; cardId?: CardId }
+  /** 弃掉某位玩家的一张手牌：不带 instanceId 移最后一张，带则移指定那张；被移的牌进弃牌堆。 */
+  | { type: 'DEBUG_REMOVE_CARD'; player: PlayerId; instanceId?: InstanceId }
+  /** 无视回合归属和算力打出一张手牌，其余结算与 PLAY_CARD 完全一致。 */
+  | {
+      type: 'DEBUG_PLAY_CARD'
+      player: PlayerId
+      instanceId: InstanceId
+      /** 同 PLAY_CARD：提示卡的目标模型，不填表示直击对手本体。 */
+      targetInstanceId?: InstanceId
+    }
+  /** 把某位玩家的算力和算力上限一起拉满到 MAX_COMPUTE。 */
+  | { type: 'DEBUG_REFILL_COMPUTE'; player: PlayerId }
 
 /**
  * 引擎产出的事件流，客户端照着它播动画。
@@ -137,6 +160,8 @@ export type Command =
 export type GameEvent =
   | { type: 'GAME_STARTED'; startingPlayer: PlayerId }
   | { type: 'CARD_DRAWN'; player: PlayerId; card: CardInstance }
+  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 MODEL_DEPLOYED / PROMPT_RESOLVED）。 */
+  | { type: 'CARD_REMOVED'; player: PlayerId; instanceId: InstanceId }
   | { type: 'TURN_STARTED'; player: PlayerId; turn: number }
   | { type: 'TURN_ENDED'; player: PlayerId }
   | { type: 'COMPUTE_CHANGED'; player: PlayerId; compute: number; computeMax: number }

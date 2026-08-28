@@ -12,6 +12,10 @@
  *
  * 必须在 useGSAP 的 context 里调用（Flip 的 onComplete 要用 contextSafe 包一层），
  * 否则这里建的补间不归 context 管，组件卸载时 revert 不掉。
+ *
+ * 注意：眼下没有任何页面调用它。原来调用它的 /dev/hand 演示页已经删掉，
+ * MatchStage 的出牌流程还没接上场特效。类名已经从演示页的 .demo__* 换成对局界面的
+ * .battle__*，接的时候战场那边补上 .battle__tile-edge / .battle__smoke-layer 两个节点即可。
  */
 
 import gsap from 'gsap'
@@ -29,14 +33,14 @@ const EDGE_OUT = 0.16
 /**
  * 播一次上场特效。
  *
- * tile 就是战场上那张小卡的最外层 .demo__tile，其余零件（追光层、特效层、页面根元素）
+ * tile 就是战场上那张小卡的最外层 .battle__tile，其余零件（追光层、特效层、页面根元素）
  * 都从它往上下找，调用方不用一个个传进来。
  */
 export function playSummonFx(tile: HTMLElement) {
-  const edge = tile.querySelector<HTMLElement>('.demo__tile-edge')
-  const board = tile.closest<HTMLElement>('.demo__board')
-  const fxLayer = board?.querySelector<HTMLElement>('.demo__fx-layer') ?? null
-  const root = tile.closest<HTMLElement>('.demo')
+  const edge = tile.querySelector<HTMLElement>('.battle__tile-edge')
+  const board = tile.closest<HTMLElement>('.battle__board')
+  const fxLayer = board?.querySelector<HTMLElement>('.battle__smoke-layer') ?? null
+  const root = tile.closest<HTMLElement>('.battle')
 
   if (root !== null) shakeScreen(root)
 
@@ -56,11 +60,11 @@ export function playSummonFx(tile: HTMLElement) {
 /**
  * 整屏抖 2~3px，约 0.3 秒。
  *
- * 抖的是 .demo 根元素，有两个副作用值得记一笔（都不影响观感，但改这里之前要知道）：
- * 一是 .demo 一旦有了 transform，就成了内部所有 fixed 元素（.hand-fan、.opponent-fan、
- * 强制展示的遮罩和卡）的 containing block——好在 .demo 本来就正好铺满视口，
+ * 抖的是 .battle 根元素，有两个副作用值得记一笔（都不影响观感，但改这里之前要知道）：
+ * 一是 .battle 一旦有了 transform，就成了内部所有 fixed 元素（.hand-fan、.opponent-fan、
+ * 强制展示的遮罩和卡）的 containing block——好在 .battle 本来就正好铺满视口，
  * 这些元素的 left / top / width: 100% 算出来还是同一个矩形，画面没有差别；
- * 二是这期间 .demo 临时变成一个层叠上下文，但页面上所有 z-index 都在 .demo 内部，
+ * 二是这期间 .battle 临时变成一个层叠上下文，但页面上所有 z-index 都在 .battle 内部，
  * 相对关系原样保留，顶栏仍然压着手牌、遮罩仍然压着一切。
  *
  * 收尾必须 clearProps 把 transform 整个抹掉，只把 x / y 归零是不够的：
@@ -81,7 +85,7 @@ function shakeScreen(root: HTMLElement) {
 /**
  * 沿卡牌圆角边缘跑一圈的金色亮弧：淡入 → 绕一圈 → 淡出。
  *
- * 亮弧本身是 conic-gradient 里的一小段（见 .demo__tile-edge-ring），
+ * 亮弧本身是 conic-gradient 里的一小段（见 .battle__tile-edge-ring），
  * "跑起来"就是每帧改写这个锥形渐变的起始角 --edge-angle。
  * 角度补间挂在一个普通对象上、再由 onUpdate 拼出角度字符串，而不是让 GSAP 直接补间
  * 这个自定义属性：--edge-angle 没有用 @property 注册过，浏览器只把它当一串记号，
@@ -108,7 +112,7 @@ function spawnSmoke(layer: HTMLElement, cx: number, cy: number) {
   for (let i = 0; i < SMOKE_COUNT; i += 1) {
     const size = 34 + Math.random() * 30
     const puff = document.createElement('div')
-    puff.className = 'demo__fx-smoke'
+    puff.className = 'battle__smoke'
     puff.style.width = `${size}px`
     puff.style.height = `${size}px`
     puff.style.left = `${cx - size / 2}px`

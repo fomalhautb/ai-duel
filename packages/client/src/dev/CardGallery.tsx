@@ -5,9 +5,9 @@
  * 所以卡面排版一改，这一页立刻能看出十张卡各自会变成什么样——它存在的意义就是这个"对照表"，
  * 不是给玩家看的图鉴界面。
  *
- * 卡面上放不下的数据（模型卡的六维弱点画像、提示卡的目标维度）列在每张卡下面：
- * 这些是核心机制要用、卡面却还没给版面的字段（见 HandFan.tsx 里 HandCardData 的说明），
- * 摆在旁边是为了排版迭代时随时看见"还有这些没安置"。
+ * 模型卡的弱点画像和提示卡的目标维度现在卡面上已经有版面（弱点标签行、"打·xx"），
+ * 每张卡下面仍然把它们用纯文字再列一遍：卡面上那几个标签又小又挤，
+ * 调排版时需要一个"这张卡的数据到底是什么"的对照，才看得出卡面有没有把它们画错或画漏。
  */
 
 import { useLocation } from 'wouter'
@@ -38,9 +38,15 @@ function toHandCardData(card: Card): HandCardData {
     backText: '图鉴页只看正面。',
   }
   if (card.kind === 'model') {
-    return { ...base, kind: 'model', power: card.power, integrity: card.integrity }
+    return {
+      ...base,
+      kind: 'model',
+      power: card.power,
+      integrity: card.integrity,
+      weaknesses: card.weaknesses,
+    }
   }
-  return { ...base, kind: 'prompt', damage: card.damage }
+  return { ...base, kind: 'prompt', damage: card.damage, targetWeakness: card.targetWeakness }
 }
 
 /** 只列出真正暴露的那几维（0 的维度对打法没有意义，列出来只会把这块塞满）。 */

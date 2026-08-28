@@ -10,9 +10,15 @@ import { createGame, execute, other } from '@ai-duel/core'
 import type { Command, GameSetup, PlayerId } from '@ai-duel/core'
 import { createDriverCore, rejectionOf, statusOf } from './driver'
 import type { MatchDriver } from './driver'
+import { createQuizAutopilot } from './quizAutopilot'
 import type { RoomHandle } from '../net/socket'
 
-/** 房主固定坐 0 号，也就是先手——引擎里 0 号先手是写死的。 */
+/**
+ * 房主固定坐 0 号座位。
+ *
+ * 这只决定"界面把哪一边画成我方"，和先后手无关：第一轮谁先出牌由 createGame 抛硬币掷出，
+ * 房主一样可能是后手。客人靠 other(HOST_SEAT) 推出自己的座位，所以这个值两端必须一致。
+ */
 export const HOST_SEAT: PlayerId = 0
 
 export interface HostDriverOptions {
@@ -53,7 +59,17 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
     })
     core.emitEvents(result.events)
     room.relay({ type: 'match:sync', state: result.state, events: result.events })
+    // 房主是唯一跑引擎的一端，答题结果也由它生成（客人那端不接自动驾驶，
+    // 否则同一轮会被提交两次）。结果跟着上面这条 match:sync 的后续同步一起发给客人。
+    autopilot.observe(result.state)
   }
+
+  const autopilot = createQuizAutopilot({
+    getState: () => core.getSnapshot().state,
+    apply,
+  })
+  // 开局局面也过一遍：createGame 出来必定是出牌阶段，这里只是把"上一次的阶段"记上。
+  autopilot.observe(opening.state)
 
   room.onRelay((message) => {
     if (message.type !== 'match:command') return
@@ -74,6 +90,8 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
     send: apply,
     dispose() {
       disposed = true
+      // 定时器要和连接一起清：界面卸载之后它还会往一局已经没人看的对局里发指令。
+      autopilot.dispose()
       room.dispose()
     },
   }

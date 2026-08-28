@@ -9,14 +9,25 @@
  */
 
 import { useState } from 'react'
-import { other } from '@ai-duel/core'
-import type { PlayerId } from '@ai-duel/core'
+import { CARDS, CARD_POOL, other } from '@ai-duel/core'
+import type { CardId, GamePhase, PlayerId } from '@ai-duel/core'
 import { useMatch } from '../match/useMatch'
 import type { MatchDriver } from '../match/driver'
+
+const PHASE_LABELS: Record<GamePhase, string> = {
+  play: '出牌',
+  quiz: '答题',
+  finished: '已结束',
+}
+
+/** 下拉里的这一项表示"不指定卡牌"，也就是照常从牌堆顶抽一张。 */
+const FROM_DECK = ''
 
 export function DevPanel({ driver }: { driver: MatchDriver }) {
   const view = useMatch(driver)
   const [open, setOpen] = useState(false)
+  /** 「加1张」要造哪张卡；留空就是从牌堆抽。 */
+  const [cardId, setCardId] = useState<CardId | typeof FROM_DECK>(FROM_DECK)
 
   const state = view.state
   if (state === null) return null
@@ -39,15 +50,44 @@ export function DevPanel({ driver }: { driver: MatchDriver }) {
 
       {open ? (
         <div className="battle-dev__panel">
+          {/* 一眼看清引擎现在停在哪：出牌卡住还是在等答题自动提交，光看画面分不出来。 */}
+          <p className="battle-dev__status">
+            第 {state.round}/{state.totalRounds} 轮 · {PHASE_LABELS[state.phase]} · 行动方{' '}
+            {state.players[state.activePlayer].name}
+          </p>
+
+          <div className="battle-dev__row">
+            <span className="battle-dev__row-label">造牌</span>
+            <select
+              className="battle-dev__select"
+              value={cardId}
+              onChange={(event) => setCardId(event.target.value)}
+            >
+              <option value={FROM_DECK}>牌堆顶</option>
+              {CARD_POOL.map((id) => (
+                <option key={id} value={id}>
+                  {CARDS[id]?.name ?? id}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {rows.map((row) => (
             <div className="battle-dev__row" key={row.seat}>
               <span className="battle-dev__row-label">{row.label}</span>
               <button
                 type="button"
                 className="battle-dev__btn"
-                onClick={() => driver.send({ type: 'DEBUG_ADD_CARD', player: row.seat })}
+                onClick={() =>
+                  driver.send({
+                    type: 'DEBUG_ADD_CARD',
+                    player: row.seat,
+                    // 不传 cardId 才是"从牌堆抽"，所以留空时这个字段必须整个不出现。
+                    ...(cardId === FROM_DECK ? {} : { cardId }),
+                  })
+                }
               >
-                抽1张
+                加1张
               </button>
               <button
                 type="button"
@@ -56,28 +96,31 @@ export function DevPanel({ driver }: { driver: MatchDriver }) {
               >
                 去1张
               </button>
-              <button
-                type="button"
-                className="battle-dev__btn"
-                onClick={() => driver.send({ type: 'DEBUG_REFILL_COMPUTE', player: row.seat })}
-              >
-                算力拉满
-              </button>
             </div>
           ))}
 
           <div className="battle-dev__row">
-            {/* 对方回合没有 AI 会主动结束，卡住时靠这个按钮把回合推过去。 */}
+            {/* 对方不会自己点「结束出牌」，卡住时靠这个按钮把出牌权交出去。 */}
             <button
               type="button"
               className="battle-dev__btn"
-              onClick={() => driver.send({ type: 'END_TURN', player: state.activePlayer })}
+              onClick={() => driver.send({ type: 'END_PLAY', player: state.activePlayer })}
             >
-              结束当前回合
+              结束出牌
+            </button>
+            {/* 只想看答题和计分时省掉连点两次「结束出牌」。 */}
+            <button
+              type="button"
+              className="battle-dev__btn"
+              onClick={() => driver.send({ type: 'DEBUG_SKIP_TO_QUIZ' })}
+            >
+              跳到答题
             </button>
           </div>
 
-          <p className="battle-dev__note">点对方手牌可替对方出牌（提示卡直击本体）。</p>
+          <p className="battle-dev__note">
+            点对方手牌可替对方出牌。进答题阶段后结果会自动提交，不用手动点。
+          </p>
         </div>
       ) : null}
     </div>

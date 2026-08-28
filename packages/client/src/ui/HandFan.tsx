@@ -26,7 +26,6 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import type { WeaknessKind } from '@ai-duel/core'
 import { placeholderArtFor } from './cardArt'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
@@ -39,7 +38,6 @@ import {
   PLAYER_FAN,
   fanTransform,
 } from './fanMath'
-import { WEAKNESS_LABELS } from './labels'
 import { DRAG_SCALE, useCardDrag } from './useCardDrag'
 import type { CardDragInfo, CardDropZone } from './useCardDrag'
 
@@ -48,31 +46,18 @@ gsap.registerPlugin(useGSAP)
 /**
  * 一张手牌的展示数据。
  *
- * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 ModelInstance）拼出来；
- * power/integrity/weaknesses 只有模型卡有，damage/targetWeakness 只有提示卡有，所以都是可选的。
- *
- * 场上单位要传**实例的当前数值**而不是卡牌定义里的：受伤和增益都写在实例上，
- * 读定义的话战场小卡会永远显示满血。
+ * 字段照着 core 的 Card 取名，由调用方从 Card + CardInstance（或场上的 AgentInstance）拼出来。
+ * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
+ * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
  * backText 是翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
   name: string
-  cost: number
-  kind: 'model' | 'prompt'
-  power?: number
-  integrity?: number
-  damage?: number
-  /**
-   * 模型卡的六维弱点画像。
-   *
-   * 只传大于 0 的那几维：卡面上这一行是"它哪里脆"，六维全列出来又长又没有信息量，
-   * 完整画像留给翻面的 backText。
-   */
-  weaknesses?: Partial<Record<WeaknessKind, number>>
-  /** 提示卡打的那一个弱点维度。 */
-  targetWeakness?: WeaknessKind
+  kind: 'agent' | 'skill'
+  /** AI 卡印在卡面上的模型名，纯展示。技能牌没有这一项。 */
+  model?: string
   /** 卡面正面的描述文案。 */
   text: string
   /** 翻到背面时展示的补充说明。 */
@@ -305,7 +290,7 @@ export function HandFan({
     // 已经打出、正在等父组件受理的牌（playedRef）也一起摘掉，和拖拽中的牌同等待遇：
     // 父组件为了打开 disabled 必然重渲染，重渲染就带来一次 reflow，
     // 排布只要碰它就会把它补间回扇形，和 HandFanProps 约定的"停在落点上等结果"正好相反
-    // （拖一张提示卡进战场松手，牌会当场飞回手里）。
+    // （拖一张牌进战场松手，牌会当场飞回手里）。
     // 豁免不需要额外的解除逻辑：两处收尾（disabled 关掉时的 layout effect、松手后的 rAF 兜底）
     // 都是先把 id 从 playedRef 删掉再 returnToFan，那一次 reflow 就会把牌送回扇形。
     const draggingId = cardDrag.draggingId()
@@ -560,7 +545,7 @@ export function HandFan({
    * 否则之后再打它会被 playedRef 的防重复挡住，怎么点都没反应。
    *
    * 出牌被受理的话，React 会在这一帧结束前把这张牌从 DOM 里摘掉，slotsRef 的记录跟着没。
-   * 下一帧它还在，只有两种可能：父组件当场拒了（算力不够、不是自己的回合……），
+   * 下一帧它还在，只有两种可能：父组件当场拒了（不是自己的出牌轮、局面已经结束……），
    * 或者按 props 文档的约定打开 disabled 去等网络回包。
    * 前者要立刻收拾干净，否则牌会僵在原地再也拖不动——父组件拒绝时往往根本不改 state，
    * 也就不会有下一次 reflow 来兜底；后者只能等，判据就是 disabledRef
@@ -747,12 +732,12 @@ export function HandFan({
  * 画面前后是同一份排版，落位时不会突然换一套内容。
  *
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
- * 费用、卡名、描述、数值都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
+ * 卡名、描述、底部那一行标识都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
+ *
+ * 现在卡面上没有任何数值：出牌不要费用，AI 卡也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
+ * 排版是占位程度，等正式卡面设计出来再重排。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
-  // 只画真正暴露出来的那几维。传进来的 weaknesses 本来就该是过滤过的，
-  // 这里再挡一道，免得调用方漏筛把六个 0 全画上去。
-  const weakChips = Object.entries(card.weaknesses ?? {}).filter(([, value]) => value > 0)
   return (
     <div className={`card-face card-face--${card.kind}`}>
       {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
@@ -763,35 +748,12 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         alt=""
         draggable={false}
       />
-      <div className="card-face__cost">{card.cost}</div>
       <div className="card-face__body">
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
-        {/* 弱点行夹在描述和数值行之间：它是"这张模型哪里脆"，和下面的攻防数值一起读才有意义。
-            战场小卡是同一份排版按 0.73 缩小画的，所以这里的字号已经是压到最小的一档了。 */}
-        {card.kind === 'model' && weakChips.length > 0 ? (
-          <div className="card-face__weak">
-            {weakChips.map(([kind, value]) => (
-              <span className="card-face__weak-chip" key={kind}>
-                {WEAKNESS_LABELS[kind as WeaknessKind]}
-                {value}
-              </span>
-            ))}
-          </div>
-        ) : null}
         <div className="card-face__stats">
-          {card.kind === 'model' ? (
-            <>
-              <span>算力 {card.power ?? 0}</span>
-              <span>完整度 {card.integrity ?? 0}</span>
-            </>
-          ) : (
-            <>
-              <span>伤害 {card.damage ?? 0}</span>
-              {/* 提示卡的目标维度，决定了它打谁疼——比伤害数字本身更该被一眼看到。 */}
-              {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
-            </>
-          )}
+          {/* AI 卡印模型名，技能牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+          <span>{card.kind === 'agent' ? (card.model ?? 'AI') : '技能'}</span>
         </div>
       </div>
       {/*

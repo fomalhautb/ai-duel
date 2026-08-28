@@ -8,6 +8,7 @@ import { createGame, execute } from '@ai-duel/core'
 import type { Command, GameSetup, PlayerId } from '@ai-duel/core'
 import { createDriverCore, rejectionOf, statusOf } from './driver'
 import type { MatchDriver } from './driver'
+import { createQuizAutopilot } from './quizAutopilot'
 
 export interface LocalDriverOptions {
   setup: GameSetup
@@ -32,26 +33,42 @@ export function createLocalDriver({ setup, seat }: LocalDriverOptions): MatchDri
   // 开局事件（发牌、第一个回合开始）也要广播，动画层才知道要发牌。
   core.emitEvents(opening.events)
 
+  let disposed = false
+
+  function apply(command: Command): void {
+    if (disposed) return
+    const { state } = core.getSnapshot()
+    if (!state) return
+    const result = execute(state, command)
+    core.patch({
+      state: result.state,
+      seat: seatOf(result.state.activePlayer),
+      status: statusOf(result.state),
+      lastRejection: rejectionOf(result.events),
+    })
+    core.emitEvents(result.events)
+    // 本地跑引擎的这一端负责生成答题结果，所以要接自动驾驶（联机客人那端不接）。
+    autopilot.observe(result.state)
+  }
+
+  const autopilot = createQuizAutopilot({
+    getState: () => core.getSnapshot().state,
+    apply,
+  })
+  // 开局局面也过一遍：createGame 出来必定是出牌阶段，这里只是把"上一次的阶段"记上。
+  autopilot.observe(opening.state)
+
   return {
     subscribe: core.subscribe,
     getSnapshot: core.getSnapshot,
     subscribeEvents: core.subscribeEvents,
-
-    send(command: Command) {
-      const { state } = core.getSnapshot()
-      if (!state) return
-      const result = execute(state, command)
-      core.patch({
-        state: result.state,
-        seat: seatOf(result.state.activePlayer),
-        status: statusOf(result.state),
-        lastRejection: rejectionOf(result.events),
-      })
-      core.emitEvents(result.events)
-    },
+    send: apply,
 
     dispose() {
-      // 纯本地，没有连接和定时器要清。
+      disposed = true
+      // 没有连接要断，但答题自动驾驶的定时器必须清掉，
+      // 否则界面卸载之后它还会往一局已经没人看的对局里发指令。
+      autopilot.dispose()
     },
   }
 }

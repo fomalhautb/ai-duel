@@ -1,30 +1,23 @@
 /**
- * 卡牌上那些 core 里没有、得由客户端按数值现拼的文案。
+ * 卡牌上那些 core 里没有、得由客户端现拼的文案。
  *
- * core 的 Card 只存数值，翻面要看的那段说明没有对应字段（见 HandCardData.backText）。
- * 对局（ui/MatchStage）和图鉴页（dev/CardGallery）都要显示同一段话，
- * 所以拼法只留这一份：图鉴页的用处就是照着对局的真实文案检查排版，
+ * core 的 Card 只存卡面要印的那几项，翻面要看的那段说明没有对应字段
+ * （见 HandCardData.backText）。对局（ui/MatchStage）和图鉴页（dev/CardGallery）
+ * 都要显示同一段话，所以拼法只留这一份：图鉴页的用处就是照着对局的真实文案检查排版，
  * 两边各抄一份的话，改了一边图鉴就开始骗人。
  */
 
-import { WEAKNESS_KINDS } from '@ai-duel/core'
-import type { Card, WeaknessProfile } from '@ai-duel/core'
-import { WEAKNESS_LABELS } from './labels'
-
-/** 完整六维画像，0 也列出来——"打哪一维没用"同样是要读的信息。 */
-function fullWeaknessText(profile: WeaknessProfile): string {
-  return WEAKNESS_KINDS.map((kind) => `${WEAKNESS_LABELS[kind]}${profile[kind]}`).join(' ')
-}
+import type { Card } from '@ai-duel/core'
 
 /**
  * 卡牌翻到背面时的补充说明。
  *
- * 正面版面太小，只放得下暴露出来的那几维和一个目标维度；背面补的就是正面装不下的部分：
- * 模型卡给完整画像，提示卡说清伤害怎么算。
+ * 正面版面太小，只放得下卡名、一句描述和底部那行标识；背面补的是"这张牌打出去会怎样"
+ * ——这条规则卡面上印不下，可玩家每一轮都要据此决定出不出。
  */
 export function cardBackText(card: Card): string {
-  if (card.kind === 'model') {
-    return `完整画像：${fullWeaknessText(card.weaknesses)}。对手的提示卡打中哪一维，伤害就加上这一维的数值。`
+  if (card.kind === 'agent') {
+    return `模型：${card.model}。打出后留在场上，每轮跟着一起答题，答错才被罚下。`
   }
-  return `伤害 = 基础 ${card.damage} + 目标的「${WEAKNESS_LABELS[card.targetWeakness]}」暴露度。不选模型就直击对手本体。`
+  return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
 }

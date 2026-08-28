@@ -7,8 +7,12 @@
  * 落在同一次 React 提交里，中间不会闪一帧两张卡。组件只在 target 变化的那次提交里补动画。
  *
  * 屏幕中央那套 DOM 和样式（.reveal-overlay / .reveal-clip / .reveal-card）与 MatchStage 的
- * 强制展示链路共用，见 styles.css 的「屏幕中央的展示层」一节；两条链路的时长、缓动、
- * 浮动参数也都取自本文件导出的那批常量和工具函数，观感必须一致。
+ * 强制展示 / 放大查看共用，见 styles.css 的「屏幕中央的展示层」一节。
+ *
+ * 但代码眼下没共用：MatchStage 自己内联了一份同样的结构和同样数值的时长 / 缓动 / 层级常量
+ * （OVERLAY_IN_DUR、REVEAL_IN_DUR、REVEAL_FLIGHT_Z……），新对局流程刚落地，还没迁到这里来。
+ * 所以改本文件这批常量时要连 MatchStage 那份一起改，否则同一个展示层会演出两种观感。
+ * 现在只有 /deck 用这个组件。
  */
 
 import { useEffect, useImperativeHandle, useRef } from 'react'
@@ -168,15 +172,17 @@ export interface CardZoomOverlayProps {
    * 外部遮罩节点。传了就补间它、组件不再自己渲染遮罩（点击关闭也得由外部那块自己接，
    * 转手调 requestClose）。
    *
-   * 为什么要开这个口子：/match 里强制展示（对手出牌）和放大查看共用**同一个**常驻遮罩节点，
-   * 两条链路的淡入淡出靠 overwrite: 'auto' 互相接管（见 fadeVeilIn 的说明）。这里要是各渲染
-   * 一块遮罩，两块都是 z-index 1100 的全屏压暗层，交替时会同时半透明可见 = 压暗和模糊翻倍；
-   * 更要命的是 abort()：它按约定不淡出遮罩，因为紧接着的强制展示会用同一条补间把同一个节点
+   * 为什么要开这个口子：同一页里再有第二条动遮罩的链路（对局的强制展示就是），两条必须共用
+   * **同一个**常驻遮罩节点，靠 overwrite: 'auto' 互相接管（见 fadeVeilIn 的说明）。各渲染一块
+   * 的话，两块都是 z-index 1100 的全屏压暗层，交替时会同时半透明可见 = 压暗和模糊翻倍；
+   * 更要命的是 abort()：它按约定不淡出遮罩，因为紧接着的那条链路会用同一条补间把同一个节点
    * 接管过去继续压暗——换成两块遮罩，被抢占的那块就再没人管，会永远停在全黑上吃掉所有点击。
-   * 所以只要页面上还有第二条链路要动遮罩，就必须把同一个节点传进来。
+   *
+   * 对局侧暂未接入（MatchStage 眼下自己内联了展示层），等新流程稳定后迁移；这个口子先留着，
+   * 现在唯一的调用方 /deck 只有一条链路，所以不传，用组件自带的那块遮罩。
    */
   veilRef?: RefObject<HTMLElement | null>
-  /** 按 ESC 关闭。默认关：/match 现在没有 ESC 行为，别给它凭空加一个。 */
+  /** 按 ESC 关闭。默认关：对局侧接进来时不该凭空多出一个 ESC 行为（强制展示本来就不给跳过）。 */
   closeOnEscape?: boolean
   ref?: Ref<CardZoomHandle>
 }
@@ -211,7 +217,7 @@ export function CardZoomOverlay({
   /**
    * target 的同步副本。
    *
-   * requestClose / abort 可能是从 React 之外的回调里调进来的（/match 是对局事件回调），
+   * requestClose / abort 可能是从 React 之外的回调里调进来的（对局侧接进来会是对局事件回调），
    * 那时调用方刚 setState 还没提交，读 props 拿到的是上一次渲染的旧值。所以关闭时在这里
    * 先一步置空，判"还开着吗"一律读它。
    */

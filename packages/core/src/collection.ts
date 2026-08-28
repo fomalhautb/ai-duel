@@ -16,14 +16,19 @@ import type { CardId } from './types'
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
 /**
- * 新玩家开局就拥有的卡：两个模型 + 两张提示卡，刚好够凑一副能打的牌组。
- * 其余的卡是抽卡奖池，赢一局解锁一张。
+ * 新玩家开局就拥有的卡。
+ *
+ * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
+ * 现在卡池只有 5 张、示例牌组把它们全用上了，所以这份收藏暂时等于整个卡池，
+ * `drawNewCard` 也就抽不到新卡（返回 null）——等卡池扩到超出示例牌组，
+ * 解锁流程会自动重新生效，不需要改代码。
  */
 export const INITIAL_COLLECTION: CardId[] = [
-  'hallucinating-oracle',
-  'context-goldfish',
-  'leading-question',
-  'counting-trap',
+  'agent-gpt',
+  'agent-claude',
+  'agent-gemini',
+  'agent-deepseek',
+  'placeholder-skill',
 ]
 
 /**

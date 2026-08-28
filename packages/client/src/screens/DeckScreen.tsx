@@ -46,8 +46,8 @@ const RETURN_DUR = 0.28
 /** kind 页签。数组顺序就是页签从左到右的顺序。 */
 const KIND_TABS = [
   { id: 'all', label: '全部' },
-  { id: 'model', label: 'AI 卡' },
-  { id: 'prompt', label: '技能卡' },
+  { id: 'agent', label: 'AI 卡' },
+  { id: 'skill', label: '技能卡' },
 ] as const
 
 type KindTabId = (typeof KIND_TABS)[number]['id']
@@ -58,8 +58,8 @@ type KindTabId = (typeof KIND_TABS)[number]['id']
  */
 const KIND_COUNTS: Record<KindTabId, number> = {
   all: DECK_DEMO_CARDS.length,
-  model: DECK_DEMO_CARDS.filter((card) => card.kind === 'model').length,
-  prompt: DECK_DEMO_CARDS.filter((card) => card.kind === 'prompt').length,
+  agent: DECK_DEMO_CARDS.filter((card) => card.kind === 'agent').length,
+  skill: DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').length,
 }
 
 /** id → 卡。牌组里存的是 id，展示时要拿回整张卡的数据。 */
@@ -130,15 +130,15 @@ export function DeckScreen() {
 
   /** 牌组里 AI 卡 / 技能卡各多少张。 */
   const mix = useMemo(() => {
-    let model = 0
-    let prompt = 0
+    let agent = 0
+    let skill = 0
     for (const entry of deck) {
       const card = CARD_BY_ID.get(entry.cardId)
       if (card === undefined) continue
-      if (card.kind === 'model') model += 1
-      else prompt += 1
+      if (card.kind === 'agent') agent += 1
+      else skill += 1
     }
-    return { model, prompt }
+    return { agent, skill }
   }, [deck])
 
   const addCard = (cardId: string) => {
@@ -416,7 +416,7 @@ export function DeckScreen() {
                       已选 <b>{deck.length}</b> / {DECK_SIZE}
                     </span>
                     <span className="deck-tally__mix">
-                      AI 卡 {mix.model} · 技能卡 {mix.prompt}
+                      AI 卡 {mix.agent} · 技能卡 {mix.skill}
                     </span>
                   </div>
 

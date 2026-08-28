@@ -11,7 +11,7 @@ import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
 import { loadSave, recordWin, resetSave } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
-const SAVE_KEY = 'ai-duel-save-v3'
+const SAVE_KEY = 'ai-duel-save-v4'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -51,7 +51,18 @@ describe('本地存档', () => {
     expect(loadSave().ownedCards).toEqual(INITIAL_COLLECTION)
   })
 
-  it('赢一局胜场 +1，并抽到一张之前没有的卡', () => {
+  // 现在初始收藏就等于整个卡池，所以新号赢一局是抽不到新卡的。
+  // 这条测试守着"抽不到也不能出错"，卡池扩容后它应该跟着改成断言抽得到。
+  it('新号赢一局：胜场 +1，但初始收藏已经是整个卡池，抽不到新卡', () => {
+    const { save, drawn } = recordWin()
+    expect(save.wins).toBe(1)
+    expect(drawn).toBeNull()
+    expect(save.ownedCards).toEqual(INITIAL_COLLECTION)
+    expect(loadSave()).toEqual(save)
+  })
+
+  it('收藏还缺卡时，赢一局会补上一张之前没有的卡', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ ownedCards: [CARD_POOL[0]], wins: 0 }))
     const { save, drawn } = recordWin()
     expect(save.wins).toBe(1)
     expect(drawn).not.toBeNull()

@@ -1,12 +1,10 @@
-/** 六个弱点维度的中文名。core 里只有英文标识符，界面文案放客户端。 */
+/** core 里只有英文标识符，界面上要显示的中文名放客户端。 */
 
-import type { WeaknessKind } from '@ai-duel/core'
+import type { QuestionCategory } from '@ai-duel/core'
 
-export const WEAKNESS_LABELS: Record<WeaknessKind, string> = {
-  bias: '偏见',
-  hallucination: '幻觉',
-  misjudgment: '误判',
-  overconfidence: '过度自信',
-  forgetfulness: '上下文遗忘',
-  jailbreak: '越狱易感',
+/** 题目类别的中文名。右侧栏对局中显示的「下一题：XX」和答题横幅都读它。 */
+export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
+  bias: '偏见测试',
+  vision: '视觉测试',
+  brainteaser: '脑筋急转弯',
 }

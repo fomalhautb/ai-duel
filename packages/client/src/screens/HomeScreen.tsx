@@ -40,6 +40,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useLocation } from 'wouter'
+import { getCard } from '@ai-duel/core'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
@@ -48,6 +49,7 @@ import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardArtFor } from '../ui/cardArt'
+import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
@@ -66,9 +68,9 @@ const CARD_WIDTH_CQI = 11
  * hover 时卡牌上浮的距离，写成卡高的百分比。
  *
  * 设计上想要的是"抬起约 1.5cqi"，但 GSAP 的 y 只认 px 和 %，不认 cqi；
- * 换算成卡自身高度的百分比（1.5 / 15.4 ≈ 9.7%）就和单位无关了，缩放到任何窗口都一样高。
+ * 换算成卡自身高度的百分比（1.5 / 16.5 ≈ 9.1%）就和单位无关了，缩放到任何窗口都一样高。
  */
-const CARD_LIFT_PERCENT = -9.7
+const CARD_LIFT_PERCENT = -9.1
 /** 卡面跟着指针倾斜的最大角度。和手牌里的大卡取同一档。 */
 const CARD_TILT_DEG = 10
 /** hover 上浮 / 落回的时长，两边一致，来回扫动时不会一边快一边慢。 */
@@ -85,62 +87,20 @@ interface Seat {
 }
 
 /**
- * 首页橱窗里的四张卡：卡面数据是纯占位（不是真卡池里的东西），
+ * 首页橱窗里的四张卡：直接取 core 卡池里的真卡，卡面走对局那套 HandCardFace，
+ * 展示数据走公共的 toHandCardData（见 ui/handCardData.ts），
+ * 所以这里看到的名字、描述、插画和对局里抽到同一张时完全一致，不需要在这一页维护占位文案。
+ *
+ * 挑的是四家各自的旗舰款（GPT / Claude / DeepSeek / 豆包）：首页是门面，
+ * 摆一眼能认出品牌的那张，比摆早期型号更说明这游戏在玩什么。
+ *
  * 位置和倾角照着设计稿量。注意两端的卡不是抬起而是**沉下去**一点（y 差约 1.6%），弧口朝上。
  */
 const SEATS: Seat[] = [
-  {
-    x: 36.6,
-    y: 49.7,
-    rot: -9,
-    card: {
-      id: 'home-chatgpt',
-      kind: 'ai',
-      name: 'ChatGPT',
-      model: 'GPT',
-      text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 45.5,
-    y: 48.1,
-    rot: -3,
-    card: {
-      id: 'home-claude',
-      kind: 'ai',
-      name: 'Claude',
-      model: 'Claude',
-      text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
-      backText: '占位背面：稀有度 ★★★ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 54.5,
-    y: 48.1,
-    rot: 3,
-    card: {
-      id: 'home-deepseek',
-      kind: 'ai',
-      name: 'DeepSeek',
-      model: 'DeepSeek',
-      text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 63.4,
-    y: 49.7,
-    rot: 9,
-    card: {
-      id: 'home-gemini',
-      kind: 'ai',
-      name: 'Gemini',
-      model: 'Gemini',
-      text: '占位描述：看得见听得见，就是记性差了点。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
+  { x: 36.6, y: 49.7, rot: -9, card: toHandCardData(getCard('chatgpt-5-6-sol')) },
+  { x: 45.5, y: 48.1, rot: -3, card: toHandCardData(getCard('claude-fable-5')) },
+  { x: 54.5, y: 48.1, rot: 3, card: toHandCardData(getCard('deepseek-v4')) },
+  { x: 63.4, y: 49.7, rot: 9, card: toHandCardData(getCard('doubao')) },
 ]
 
 interface CastMember {

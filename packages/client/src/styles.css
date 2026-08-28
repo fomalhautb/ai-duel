@@ -457,8 +457,8 @@ body,
 .home__card {
   position: absolute;
   width: 11.8cqi;
-  height: 19.4cqi;
-  margin-top: -9.7cqi;
+  height: 20.5cqi;
+  margin-top: -10.25cqi;
   margin-left: -5.9cqi;
   transform: rotate(var(--home-card-rot));
   pointer-events: auto;
@@ -471,7 +471,7 @@ body,
   top: 2cqi;
   left: 0.4cqi;
   width: 11cqi;
-  height: 15.4cqi;
+  height: 16.5cqi;
   perspective: 73cqi;
 }
 
@@ -916,18 +916,29 @@ body,
  * 边框统一走白色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
  */
 .card-face {
-  /* 边缘羽化的宽度。插画在这条带子里淡出到卡面底色（也是白的），
-     白边和画面之间就没有一条硬邦邦的接缝。 */
-  --card-edge-feather: 7px;
+  /* 边缘那圈米黄。边框、羽化带和卡面底色是同一个颜色，
+     三者一致，白边和画面之间才没有一条硬邦邦的接缝。 */
+  --card-edge-tint: 244 235 214;
+  /*
+   * 羽化带的宽度，写成卡宽的百分比（4.7cqw ≈ 150px 卡面上的 7px）。
+   *
+   * 必须跟着卡面尺寸走：卡面在不同地方是**两种缩放路子**——手牌、战场小卡靠 transform／zoom
+   * 整体缩（px 会跟着缩），而图鉴、首页那类地方是直接给盒子换宽高（px 不会跟着变）。
+   * 写死 px 的话后一类里羽化带就永远是 7px，大卡上看着像一条细边、小卡上又糊掉半张脸。
+   */
+  --card-edge-feather: 4.7cqw;
 
   position: relative;
+  /* 上面那行 cqw 要有参照物。只声明 inline-size（不是 size）：
+     卡面的高由外面给定，容器查询不需要它，size 还会多要求一层高度上的约束。 */
+  container-type: inline-size;
   width: 100%;
   height: 100%;
-  border: 1px solid rgb(255 255 255 / 92%);
+  border: 1px solid rgb(var(--card-edge-tint) / 92%);
   border-radius: 8px;
-  /* 卡面底色，同时是羽化带淡出的去处，所以必须是白的：
+  /* 卡面底色，同时是羽化带淡出的去处，所以必须和边缘同色：
      图还没加载完时露出来的也是它。 */
-  background: #f6f3ec;
+  background: rgb(var(--card-edge-tint));
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
   /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
@@ -950,8 +961,10 @@ body,
   /* 两层白：窄而实的一层贴着白边收口，宽而淡的一层把过渡拖长，
      合起来才像"融进去"，而不是描了第二条边。 */
   box-shadow:
-    inset 0 0 var(--card-edge-feather) calc(var(--card-edge-feather) / 3.5) rgb(246 243 236 / 62%),
-    inset 0 0 calc(var(--card-edge-feather) * 2.4) var(--card-edge-feather) rgb(246 243 236 / 30%);
+    inset 0 0 var(--card-edge-feather) calc(var(--card-edge-feather) / 3.5)
+      rgb(var(--card-edge-tint) / 62%),
+    inset 0 0 calc(var(--card-edge-feather) * 2.4) var(--card-edge-feather)
+      rgb(var(--card-edge-tint) / 30%);
 }
 
 .card-face--ai {

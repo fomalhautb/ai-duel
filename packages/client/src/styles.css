@@ -604,15 +604,26 @@ body,
   pointer-events: none;
 }
 
+/*
+ * 手牌的一张牌。
+ *
+ * 盒子按「hover 放大到顶」的尺寸布局（--card-w 乘上 --hand-card-zoom），静置时靠 GSAP
+ * 写在 transform 上的 scale 缩回 --card-w 那么大（见 HandFan.tsx 的 slotScale）。
+ * 反过来做——盒子按 150×210 布局、hover 时 transform 放大——画面会糊，原因见下面 .hand-fan__tilt。
+ *
+ * --hand-card-zoom 由 HandFan 写在 .hand-fan 上，值就是那边的 HOVER_SCALE，
+ * 它是按扇形最大倾角算出来的，所以不能在这里写死一个数。
+ */
 .hand-fan__slot {
   position: absolute;
   left: 50%;
   bottom: 0;
-  width: var(--card-w);
-  height: var(--card-h);
-  margin-left: calc(var(--card-w) / -2);
-  /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。 */
-  perspective: 1000px;
+  width: calc(var(--card-w) * var(--hand-card-zoom));
+  height: calc(var(--card-h) * var(--hand-card-zoom));
+  margin-left: calc(var(--card-w) * var(--hand-card-zoom) / -2);
+  /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。
+     距离得跟着盒子一起放大：观察点不退后的话，同样的倾斜角在变大的卡面上透视会更夸张。 */
+  perspective: calc(1000px * var(--hand-card-zoom));
   pointer-events: auto;
   /* 出牌靠拖，光标也照着说：抓手而不是手指。 */
   cursor: grab;
@@ -634,11 +645,22 @@ body,
  * 翻到背面之后的立体感就没了。
  * position 也不能去掉：问号的透明热区就挂在这一层里，靠它当绝对定位的基准
  * （这里 inset: 0，和卡面同一个框，所以热区的 top / right 落在卡面右上角）。
+ *
+ * zoom 是这张牌不糊的关键。卡面内部（.card-face 那一套、问号、背面）仍然照 150×210 的
+ * 口径写 px，zoom 把这一整套按 --hand-card-zoom 倍放大成**真实布局**，于是放大到顶的那一刻，
+ * 卡面是按 285×399 排版、也按这个尺寸栅格化的，字和插画都是原生分辨率。
+ * 必须这么绕，是因为 Chrome 对带 3D 旋转的元素走贴图路径：先按布局尺寸栅格化成一张贴图，
+ * 再把贴图贴到三维平面上。放大要是靠外层 transform 做的，贴图就还是 150×210 那张，
+ * 一旦 cardTilt 写进哪怕 0.3° 的倾斜，整张卡就是被拉伸 1.9 倍的糊图（实测如此）。
+ *
+ * zoom 只能落在这一层或更里面：slot 上的 x / y 平移会被 zoom 乘一遍，
+ * 扇形摆位算出来的坐标就全错位了。这一层 GSAP 只写角度，不写平移，才轮得到它。
  */
 .hand-fan__tilt {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
+  zoom: var(--hand-card-zoom);
 }
 
 /*

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# wrangler dev 的本地状态：构建缓存，以及 miniflare 给 Durable Object 建的 SQLite 库。
+# 纯本地产物，每台机器都不一样，删掉下次 `wrangler dev` 会重新生成。
+.wrangler/
+
+.DS_Store
+.idea/
+.vscode/
+
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+.env
+.env.local
+.env.*.local

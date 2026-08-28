@@ -1,0 +1,589 @@
+/* ============================================================
+   纸面组件库：设计 token + 公共样式
+   ------------------------------------------------------------
+   全部来自设计参考页 /design（src/screens/DesignScreen.tsx），注释一并搬过来——
+   里面记的是「为什么调成这个值」，改参数前先读。那一页也把这套组件全摆了出来，
+   改完对着它看一眼最省事。
+
+   两处和 demo 不一样，都是为了和 app 现有的 styles.css 共存：
+
+   1. 不定义 --accent。styles.css 里 .card-face--model 之类已经在用同名变量，
+      :root 上再定义一份会顺着继承覆盖它们的兜底逻辑。主题色改由调用处
+      就地设置（见各组件的 accent 属性），组件样式一律写
+      var(--accent, var(--c-blue))，兜底放在使用处。
+   2. 不定义 --font。字体栈 styles.css 已经在 :root 上全局设好，
+      和 demo 的 --font 是同一套（EB Garamond 排数字，中文回退 Noto Serif SC）。
+
+   类名除 .grain 家族外一律加 paper- 前缀，避免和 styles.css 里
+   .card-face、.tabs 这些已有类撞名。
+   ============================================================ */
+:root {
+  /* 纸张 */
+  --paper:        #f0ecdf;
+  --paper-shade:  #e4ddc9;   /* 纸面暗部：凹槽、次级底 */
+  /* 线 */
+  --line:         #b9b19e;   /* 常规细线 / 内框 */
+  --line-dark:    #8a8270;   /* 外框、需要咬住视线的线 */
+  /* 字 */
+  --ink:          #2e2e38;
+  --ink-2:        #6b6a5f;   /* 次级文字、说明文字 */
+  /* 深色面 */
+  --night:        #323d57;   /* 战场底 / 头像框内的星空 */
+  --navy:         #232f4b;   /* 卡背、按钮的墨蓝 */
+  /* 主题色（低饱和水彩感） */
+  --c-green:      #8a9a78;
+  --c-rust:       #c07a52;
+  --c-blue:       #5a72a0;
+  --c-purple:     #9186bd;
+  --c-gold:       #d9a441;
+  --c-life:       #b23f33;
+
+  /* ------------------------------------------------------------
+     纸纹：两层噪声，都烘焙成 data URI 背景图
+     ------------------------------------------------------------
+     两张图都是「接近白的灰度图」，靠 multiply 压在底色上：
+     值 1.0 = 完全不改变底色，值越低压得越暗。这样同一张图
+     换个混合模式就能用在深色面上（见 .grain.on-dark）。
+
+     两层各自铺在一个独立的叠加层上（.grain::before / .grain::after），
+     而不是塞进同一个 background-image 列表里。原因是每层要有独立的
+     不透明度：multiply + opacity = 「以 alpha 的比例混入相乘结果」，
+     这正是我们要的强度调节；而同一个元素上的多个 background
+     图层没法各自设 opacity。代价是 .grain 宿主的 ::before 被占用，
+     所以卡牌 / 卡背的内框改成真实的 <i class="paper-card__frame">；
+     切角更复杂的按钮则用内联 SVG 画框。
+
+     第 1 层 --tex-mottle：大尺度纸浆斑驳。
+     低频柏林噪声（baseFrequency 0.0059 ≈ 170px 一团）当高度场，
+     feDiffuseLighting 打一束斜光，把高度差转成明暗——这是纸纤维
+     凹凸浮雕感的来源，比直接把噪声当灰度铺上去「纸」得多。
+     打光很贵，所以整块 rect 连 filter 一起烘进 data URI，
+     浏览器只在首次解码时算一次，之后就是一张普通位图。
+     feComponentTransfer 把打光结果线性拉到 0.89~1.0，并且故意让
+     上四分之一顶到 1.0 被截断——受光面就是底色本身，只有背光的
+     纤维才真的压暗。这一步很关键：不截断的话整张纸会均匀发灰，
+     看着像皮革而不是纸；截断后平均只掉 2% 亮度，纸色不跑掉。
+     三个通道斜率不同（B 最陡），所以暗部偏暖，像旧纸的黄斑。
+     图块 900px：太小会看出平铺网格；stitchTiles 让噪声在图块
+     边界首尾相接，接缝处不会突然断开。 */
+  --tex-mottle: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'900'%20height%3D'900'%3E%3Cfilter%20id%3D'm'%20x%3D'0'%20y%3D'0'%20width%3D'900'%20height%3D'900'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.0059'%20numOctaves%3D'2'%20seed%3D'17'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20lighting-color%3D'%23ffffff'%20surfaceScale%3D'15'%20diffuseConstant%3D'1'%3E%3CfeDistantLight%20azimuth%3D'45'%20elevation%3D'56'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.47'%20intercept%3D'0.591'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.52'%20intercept%3D'0.548'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.60'%20intercept%3D'0.478'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'900'%20height%3D'900'%20filter%3D'url(%23m)'%2F%3E%3C%2Fsvg%3E");
+
+  /* 第 2 层 --tex-fiber：细颗粒，补 1~5px 的纸面粗糙度。
+     高频噪声不需要打光（那个尺度上光影就是噪点本身），
+     feColorMatrix 把 RGB 三通道平均成灰、alpha 填满，
+     再线性压到 0.87~1.0，截断点正好落在中位数上：一半颗粒不改变
+     底色，另一半往下压，颗粒因此只表现为暗点，不会把纸洗白。
+     图块 240px 就够，颗粒太细看不出重复。 */
+  --tex-fiber: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%3E%3Cfilter%20id%3D'f'%20x%3D'0'%20y%3D'0'%20width%3D'240'%20height%3D'240'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.63'%20numOctaves%3D'3'%20seed%3D'5'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200%200%200%200%201'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'240'%20height%3D'240'%20filter%3D'url(%23f)'%2F%3E%3C%2Fsvg%3E");
+
+  /* 两层各自的强度。1 = 图像原样相乘，0 = 完全不起作用。
+     PaperTuner 拖不透明度滑条时只改这两个变量，
+     不用重新生成 data URI（feTurbulence 900px 那张重算一次不便宜）。
+     斑驳收到 0.70：打光出来的浮雕本身够重，全量叠上去纸会「起皱」；
+     细颗粒几乎全留（0.92），它本来就只是薄薄一层砂面。 */
+  --mottle-alpha: 0.70;
+  --fiber-alpha:  0.92;
+
+  /* 纸张暗角：范围很大、很淡，只是让四周比中间稍微沉一点。
+     浓度单独拆成变量，PaperTuner 直接改它。
+     0.189 = 面板里的「暗角强度 0.63」× 上限系数 0.30。 */
+  --vignette-alpha: 0.189;
+  --vignette: radial-gradient(ellipse 130% 100% at 50% 42%,
+                rgba(0,0,0,0) 45%, rgba(122,106,74,var(--vignette-alpha)) 100%);
+}
+
+/* ============================================================
+   可复用纸纹叠加层
+   ------------------------------------------------------------
+   给任何元素加 .grain 即可，两个伪元素各铺一层。
+   ::before 排在宿主的子元素之前，所以大斑驳压在内容底下；
+   ::after 排在之后，细颗粒盖在文字上——正是想要的层次。
+   isolation: isolate 把 multiply 关在宿主内部——否则它会一路乘到
+   页面背景上，卡片边缘会出现一圈比周围深的「影子」。
+   border-radius: inherit 让它跟随宿主圆角，不会漏出直角。
+
+   注意：用了 .grain 的元素不能再自己占用 ::before / ::after，
+   简单内框改用真实的子元素，复杂轮廓改用内联 SVG。
+
+   这一组是全局工具类，故意不加 paper- 前缀：它要能挂到任何元素上。
+   ============================================================ */
+.grain { position: relative; isolation: isolate; }
+.grain::before,
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.grain::before { background-image: var(--tex-mottle); opacity: var(--mottle-alpha); }
+.grain::after  { background-image: var(--tex-fiber);  opacity: var(--fiber-alpha); }
+
+/* 深色面（墨蓝按钮、卡背）：同样两张图，先 invert 再 screen。
+   screen 只能提亮，于是原本压暗的纤维反过来变成微微发亮的丝缕，
+   深色底上就不会出现一块块黑斑。再乘 0.55，
+   因为反相后的图有个不为 0 的均值，直接叠会把墨蓝整体洗淡。 */
+.grain.on-dark::before,
+.grain.on-dark::after {
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+.grain.on-dark::before { opacity: calc(var(--mottle-alpha) * 0.55); }
+.grain.on-dark::after  { opacity: calc(var(--fiber-alpha)  * 0.55); }
+
+/* 只想要其中一层时用的修饰类（纹理分层演示在用）：
+   直接把另一层的伪元素关掉。 */
+.grain.tex-mottle::after  { display: none; }
+.grain.tex-fiber::before   { display: none; }
+
+/* ============================================================
+   页面外壳
+   ------------------------------------------------------------
+   纸底色 + 暗角，配合 .grain 一起用（<div class="paper-page grain">）。
+   demo 里这套是写在 body 上的，这里搬到普通 div 上，因为 app 的
+   html / body 归 styles.css 管，它是深色底。放在 div 上还顺便绕开了
+   demo 注释里提的那个坑：body 的背景会被浏览器「上交」给整个画布，
+   于是 body 自己变成没有背景的空盒子，multiply 就没东西可乘。
+
+   暗角是「打在纸上的灯光」，钉在视口里反而自然，所以保留
+   background-attachment: fixed；纸纹则跟着内容滚（.grain 是 absolute）。
+   ============================================================ */
+.paper-page {
+  min-height: 100%;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image: var(--vignette);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 页面内容包一层：.grain 的两个伪元素是 absolute，会盖住不定位的普通内容。
+   给内容一个 z-index 把两层纸纹都压到底下——页面尺度上细颗粒也不该盖在
+   正文上，只有卡牌那种小面积宿主才需要 ::after 浮在文字之上。 */
+.paper-page__inner {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================================
+   手绘图标（PaperIcon）
+   ============================================================ */
+/* <symbol> 定义容器。宽高已经是 0，但它仍是个 inline 元素，留在文档流里
+   会撑出一个空行框；absolute 拿出去彻底不占位。和 styles.css 里
+   .hand-drawn-filter-defs 的处理一致。 */
+.paper-icon-defs { position: absolute; pointer-events: none; }
+
+.paper-ico { width: 48px; height: 48px; display: block; color: inherit; }
+.paper-ico--sm { width: 20px; height: 20px; }
+.paper-ico--xs { width: 15px; height: 15px; }
+
+/* ============================================================
+   区块标题装饰（OrnateTitle）
+   同时也是游戏里「卡牌详情」那种小标题。
+   文字两侧各一段细线，线的外端点是一个小菱形。
+   ============================================================ */
+.paper-orn-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin: 0;
+}
+/* 细线和菱形的顺序在组件里写死为
+   菱形 — 线 — 文字 — 线 — 菱形，菱形落在线的外端点。 */
+.paper-orn-title__ln { flex: 1; height: 1px; background: var(--line); }
+.paper-orn-title__dia {
+  width: 6px; height: 6px;
+  background: var(--line-dark);
+  transform: rotate(45deg);
+  flex: none;
+}
+.paper-orn-title__tx { flex: none; white-space: nowrap; text-indent: 0.16em; }
+.paper-orn-title--sm { font-size: 15px; letter-spacing: 0.2em; }
+.paper-orn-title--sm .paper-orn-title__tx { text-indent: 0.2em; }
+
+/* ============================================================
+   卡牌（PaperCard）
+   ============================================================ */
+.paper-card {
+  position: relative;
+  width: 150px; height: 210px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background-color: var(--paper);
+  color: var(--ink);
+  display: flex; flex-direction: column;
+  padding: 9px 9px 0;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  box-shadow: 0 1px 3px rgba(80,68,44,.16);
+}
+/* 内框：比外框内缩一圈的第二道细线。
+   真实元素而非 ::before —— ::before 让给纸纹叠加层了。 */
+.paper-card__frame {
+  position: absolute; inset: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+/* 四角小菱形花饰 */
+.paper-card__corner {
+  position: absolute;
+  width: 5px; height: 5px;
+  background: var(--accent, var(--c-blue));
+  transform: rotate(45deg);
+  opacity: .85;
+}
+.paper-card__corner--tl { top: 8px;    left: 8px; }
+.paper-card__corner--tr { top: 8px;    right: 8px; }
+.paper-card__corner--bl { bottom: 8px; left: 8px; }
+.paper-card__corner--br { bottom: 8px; right: 8px; }
+
+/* 费用：细线圆底座 + 衬线大数字 */
+.paper-card__cost {
+  position: absolute;
+  top: 12px; left: 12px;
+  width: 30px; height: 30px;
+  border: 1px solid var(--line-dark);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 600; line-height: 1;
+  background: var(--paper);
+  z-index: 2;
+}
+.paper-card__cost::before {   /* 双线：圆环内再一道 */
+  content: '';
+  position: absolute; inset: 2px;
+  border: 1px solid var(--accent, var(--c-blue));
+  border-radius: 50%;
+  opacity: .5;
+}
+
+/* 卡面画区：放射线底纹 + 中央 logo 占位 */
+.paper-card__art {
+  position: relative;
+  height: 104px;
+  margin: 26px 4px 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent, var(--c-blue));
+}
+.paper-card__rays { position: absolute; inset: 0; margin: auto; width: 104px; height: 104px; opacity: .5; }
+/* 卡面 logo 比常规图标略小。这条要排在 .paper-ico 之后：
+   两者特指度相同，靠书写顺序决定谁生效。 */
+.paper-card__logo { position: relative; width: 44px; height: 44px; }
+
+/* 名称 + 上方带菱形装饰的细分隔线 */
+.paper-card__name-wrap { margin: 4px 10px 0; }
+.paper-card__divider {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--line);
+}
+.paper-card__divider::before,
+.paper-card__divider::after {
+  content: ''; flex: 1; height: 1px; background: currentColor;
+}
+.paper-card__divider-dia {
+  width: 4px; height: 4px;
+  background: var(--accent, var(--c-blue));
+  transform: rotate(45deg);
+}
+.paper-card__name {
+  text-align: center;
+  font-size: 14.5px; font-weight: 600;
+  letter-spacing: .12em;
+  text-indent: .12em;
+  margin-top: 5px;
+  line-height: 1.25;
+}
+
+/* 底部攻防栏：左攻右防，中间一道竖细线 */
+.paper-card__stats {
+  margin-top: auto;
+  height: 34px;
+  margin-left: 4px; margin-right: 4px;
+  border-top: 1px solid var(--line);
+  display: flex; align-items: center;
+}
+.paper-card__stat {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-size: 16px; font-weight: 600;
+  color: var(--ink);
+}
+.paper-card__sep { width: 1px; align-self: stretch; margin: 6px 0; background: var(--line); }
+
+/* 选中态：赭红加粗描边 + 上移 + 柔和投影 */
+.paper-card--selected {
+  border-color: var(--c-rust);
+  border-width: 2px;
+  padding: 8px 8px 0;              /* 补偿多出的 1px 边框，内部不位移 */
+  transform: translateY(-14px);
+  box-shadow: 0 12px 22px rgba(90,66,44,.26);
+}
+.paper-card--selected .paper-card__frame { border-color: rgba(192,122,82,.55); }
+
+/* ============================================================
+   卡背 / 空槽（PaperCardBack）
+   ============================================================ */
+.paper-back {
+  position: relative;
+  width: 150px; height: 210px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background-color: var(--navy);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--paper);
+  box-shadow: 0 1px 3px rgba(80,68,44,.16);
+}
+.paper-back__frame {
+  position: absolute; inset: 5px;
+  border: 1px solid rgba(240,236,223,.4);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.paper-back__compass { width: 108px; height: 108px; opacity: .62; }
+.paper-back__corner {
+  position: absolute; width: 4px; height: 4px;
+  background: rgba(240,236,223,.55); transform: rotate(45deg);
+}
+.paper-back__corner--tl { top: 10px; left: 10px; }
+.paper-back__corner--tr { top: 10px; right: 10px; }
+.paper-back__corner--bl { bottom: 10px; left: 10px; }
+.paper-back__corner--br { bottom: 10px; right: 10px; }
+
+/* 空槽：跟卡背同一套结构，只是整体退到「几乎不存在」 */
+.paper-back--slot {
+  background-color: rgba(35,47,75,.07);
+  border-color: var(--line);
+  border-style: dashed;
+  box-shadow: none;
+  color: var(--line-dark);
+}
+.paper-back--slot .paper-back__frame { border-color: rgba(185,177,158,.7); border-style: dashed; }
+.paper-back--slot .paper-back__compass { opacity: .28; }
+.paper-back--slot .paper-back__corner { background: var(--line); }
+
+/* ============================================================
+   法力计（ManaMeter）
+   ============================================================ */
+.paper-mana-meter { display: flex; align-items: center; gap: 12px; color: var(--ink); }
+.paper-mana-meter__num { font-size: 24px; font-weight: 600; letter-spacing: .04em; }
+.paper-mana-meter__max { color: var(--ink-2); font-size: 18px; }
+.paper-mana-meter__pips { display: flex; gap: 5px; }
+.paper-mana-meter__pip { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line-dark); }
+.paper-mana-meter__pip--on { background: #7d8a5f; border-color: #5f6a45; }   /* 绿褐色实心 */
+
+/* ============================================================
+   回合徽章（TurnBadge）
+   一条横贯细线，中间嵌深蓝小匾。
+   ============================================================ */
+.paper-turn-line { display: flex; align-items: center; width: 100%; max-width: 320px; color: var(--line); }
+.paper-turn-line::before,
+.paper-turn-line::after { content: ''; flex: 1; height: 1px; background: currentColor; }
+.paper-turn-badge {
+  margin: 0 10px;
+  padding: 5px 16px;
+  border-radius: 6px;
+  background: var(--navy);
+  color: var(--paper);
+  font-size: 14px; letter-spacing: .14em; text-indent: .14em;
+  border: 1px solid var(--line-dark);
+  white-space: nowrap;
+}
+.paper-turn-badge__num { color: var(--c-rust); font-weight: 700; font-size: 16px; }
+
+/* ============================================================
+   拱窗头像框（PortraitFrame）
+   ============================================================ */
+.paper-portrait-wrap { width: 140px; color: var(--ink); }
+.paper-portrait {
+  position: relative;
+  width: 140px; height: 180px;
+  border: 1px solid var(--line-dark);
+  border-radius: 70px 70px 6px 6px;
+  background: var(--night);
+  overflow: hidden;
+}
+/* 这里 ::before 没被纸纹占用（头像框不叠 .grain），所以内框直接用伪元素 */
+.paper-portrait::before {
+  content: '';
+  position: absolute; inset: 4px;
+  border: 1px solid rgba(240,236,223,.55);
+  border-radius: 66px 66px 4px 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+/* 画面（默认是星空占位 SVG，正式项目里换成人物肖像）铺满整个拱窗 */
+.paper-portrait__art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+.paper-nameplate {
+  position: relative;
+  margin: -18px auto 0;
+  width: 118px;
+  padding: 5px 0;
+  text-align: center;
+  background: var(--paper);
+  border: 1px solid var(--line-dark);
+  border-radius: 4px;
+  font-size: 15px; font-weight: 600; letter-spacing: .1em; text-indent: .1em;
+  z-index: 3;
+  box-shadow: 0 1px 3px rgba(80,68,44,.2);
+}
+.paper-nameplate::before {
+  content: '';
+  position: absolute; inset: 2px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.paper-portrait-stats {
+  display: flex; justify-content: center; gap: 18px;
+  margin-top: 9px;
+  font-size: 15px; font-weight: 600;
+}
+.paper-portrait-stats span { display: inline-flex; align-items: center; gap: 4px; }
+.paper-portrait-stats__hp { color: var(--c-life); }
+.paper-portrait-stats__mp { color: var(--c-blue); }
+
+/* ============================================================
+   顶栏 tab（PaperTabs）
+   ============================================================ */
+.paper-tabs { display: flex; gap: 30px; }
+/* tab 是 <button>，要先把浏览器自带的按钮外观清掉 */
+.paper-tab {
+  position: relative;
+  appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0 0 10px;
+  font: inherit;
+  font-size: 17px; letter-spacing: .18em; text-indent: .18em;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.paper-tab--active { color: var(--ink); font-weight: 600; }
+/* 当前项下方：短横线，两端各一颗小菱形。
+   横线是 .paper-tab__ul 本身，两颗菱形是它的 ::before / ::after，
+   所以菱形永远贴在线的两个端点上，不会跑到中间。 */
+.paper-tab__ul { display: none; }
+.paper-tab--active .paper-tab__ul {
+  display: block;
+  position: absolute; left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  width: 44px; height: 1px;
+  background: var(--c-rust);
+}
+.paper-tab--active .paper-tab__ul::before,
+.paper-tab--active .paper-tab__ul::after {
+  content: '';
+  position: absolute; top: 50%;
+  width: 5px; height: 5px;
+  background: var(--c-rust);
+  transform: translateY(-50%) rotate(45deg);
+}
+.paper-tab--active .paper-tab__ul::before { left: -4px; }
+.paper-tab--active .paper-tab__ul::after  { right: -4px; }
+
+/* ============================================================
+   纸纹调参面板（PaperTuner，开发工具，不是页面的一部分）
+   ------------------------------------------------------------
+   它是工具所以用 position: fixed 钉在视口右上角，不跟着滚。
+   自身不叠 .grain：滑条和数字要保持清晰，纹理会干扰读数；
+   纸质调性靠底色、双线框和衬线字来传达。
+   ============================================================ */
+.paper-tuner {
+  position: fixed;
+  top: 14px; right: 14px;
+  z-index: 200;
+  width: 274px;
+  max-height: calc(100vh - 28px);
+  display: flex; flex-direction: column;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-dark);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(70,58,38,.22);
+  /* styles.css 在 :root 上写了 color-scheme: dark，滑条会跟着渲染成深色轨道，
+     在这块纸白面板上很难看清。整个面板扳回浅色。 */
+  color-scheme: light;
+}
+.paper-tuner__hd {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+/* 收起后只剩标题栏，下边框就多余了；同时把宽度收成内容宽，
+   这样它缩成右上角一个小标签，不会继续压住页面内容。 */
+.paper-tuner--collapsed { width: auto; }
+.paper-tuner--collapsed .paper-tuner__hd { border-bottom: none; }
+.paper-tuner__title { font-size: 14px; font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
+.paper-tuner__bd { overflow-y: auto; padding: 4px 12px 12px; }
+/* 收起用 display: none 而不是把节点拆掉：滑条的滚动位置能留住，
+   标题栏那个按钮的 aria-controls 也才有东西可指。 */
+.paper-tuner--collapsed .paper-tuner__bd { display: none; }
+
+.paper-tuner__group {
+  font-size: 11.5px; letter-spacing: .12em;
+  color: var(--ink-2);
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.paper-tuner__row { margin: 7px 0; }
+.paper-tuner__lb {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px; letter-spacing: .02em; color: var(--ink-2);
+}
+.paper-tuner__val { color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.paper-tuner__row input[type=range] {
+  width: 100%; margin: 2px 0 0; height: 16px;
+  accent-color: var(--c-rust);   /* 够用了，不值得为一个调参工具重写滑条样式 */
+  cursor: pointer;
+}
+.paper-tuner__seed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
+.paper-tuner__seed span { font-size: 12px; color: var(--ink-2); }
+
+.paper-tbtn {
+  font: inherit;
+  font-size: 12.5px; letter-spacing: .08em;
+  color: var(--ink);
+  background: var(--paper-shade);
+  border: 1px solid var(--line-dark);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.paper-tbtn:hover { background: #d8d0b9; }
+.paper-tbtn--primary { background: var(--navy); color: var(--paper); border-color: var(--navy); }
+.paper-tbtn--primary:hover { background: #2a3856; color: #e8c9ae; }
+.paper-tbtn--sm { padding: 2px 8px; font-size: 11.5px; }
+
+/* 参数摘要：要能整段选中复制，所以保留换行的纯文本块 */
+.paper-tuner__summary {
+  margin-top: 14px;
+  padding: 8px 9px;
+  font-size: 11px; line-height: 1.7; letter-spacing: .01em;
+  color: var(--ink-2);
+  background: rgba(138,130,112,.12);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.paper-tuner__acts { display: flex; gap: 8px; margin-top: 12px; }
+.paper-tuner__acts .paper-tbtn { flex: 1; }
+/* 复制成功 / 失败的一次性提示。min-height 占住一行，
+   提示出现和消失时下面的内容不会跟着跳。 */
+.paper-tuner__toast {
+  margin-top: 8px;
+  font-size: 11.5px;
+  min-height: 16px;
+}
+.paper-tuner__toast--ok   { color: var(--c-green); }
+.paper-tuner__toast--fail { color: var(--c-life); }

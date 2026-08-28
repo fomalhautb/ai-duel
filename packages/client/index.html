@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>出牌吧，AI！</title>
+    <!-- 全站字体，和 /design 设计参考页（纸张 token 在 src/ui/paper/paper.css）用的是同一套：
+         EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文。
+         Noto Serif SC 多引一档 300 给首页副标题用；EB Garamond 没有 300，
+         副标题里的拉丁字符会落回 400，中英之间会有一点粗细差，可以接受。
+         EB Garamond 的 500 是给首页大标题引的：标题里「出牌吧，」走中文字体、「AI」走拉丁字体，
+         少引这一档的话拉丁那半会落回 400，同一行里中英粗细对不上。
+         preconnect 提前握手，字体文件真正在 gstatic 那个域名上，两个域都要连。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!--
+      首页那张画的各层切图，提前开始下载。
+
+      首页要等这些图全部到齐才肯上场（见 src/screens/HomeScreen.tsx），所以它们是首屏的关键路径。
+      写在这儿是为了让下载和 JS bundle 并行：不写的话得等 bundle 下完、解析完、组件跑起来
+      才开始请求，白白多等一截。清单要和 HomeScreen 里的 HOME_ASSETS 对得上。
+
+      卡面插画（/cards 下那几张）没写进来：具体用哪张是按卡 id 算出来的，
+      在这里写死等于把那套映射复制一份，改卡就会不一致；它们仍由 HomeScreen 负责等待。
+
+      整个站只有这一个 index.html，所以直接开 /room、/match 这些地址也会白下这些图。
+      玩家一律从首页进（房间是当场输 4 位码，没有可以直接分享的房间链接），所以不算亏。
+    -->
+    <link rel="preload" as="image" href="/home/home-bg.jpg" />
+    <link rel="preload" as="image" href="/home/cast-left-back.webp" />
+    <link rel="preload" as="image" href="/home/cast-left-officer.webp" />
+    <link rel="preload" as="image" href="/home/cast-left-front.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-glasses.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-laugh.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-classic.webp" />
+    <link rel="preload" as="image" href="/home/cast-right-front.webp" />
+    <link rel="preload" as="image" href="/home/home-table.png" />
+    <link rel="preload" as="image" href="/home/home-props.png" />
+    <link rel="preload" as="image" href="/home/home-plaque.png" />
+    <!--
+      首屏 loader 的样式。
+
+      为什么内联在这里、不走 styles.css：styles.css 是被 main.tsx import 进来的，
+      要等整个 JS bundle 下载完才存在。而这段动画要解决的正是"bundle 还在路上"那几秒，
+      内联进 HTML 才能随第一个字节一起到达、立刻开跑。同理它只能是纯 CSS，不能碰 JS。
+
+      这是 src/styles.css「卡片加载动画」一节按默认参数（size 72 / speed 1.75s / 纸色）
+      写死的精简拷贝，**改这份必须同步改那一份**，否则首屏和 React 挂载后的 <CardLoader>
+      会是两个样子。数值怎么来的、各段缓动为什么这么分，都写在那一节里，这里不重复。
+    -->
+    <style>
+      .boot-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #0d1117;
+        /* 和 styles.css 的 :root 同一套字体栈。这时候 Google Fonts 多半还没到，
+           后面几个本地宋体就是兜底，至少落在衬线体上，不会先闪一下黑体。 */
+        font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
+      }
+
+      .boot-loader__stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4.32px;
+        /* 弹跳最高点约 32px，transform 不占布局空间，靠这块内边距把位置让出来。 */
+        padding-top: 32.4px;
+      }
+
+      /* 51.43 = 72 × 5 / 7，和游戏卡面 150:210 同比例。 */
+      .boot-loader__card {
+        position: relative;
+        box-sizing: border-box;
+        width: 51.43px;
+        height: 72px;
+        border: 2px solid #ddcab7;
+        border-radius: 4.32px;
+        /* 底边中心：压扁时下沿钉在地面上不动，倾斜也绕这个点转。 */
+        transform-origin: 50% 100%;
+        animation: boot-loader-bounce 1.75s infinite;
+      }
+
+      .boot-loader__card::before {
+        content: '';
+        position: absolute;
+        inset: 7%;
+        border: 1px solid #ddcab7;
+        border-radius: 2.59px;
+        opacity: 0.6;
+      }
+
+      .boot-loader__card::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        box-sizing: border-box;
+        width: 26%;
+        aspect-ratio: 1;
+        border: 1px solid #ddcab7;
+        opacity: 0.35;
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+
+      .boot-loader__shadow {
+        width: 51.43px;
+        height: 5.04px;
+        border-radius: 50%;
+        background: #ddcab7;
+        filter: blur(2.16px);
+        animation: boot-loader-shadow 1.75s infinite;
+      }
+
+      .boot-loader__text {
+        margin: 0 -0.32em 0 0;
+        color: #9ca3af;
+        font-size: 15px;
+        letter-spacing: 0.32em;
+      }
+
+      @keyframes boot-loader-bounce {
+        0% {
+          transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+          animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+        }
+        12% {
+          transform: translateY(-14%) scale(0.96, 1.05) rotate(-1.2deg);
+          animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+        }
+        48% {
+          transform: translateY(-45%) scale(1, 1) rotate(2.5deg);
+          animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+        }
+        84% {
+          transform: translateY(-12%) scale(0.97, 1.04) rotate(1deg);
+          animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+        }
+        100% {
+          transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+        }
+      }
+
+      @keyframes boot-loader-shadow {
+        0% {
+          opacity: 0.45;
+          transform: scale(1);
+          animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+        }
+        12% {
+          opacity: 0.4;
+          transform: scale(0.94);
+          animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+        }
+        48% {
+          opacity: 0.16;
+          transform: scale(0.56);
+          animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+        }
+        84% {
+          opacity: 0.38;
+          transform: scale(0.92);
+          animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+        }
+        100% {
+          opacity: 0.45;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes boot-loader-breathe {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-loader__card {
+          animation: boot-loader-breathe 3.15s ease-in-out infinite;
+        }
+
+        .boot-loader__shadow {
+          animation: none;
+          opacity: 0.22;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      #root 里预先放着首屏 loader，不是空的。
+      React 19 的 createRoot().render() 首次渲染会把容器里已有的子节点全部清掉，
+      所以 App 一挂载这段 DOM 自己就消失了，不需要任何代码去删它。
+      样式在 <head> 的内联 <style> 里，那儿也写了为什么必须内联。
+
+      消失之后不一定就轮到画面：首页还要等自己的图，那段时间由 src/ui/LoadingScreen.tsx
+      接着显示同一副 loader。两边看上去是一段连续的等待，中间没有换画面。
+    -->
+    <div id="root">
+      <div class="boot-loader" role="status" aria-label="加载中">
+        <div class="boot-loader__stack" aria-hidden="true">
+          <div class="boot-loader__card"></div>
+          <div class="boot-loader__shadow"></div>
+        </div>
+        <p class="boot-loader__text" aria-hidden="true">加载中…</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    // 规则引擎必须能在浏览器和 Node 两边跑，这里清空全局类型，
+    // 误用 DOM 或 Node API 时会直接编译报错。
+    "types": []
+  },
+  "include": ["src", "test"]
+}

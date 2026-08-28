@@ -1,0 +1,20 @@
+{
+  "name": "ai-duel",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.11.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ai-duel/client dev",
+    "dev:server": "pnpm --filter @ai-duel/server dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

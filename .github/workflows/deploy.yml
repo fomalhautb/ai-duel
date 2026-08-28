@@ -1,0 +1,60 @@
+# 前端静态资源和 WebSocket 转发器部署成同一个 Worker，所以只有这一条部署流水线。
+name: 部署到 Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # job 级的 if 读不到 secrets（GitHub 只在 step 级展开 secrets 上下文），
+      # 所以先在这一步把"凭据齐不齐"写成 output，后面的步骤再按它跳过。
+      # 这样没配 secret 的仓库（比如别人 fork 的）工作流是绿色跳过，而不是红色失败。
+      #
+      # 只检查 token 一个：账户 ID 不是凭据，直接写在 wrangler.jsonc 里了。
+      - name: 检查 Cloudflare 凭据
+        id: credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::仓库没有配置 CLOUDFLARE_API_TOKEN，跳过部署。配置方法见 docs/deploy.md。'
+          fi
+
+      - name: 安装 pnpm
+        if: steps.credentials.outputs.ready == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        if: steps.credentials.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        if: steps.credentials.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # 必须先构建：wrangler.jsonc 里 assets.directory 指向 packages/client/dist，
+      # 这个目录是 gitignore 掉的，仓库里没有。
+      - name: 构建前端
+        if: steps.credentials.outputs.ready == 'true'
+        run: pnpm --filter @ai-duel/client build
+
+      - name: 部署 Worker
+        if: steps.credentials.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: packages/server
+          command: deploy

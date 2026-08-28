@@ -1,0 +1,532 @@
+/* ============================================================
+   /hero 选择英雄页的私有样式
+   ------------------------------------------------------------
+   只放这一页自己用得上的东西。凡是别的页面也会用到的一律留在
+   src/ui/paper/paper.css 或 styles.css，别往这搬。
+   页面私有类统一加 hero- 前缀（.hero / .hero__*），避免和 styles.css 里
+   .home / .battle 那些全站类撞名，这一条和 design.css、deck.css 同源。
+
+   ------------------------------------------------------------
+   坐标怎么来的
+   ------------------------------------------------------------
+   和首页一样是「固定宽高比的舞台 + 容器查询单位」：舞台按 1672:941 撑到视口里
+   最大的那一档，里面所有尺寸写成 cqi（= 舞台宽的百分之一），换窗口只是整体等比缩放。
+   下面每一个具体数值都是在 1920×1080 的设计稿上量出来再除以 19.2 得到的
+   （设计稿宽 1920 时 1cqi = 19.2px），注释里标的 px 就是设计稿上的原始读数，
+   照着设计稿重新量的时候按这个换算回去即可。
+
+   纵向位置用百分比而不是 cqi：舞台高宽比是钉死的，两种写法等价，
+   但百分比能直接对上设计稿上的「第几行像素 / 1080」，改起来不用心算。
+   ============================================================ */
+
+.hero {
+  /* 米金字色。三档都是从设计稿上取的最亮像素，不是猜的：
+     标题 (230,215,185)、副标题 (191,174,144)、返回 (198,177,139)。 */
+  --hero-title: #e9dcba;
+  --hero-sub: #bfae90;
+  --hero-ink: #c9b48c;
+  --hero-ink-lit: #f2e5c2;
+  /* 选中框那条亮线，设计稿实测 (210,180,125)。 */
+  --hero-gold: #d2b47d;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  /*
+   * 舞台之外露出的留边。首页那边是暖棕纸色，这里必须是近黑的深蓝：
+   * hero-bg.webp 四条边的平均色是 rgb(18 22 26)，留边和它对不上就会在画面四周
+   * 描出一圈看得见的亮边。同理不能用全局纸张 token。
+   */
+  background-color: #12161a;
+  /*
+   * 暗角很淡，只让四周比中间沉一点。这里不能用全局的 --vignette（paper.css 的 :root 上，
+   * main.tsx 全局引入所以永远有值）：那一档是给纸色底调的暖棕 rgba(122,106,74,0.189)，
+   * 叠在这页近黑的底上是把四角提**亮**，方向正好反过来，
+   * 还会在留边四角洗出一圈比背景图边缘更亮的棕灰——正是上面那段要避免的亮边。
+   */
+  background-image: radial-gradient(
+    ellipse 130% 100% at 50% 42%,
+    rgb(0 0 0 / 0%) 45%,
+    rgb(0 0 0 / 22%) 100%
+  );
+  user-select: none;
+  /* 整页是等图加载完才挂上来的（见 HeroScreen.tsx），从深色 loader 硬切过来会跳一下，
+     用一段短淡入接住。时长和首页取同一档，别演变成进场动画。 */
+  animation: hero-fade-in 0.36s ease-out;
+}
+
+@keyframes hero-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hero__stage {
+  /*
+   * container-type 用 inline-size 而不是首页那个 size：这一页的 cqi 只跟宽度走，
+   * inline-size 不要求容器有确定高度，少一个出错的前提。
+   */
+  container-type: inline-size;
+  position: relative;
+  /* 纸纹是宿主 .hero 的 ::before / ::after，其中 ::after 排在所有子元素之后、
+     默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页同一处理）。 */
+  z-index: 1;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+}
+
+/*
+ * 背景整幅图。四条边羽化的理由和首页一致：切图四角的亮度并不完全均匀，
+ * 下面是一整片纯色，硬接缝处总能看出一点色差，化开就没有硬边可以贴着显形。
+ * 这里的羽化比首页窄（1.2cqi 对 1.75cqi）：留边色和图边缘色本来就几乎一样，
+ * 化太宽反而会在 16:9 视口上白啃掉一圈画面。
+ * 两条渐变一横一纵、intersect 取交集——默认的 add 是并集，一条边都虚不起来。
+ */
+.hero__bg {
+  --hero-bg-feather: 1.2cqi;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      black var(--hero-bg-feather),
+      black calc(100% - var(--hero-bg-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      black var(--hero-bg-feather),
+      black calc(100% - var(--hero-bg-feather)),
+      transparent
+    );
+  mask-composite: intersect;
+  /* 纯画面，绝不能吃掉卡牌和按钮的点击。 */
+  pointer-events: none;
+}
+
+/* ============================================================
+   返回
+   ============================================================ */
+
+/*
+ * 设计稿上箭头左边缘在 x=69px、文字行盒中心在 y=64px。
+ * 这里的 left / top 都已经把 padding 减掉了（padding 是为了把点击区从「只有那几个字」
+ * 撑到一个手指按得中的方块，纯视觉位置不该跟着 padding 挪）：
+ * left = 69/19.2 - 0.5 ≈ 3.09cqi，top = (64 - 21/2)/1080 - 0.4cqi折合的 0.71% ≈ 4.2%。
+ */
+.hero__back {
+  position: absolute;
+  top: 4.2%;
+  left: 3.09cqi;
+  display: flex;
+  align-items: center;
+  /* 箭头右端到文字左端设计稿量得 20px。 */
+  gap: 1.04cqi;
+  padding: 0.4cqi 0.5cqi;
+  border: none;
+  background: none;
+  color: var(--hero-ink);
+  font-size: 1.15cqi;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.hero__back:hover {
+  color: var(--hero-ink-lit);
+}
+
+/* 箭头单独一层，hover 时只有它左移。
+   transform 写在这里不违反「transform 归 GSAP」那条：GSAP 只碰 .hero__back 本身，
+   父子各自一套 transform 互不覆盖。 */
+.hero__back-arrow {
+  width: 1.2cqi;
+  height: 0.78cqi;
+  transition: transform 0.18s ease;
+}
+
+.hero__back:hover .hero__back-arrow {
+  transform: translateX(-0.3cqi);
+}
+
+.hero__back:focus-visible {
+  outline: 2px solid var(--hero-ink-lit);
+  outline-offset: 0.2cqi;
+}
+
+/* ============================================================
+   标题区
+   ============================================================ */
+
+/*
+ * 标题和副标题包在一个绝对定位的块里，两行按正常流排：
+ * 这样 GSAP 可以分别给两行写 yPercent 做错峰入场，而不用担心和定位用的
+ * translateY(-50%) 撞在同一个 transform 上。
+ * top 是反推出来的——设计稿上标题字形顶边在 y=39px，行高 1 的行盒比字形再高一点点。
+ */
+.hero__head {
+  position: absolute;
+  top: 3.35%;
+  right: 0;
+  left: 0;
+  text-align: center;
+}
+
+.hero__title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 花饰整组到文字的间距，设计稿上是 50px。 */
+  gap: 2.6cqi;
+  margin: 0;
+  color: var(--hero-title);
+  /* 六个字在设计稿上占 321px，折算字号约 2.85cqi。 */
+  font-size: 2.85cqi;
+  /* 600 是这套字体里「厚重但不发糊」的一档。Noto Serif SC 只引了 300~700，别写出界。 */
+  font-weight: 600;
+  line-height: 1;
+  /* 往右下压一道硬边影子，再垫一层散开的暗色，让字从夜空里浮出来（同首页做法）。 */
+  text-shadow:
+    0.12cqi 0.16cqi 0 rgb(12 16 22 / 55%),
+    0 0.3cqi 0.9cqi rgb(8 12 18 / 55%);
+}
+
+/* 标题两侧的「细线 + 四角星」。左右两组元素顺序相反，靠 flex-direction 翻过来，
+   省得为镜像再写一套类。 */
+.hero__flourish {
+  display: flex;
+  align-items: center;
+  /* 线到星 9px。 */
+  gap: 0.45cqi;
+}
+
+.hero__flourish--right {
+  flex-direction: row-reverse;
+}
+
+/* 细横线往外侧淡出，免得线头在夜空里断得太生硬。
+   颜色是从设计稿反解的：线上最亮处 rgb(72,66,57)，压在 rgb(16,22,31) 的底上，
+   等于米金 rgb(216,201,163) 约 28% 的不透明度。 */
+.hero__flourish-line {
+  width: 5.4cqi;
+  height: 2px;
+  background: linear-gradient(to right, rgb(216 201 163 / 0%), rgb(216 201 163 / 30%));
+}
+
+.hero__flourish--right .hero__flourish-line {
+  background: linear-gradient(to left, rgb(216 201 163 / 0%), rgb(216 201 163 / 30%));
+}
+
+.hero__flourish-star {
+  width: 1cqi;
+  height: 1cqi;
+  color: #b1986b;
+}
+
+.hero__subtitle {
+  /* 标题行盒底边到副标题字形顶边设计稿上是 10px 左右。 */
+  margin: 0.5cqi 0 0;
+  color: var(--hero-sub);
+  font-size: 1.2cqi;
+  /* 300 是引进来的最细一档，副标题要明显比标题轻。 */
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* ============================================================
+   卡牌
+   ============================================================ */
+
+/*
+ * 两排卡整体用 flex 摆，不给每张卡写坐标：
+ * 卡宽 240px、同排间隙 64px 都是设计稿实测，居中排下来第一排左边缘正好落在 x=384，
+ * 第二排落在 x=536——和设计稿分毫不差，所以没必要退回逐张定位。
+ * 两排之间 46px（第一排底边 514 到第二排顶边 560）。
+ */
+.hero__grid {
+  position: absolute;
+  /* 第一排卡顶边 y=154px。 */
+  top: 14.26%;
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2.4cqi;
+}
+
+.hero__row {
+  display: flex;
+  justify-content: center;
+  gap: 3.33cqi;
+}
+
+/*
+ * 一张卡。这一层只管布局和键盘焦点，不参与任何动画——
+ * 动的是里面的 .hero__card-lift，分开是为了让「布局位置」和「GSAP 写的 transform」
+ * 各占一个元素，互相不会覆盖。
+ */
+.hero__card {
+  position: relative;
+  width: 12.5cqi;
+  aspect-ratio: 2 / 3;
+  /* flex 项默认可以被压扁，卡的宽度是照设计稿钉死的，不许缩。 */
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+/* 描边落在金框外面一点，选中和聚焦同时出现时两圈线不会叠在一起。 */
+.hero__card:focus-visible {
+  outline: 2px solid var(--hero-ink-lit);
+  outline-offset: 0.95cqi;
+}
+
+/* GSAP 写入场 / hover 上浮 / 选中 pop 的那一层。这里不写任何 transition：
+   同一元素上 CSS 过渡和 GSAP 抢同一个 transform，最后总有一方被压死。 */
+.hero__card-lift {
+  position: absolute;
+  inset: 0;
+}
+
+.hero__card-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* 卡面的装饰边框和名字牌都画在图里，这里不需要再叠任何东西。 */
+  box-shadow: 0 0.45cqi 1.1cqi rgb(4 8 14 / 40%);
+}
+
+/*
+ * 选中态的金色双线框。
+ *
+ * 两条线的位置是从设计稿量的：外面那条暗金线离卡边 13px（0.68cqi），
+ * 里面那条亮金线离卡边 7.5px（0.39cqi），两条都是 2px 粗。
+ * ::after 的 inset 相对的是本元素的 padding box（已经在 border 里面了），
+ * 所以 0.19cqi 加上外框 0.1cqi 的边宽正好把亮线推到 -0.39cqi 处。
+ *
+ * 只动 opacity，不动 transform：这一层和 .hero__card-lift 里的图片一起被父层带着走，
+ * 自己再叠一层 transform 只会和 GSAP 打架。
+ */
+.hero__card-frame {
+  position: absolute;
+  inset: -0.68cqi;
+  border: 0.1cqi solid rgb(168 143 92 / 55%);
+  border-radius: 0.25cqi;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+
+.hero__card-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0.19cqi;
+  border: 0.11cqi solid var(--hero-gold);
+  border-radius: 0.15cqi;
+  /* 很轻的一圈金色泛光，让选中的卡从暗底里浮一点点出来，别做成发光灯管。 */
+  box-shadow: 0 0 1.4cqi 0.1cqi rgb(210 180 125 / 22%);
+}
+
+.hero__card.is-selected .hero__card-frame {
+  opacity: 1;
+}
+
+/*
+ * 点「确认英雄」时那一下金光。垫在卡片图底下，光只从卡的四周漏出来。
+ * 平时 visibility: hidden 而不是只有 opacity: 0——七张卡各挂一圈大范围 box-shadow，
+ * 浏览器并不保证会跳过全透明元素的绘制。GSAP 用 autoAlpha 驱动，它会自己管 visibility。
+ */
+.hero__card-pulse {
+  position: absolute;
+  inset: -0.7cqi;
+  border-radius: 0.3cqi;
+  box-shadow: 0 0 2.2cqi 0.5cqi rgb(226 196 132 / 65%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ============================================================
+   确认按钮
+   ============================================================ */
+
+/*
+ * 羊皮纸匾额。设计稿上从外往里数是：2px 描边 → 4px 底 → 2px 内衬线 → 底，
+ * 四个角都是 45° 斜切。
+ *
+ * 为什么套一层又一层而不是「一个元素 + border + clip-path」：
+ * clip-path 会把 border 的四个角一起切掉，斜边上就没有线了，而设计稿的斜边是有线的。
+ * 改成一层套一层、每层各自 clip 成小一号的八边形，父层的底色就会在斜边上
+ * 自然露出等宽的一条——这才是设计稿里那个形状。
+ * 每层的斜切尺寸要比外面一层小掉正好一个 padding 的量，斜边才平行。
+ *
+ * 最外的 .hero__confirm 只是个不裁剪的外壳，八边形从 .hero__confirm-edge 才开始：
+ * 同一个元素上 filter 的结果会被自己的 clip-path 再裁一遍（裁剪发生在滤镜之后），
+ * 投影和焦点圈全落在八边形之外、一个像素都留不下（styles.css 的 .plaque-button 已经踩过一次）。
+ * 拆成两层之后，父层的 drop-shadow 描的是被裁子元素的真实八边形轮廓，影子才露得出来。
+ */
+.hero__confirm {
+  position: absolute;
+  /* 设计稿：宽 384px、高 81px、顶边 y=959px。left 用 50% 配负 margin 而不是
+     translateX(-50%)，把 transform 整个留给下面的按下效果，省得两者互相覆盖。 */
+  top: 88.8%;
+  left: 50%;
+  width: 20cqi;
+  height: 4.22cqi;
+  margin-left: -10cqi;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  /* 投影用 drop-shadow 不用 box-shadow：box-shadow 描的是矩形边框盒，
+     而真正的形状是子元素裁出来的八边形，只有 drop-shadow 跟得上。 */
+  filter: drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%));
+  transition:
+    transform 0.14s ease,
+    filter 0.14s ease;
+}
+
+.hero__confirm-edge,
+.hero__confirm-plate,
+.hero__confirm-rule,
+.hero__confirm-face {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 最外那圈 2px 描边。 */
+.hero__confirm-edge {
+  padding: 0.11cqi;
+  background: #b8a17a;
+  clip-path: polygon(
+    0.7cqi 0,
+    calc(100% - 0.7cqi) 0,
+    100% 0.7cqi,
+    100% calc(100% - 0.7cqi),
+    calc(100% - 0.7cqi) 100%,
+    0.7cqi 100%,
+    0 calc(100% - 0.7cqi),
+    0 0.7cqi
+  );
+}
+
+.hero__confirm-plate {
+  padding: 0.21cqi;
+  background: linear-gradient(to bottom, #e4d7be 0%, #d5c5a7 55%, #dccbaf 100%);
+  clip-path: polygon(
+    0.59cqi 0,
+    calc(100% - 0.59cqi) 0,
+    100% 0.59cqi,
+    100% calc(100% - 0.59cqi),
+    calc(100% - 0.59cqi) 100%,
+    0.59cqi 100%,
+    0 calc(100% - 0.59cqi),
+    0 0.59cqi
+  );
+}
+
+/* 内衬线本身就是一整块底色，靠上下两层把它压成一条 2px 的边。 */
+.hero__confirm-rule {
+  padding: 0.11cqi;
+  background: rgb(120 100 66 / 35%);
+  clip-path: polygon(
+    0.38cqi 0,
+    calc(100% - 0.38cqi) 0,
+    100% 0.38cqi,
+    100% calc(100% - 0.38cqi),
+    calc(100% - 0.38cqi) 100%,
+    0.38cqi 100%,
+    0 calc(100% - 0.38cqi),
+    0 0.38cqi
+  );
+}
+
+.hero__confirm-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 星心到文字边缘设计稿量得 75px。 */
+  gap: 3.9cqi;
+  background: linear-gradient(to bottom, #e4d7be 0%, #d5c5a7 55%, #dccbaf 100%);
+  clip-path: polygon(
+    0.27cqi 0,
+    calc(100% - 0.27cqi) 0,
+    100% 0.27cqi,
+    100% calc(100% - 0.27cqi),
+    calc(100% - 0.27cqi) 100%,
+    0.27cqi 100%,
+    0 calc(100% - 0.27cqi),
+    0 0.27cqi
+  );
+}
+
+.hero__confirm-label {
+  /* 深墨色，从设计稿字形里取的最暗像素。浅色匾额上放米白字看不清，这一点和首页那块铜牌同理。 */
+  color: #2c3138;
+  font-size: 1.72cqi;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  /* 字距会在最后一个字后面也留一格，不收掉整行看起来是偏左的。 */
+  margin-right: -0.06em;
+  line-height: 1;
+}
+
+.hero__confirm-star {
+  width: 0.86cqi;
+  height: 0.86cqi;
+  /* 星比正文淡一档，是装饰不是内容。 */
+  color: #a08c68;
+  flex: none;
+}
+
+.hero__confirm:hover {
+  filter: drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%)) brightness(1.05);
+}
+
+/* 按下时整块压进去：往下挪一点，同时把影子收紧，像真的被按到了台面上。 */
+.hero__confirm:active {
+  transform: translateY(0.18cqi);
+  filter: drop-shadow(0 0.12cqi 0.25cqi rgb(4 8 14 / 55%)) brightness(0.96);
+}
+
+/* 焦点圈也不能用 outline：outline 描的是矩形边框盒，会在八边形的四个斜角外露出来。
+   改用两道叠加的 drop-shadow 描轮廓，形状跟着子元素的裁剪走。 */
+.hero__confirm:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 0.25cqi var(--hero-ink-lit)) drop-shadow(0 0 0.25cqi var(--hero-ink-lit))
+    drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%));
+}
+
+/* 键盘按住空格时 :focus-visible 和 :active 同时命中，而 filter 是整条覆盖不是叠加，
+   写在后面的 :focus-visible 会把 :active 那份压掉。这条特异性更高，把两边合起来写一遍。 */
+.hero__confirm:focus-visible:active {
+  filter: drop-shadow(0 0 0.25cqi var(--hero-ink-lit)) drop-shadow(0 0 0.25cqi var(--hero-ink-lit))
+    drop-shadow(0 0.12cqi 0.25cqi rgb(4 8 14 / 55%)) brightness(0.96);
+}
+
+/* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时。做法同首页（见 styles.css 的同名块）。 */
+@media (prefers-reduced-motion: reduce) {
+  .hero {
+    animation: none;
+  }
+
+  .hero__back,
+  .hero__back-arrow,
+  .hero__card-frame,
+  .hero__confirm {
+    transition-duration: 1ms;
+  }
+}

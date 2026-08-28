@@ -169,6 +169,10 @@ describe('出牌阶段', () => {
     const skills = result.events.filter((e) => e.type === 'SKILL_PLAYED')
     expect(skills).toHaveLength(player.discard.length)
     expect(player.discard.every((c) => c.cardId === 'placeholder-skill')).toBe(true)
+    // 每条事件都报出了那张牌自己的实例 id，客户端才能在手牌里把它揪出来播动画。
+    expect(skills.map((e) => e.instanceId).sort()).toEqual(
+      player.discard.map((c) => c.instanceId).sort(),
+    )
   })
 
   it('AI 卡上场后沿用手牌那一份实例 id', () => {
@@ -649,8 +653,14 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
     })
 
     expect(result.state.players[1].discard.map((c) => c.cardId)).toEqual(['placeholder-skill'])
+    // instanceId 是打出的那张技能牌自己，客户端靠它定位起飞的手牌。
     expect(result.events).toEqual([
-      { type: 'SKILL_PLAYED', player: 1, cardId: 'placeholder-skill' },
+      {
+        type: 'SKILL_PLAYED',
+        player: 1,
+        cardId: 'placeholder-skill',
+        instanceId: card.instanceId,
+      },
     ])
   })
 

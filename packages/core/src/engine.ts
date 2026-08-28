@@ -166,7 +166,14 @@ function playCard(state: GameState, playerId: PlayerId, instanceId: InstanceId):
     events.push({ type: 'AGENT_DEPLOYED', player: playerId, agent })
   } else {
     player.discard.push(instance)
-    events.push({ type: 'SKILL_PLAYED', player: playerId, cardId: card.id })
+    // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
+    // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
+    events.push({
+      type: 'SKILL_PLAYED',
+      player: playerId,
+      cardId: card.id,
+      instanceId: instance.instanceId,
+    })
   }
   return { state: next, events }
 }

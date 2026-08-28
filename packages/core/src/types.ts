@@ -171,7 +171,16 @@ export type GameEvent =
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
   | { type: 'AGENT_DEPLOYED'; player: PlayerId; agent: AgentInstance }
   /** 技能牌打出：中央亮相一下再进弃牌堆。 */
-  | { type: 'SKILL_PLAYED'; player: PlayerId; cardId: CardId }
+  | {
+      type: 'SKILL_PLAYED'
+      player: PlayerId
+      cardId: CardId
+      /**
+       * 打出的那张手牌的实例 id。结算完全用不上它，纯粹给客户端定位用：
+       * 对手出牌时要从他手牌里揪出这张牌飞到屏幕中央，而不是让它凭空出现。
+       */
+      instanceId: InstanceId
+    }
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */
   | { type: 'QUESTION_REVEALED'; question: Question }
   | {

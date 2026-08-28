@@ -184,6 +184,19 @@ body,
     radial-gradient(ellipse 130% 100% at 50% 42%, rgb(0 0 0 / 0%) 45%, rgb(122 106 74 / 0.189) 100%)
   );
   user-select: none;
+  /* 首页是等图全部加载完才整页挂上来的（见 screens/HomeScreen.tsx），
+     从深色的加载页直接硬切到这张亮画面太扎眼，用一段短淡入接上。
+     只播一次，时长压在 0.4s 以内：再长就成了"进场动画"，每次回首页都要等它演完。 */
+  animation: home-fade-in 0.36s ease-out;
+}
+
+@keyframes home-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .home__stage {
@@ -201,8 +214,11 @@ body,
 }
 
 /*
- * 所有整幅切图（夜空底、七张人物抠图、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
+ * 所有整幅切图（夜空底、七张人物抠图及其发光副本、桌面弧、前景道具）都只是画面，
+ * 绝不能吃掉按钮和卡牌的点击。
  * 人物、桌面弧、前景道具那几张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。
+ * 人物自己的 hover 高亮不走指针事件，是在舞台上监听 pointermove 再查抠图的 alpha 通道判出来的，
+ * 所以这条约束和人物高亮并不冲突（见 HomeScreen.tsx 与 castHitTest.ts）。
  *
  * 四条边用 mask 羽化，让图片边缘渐隐进下面的纸底（见 .home 的 background-color）。
  * 起因是切图四条边的角落亮度并不均匀（左上偏亮、右下偏暗），下面是一整片纯色，怎么校准都对不齐每个角，
@@ -247,6 +263,131 @@ body,
   pointer-events: none;
 }
 
+/*
+ * 人物 hover 时的金色高亮。
+ *
+ * 它是人物抠图的一份副本，垫在本人下面一层（为什么放这个位置见 HomeScreen.tsx 里的注释）。
+ * 滤镜分两段：先用四个模糊为 0、沿四个对角各偏一点的 drop-shadow 叠出一圈实描边——
+ * 单张 drop-shadow 只能往一个方向投，四个方向凑齐才是"描边"而不是"偏影"；
+ * 再叠两层带模糊的投影做外扩的光晕，一近一远，近的亮、远的散。
+ * 因为副本垫在本人身下，这些光只有轮廓外那一圈露得出来，正好成了描边。
+ */
+.home__cast-glow {
+  filter:
+    drop-shadow(0.18cqi 0.18cqi 0 #fbe6c4) drop-shadow(-0.18cqi 0.18cqi 0 #fbe6c4)
+    drop-shadow(0.18cqi -0.18cqi 0 #fbe6c4) drop-shadow(-0.18cqi -0.18cqi 0 #fbe6c4)
+    drop-shadow(0 0 0.6cqi rgb(251 230 196 / 95%)) drop-shadow(0 0 1.6cqi rgb(232 198 159 / 70%));
+  opacity: 0;
+  /*
+   * 光靠 opacity: 0 不够：七份整幅大图常驻在 DOM 里，每份都挂着六道 drop-shadow，
+   * 浏览器并不保证会跳过全透明元素的绘制（有的实现照样把滤镜算完再乘 alpha）。
+   * visibility: hidden 是明确的"不参与绘制"，不 hover 时这七层就真的不花钱。
+   * 代价是 visibility 不能和 opacity 同时过渡，得让它延迟到淡出结束再切——就是下面这个写法。
+   */
+  visibility: hidden;
+  transition:
+    opacity 0.22s ease,
+    visibility 0s linear 0.22s;
+}
+
+.home__cast-glow.is-lit {
+  opacity: 1;
+  visibility: visible;
+  /* 淡入时 visibility 要立刻生效，所以延迟归零。 */
+  transition:
+    opacity 0.22s ease,
+    visibility 0s linear 0s;
+}
+
+/*
+ * 人物介绍卡片。左右位置由 HomeScreen 按人物的 alpha 包围盒现算，这里只管长相。
+ * 调子对着首页夜空走：深蓝底 + 米金细线，双线内衬呼应战场的 .ornate-frame，但换成首页色板。
+ */
+.home__cast-panel {
+  position: absolute;
+  width: 23cqi;
+  padding: 1.5cqi;
+  border: 1px solid rgb(232 198 159 / 55%);
+  border-radius: 0.4cqi;
+  /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
+  background: linear-gradient(to bottom, rgb(24 31 40 / 94%), rgb(18 23 31 / 92%));
+  box-shadow: 0 0.6cqi 1.6cqi rgb(8 12 18 / 55%);
+  color: var(--home-ink);
+  text-align: center;
+  /* 卡片纯展示，不能挡住下面任何东西的 hover——尤其它就浮在人物和展示卡上方。 */
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.6cqi);
+  /* 和发光层同一套 visibility 配方，理由见上面。 */
+  visibility: hidden;
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease,
+    visibility 0s linear 0.24s;
+}
+
+.home__cast-panel.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease,
+    visibility 0s linear 0s;
+}
+
+/* 内衬的第二条线，比外框内缩一圈：双线是这套设计里"正式文书"的标志。 */
+.home__cast-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0.35cqi;
+  border: 1px solid rgb(232 198 159 / 30%);
+  border-radius: 0.2cqi;
+}
+
+.home__cast-panel-kicker {
+  display: block;
+  color: rgb(232 198 159 / 65%);
+  font-size: 0.95cqi;
+  /* 字距拉得很开，配合小字号做成"档案标签"的样子。末字后面多出的一格照例收掉。 */
+  margin-right: -0.42em;
+  letter-spacing: 0.42em;
+}
+
+.home__cast-panel-name {
+  display: block;
+  margin-top: 0.6cqi;
+  color: var(--home-ink-lit);
+  font-size: 2.2cqi;
+  line-height: 1.2;
+}
+
+/*
+ * 分隔线：两端淡出的细线中间嵌一颗四角星，直接复用副标题那组 .home__flourish 零件，
+ * 只把线和星按卡片的尺度调小一档（三个变量的定义见 .home__flourish）。
+ */
+.home__cast-panel-rule {
+  --home-flourish-line-w: 4.5cqi;
+  --home-flourish-star-size: 1.1cqi;
+  --home-flourish-star-color: rgb(232 198 159 / 80%);
+  justify-content: center;
+  margin: 0.8cqi 0;
+}
+
+.home__cast-panel-title {
+  display: block;
+  color: rgb(232 198 159 / 85%);
+  font-size: 1.15cqi;
+  letter-spacing: 0.12em;
+}
+
+.home__cast-panel-blurb {
+  margin: 0.9cqi 0 0;
+  color: rgb(232 198 159 / 72%);
+  font-size: 1.25cqi;
+  line-height: 1.7;
+}
+
 /* top 配 translateY(-50%) 是让文字**行盒的中心**落在这个高度上，
    比按顶边定位稳：字号一改，顶边定位的整行都会跟着挪。下面几处同理。 */
 .home__title {
@@ -254,20 +395,29 @@ body,
   top: 15%;
   right: 0;
   left: 0;
-  margin: 0;
+  /* 收成刚好包住字：左右各 0 加 auto 外边距照样居中，但盒子从整个舞台宽收到文字宽。
+     下面那道手绘滤镜的计算区域是按盒子算的（还要外扩 40%），
+     铺满舞台的话等于每次重绘都白算两千多像素宽的一圈空白噪声。 */
+  width: fit-content;
+  margin: 0 auto;
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 7.3cqi;
-  /* 600 比原来的 700 收一档：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
-     上限还是 700——Noto Serif SC 只引到 700，再往上写 800/900 不会更粗，
-     只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
-  font-weight: 600;
+  /* 一路从 700 收到 500：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
+     中英两套字体都必须有这一档才行，所以 index.html 里 EB Garamond 也引了 500，
+     否则「AI」会掉回 400，和前面的中文粗细对不上。
+     下限到 300 为止（Noto Serif SC 引到 300），上限 700；写出这个范围浏览器会自己
+     拉出一份伪粗 / 伪细，笔画会发糊。 */
+  font-weight: 500;
   line-height: 1;
   text-align: center;
   /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
   text-shadow:
     0.24cqi 0.3cqi 0 rgb(20 26 34 / 60%),
     0 0.5cqi 1.1cqi rgb(10 14 20 / 50%);
+  /* 和 /design 页同一套手绘抖动（定义见 HandDrawnFilterDefs）。这一页上的文字类 UI
+     各用一个不同 seed 的滤镜：同一个 id 抖出来的噪声是一样的，几处一起用会歪成同一条线。 */
+  filter: url('#ai-duel-rough-frame');
 }
 
 .home__title-bang {
@@ -298,8 +448,15 @@ body,
      不用负 margin 收掉的话，整行看起来是偏左的。 */
   margin-right: -0.5em;
   letter-spacing: 0.5em;
+  filter: url('#ai-duel-rough-alt');
 }
 
+/*
+ * 细线 + 四角星的花饰，副标题两侧和人物介绍卡片的分隔线共用一套。
+ * 尺寸和星的颜色留成三个变量，用的地方在**容器上**覆盖即可（见 .home__cast-panel-rule）；
+ * 默认值写在 var() 的兜底位而不是这里，是因为介绍卡片那个节点同时挂着两个类，
+ * 默认值写在这条规则上会因为排在后面而盖掉容器自己设的值。
+ */
 .home__flourish {
   display: flex;
   align-items: center;
@@ -308,18 +465,22 @@ body,
 
 /* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
 .home__flourish-line {
-  width: 5.4cqi;
+  width: var(--home-flourish-line-w, 5.4cqi);
   height: 1px;
   background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
-.home__flourish--right .home__flourish-line {
+/* 摆在星右边的那条线，渐变要反过来才是"往外侧淡出"。 */
+.home__flourish-line--right {
   background: linear-gradient(to left, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
+/* 细横线不套滤镜：它只有 1px 高，位移量比线本身还大，会被抖成一串断点。 */
 .home__flourish-star {
-  width: 1.5cqi;
-  height: 1.5cqi;
+  width: var(--home-flourish-star-size, 1.5cqi);
+  height: var(--home-flourish-star-size, 1.5cqi);
+  color: var(--home-flourish-star-color, currentcolor);
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__cards {
@@ -327,6 +488,20 @@ body,
   inset: 0;
   /* 这层只是铺满舞台的定位框，本身不该是命中目标：指针事件只留给卡槽，
      指针落在卡与卡之间的空隙时就当没碰到卡。 */
+  pointer-events: none;
+}
+
+/*
+ * 指针压在人物像素上时，把整组展示卡的命中关掉。
+ * 人物在视觉上站在卡前面，指针明明落在人身上，被他挡住的那张卡却抬起来，看着就像穿模。
+ * 只是关命中，不动任何动画：指针离开人物后这条规则失效，卡自己就恢复正常 hover。
+ *
+ * 已知的滞后（两个方向都有）：这个类的加和解都发生在 React 重渲染时，而重渲染只由 pointermove 触发。
+ * 指针刚停到人身上就不动，底下那张卡会保持抬起；指针刚离开人物、卡的命中恢复了，
+ * 卡也要等指针再动一下才收得到 pointerenter。浏览器在样式变更后是否补一次命中测试各家不一致，
+ * 不能指望它替我们补事件。眼下这点滞后指针一动就自愈，先不为它加代码。
+ */
+.home__stage.is-cast-hover .home__cards {
   pointer-events: none;
 }
 
@@ -431,6 +606,10 @@ body,
   /* 两处补偿：横向抵消末字后面多出的一格字距，取字距的一半正好把整行推回视觉居中；
      纵向是因为切图带着下缘的投影，几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
   transform: translate(0.14em, -0.5cqi);
+  /* 和 /design 页的匾额按钮 .plaque-button__label 用同一个滤镜，两处按钮的字保持一种抖法。
+     滤镜只加在文字上，不加在按钮那张铜牌切图上：切图边缘是照着背景里桌面的凹槽对齐的，
+     一歪就和凹槽错开了。 */
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__start:hover {
@@ -470,8 +649,12 @@ body,
 /* 三个入口都还没有页面，所以只有"能读"没有"能按"：光标保持默认，别做出可点的样子。 */
 .home__nav-item {
   margin-right: -0.24em;
+  /* 上下留白不是为了排版（flex 居中，撑高了三项一起居中，位置不动），是给滤镜留计算区域：
+     区域按盒子外扩 20% 算，紧贴文字的话 hover 那圈 1.2cqi 的光晕会被直接切掉一条硬边。 */
+  padding: 0.6em 0;
   letter-spacing: 0.24em;
   cursor: default;
+  filter: url('#ai-duel-rough-frame');
   transition:
     color 0.16s ease,
     text-shadow 0.16s ease;
@@ -486,6 +669,7 @@ body,
   width: 1.1cqi;
   height: 1.1cqi;
   color: rgb(232 198 159 / 70%);
+  filter: url('#ai-duel-rough-icon');
 }
 
 .home__settings {
@@ -502,6 +686,8 @@ body,
   font-size: 1.8cqi;
   letter-spacing: 0.16em;
   cursor: default;
+  /* 齿轮和"设置"两个字一起套一层，比各套一层少算一遍噪声。 */
+  filter: url('#ai-duel-rough-button');
   transition: color 0.16s ease;
 }
 
@@ -550,6 +736,23 @@ body,
   .home__start {
     animation: none;
   }
+
+  /*
+   * 高亮和介绍卡片改成直接出现／消失，不淡入也不位移。
+   * visibility 那条不能一起压成 1ms：它本来就是 0s 时长、靠延迟排在淡出之后的，
+   * 淡出没了，它的延迟也得归零，否则隐藏会莫名慢半拍。
+   */
+  .home__cast-glow,
+  .home__cast-glow.is-lit,
+  .home__cast-panel,
+  .home__cast-panel.is-open {
+    transition: none;
+  }
+
+  .home__cast-panel,
+  .home__cast-panel.is-open {
+    transform: none;
+  }
 }
 
 /* ---------- 扇形手牌 ---------- */
@@ -568,15 +771,26 @@ body,
   pointer-events: none;
 }
 
+/*
+ * 手牌的一张牌。
+ *
+ * 盒子按「hover 放大到顶」的尺寸布局（--card-w 乘上 --hand-card-zoom），静置时靠 GSAP
+ * 写在 transform 上的 scale 缩回 --card-w 那么大（见 HandFan.tsx 的 slotScale）。
+ * 反过来做——盒子按 150×210 布局、hover 时 transform 放大——画面会糊，原因见下面 .hand-fan__tilt。
+ *
+ * --hand-card-zoom 由 HandFan 写在 .hand-fan 上，值就是那边的 HOVER_SCALE，
+ * 它是按扇形最大倾角算出来的，所以不能在这里写死一个数。
+ */
 .hand-fan__slot {
   position: absolute;
   left: 50%;
   bottom: 0;
-  width: var(--card-w);
-  height: var(--card-h);
-  margin-left: calc(var(--card-w) / -2);
-  /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。 */
-  perspective: 1000px;
+  width: calc(var(--card-w) * var(--hand-card-zoom));
+  height: calc(var(--card-h) * var(--hand-card-zoom));
+  margin-left: calc(var(--card-w) * var(--hand-card-zoom) / -2);
+  /* 3D 透视给里面的倾斜层和翻转层用；父层自己只做 2D 变换，不受影响。
+     距离得跟着盒子一起放大：观察点不退后的话，同样的倾斜角在变大的卡面上透视会更夸张。 */
+  perspective: calc(1000px * var(--hand-card-zoom));
   pointer-events: auto;
   /* 出牌靠拖，光标也照着说：抓手而不是手指。 */
   cursor: grab;
@@ -598,11 +812,22 @@ body,
  * 翻到背面之后的立体感就没了。
  * position 也不能去掉：问号的透明热区就挂在这一层里，靠它当绝对定位的基准
  * （这里 inset: 0，和卡面同一个框，所以热区的 top / right 落在卡面右上角）。
+ *
+ * zoom 是这张牌不糊的关键。卡面内部（.card-face 那一套、问号、背面）仍然照 150×210 的
+ * 口径写 px，zoom 把这一整套按 --hand-card-zoom 倍放大成**真实布局**，于是放大到顶的那一刻，
+ * 卡面是按 285×399 排版、也按这个尺寸栅格化的，字和插画都是原生分辨率。
+ * 必须这么绕，是因为 Chrome 对带 3D 旋转的元素走贴图路径：先按布局尺寸栅格化成一张贴图，
+ * 再把贴图贴到三维平面上。放大要是靠外层 transform 做的，贴图就还是 150×210 那张，
+ * 一旦 cardTilt 写进哪怕 0.3° 的倾斜，整张卡就是被拉伸 1.9 倍的糊图（实测如此）。
+ *
+ * zoom 只能落在这一层或更里面：slot 上的 x / y 平移会被 zoom 乘一遍，
+ * 扇形摆位算出来的坐标就全错位了。这一层 GSAP 只写角度，不写平移，才轮得到它。
  */
 .hand-fan__tilt {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
+  zoom: var(--hand-card-zoom);
 }
 
 /*
@@ -709,7 +934,7 @@ body,
   visibility: hidden;
 }
 
-/* ---------- 对手的倒扇形手牌（暂无调用方） ---------- */
+/* ---------- 对手的倒扇形手牌 ---------- */
 
 /*
  * 和 .hand-fan 结构完全同构的锚点：高度为 0，只不过钉在视口**顶**边，
@@ -751,6 +976,14 @@ body,
   cursor: pointer;
   user-select: none;
   will-change: transform;
+}
+
+/*
+ * 组件被传了 disabled（正式对局就是这样：对手的手牌只能看张数，点不动）。
+ * 点不动却给一个手指光标是骗人的，收回默认箭头。
+ */
+.opponent-fan[data-disabled] .opponent-fan__slot {
+  cursor: default;
 }
 
 /* ---------- 卡面 ---------- */
@@ -908,9 +1141,9 @@ body,
  * 藏青退到描边和徽记上，整体仍是那套水墨纸面。
  *
  * 颜色全取页面已有的 --battle-paper / --battle-paper-shade / --battle-grain / --battle-navy
- * （都定义在 .battle 上，靠继承传进来）。牌背预备的两个用处——对手手牌和强制展示卡的背面——
- * 都在 .battle 里面，取得到这些变量；两处必须长得一模一样，起飞那一瞬间才不会跳变。
- * （原 /dev/hand 演示页删掉后，眼下还没有页面渲染它，见下面"上场追光与强制展示层"那段的说明。）
+ * （都定义在 .battle 上，靠继承传进来）。牌背的两个用处——对手的倒扇形手牌（.opponent-fan）
+ * 和强制展示卡的背面（.reveal-card__face--back）——都在 .battle 里面，取得到这些变量；
+ * 两处必须长得一模一样，展示卡从对手手里起飞那一瞬间才不会跳变。
  *
  * 藏青那几档半透明写成 color-mix 而不是 rgb(37 49 73 / 62%)：--battle-navy 存的是十六进制色，
  * 没法直接往里塞透明度，抄成字面值的话改主题色时这张牌背会被落下。
@@ -1464,16 +1697,32 @@ body:has(.battle) {
   letter-spacing: 0.08em;
 }
 
-/* 背景图的文件名沿用当初做手牌演示页时的 demo-hand-background.png，没跟着改名——
-   public/ 里换文件名要连带改部署产物，收益只有"名字好看一点"。 */
+/* 战场背景图：public/battle/battle-bg.webp，1672×941。
+
+   这张图是 1x 的，和设计稿等大，但战场用 cover 铺满，高分屏上一律要被放大。
+   战场比图更方，所以 cover 的放大倍数是由高度定的，横向多出来的那截会被裁掉：
+   1440×810 视口配 DPR 2 时战场约 909×738 CSS px，图要铺满 1476 个物理像素高，
+   等于把 941 高的原图放大约 1.57 倍，放大用的插值抹平边缘，画面就发糊了。
+   现在这张图在导出时做过一遍锐化补偿（半径 0.8px、力度 70%、阈值 3），让放大后的边缘不那么平，
+   但锐化补不回丢掉的分辨率。真要清晰只能换 2x 素材：按 3344×1882 重新导出、同名覆盖就行，
+   样式一行都不用改。换图请保持原来的宽高比，比例一变，cover 裁掉的就不是设计稿预留的那一边了。
+
+   存成 WebP 而不是 PNG：画面是纸纹噪点加暗部渐变的照片类内容，PNG 无损压不动它，
+   原来那张 PNG 有 2.18MB，同一张图 WebP q90 只要 188KB，噪点和渐变都看不出损失。 */
 .battle__battlefield {
   --battle-hand-zone-h: clamp(210px, 27vh, 250px);
-  /* 顶部对方手牌条的高度。测试房里要摆下真实卡面，所以那一档更高（见下面的 --test）。 */
+  /*
+   * 战场顶上给对方手牌留出的高度（下面 .battle__board 的 top inset 用它）。
+   *
+   * 正式对局里对方手牌是 fixed 的倒扇形（.opponent-fan），不占文档流，
+   * 它在顶栏下方露出约 62px（推导见 ui/fanMath.ts 的 OPPONENT_FAN），74 正好给它让开；
+   * 测试房里则是下面那条真占位置的摊开手牌条，要摆下真实卡面，所以那一档更高（见 --test）。
+   */
   --battle-foe-hand-h: 74px;
   position: relative;
   min-width: 0;
   min-height: 0;
-  background: #26334c url('/demo-hand-background.png') center / cover no-repeat;
+  background: #26334c url('/battle/battle-bg.webp') center / cover no-repeat;
   box-shadow: inset 0 0 24px rgb(5 11 24 / 36%);
 }
 
@@ -1481,8 +1730,12 @@ body:has(.battle) {
   --battle-foe-hand-h: 122px;
 }
 
-/* ---------- 对方手牌条 ---------- */
+/* ---------- 对方手牌条（只有测试房才有） ---------- */
 
+/*
+ * 正式对局里对方手牌是顶边那排倒扇形牌背（.opponent-fan），根本不渲染这一条；
+ * 这里的容器和下面的 --open 一族只服务测试房：把对方手牌摊开成真实卡面，点一下替他出牌。
+ */
 .battle__foe-hand {
   position: absolute;
   top: 0;
@@ -1497,30 +1750,7 @@ body:has(.battle) {
   padding: 0 16px;
 }
 
-/* 卡背互相压住一半，看起来是一叠握在手里的牌，而不是排开的一行。 */
-.battle__foe-stack {
-  display: flex;
-}
-
-.battle__foe-back {
-  width: 34px;
-  height: 48px;
-  border: 1px solid rgb(226 213 184 / 45%);
-  border-radius: 4px;
-  background:
-    repeating-linear-gradient(
-      45deg,
-      rgb(226 213 184 / 12%) 0 3px,
-      transparent 3px 6px
-    ),
-    #2b3a56;
-  box-shadow: 0 2px 6px rgb(5 10 20 / 45%);
-}
-
-.battle__foe-back + .battle__foe-back {
-  margin-left: -17px;
-}
-
+/* 测试房里"对方没有手牌"那行字。 */
 .battle__foe-count {
   color: rgb(226 213 184 / 78%);
   font-size: 13px;
@@ -1969,8 +2199,7 @@ body:has(.battle) {
  * 数值按卡宽等比缩小（大卡 150px 配 1000px，小卡 110px 约 700px），
  * 这样大小两种卡在同样的倾角下"凸出来"的程度看着一致。
  *
- * 不写 cursor: pointer：场上的 AI 现在没有任何点击交互（不选目标、不能手动撤回），
- * 给个手型是骗人的。
+ * 小卡点一下就放大到屏幕中央看清楚（见 MatchStage 的 handleInspect），所以给手指光标。
  */
 .battle__tile {
   position: relative;
@@ -1978,6 +2207,18 @@ body:has(.battle) {
   width: var(--tile-w);
   height: var(--tile-h);
   perspective: 700px;
+  cursor: pointer;
+}
+
+/*
+ * 这张小卡正由展示层代管：玩家点开了放大查看，或者对手打出的模型还停在展示位上。
+ *
+ * 用 visibility 而不是把 tile 从 React 里卸掉：格子还得占着位置，
+ * 不然同一行剩下的小卡会当场往中间挤一下，等看完飞回来又挤回去。
+ * （Flip 的起飞位置是在隐藏之前就量好的，所以隐藏不影响飞行。）
+ */
+.battle__tile--held {
+  visibility: hidden;
 }
 
 /*
@@ -1989,10 +2230,10 @@ body:has(.battle) {
  * 不裁掉溢出的部分会把整页撑出滚动条。
  * 这里的 9px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .battle__tile-edge-ring）。
  *
- * 将来要给小卡加 hover 放大，也只能加在这一层、而且必须走 cardTilt 的 hoverScale 选项，
- * CSS 这边一个字都别写：GSAP 接管这一层的 transform 之后会往内联样式里写死
+ * hover 时的略微放大也在这一层，但整个交给 cardTilt 用 GSAP 做（见它的 hoverScale 选项，
+ * 幅度是 MatchStage 里的 TILE_HOVER_SCALE），CSS 这边一个字都不写：
+ * GSAP 接管这一层的 transform 之后会往内联样式里写死
  * `translate: none; rotate: none; scale: none;`，任何 CSS 的 scale / :hover 规则都会被它压住。
- * （对局界面目前没开 hoverScale，见 MatchStage 里的 attachCardTilt。）
  */
 .battle__tile-tilt {
   position: absolute;
@@ -2017,8 +2258,10 @@ body:has(.battle) {
  * 横幅由 MatchStage 直接往下面的挂载位里塞节点（React 只管中央那张技能卡）。
  * 全层不吃指针事件，压在手牌（z-index 20）和顶栏（70）之上、结算层（90）之下。
  *
- * 全屏过场（.coin-toss / .quiz-reveal）不在这一层：它们要吃掉指针事件，
- * 而且层级在 1100 那一档，见文件末尾那两段。
+ * 全屏过场（.coin-toss / .quiz-reveal）和展示遮罩（.reveal-overlay）都不在这一层：
+ * 它们要吃掉指针事件，而且层级在 1100 那一档，见文件末尾那几段。
+ * 也正因为它们比这一层高，那期间来的横幅会先在 MatchStage 里排队，
+ * 等它们退场再补播（见那边的 pumpBanner）——压在遮罩底下的横幅等于没播。
  */
 .battle__fx {
   position: fixed;
@@ -2052,7 +2295,10 @@ body:has(.battle) {
     0 6px 26px rgb(8 12 20 / 80%);
 }
 
-/* 打出的技能卡，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。 */
+/*
+ * 我方打出的技能卡，在战场中央亮一下。尺寸和手牌大卡一致，看得清是什么牌。
+ * 对方打出的技能牌不走这里，它要从对手手牌飞到中央翻正，归展示层管（见 .reveal-card）。
+ */
 .battle__skill-show {
   position: absolute;
   top: 50%;
@@ -2222,14 +2468,7 @@ body:has(.battle) {
   line-height: 1.5;
 }
 
-/* ---------- 上场追光（暂无调用方） ---------- */
-
-/*
- * 这一段和下面的强制展示层（.reveal-*）连同
- * ui/OpponentFan.tsx、ui/CardBackHidden.tsx、ui/playSummonFx.ts 是原 /dev/hand 演示页
- * 攒出来的一套零件。演示页已经删掉，MatchStage 还没把它们接进对局界面，
- * 所以眼下没有任何页面渲染这些类名——留着是等对局界面来接，不是忘了清理。
- */
+/* ---------- 上场追光 ---------- */
 
 /*
  * 上场时沿卡牌边缘跑一圈的金色追光——外层只管辉光和整体明灭，环本身画在里面那层。
@@ -2285,7 +2524,13 @@ body:has(.battle) {
   mask-composite: exclude;
 }
 
-/* ---------- 对手牌的强制展示层（暂无调用方） ---------- */
+/* ---------- 屏幕中央的展示层 ---------- */
+
+/*
+ * 这一族类名由 MatchStage 的两条链路共用，它们严格互斥（同一张展示卡、同一条浮动）：
+ * 一是对手出牌的强制展示（牌从对手手牌飞到中央翻正、停 1.5 秒，模型卡接着飞向战场），
+ * 二是玩家点战场小卡的放大查看（飞到中央停住，点遮罩再飞回原格）。
+ */
 
 /*
  * 压暗 + 模糊的全屏遮罩。
@@ -2326,7 +2571,8 @@ body:has(.battle) {
  * 所以裁剪写在这一层而不是展示卡自己身上：卡的 transform 归 Flip 管，
  * clip-path 是在元素自己的坐标系里裁的，会跟着卡一起缩放旋转，裁不出"屏幕上那条水平线"。
  * 这一层不做任何变换、正好铺满视口，裁出来的就是顶栏下沿那条线。
- * 卡飞到屏幕中央、整张都在顶栏下方之后，接入方要把这里的裁剪撤掉（原 HandDemo 里的 revealed），
+ * 卡飞到屏幕中央、整张都在顶栏下方之后，MatchStage 会把这里的裁剪撤掉
+ * （强制展示是在 revealed() 里，放大查看那条链路整段用不着，一上来就撤），
  * 免得后面的呼吸浮动和落场飞行还受它限制。
  *
  * 是 fixed 而不是 absolute：展示卡原来就是 fixed，靠这一层接管定位基准，
@@ -2414,6 +2660,11 @@ body:has(.battle) {
  *
  * 刻意**吃掉**指针事件（不写 pointer-events: none）：过场期间玩家不该能出牌。
  * 结算层在下面，所以对局最后一轮的揭晓会盖住结算界面几秒，等它淡出玩家才点得到按钮。
+ *
+ * 和展示遮罩同为 1100 却不会打架，靠的是两头一起管：
+ * MatchStage 那边 startReveal 在过场演着时不受理新展示、QUESTION_REVEALED 会先 abortReveal；
+ * 万一还是撞上，这两层在 DOM 里排在展示遮罩后面，同层级由后者胜出（展示卡的裁剪层是 1101，
+ * 但它跟着 reveal 状态一起被清掉，不会留在上面）。
  */
 .coin-toss,
 .quiz-reveal {
@@ -2722,12 +2973,14 @@ body:has(.battle) {
 /* ---------- 卡牌图鉴页（/card） ---------- */
 
 /*
+ * 开发用的左右分栏图鉴：左栏挑卡，右栏是选中那张的完整档案。
+ *
  * 纸面配色和对局页是同一套，但那几个变量定义在 .battle 自己身上（见 .battle），
  * 这一页取不到，所以照抄一份到 .gallery 上。没有把它们提到 :root，是因为那批变量
  * 现在的名字（--battle-*）就是"对局页的"，提上去等于给全站背一套命名错位的主题变量。
  *
- * 这一页要能滚：#root 是 height: 100%，内容比它高的时候溢出的部分照样撑开文档，
- * 由视口来滚（把 html/body 焊死的那条 :has(.battle) 规则只对对局页生效）。
+ * 整页占满 #root（html / body / #root 都是 height: 100%）且自己不滚，滚动交给左右两栏各自负责：
+ * 挑卡时右边的详情不该跟着一起跑掉，反过来读详情时左边的列表也得留在原处。
  */
 .gallery {
   --gallery-paper: #eee9dc;
@@ -2735,8 +2988,10 @@ body:has(.battle) {
   --gallery-ink: #30313b;
   --gallery-ink-muted: #6d6b61;
   --gallery-line: #aaa391;
-  min-height: 100%;
-  padding: 40px clamp(20px, 4vw, 64px) 72px;
+  /* 左栏卡面的缩放：一屏尽量多列几张，又还认得出卡面上的字。 */
+  --gallery-pick-scale: 0.78;
+  display: flex;
+  height: 100%;
   color: var(--gallery-ink);
   background-color: var(--gallery-paper);
   /* 中间亮、四周退到深一档的纸色，让整页不是一块平色。 */
@@ -2747,32 +3002,51 @@ body:has(.battle) {
   );
 }
 
+/* 左栏：宽度取一个稳定放得下每行两张缩略卡、还留一点余量的定值，不随窗口宽度重排。 */
+.gallery__list {
+  flex: none;
+  width: 320px;
+  height: 100%;
+  padding: 24px 20px 48px;
+  border-right: 1px solid var(--gallery-line);
+  overflow-y: auto;
+}
+
+/* 右栏：min-width: 0 是给里面的 <pre> 兜底——不写的话超宽的 JSON 会把这一栏整个撑开，
+   把左栏挤出视口（flex 子项默认 min-width: auto，不肯缩到内容以下）。 */
+.gallery__detail {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 24px 28px 56px;
+  overflow-y: auto;
+}
+
 .gallery__header {
-  max-width: 720px;
-  margin-bottom: 36px;
+  margin-bottom: 24px;
 }
 
 .gallery__title {
-  margin: 0 0 8px;
-  font-size: 34px;
+  margin: 0 0 6px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
 
 .gallery__lead {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   color: var(--gallery-ink-muted);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .gallery__back {
-  padding: 6px 16px;
+  padding: 5px 14px;
   border: 1px solid var(--gallery-line);
   border-radius: 2px;
   background: transparent;
   color: var(--gallery-ink);
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: 0.12em;
   cursor: pointer;
 }
@@ -2782,30 +3056,79 @@ body:has(.battle) {
 }
 
 .gallery__section {
-  margin-top: 44px;
+  margin-top: 28px;
 }
 
 .gallery__section-title {
   margin: 0 0 6px;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--gallery-line);
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
 }
 
 .gallery__section-note {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   color: var(--gallery-ink-muted);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.gallery__picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 12px;
+  margin-top: 14px;
+}
+
+/*
+ * 一张可点的缩略卡。外层按钮只占缩放后的尺寸，卡面本体在里面按原始 150×210 排版再整张缩
+ * （和战场小卡同一个套路，见 .battle__foe-card-inner）：卡面的字号、间距全不用改，
+ * 这一页看到的排版才和对局里是同一份。
+ */
+.gallery__pick {
+  width: calc(var(--card-w) * var(--gallery-pick-scale));
+  height: calc(var(--card-h) * var(--gallery-pick-scale));
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+}
+
+/*
+ * 选中态：卡面自己没有任何选中样式，全靠外面这圈描边指认。
+ * 用 outline 而不是 border：outline 不占盒子尺寸，选中时整排卡不会被挤得移位。
+ */
+.gallery__pick[aria-pressed='true'] {
+  outline: 3px solid #b23b2e;
+  outline-offset: 3px;
+}
+
+/*
+ * 键盘焦点：上面那圈选中描边把浏览器自带的焦点环挤掉了（一个元素只画得出一个 outline），
+ * Tab 到当前选中的这张卡就看不出焦点停在哪。焦点因此改用 box-shadow 画一圈墨色细边，
+ * 它和 outline 能同时存在——贴着卡是焦点，外面那圈红是选中，两者不会混淆。
+ */
+.gallery__pick:focus-visible {
+  box-shadow: 0 0 0 2px var(--gallery-ink);
+}
+
+.gallery__pick-card {
+  display: block;
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--gallery-pick-scale));
+  transform-origin: top left;
 }
 
 /* 占位插画原图那一排：缩略图 + 文件名，只为了协作时指认，不参与卡面排版。 */
 .gallery__arts {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 14px;
 }
 
 .gallery__art {
@@ -2815,53 +3138,82 @@ body:has(.battle) {
 
 .gallery__art-img {
   display: block;
-  width: 96px;
+  width: 60px;
   border: 1px solid var(--gallery-line);
   border-radius: 4px;
 }
 
 .gallery__art-name {
-  margin-top: 6px;
+  margin-top: 4px;
   color: var(--gallery-ink-muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 
-.gallery__grid {
+.gallery__detail-title {
+  margin: 0 0 18px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* 正面和背面并排，宽度不够时换行。 */
+.gallery__faces {
   display: flex;
   flex-wrap: wrap;
-  gap: 26px 22px;
-  margin-top: 20px;
+  gap: 24px;
 }
 
-/* 一列的宽度就是卡面宽度，卡下面那块说明再宽一点也不许把整列撑开。 */
-.gallery__item {
-  width: var(--card-w);
+.gallery__face {
+  margin: 0;
 }
 
+/* 卡面和背面都是宽高 100% 的元素，尺寸得由外面这个盒子给。 */
 .gallery__card {
   width: var(--card-w);
   height: var(--card-h);
 }
 
-.gallery__meta {
-  margin: 10px 0 0;
+.gallery__face-name {
+  margin-top: 8px;
+  color: var(--gallery-ink-muted);
   font-size: 12px;
-  line-height: 1.5;
+}
+
+.gallery__meta {
+  margin: 24px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .gallery__meta-row {
   display: flex;
-  gap: 6px;
+  gap: 10px;
 }
 
+/* 键这一列宽度写死，值才会左对齐成一条线，扫着看得快。 */
 .gallery__meta-key {
   flex: none;
+  width: 72px;
   color: var(--gallery-ink-muted);
 }
 
 .gallery__meta-value {
   margin: 0;
   color: var(--gallery-ink);
+}
+
+.gallery__json {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--gallery-line);
+  border-radius: 4px;
+  background: rgb(48 49 59 / 6%);
+  color: var(--gallery-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  /* 长行自己横滚，不去撑宽整栏（配合 .gallery__detail 的 min-width: 0）。 */
+  overflow-x: auto;
 }
 
 /* ---------- 卡片加载动画 ---------- */
@@ -3035,6 +3387,34 @@ body:has(.battle) {
   }
 }
 
+/* ---------- 整屏加载页 ---------- */
+
+/*
+ * ui/LoadingScreen.tsx 用的壳：整屏铺满，正中一个 loader 加一行字。
+ * 页面在等自己的图片时（首页就是这样，见 screens/HomeScreen.tsx）拿它顶着。
+ *
+ * 底色、间距、字号都照着 index.html 的首屏 loader 抄：那一段负责 bundle 下载期间的等待，
+ * 这一段负责 React 挂载之后的等待，两段是连着的，看上去必须是同一个画面。
+ */
+.page-loader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: #0d1117;
+}
+
+.page-loader__text {
+  /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
+  margin: 0 -0.32em 0 0;
+  color: #9ca3af;
+  font-size: 15px;
+  letter-spacing: 0.32em;
+}
+
 /* ---------- 加载动画演示页 ---------- */
 
 .loader-demo {
@@ -3046,6 +3426,8 @@ body:has(.battle) {
 /*
  * 顶上这块占满一屏，是为了照着真实加载页的样子看：整屏就一个 loader 加一行字。
  * 变体墙在它下面，要滚一下才看得到——先看整体观感，再看参数对比。
+ * 里面那行提示直接借真实加载页的 .page-loader__text，字距和收尾的负边距不用再抄一遍；
+ * 这块不能整个换成 <LoadingScreen>，那个是 position: fixed，会把下面的变体墙盖住。
  */
 .loader-demo__hero {
   display: flex;
@@ -3054,14 +3436,6 @@ body:has(.battle) {
   justify-content: center;
   min-height: 100vh;
   gap: 20px;
-}
-
-.loader-demo__hint {
-  /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
-  margin: 0 -0.32em 0 0;
-  color: #9ca3af;
-  font-size: 15px;
-  letter-spacing: 0.32em;
 }
 
 .loader-demo__heading {
@@ -3136,4 +3510,110 @@ body:has(.battle) {
 .loader-demo__back:hover,
 .loader-demo__back:focus-visible {
   color: #e5e7eb;
+}
+
+/* ---------- 开发页导航（/dev） ---------- */
+
+/*
+ * 配色照抄加载动画演示页（.loader-demo）那套深色：这两页都是纯开发工具，
+ * 长得像同一类东西比长得好看重要。跟着视口滚，规则同 .gallery 的说明。
+ */
+.dev-index {
+  min-height: 100%;
+  padding: 56px clamp(20px, 4vw, 64px) 72px;
+  background: #0d1117;
+}
+
+.dev-index__header {
+  max-width: 720px;
+  margin: 0 auto 32px;
+}
+
+.dev-index__title {
+  margin: 0 0 10px;
+  color: #e5e7eb;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.dev-index__lead {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.dev-index__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* 整张卡片就是按钮，所以清掉按钮自带的居中和字体继承，按普通区块排。 */
+.dev-index__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  background: #11161d;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.dev-index__item:hover,
+.dev-index__item:focus-visible {
+  border-color: #3d444d;
+  background: #161b22;
+}
+
+.dev-index__item-path {
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.dev-index__item-title {
+  color: #e5e7eb;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.dev-index__item-desc {
+  color: #8b949e;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.dev-index__back {
+  display: block;
+  margin: 40px auto 0;
+  padding: 8px 18px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  color: #9ca3af;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dev-index__back:hover,
+.dev-index__back:focus-visible {
+  color: #e5e7eb;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dev-index__item {
+    transition-duration: 1ms;
+  }
 }

@@ -211,13 +211,27 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 
 ### 5.1 界面与路由
 
-三个界面，路由用 wouter（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
+三个正式界面加三个开发页，路由用 wouter
+（2.2KB，API 是 react-router 的子集，将来要换基本只改 import）：
 
 ```
-/       主网站：介绍 + 「开始游戏」（教程还没做，直接进匹配房，见 5.3）
-/room   匹配房：自己的 4 位房间码 + 输入对方房间码
-/match  对局界面
+/         主网站：介绍 + 「开始游戏」
+/room     匹配房：自己的 4 位房间码 + 输入对方房间码
+/match    对局界面（联机对局和 dev 测试房共用）
+/design   设计参考页：纸面视觉元素的样板间（开发用）
+/card     卡牌图鉴 / 卡面调试页：全部卡牌按真实尺寸摆开，改卡面排版时一眼对照
+/loader   加载动画的演示和调参页：各档参数连同浅色底一起摆开对比
 ```
+
+后三个是开发页，直接敲地址进，正式流程里没有入口；首页角落的 dev 区留了几个快捷方式。
+`/loader` 没跟着归到 `/dev` 下面，是因为这个 loader 是要给真实加载场景用的
+（`index.html` 的首屏 loader 已经是同一套视觉），短路径方便随手打开对着调，
+也方便之后直接拿它当「正在加载」的空页。
+
+首页的**「开始游戏」**直接进匹配房，没有分流——教程还没做（见 5.3）。
+
+`/design` 把纸张、图标、卡牌、卡背这些视觉元件连同"为什么调成这个值"的说明摆在一页上，
+用的就是 `src/ui/paper` 下的正式组件，所以组件改坏了这一页第一个看得出来。
 
 **`/match` 由联机对局和 dev 测试房共用一份界面代码。** 区别只有两样：
 `MatchSession` 里放的是哪种 driver，以及跟着 driver 一起放进去的 `testMode` 标记。
@@ -227,6 +241,8 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 特意不给测试房另开一条路由或另一套界面：另开一套的话，在测试房里验过的行为就不再等于
 联机时真实会发生的行为，测了也白测。进测试房的入口有两个——匹配房页面底部和首页的 dev 区，
 都不依赖房间连接建没建起来，一点就地建一局本地对局再跳 `/match`。
+
+原来还有一个 `/dev/hand` 手牌动画演示页，对局界面接了真 UI 之后已经删掉，理由见 5.6。
 
 不引 Next.js 是因为这里是纯客户端游戏：SSR、RSC、服务端数据获取一项都用不上，
 每个页面都得挂 `'use client'`，等于把 Next 当成一个启动更慢的 Vite。
@@ -318,7 +334,10 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 `src/ui/HandFan.tsx` 是通用的扇形手牌，只认自己的 `HandCardData`（字段照着 core 的 `Card` 取名）。
 `HandCardData` 已经带齐核心机制要用的两项——模型卡的六维弱点画像（`ModelCard.weaknesses`）
 和提示卡的目标维度（`PromptCard.targetWeakness`），150×210 的卡面也照着重排过。
-卡面尺寸要动的话，`--card-w/--card-h` 和 `HandFan.tsx` 里那对常量得同步改（见下）。
+卡面尺寸要动的话，`--card-w/--card-h` 和 `ui/fanMath.ts` 里那对常量得同步改（见下）。
+
+扇形的布局数学（`fanTransform` 和那批常量）在 `ui/fanMath.ts`、翻面在 `ui/flipCard.ts`，
+都从 `HandFan` 里提了出来，和对手的倒扇形 `OpponentFan`、强制展示层共用一份。
 
 原来另有一个 `src/dev/HandDemo.tsx` 演示页（`/dev/hand`），拿占位数据跑扇形和拖拽的各种边界，
 现在**已经删掉**：它那套布局和交互原样并进了 `MatchStage`，也就是真对局界面本身。
@@ -502,10 +521,12 @@ packages/client/
   src/main.tsx                入口，只负责挂 <App>
   src/App.tsx                 路由表 + MatchSessionProvider，唯一列出全部界面的地方
   src/screens/                一个界面一个文件
-    HomeScreen.tsx            主网站：照设计稿复原的分层场景，「开始游戏」直接进匹配房，
-                              角落 dev 区有「测试对局」和「重置存档」
+    HomeScreen.tsx            主网站：照 1672×941 设计稿复原的分层场景，「开始游戏」直接进匹配房，
+                              角落 dev 区有测试对局 / 加载动画 / 重置存档
     RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
-    MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode
+    MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
+    DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
+    design.css                只给设计参考页用的样式
   src/match/                  对局驱动层
     driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
     localDriver.ts            本地热座，也被 dev 测试房复用
@@ -520,14 +541,26 @@ packages/client/
   src/ui/
     MatchStage.tsx            对局界面本体：HandFan + 战场 + 把事件流播成动画，只认一个 driver
     HandFan.tsx               扇形手牌组件 + 卡面，通用
+    OpponentFan.tsx           对手的倒扇形手牌：容器整个转 180° 吊在视口顶边，只能点不能看
+                              （暂无调用方，对局界面眼下用的是自己那条简化的对方手牌条）
+    CardBackHidden.tsx        对手手牌的隐藏牌背，一个字的牌面信息都不带（暂无调用方）
+    fanMath.ts                扇形布局的公式和常量，两个 Fan 共用（也是 hover 防抖动的几何前提）
     cardTilt.ts               卡面跟指针的倾斜 + 微高光，手牌和战场小卡共用
+    flipCard.ts               绕 Y 轴翻面的公共实现，正反互斥靠角度驱动 opacity 硬切
+    playSummonFx.ts           卡牌落场特效：震屏 + 烟尘 + 边缘追光，敌我共用一份（暂无调用方）
+    cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
+    CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
     BattleTopBar.tsx          对局界面顶栏：站名 + 对战/牌组/图鉴页签 + 手册/设置图标
                               （除「对战」外都还没有对应页面，是占位）
     OrnateFrame.tsx           纸面区域共用的双线雕花框，装饰节点和内容各占一层
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 六个弱点维度的中文名
-  src/dev/DevPanel.tsx        dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
+    paper/                    纸面组件库（卡牌、卡背、图标、标题、算力条……），index.ts 统一出口
+  src/dev/                    开发页和开发用组件，正式流程里没有入口
+    DevPanel.tsx              dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
+    CardGallery.tsx           卡牌图鉴（/card）：全部卡牌按真实尺寸摆开，卡面塞不下的字段列在下面
+    LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
   src/save/save.ts            localStorage 存档（收藏 + 胜场）
   src/styles.css
   test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
@@ -570,7 +603,9 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 已经就位：
 
-- 三个界面、路由，首页是照设计稿做的分层场景。
+- 三个正式界面加三个开发页、路由；首页「开始游戏」直接进匹配房，不分流，
+  首页本身是照设计稿做的分层场景。
+- 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画，`/card` 图鉴页一眼对照。
 - `MatchDriver` 各个实现，`MatchStage` 能真的出牌、选目标、结束回合、分胜负、触发结算。
 - **对局界面已经是真 UI**（不再是占位的一堆按钮）：底部 `HandFan` 扇形手牌拖进战场出牌、
   模型卡用 Flip 从手牌原位飞到场上、伤害飘字加受击抖动、回合交接横幅、
@@ -588,7 +623,8 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 2. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
 3. **联机端到端实测**——协议和转发器都有测试，但没有在两台真机上跑过完整一局。
 4. **简单教程**（见 5.3）——第一版已经删掉，重做时先定流程再动手。
-5. **打磨**——音效、特效、结算画面。
+5. **打磨**——音效、特效、结算画面。原 `/dev/hand` 攒下的对手倒扇形手牌、
+   强制展示层和上场特效还没接进对局界面，接的时候直接拿 `src/ui` 下那几个零件用。
 
 如果时间不够，砍的顺序是倒过来的：3、4、5 都可以不要，
 现在这套界面已经够演示一局完整对战了。

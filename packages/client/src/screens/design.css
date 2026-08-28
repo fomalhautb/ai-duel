@@ -1,0 +1,243 @@
+/* ============================================================
+   /design 设计参考页的私有样式
+   ------------------------------------------------------------
+   这里只放这一页自己用得上的东西：整页排版、说明文字，以及色板、
+   图标对比、小件网格这几块纯演示布局（它们只是把组件摆出来看，
+   没有复用价值，所以不做成组件）。
+   凡是别的页面也会用到的样式一律留在 src/ui/paper/paper.css，别往这搬。
+
+   页面私有类统一加 design- 前缀，避免和 styles.css 里的 .page、.battle
+   那些全站类撞名。需要盖过组件库默认值的地方一律写成
+   .design-page .design-xxx（两个类）：design.css 和 paper.css 谁先加载
+   取决于模块求值顺序，靠特指度赢比靠书写顺序赢可靠。
+   ============================================================ */
+
+.design-page {
+  /* --battle-grain 的作用域补丁。
+     .plaque-button（styles.css）的 background-image 里引用了这个变量，
+     而它只定义在 .battle 那个对局界面根类上。本页不在 .battle 里，变量取不到；
+     CSS 的规则是 var() 取不到值就让整条声明作废，于是同一条 background-image
+     里的高光渐变也一起没了，按钮会变成一块死板的纯色。
+     所以照抄一份定义放在页面根上。改 styles.css 里那份时记得同步这里。 */
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   整页排版
+   ============================================================ */
+/* 和 .paper-page__inner 一起挂在同一个元素上：那个类负责把内容抬到
+   两层纸纹之上，这个类只管宽度和留白。 */
+.design-main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 96px;
+}
+
+.design-title {
+  margin: 0 0 6px;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.design-sub {
+  margin: 0 0 20px;
+  color: var(--ink-2);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.design-section {
+  margin-top: 52px;
+}
+
+/* 说明文字：这一页的正文就是设计文档本身，所以行距放宽、宽度收窄到易读区。 */
+.design-note {
+  max-width: 780px;
+  margin: 18px 0 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+}
+
+/* 跟在演示元件后面当图注用，不要顶部间距 */
+.design-note--inline {
+  margin: 0;
+}
+
+/* 说明文字里的技术名词：保持衬线，只用底色和字距跟正文区分，
+   避免默认等宽字体破坏整页的铜版画调子。 */
+.design-note code {
+  padding: 0 4px;
+  border-radius: 2px;
+  background: rgb(138 130 112 / 13%);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.96em;
+}
+
+/* ============================================================
+   一 · 纸纹理色板
+   ============================================================ */
+.design-swatches {
+  display: flex;
+  gap: 20px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.design-swatch {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 236px;
+  height: 170px;
+  padding-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-dark);
+  border-radius: 4px;
+  background-color: var(--paper);
+  color: var(--ink-2);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+/* 四块色板要能互相对照，所以都取纹理图上同一块区域；
+   偏移量是挑出来的——图块左上角那片太平，看不出斑驳。 */
+.design-swatch.grain::before,
+.design-swatch.grain::after {
+  background-position: -250px -330px;
+}
+
+.design-swatch--vignette {
+  background-image: var(--vignette);
+}
+
+/* ============================================================
+   二 · 结束回合按钮
+   ============================================================ */
+.design-btn-row {
+  display: flex;
+  gap: 26px;
+  align-items: center;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   三 · 手绘图标
+   ============================================================ */
+.design-icon-grid {
+  display: flex;
+  gap: 40px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.design-icon-cell {
+  color: var(--ink-2);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.design-icon-pair {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+/* 图标本身描边写 currentColor，换色靠外层容器的 color。
+   主题色那一档读 --accent，由每个格子就地设置。 */
+.design-ink {
+  color: var(--ink);
+}
+
+.design-accent {
+  color: var(--accent, var(--c-blue));
+}
+
+.design-filter-compare {
+  display: flex;
+  gap: 34px;
+  align-items: flex-end;
+  margin-top: 26px;
+}
+
+.design-filter-compare .design-icon-cell {
+  font-size: 12.5px;
+}
+
+/* 对比图要看清边缘歪扭，放大到 84px。两个类是为了稳稳盖过 .paper-ico 的 48px。 */
+.design-page .design-ico--big {
+  width: 84px;
+  height: 84px;
+}
+
+/* ============================================================
+   四 · 卡牌 / 五 · 卡背
+   ============================================================ */
+/* align-items: flex-end 是给选中态留的：选中的卡会上移 14px，
+   底对齐才不会把整排卡的基线拽歪。 */
+.design-card-row {
+  display: flex;
+  gap: 26px;
+  align-items: flex-end;
+  margin-top: 26px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   六 · 结构层小件
+   ============================================================ */
+/* 小件演示用三列网格，避免宽度不一的条目乱换行留大空洞 */
+.design-bits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 46px;
+  align-items: start;
+  margin-top: 26px;
+}
+
+/* 第二行网格和第一行之间要比 gap 更松一点，否则两行小件看着像一整片 */
+.design-bits--row2 {
+  margin-top: 40px;
+}
+
+.design-bit-label {
+  margin-bottom: 12px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
+}
+
+/* 小标题装饰是 flex: 1 的细线撑开的，不给宽度会一直拉到整格；
+   限一个宽度才看得出「文字两侧各一段线」的样子。 */
+.design-orn-title-sample {
+  width: 250px;
+}
+
+.design-tone-row {
+  display: flex;
+  gap: 10px;
+  width: 260px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.design-tone {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 74px;
+  height: 42px;
+  padding-bottom: 3px;
+  border: 1px solid var(--line-dark);
+  border-radius: 3px;
+  color: var(--paper);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}

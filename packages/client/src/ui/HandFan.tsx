@@ -14,6 +14,9 @@
  * slot 管扇形摆位和拖拽跟随（x / y / rotation / scale），
  * .hand-fan__tilt 管跟着指针的三维倾斜（rotationX / rotationY），
  * .hand-fan__inner 管翻到背面的 3D 翻转（rotationY 180°）。
+ *
+ * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
+ * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
@@ -21,8 +24,18 @@ import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import type { WeaknessKind } from '@ai-duel/core'
+import { placeholderArtFor } from './cardArt'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
+import { flipTo } from './flipCard'
+import {
+  CARD_HEIGHT,
+  CARD_WIDTH,
+  LAYOUT_DUR,
+  MAX_SPREAD_DEG,
+  PLAYER_FAN,
+  fanTransform,
+} from './fanMath'
 import { WEAKNESS_LABELS } from './labels'
 
 gsap.registerPlugin(useGSAP)
@@ -59,6 +72,8 @@ export interface HandCardData {
   text: string
   /** 翻到背面时展示的补充说明。 */
   backText: string
+  /** 卡面插画的图片地址。不填就按 id 稳定地分一张占位图（见 ui/cardArt.ts）。 */
+  art?: string
 }
 
 export interface HandFanProps {
@@ -101,32 +116,12 @@ export interface HandFanProps {
 }
 
 /**
- * 卡面基准尺寸，必须和 styles.css 里的 --card-w / --card-h 一致。
- * 不一致的后果不是"卡画歪了"这么简单：下面的 SINK 和 MIN_HOVER_SCALE 都按它算，
- * 对不上号 hover 防抖动的几何前提就不成立了。
- */
-const CARD_WIDTH = 150
-const CARD_HEIGHT = 210
-
-/** 默认状态下卡牌沉到视口下方的高度：露出 85%，剩下的藏在屏幕外。 */
-const SINK = Math.round(CARD_HEIGHT * 0.15)
-/**
  * hover 时卡底仍然留在视口下方 6px。
  *
  * 这 6px 是防抖动的安全余量：back 缓动会冲过目标位再弹回来，
  * 冲过头的那一瞬间卡底会比目标位再高几个像素，留出余量才能保证卡底始终在视口外。
  */
 const HOVER_BOTTOM = 6
-/** 扇形下垂用的虚拟半径，越大弧线越平。 */
-const ARC_RADIUS = 800
-/** 手牌张开的总角度上限。 */
-const MAX_SPREAD_DEG = 40
-/** 每多一张牌多张开的角度，和上限一起决定小手牌不会张得太开。 */
-const DEG_PER_CARD = 5
-/** 每张牌理想的水平间距；卡宽 150，所以到这个间距时相邻卡已经互相压住一部分。 */
-const GAP_PER_CARD = 95
-/** 手牌总宽上限，超过就压缩间距让牌重叠。 */
-const MAX_SPAN = 900
 /**
  * 放大倍数的下限，由扇形最大倾角和卡面尺寸算出来，不是拍脑袋定的。
  *
@@ -149,8 +144,6 @@ const HOVER_SCALE = Math.max(1.75, MIN_HOVER_SCALE)
  * 纯观感：卡边贴着卡边擦过去像是"差点撞上"，留出几个像素才看得出是主动让开的。
  */
 const NEIGHBOR_CLEARANCE = 8
-/** 重排（加牌/减牌/改窗口大小）的时长。 */
-const LAYOUT_DUR = 0.4
 /** hover 进出的时长，要比重排更干脆。 */
 const HOVER_DUR = 0.28
 /**
@@ -225,37 +218,6 @@ interface DragState {
   moveY: ((value: number) => void) | null
 }
 
-interface SlotTransform {
-  x: number
-  y: number
-  rotation: number
-}
-
-/**
- * 算出第 index 张牌在扇形里的基准位置。
- *
- * 坐标原点是"视口底边中点"，y 向下为正，旋转以卡牌底边中点为轴。
- * 以底边中点为轴是防抖动的第一步：hover 时只放大、只往上长，绝不往下移，
- * 卡底始终留在视口底边以下（默认沉 SINK，hover 时也还差 HOVER_BOTTOM）。
- * 第二步是 HOVER_SCALE 的下限（见常量区）：只有横向也盖过倾斜卡牌最远的那个角，
- * 放大后的卡才真的盖住了原来那张卡露在屏幕里的全部像素，
- * 指针不会因为卡变大而掉到卡外面，也就不会出现"放大→缩回→又放大"的循环。
- */
-function fanTransform(index: number, count: number, viewportWidth: number): SlotTransform {
-  if (count <= 1) return { x: 0, y: SINK, rotation: 0 }
-
-  const spread = Math.min(MAX_SPREAD_DEG, count * DEG_PER_CARD)
-  const rotation = -spread / 2 + (spread / (count - 1)) * index
-
-  const span = Math.min(viewportWidth * 0.7, MAX_SPAN, count * GAP_PER_CARD)
-  const gap = span / count
-  const x = (index - (count - 1) / 2) * gap
-
-  // 让扇形的两端往下垂，像一叠握在手里的牌，而不是排在一条直线上。
-  const droop = ARC_RADIUS * (1 - Math.cos((rotation * Math.PI) / 180))
-  return { x, y: SINK + droop, rotation }
-}
-
 /**
  * 算出 hover 某张牌时，其余每张牌要横向让开多少（下标和 laid 一致，正数向右）。
  *
@@ -272,56 +234,26 @@ function neighborPushes(hoverIndex: number, count: number, viewportWidth: number
   const pushes = new Array<number>(count).fill(0)
   if (hoverIndex < 0) return pushes
 
-  const hovered = fanTransform(hoverIndex, count, viewportWidth)
+  const hovered = fanTransform(hoverIndex, count, viewportWidth, PLAYER_FAN)
   const half = (CARD_WIDTH / 2) * HOVER_SCALE + NEIGHBOR_CLEARANCE
   // 一张牌朝扇形中间伸出多远：底边那个角，随倾角变小。
   const reachOf = (index: number) =>
-    (CARD_WIDTH / 2) * Math.cos((fanTransform(index, count, viewportWidth).rotation * Math.PI) / 180)
+    (CARD_WIDTH / 2) *
+    Math.cos((fanTransform(index, count, viewportWidth, PLAYER_FAN).rotation * Math.PI) / 180)
 
   let carry = 0
   for (let i = hoverIndex - 1; i >= 0; i -= 1) {
-    const base = fanTransform(i, count, viewportWidth)
+    const base = fanTransform(i, count, viewportWidth, PLAYER_FAN)
     carry = Math.min(carry, hovered.x - half - reachOf(i) - base.x)
     pushes[i] = carry
   }
   carry = 0
   for (let i = hoverIndex + 1; i < count; i += 1) {
-    const base = fanTransform(i, count, viewportWidth)
+    const base = fanTransform(i, count, viewportWidth, PLAYER_FAN)
     carry = Math.max(carry, hovered.x + half + reachOf(i) - base.x)
     pushes[i] = carry
   }
   return pushes
-}
-
-/**
- * 翻面：转动 inner 的 rotationY，同时在补间途中按当前角度硬切正反两面的 opacity。
- * 所有会动 inner 的 rotationY 的地方都必须走这个函数，漏一处那张牌就会卡在正反都显示的样子。
- *
- * 正反互斥**不能**交给 backface-visibility。Chrome 实测：静止时它判断得对，
- * 可一旦逐帧的 JS 补间跑起来，对合成层的朝向判断就失效了——转过 90° 之后正面不消失，
- * 连同水平镜像一起继续显示，直到补间结束那一刻才突然切成背面（"全程正面、结尾闪一下"）。
- * 卡面里那些被提成独立图层的子元素（absolute + z-index 的问号圆圈、
- * absolute + mix-blend-mode 的高光层）漏面也是同一族问题：它们逃出了所在 face 的拍扁，
- * face 上那份 backface-visibility 罩不住。逐个元素补一份 backface-visibility 补不完这类 bug，
- * 而且补上之后动画途中的误判还会和这里的 opacity 打架、闪烁，所以整条路都不走了。
- *
- * 现在的分工：立体旋转的观感仍然来自 rotationY 补间，谁可见则由角度驱动的 opacity 决定。
- * 角度归一到 [0, 360) 后落在 (90°, 270°) 区间就显示背面，否则显示正面。
- * 0/1 硬切、不做过渡：90° 时卡正好侧对观察者、投影宽度趋近于零，切换那一瞬间看不见。
- * 判断读的是元素**当前的实际角度**而不是补间进度，所以翻过去和翻回来是同一套逻辑，
- * overwrite 让新补间接管旧补间时也不用额外记状态。
- */
-function flipTo(inner: HTMLElement, rotationY: number, duration: number) {
-  const front = inner.querySelector<HTMLElement>('.hand-fan__face--front')
-  const back = inner.querySelector<HTMLElement>('.hand-fan__face--back')
-  // 每帧都要跑，所以直接写 style，不绕 gsap.set。
-  const syncFaces = () => {
-    const angle = ((Number(gsap.getProperty(inner, 'rotationY')) % 360) + 360) % 360
-    const showBack = angle > 90 && angle < 270
-    if (front) front.style.opacity = showBack ? '0' : '1'
-    if (back) back.style.opacity = showBack ? '1' : '0'
-  }
-  gsap.to(inner, { rotationY, duration, ease: 'power2.inOut', overwrite: 'auto', onUpdate: syncFaces })
 }
 
 export function HandFan({
@@ -409,15 +341,15 @@ export function HandFan({
 
     const hoveredId = hoverRef.current
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
-    // 邻牌要让到这张牌的轮廓之外，所以先把它放大前的基准位算出来（放大不改 x）。
-    const hoveredBase = hoverIndex >= 0 ? fanTransform(hoverIndex, count, viewportWidth) : null
+    // 邻牌要让到 hover 那张牌放大后的轮廓之外；放大不改 x，所以让位量只跟基准位有关，
+    // 全部在 neighborPushes 里按几何算好。
     const pushes = neighborPushes(hoverIndex, count, viewportWidth)
 
     laid.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
       if (!slot) return
 
-      const base = fanTransform(index, count, viewportWidth)
+      const base = fanTransform(index, count, viewportWidth, PLAYER_FAN)
       const isHovered = index === hoverIndex
       const isNew = !placedRef.current.has(card.id)
       if (isNew) {
@@ -742,7 +674,7 @@ export function HandFan({
     const helpParts = helpPartsOf(drag.id)
     if (helpParts.length > 0) gsap.to(helpParts, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
     // 从背面直接拖出去的话，落点上飞出来的小卡画的是正面，会闪一下，所以先转回正面。
-    // 必须走 flipTo：正反两面谁可见是它按角度切 opacity 决定的，
+    // 必须走 flipTo（ui/flipCard.ts）：正反两面谁可见是它按角度切 opacity 决定的，
     // 裸补一个 rotationY 只会把卡转回来、opacity 还停在"显示背面"，画面就一直是背面。
     const inner = innerOf(drag.id)
     if (inner && Number(gsap.getProperty(inner, 'rotationY')) !== 0) {
@@ -891,13 +823,14 @@ export function HandFan({
             tilt 管跟着指针的三维倾斜（rotationX / rotationY），
             inner 管翻到背面的 3D 翻转（rotationY 180°）。
             倾斜和翻转都是 rotationY，挤在同一层就是直接打架。
-            正反两面谁可见不归 inner 管，由 flipTo 按角度切 opacity 决定（原因见 flipTo）。
+            正反两面谁可见不归 inner 管，由 flipTo 按角度切 opacity 决定（原因见 ui/flipCard.ts）。
+            两面身上的 data-flip-face 就是给 flipTo 认人用的契约，别删。
             问号拆成两半分挂在两层里：看得见的圆圈在 inner 里（跟着倾斜也跟着翻面），
             触发翻面的透明热区在 inner 外（只跟倾斜、绝不跟翻面）。原因见下面两处注释。
           */}
           <div className="hand-fan__tilt">
             <div className="hand-fan__inner">
-              <div className="hand-fan__face hand-fan__face--front">
+              <div className="hand-fan__face hand-fan__face--front" data-flip-face="front">
                 <HandCardFace card={card} />
                 {/* 看得见的问号圆圈之一。放在这里而不是 HandCardFace 里面：
                     那个组件被战场小卡复用，而小卡没有翻面这回事，不该跟着长出一个问号。 */}
@@ -905,7 +838,7 @@ export function HandFan({
                   ?
                 </span>
               </div>
-              <div className="hand-fan__face hand-fan__face--back">
+              <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
                 <div className="card-back">
                   <span className="card-back__title">{card.name}</span>
                   <p className="card-back__text">{card.backText}</p>
@@ -954,6 +887,9 @@ export function HandFan({
  *
  * 战场上的小卡也用它渲染（外面套一个缩放容器），这样打出时的 FLIP 飞行里
  * 画面前后是同一份排版，落位时不会突然换一套内容。
+ *
+ * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
+ * 费用、卡名、描述、数值都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   // 只画真正暴露出来的那几维。传进来的 weaknesses 本来就该是过滤过的，
@@ -961,35 +897,44 @@ export function HandCardFace({ card }: { card: HandCardData }) {
   const weakChips = Object.entries(card.weaknesses ?? {}).filter(([, value]) => value > 0)
   return (
     <div className={`card-face card-face--${card.kind}`}>
+      {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
+          念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+      <img
+        className="card-face__art"
+        src={card.art ?? placeholderArtFor(card.id)}
+        alt=""
+        draggable={false}
+      />
       <div className="card-face__cost">{card.cost}</div>
-      <div className="card-face__art">{card.kind === 'model' ? '模型' : '提示'}</div>
-      <div className="card-face__name">{card.name}</div>
-      <p className="card-face__text">{card.text}</p>
-      {/* 弱点行夹在描述和数值行之间：它是"这张模型哪里脆"，和下面的攻防数值一起读才有意义。
-          战场小卡是同一份排版按 0.73 缩小画的，所以这里的字号已经是压到最小的一档了。 */}
-      {card.kind === 'model' && weakChips.length > 0 ? (
-        <div className="card-face__weak">
-          {weakChips.map(([kind, value]) => (
-            <span className="card-face__weak-chip" key={kind}>
-              {WEAKNESS_LABELS[kind as WeaknessKind]}
-              {value}
-            </span>
-          ))}
+      <div className="card-face__body">
+        <div className="card-face__name">{card.name}</div>
+        <p className="card-face__text">{card.text}</p>
+        {/* 弱点行夹在描述和数值行之间：它是"这张模型哪里脆"，和下面的攻防数值一起读才有意义。
+            战场小卡是同一份排版按 0.73 缩小画的，所以这里的字号已经是压到最小的一档了。 */}
+        {card.kind === 'model' && weakChips.length > 0 ? (
+          <div className="card-face__weak">
+            {weakChips.map(([kind, value]) => (
+              <span className="card-face__weak-chip" key={kind}>
+                {WEAKNESS_LABELS[kind as WeaknessKind]}
+                {value}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="card-face__stats">
+          {card.kind === 'model' ? (
+            <>
+              <span>算力 {card.power ?? 0}</span>
+              <span>完整度 {card.integrity ?? 0}</span>
+            </>
+          ) : (
+            <>
+              <span>伤害 {card.damage ?? 0}</span>
+              {/* 提示卡的目标维度，决定了它打谁疼——比伤害数字本身更该被一眼看到。 */}
+              {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
+            </>
+          )}
         </div>
-      ) : null}
-      <div className="card-face__stats">
-        {card.kind === 'model' ? (
-          <>
-            <span>算力 {card.power ?? 0}</span>
-            <span>完整度 {card.integrity ?? 0}</span>
-          </>
-        ) : (
-          <>
-            <span>伤害 {card.damage ?? 0}</span>
-            {/* 提示卡的目标维度，决定了它打谁疼——比伤害数字本身更该被一眼看到。 */}
-            {card.targetWeakness ? <span>打·{WEAKNESS_LABELS[card.targetWeakness]}</span> : null}
-          </>
-        )}
       </div>
       {/*
         跟着指针跑的微高光（落在指针的镜像位置，见 cardTilt.ts）。

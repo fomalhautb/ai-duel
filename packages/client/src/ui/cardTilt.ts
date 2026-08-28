@@ -9,6 +9,13 @@
  *
  * 这里刻意不碰 el 自己的 transform：调用方通常已经在 el 上补间位置/缩放了，
  * 倾斜必须写在另一层，否则两边互相覆盖。哪一层由 opts.tiltLayer 指定。
+ *
+ * hover 时的略微放大（opts.hoverScale）也只能做在这里，**不能**在 CSS 里写
+ * `.xxx:hover { scale: 1.05 }`：GSAP 一旦接管某个元素的 transform，就会顺手往它的内联样式里
+ * 写死 `translate: none; rotate: none; scale: none;`——这是它用来中和 CSS 那三个独立 transform
+ * 属性、免得和自己写的 transform 双重叠加的手段。内联的 `scale: none` 优先级压过任何 CSS 规则，
+ * hover 那条规则永远不生效（实测就是完全没反应）。
+ * 所以这一层的缩放和倾斜一样归 GSAP 独占，正好也是"每层 transform 只由一个人写"的分工。
  */
 
 import gsap from 'gsap'
@@ -21,6 +28,15 @@ export interface CardTiltOptions {
   tiltLayer: HTMLElement | string
   /** 指针压在卡面边缘时的最大倾角（度），指针在正中间时是 0。 */
   maxTilt?: number
+  /**
+   * hover 期间把 tiltLayer 缩放到的倍数，收手时回到 1。
+   *
+   * 不传就整个不碰 scale——连一次 gsap.set 都不写，那一层的缩放仍归调用方的 CSS 管
+   * （手牌就是这样：放大交给 HandFan 自己的补间，这里只做倾斜）。
+   * 要放大的话必须走这个选项，理由见文件头：CSS 的 hover 规则会被 GSAP 写的内联
+   * `scale: none` 压住，根本不生效。
+   */
+  hoverScale?: number
   /**
    * 每次指针移动都会问一次要不要生效，返回 false 就当没 hover（归零并淡出高光）。
    *
@@ -50,6 +66,8 @@ const FOLLOW_DUR = 0.35
 const RESET_DUR = 0.15
 /** 高光淡入淡出的时长。 */
 const GLARE_FADE = 0.2
+/** hover 放大 / 复原的时长。比倾斜跟随（0.35s）快，放大要利落，慢了像被拖着走。 */
+const HOVER_SCALE_DUR = 0.16
 const DEFAULT_MAX_TILT = 6
 
 /**
@@ -87,6 +105,8 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
   if (layer === null) return NOOP_HANDLE
 
   const maxTilt = opts.maxTilt ?? DEFAULT_MAX_TILT
+  /** null 表示这次调用完全不管 scale。用 null 而不是默认 1，是为了区分"不碰"和"缩放到 1"。 */
+  const hoverScale = opts.hoverScale ?? null
   const isEnabled = opts.enabled ?? (() => true)
   const glares = Array.from(el.querySelectorAll<HTMLElement>(GLARE_SELECTOR))
 
@@ -126,6 +146,8 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
   let tiltX!: gsap.QuickToFunc
   let tiltY!: gsap.QuickToFunc
   let fadeGlare: gsap.QuickToFunc | null = null
+  let scaleXTo: gsap.QuickToFunc | null = null
+  let scaleYTo: gsap.QuickToFunc | null = null
   let zeroTilt!: gsap.core.Tween
 
   // 这几条补间建在自己的子 context 里，detach 时一次 kill 掉。
@@ -141,6 +163,19 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
     tiltY = gsap.quickTo(layer, 'rotationY', { duration: FOLLOW_DUR, ease: 'power2.out' })
     if (glares.length > 0) {
       fadeGlare = gsap.quickTo(glares, 'opacity', { duration: GLARE_FADE, ease: 'power2.out' })
+    }
+    // hover 放大单独走 quickTo，不并进下面的 zeroTilt：那条补间被 invalidate + restart 反复复用，
+    // 掺进缩放就变成两个人写同一个属性。缩放也不需要 needsResync 那套接续处理——
+    // 放大和复原都是这两条 quickTo 自己在改，它们清楚自己补到哪了。
+    //
+    // 必须分开写 scaleX / scaleY，**不能**图省事写成 quickTo(layer, 'scale')：
+    // 'scale' 是 shorthand，CSSPlugin 会把它拆成 scaleX 和 scaleY 两条 PropTween，
+    // 而 quickTo 喂新值走的 resetTo 是按属性名去找 PropTween 的，找 'scale' 一个也找不上，
+    // 于是值一动不动、还不报错（gsap 3.15 实测，隔离验证：quickTo(el,'scale')(1.5) 后 scaleX 仍是 1，
+    // 换成 'scaleX' 立刻生效）。和下面那条"resetTo 不触发 onComplete"是同一类静默陷阱。
+    if (hoverScale !== null) {
+      scaleXTo = gsap.quickTo(layer, 'scaleX', { duration: HOVER_SCALE_DUR, ease: 'power2.out' })
+      scaleYTo = gsap.quickTo(layer, 'scaleY', { duration: HOVER_SCALE_DUR, ease: 'power2.out' })
     }
     // 归零用一条预先建好、暂停着的补间：它要比跟随更快，没法复用上面那对 quickTo 的时长。
     zeroTilt = gsap.to(layer, {
@@ -192,6 +227,12 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
     if (!following && !fast) return
     following = false
     fadeGlare?.(0)
+    // 缩放复原两条路都要走：拖拽时的 reset(fast) 同样得把卡收回原大小，
+    // 不然会拖着一张放大的牌满屏找落点。
+    if (hoverScale !== null) {
+      scaleXTo?.(1)
+      scaleYTo?.(1)
+    }
     // 等淡出跑完再摘 data-glare，不在这里立刻摘：还没淡完的高光一旦失去 soft-light，
     // 会当场变成普通的白色半透明叠加、亮度跳一下，看着就是消失前先闪一下。
     // 多等的 100ms 是给淡出补间掉帧时留的余量。晚一点摘没有代价：
@@ -265,6 +306,11 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       }
       el.setAttribute('data-glare', 'on')
       fadeGlare?.(1)
+      // 放大只在"刚开始跟随"这一下触发，不用每次指针移动都喂值：目标值自始至终是同一个。
+      if (hoverScale !== null) {
+        scaleXTo?.(hoverScale)
+        scaleYTo?.(hoverScale)
+      }
     }
     // 高光放在指针的镜像位置（对角），不是指针底下。
     // 配合下面的倾斜方向：指针把卡按下去，翘起来正对观察者、也正对光源的是对角那一块，
@@ -305,7 +351,16 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       // 那份记录要到组件卸载才清空，于是每摘一张卡就往里留一条。
       // ignore 让这两条补间不属于任何 context，跑完就能被回收。
       ctx.ignore(() => {
-        gsap.set(layer, { rotationX: 0, rotationY: 0 })
+        // 没开 hoverScale 的调用方，这一层的 scale 从头到尾没被碰过，
+        // 这里也不能写：写一次就等于凭空给它留下一份内联 scale，盖掉调用方自己的 CSS。
+        // 这里写 shorthand 的 scale 是可以的：gsap.set 走的是完整解析路径，会正常拆成 scaleX/scaleY，
+        // 上面那个"找不到 PropTween"的坑只在 quickTo 的 resetTo 那条快路上。
+        gsap.set(
+          layer,
+          hoverScale === null
+            ? { rotationX: 0, rotationY: 0 }
+            : { rotationX: 0, rotationY: 0, scale: 1 },
+        )
         if (glares.length > 0) gsap.set(glares, { opacity: 0 })
       })
     },

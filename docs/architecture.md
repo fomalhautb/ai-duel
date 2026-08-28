@@ -992,6 +992,7 @@ pnpm --filter @ai-duel/client build
 本地开发是两个进程（Vite 在 5173、`wrangler dev` 在 8787），页面 origin 指不到转发器，
 要在 `packages/client/.env.local` 里设 `VITE_SERVER_URL=http://<你的局域网IP>:8787` 指过去——
 写 localhost 的话另一台电脑会连到它自己身上。
+这么连是跨域的，靠 `/api/room` 响应上的 `Access-Control-Allow-Origin: *` 放行。
 
 **静态部署**：路由用的是浏览器 history，直接把 `dist` 丢上静态托管需要配一条
 「所有路径回退到 index.html」的重写规则，否则刷新 `/room` 会 404。

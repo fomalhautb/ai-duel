@@ -167,6 +167,19 @@ export class Room extends DurableObject<Env> {
   }
 }
 
+/**
+ * `/api/room` 的跨域头，纯粹是为了本地开发。
+ *
+ * 本地是两个进程、两个 origin（Vite 在 5173，`wrangler dev` 在 8787），
+ * 没有这个头浏览器会把 `/api/room` 的响应拦下来，前端拿不到房间码。
+ * 线上前端和 Worker 同域，用不上它，但留着也没有坏处。
+ *
+ * 用 `*` 而不是白名单：这个接口是公开的、不带凭据，返回的只有一个房间码。
+ * 不用处理 OPTIONS 预检——它是没有自定义头的 GET，属于简单请求。
+ * WebSocket 升级不受 CORS 约束，所以只有这个 fetch 接口需要。
+ */
+const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' }
+
 /** 摇一个没人用的房间码。 */
 async function createRoom(env: Env): Promise<Response> {
   // 四位码只有一万种，撞号是正常情况，撞到就重摇。
@@ -174,10 +187,13 @@ async function createRoom(env: Env): Promise<Response> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const code = newRoomCode()
     if ((await env.ROOM.getByName(code).occupancy()) === 0) {
-      return Response.json({ code })
+      return Response.json({ code }, { headers: CORS_HEADERS })
     }
   }
-  return Response.json({ error: '房间码摇不出来了，请稍后再试' }, { status: 503 })
+  return Response.json(
+    { error: '房间码摇不出来了，请稍后再试' },
+    { status: 503, headers: CORS_HEADERS },
+  )
 }
 
 export default {

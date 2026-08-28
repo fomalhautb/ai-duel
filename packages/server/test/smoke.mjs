@@ -138,6 +138,10 @@ async function main() {
   const body = await created.json()
   check(created.status === 200, 'HTTP 200', `实际 ${created.status}`)
   check(/^\d{4}$/.test(body.code ?? ''), '返回 4 位数字房间码', JSON.stringify(body))
+  // 这个头只在本地开发（Vite 5173 → wrangler 8787 跨域）起作用，线上同域感觉不到它没了，
+  // 所以专门守一条断言，免得哪天被顺手删掉。
+  const allowOrigin = created.headers.get('access-control-allow-origin')
+  check(allowOrigin === '*', '带 Access-Control-Allow-Origin: *', `实际 ${JSON.stringify(allowOrigin)}`)
   const code = body.code
 
   console.log('\n2. host 进房')

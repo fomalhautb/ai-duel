@@ -25,5 +25,10 @@ export function cardBackText(card: Card): string {
   if (card.kind === 'hero') {
     return `${card.enName}。${card.text}英雄牌不占牌组的 20 张，开局就在场上。`
   }
+  // 要选目标的技能牌背面必须自己说清楚"打出后要点谁"，不能跟着无目标技能一起说"没有任何效果"
+  // ——它确实会改场上的状态（目标被标成已干扰，之后不能再被干扰），只是还不影响答题。
+  if (card.target === 'foe-ai') {
+    return '技能牌：打出时要点对方场上一个还没被干扰过的 AI。命中后它会被标成「已干扰」，本迭代还不影响它怎么答题。'
+  }
   return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
 }

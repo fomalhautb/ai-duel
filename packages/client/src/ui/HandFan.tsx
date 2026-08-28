@@ -74,6 +74,15 @@ export interface HandCardData {
   art?: string
 }
 
+/**
+ * 这次出牌是怎么触发的：拖进落点区松手，还是原地点了一下。
+ *
+ * 组件自己不区分这两条路（对它来说都是"打出去了"），但父组件可能要区分：
+ * 要选目标的技能牌拖出去是"松手落在谁身上就打谁"，点一下则是进选目标态等玩家再点一次。
+ * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪。
+ */
+export type CardPlayVia = 'drag' | 'tap'
+
 export interface HandFanProps {
   cards: HandCardData[]
   /**
@@ -103,7 +112,7 @@ export interface HandFanProps {
    * 走了就是打出成功，还在就按拒绝算，这时才送回扇形。
    * 等回包那段空窗里的重复打出由 disabled 挡，HandFan 自己挡不住。
    */
-  onPlay: (id: string) => void
+  onPlay: (id: string, via: CardPlayVia) => void
   /**
    * 为 true 时拖不出牌（比如不是自己的回合、正在等对方确认），但仍然可以 hover 看牌。
    *
@@ -129,6 +138,25 @@ export interface HandFanProps {
    * 它不参与"等回包"那套约定：父组件要等网络结果，仍然得按上面 onPlay 的说明打开 disabled。
    */
   frozen?: boolean
+  /**
+   * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
+   *
+   * 这张牌**留在扇形里**，只是抬高一点、单独亮着，同一时刻整排其余的牌一起压暗
+   * （压暗走 opacity，因为全屏那层压暗在扇形下面，够不着手牌自己）。
+   * 它只管这一层"哪张在等目标"的排布：那期间不该有 hover 的事归 frozen 管，
+   * 父组件两个都要给（选目标态同样要冻住整排，否则指针还压在那张牌上，它会一直放大挡住战场）。
+   *
+   * 注意这张牌同时也在"已经打出、正在等结果"的记录里（playedRef），
+   * 但它和等网络回包的牌不一样：那种停在落点上不参与排布，这种要照常排回扇形。
+   */
+  castingId?: string | null
+  /**
+   * 拖拽起止通知：过了阈值真正拖起来时给牌的 id，松手/取消/被中断时给 null。
+   *
+   * 给父组件用来"拖着这张牌时把场上合法目标标出来"。组件自己不需要这个状态，
+   * 所以只是通知，不接受父组件的回话。
+   */
+  onDragStateChange?: (id: string | null) => void
 }
 
 /**
@@ -199,6 +227,22 @@ const LEAVE_DELAY_MS = 50
  */
 const HOVER_TILT_DEG = 10
 
+/**
+ * 选目标期间，除正在施放的那张之外整排手牌压到这个不透明度。
+ *
+ * 走 opacity 而不是 CSS 的 filter / 外面盖一层：slot 的 opacity 本来就归 GSAP 管
+ * （新牌进场的淡入就在用它），两边抢同一个属性会闪；
+ * 而全屏那层压暗在扇形下面（扇形这时被抬到它上面去了），够不着手牌自己。
+ */
+const CASTING_DIM = 0.3
+/** 正在施放的那张牌从扇形位往上抬多少像素，让人一眼看出在等谁。 */
+const CASTING_LIFT = 26
+/**
+ * 正在施放的那张牌在扇形内部的层级。
+ * 扇形里其余的牌是按下标排的 1..N（见 applyLayout），给个够大的数就压得住整排。
+ */
+const CASTING_Z = 50
+
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
 
@@ -247,6 +291,8 @@ export function HandFan({
   onPlay,
   disabled = false,
   frozen = false,
+  castingId = null,
+  onDragStateChange,
 }: HandFanProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
@@ -276,6 +322,9 @@ export function HandFan({
    */
   const frozenRef = useRef(frozen)
   frozenRef.current = frozen
+  /** 最新的 castingId。理由和上面那个 frozenRef 一模一样：applyLayout 读的是这一份。 */
+  const castingIdRef = useRef(castingId)
+  castingIdRef.current = castingId
   /** 给 resize 监听和延迟回位用：它们要拿到最新一次渲染的布局函数。 */
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
@@ -303,6 +352,8 @@ export function HandFan({
     // 扇形锚点 .hand-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），
     // 和 dragTargetOf 用同一个口径，别混用 innerWidth。
     const viewportWidth = document.documentElement.clientWidth
+    // 走 ref 不走闭包：这个函数常常是上一次渲染留下的那一份（见 castingIdRef）。
+    const casting = castingIdRef.current
     const ids = new Set(cards.map((card) => card.id))
 
     if (mode === 'reflow') {
@@ -310,7 +361,11 @@ export function HandFan({
       // 它的 DOM 节点这一帧已经没了，再留着拖拽状态，松手时就会去动一个不存在的节点。
       // 这里走 endDrag 而不是让它自然取消：牌都没了，没有"回扇形"这回事。
       const pressedId = cardDrag.pressedId()
-      if (pressedId !== null && !ids.has(pressedId)) cardDrag.endDrag()
+      if (pressedId !== null && !ids.has(pressedId)) {
+        cardDrag.endDrag()
+        // endDrag 是"这次拖拽当没发生过"，不走 onCancel，所以拖拽通知得在这儿自己收。
+        onDragStateChange?.(null)
+      }
       // 只清理"已经不在手牌里"的记录。hover 期间调用得太频繁，不该顺手改这些状态。
       // 注意 reflow 也会被 resize 触发，所以这里不能把整份记录一股脑清空：
       // 拖一下窗口就把防重复的记录抹掉，同一张牌会被打出两次。
@@ -328,7 +383,11 @@ export function HandFan({
     // 豁免不需要额外的解除逻辑：两处收尾（disabled 关掉时的 layout effect、松手后的 rAF 兜底）
     // 都是先把 id 从 playedRef 删掉再 returnToFan，那一次 reflow 就会把牌送回扇形。
     const draggingId = cardDrag.draggingId()
-    const laid = cards.filter((card) => card.id !== draggingId && !playedRef.current.has(card.id))
+    // 正在等玩家选目标的那张牌（castingId）是 playedRef 里的例外：它也已经"打出去"了，
+    // 但父组件要它留在手里等玩家点目标，所以照常参与排布，只是抬高一点、单独亮着。
+    const laid = cards.filter(
+      (card) => card.id !== draggingId && (card.id === casting || !playedRef.current.has(card.id)),
+    )
     const count = laid.length
 
     // 冻结期间一律按"没有 hover"排布。下面那个 frozen 的 layout effect 会把 hoverRef 清掉，
@@ -345,7 +404,10 @@ export function HandFan({
       if (!slot) return
 
       const base = fanTransform(index, count, viewportWidth, PLAYER_FAN)
-      const isHovered = index === hoverIndex
+      const isCasting = card.id === casting
+      // 选目标态下父组件会一并打开 frozen，上面那行已经把 hover 抹平了；
+      // 判 isCasting 优先只是兜底，免得哪天两个开关没一起给，这张牌又被摆成放大的样子。
+      const isHovered = !isCasting && index === hoverIndex
       const isNew = !placedRef.current.has(card.id)
       if (isNew) {
         placedRef.current.add(card.id)
@@ -370,16 +432,22 @@ export function HandFan({
       // 这个"放回去"必然是瞬间完成的，而且正好落在牌已经缩回原位、和邻牌重叠面积最大的那一帧，
       // 看着就是闪一下。把切换挪到别的时刻、或者拆成多次小切换都只是把闪烁挪个地方而已。
       // 现在改成靠位置解决遮挡：邻牌让到放大卡的轮廓外边去，谁也压不着谁，层级就不用动了。
-      gsap.set(slot, { zIndex: index + 1 })
+      // 正在施放的那张要压住整排（它抬起来了，邻牌不让位，靠层级不被压住）。
+      gsap.set(slot, { zIndex: isCasting ? CASTING_Z : index + 1 })
 
-      const vars: gsap.TweenVars = isHovered
-        ? { x: base.x, y: HOVER_BOTTOM, rotation: 0, scale: slotScale(HOVER_SCALE) }
-        : { x: base.x + push, y: base.y, rotation: base.rotation, scale: slotScale(1) }
+      const vars: gsap.TweenVars = isCasting
+        ? // 只往上抬一点、不放大：放大就又把战场挡住了，而选目标时战场正是要看的地方。
+          { x: base.x, y: base.y - CASTING_LIFT, rotation: base.rotation, scale: slotScale(1) }
+        : isHovered
+          ? { x: base.x, y: HOVER_BOTTOM, rotation: 0, scale: slotScale(HOVER_SCALE) }
+          : { x: base.x + push, y: base.y, rotation: base.rotation, scale: slotScale(1) }
       vars.duration = mode === 'hover' ? HOVER_DUR : LAYOUT_DUR
       vars.ease = isHovered ? 'back.out(1.4)' : 'power3.out'
       // 快速扫过多张牌时，旧补间要被新补间干净地接管，不能各改各的。
       vars.overwrite = 'auto'
-      if (isNew) vars.opacity = 1
+      // 选目标期间只有正在施放的那张亮着，其余整排压暗；不在选目标态时这一行就是把
+      // opacity 补回 1（新牌进场那条 0 → 1 的淡入也是靠它跑完的）。
+      vars.opacity = casting !== null && !isCasting ? CASTING_DIM : 1
       gsap.to(slot, vars)
 
       const helpParts = helpPartsOf(card.id)
@@ -552,6 +620,8 @@ export function HandFan({
    * 所以下面建的这些补间不会被它那一发 killTweensOf 顺手杀掉。
    */
   const handleDragStart = (drag: CardDragInfo) => {
+    // 先告诉父组件"这张牌被拖起来了"：要选目标的技能牌一离手，场上的合法目标就该亮起来。
+    onDragStateChange?.(drag.id)
     // hover 的放大补间和延迟缩回都得让位，不然它们会和拖拽姿态抢同一批属性。
     cancelLeaveTimer()
     // 清掉 hover 还顺手关掉了这张牌的倾斜跟随：attachCardTilt 的 enabled 回调判的就是
@@ -609,10 +679,20 @@ export function HandFan({
 
   const handleDrop = (drag: CardDragInfo) => {
     playedRef.current.add(drag.id)
-    // 父组件在这一步里同步截取 Flip 状态，所以此刻 slot 必须还停在松手那一刻的拖拽位置
-    // ——useCardDrag 已经在调过来之前把跟随补间停掉了。
-    onPlay(drag.id)
+    // 拖拽已经结束，先把高亮通知收掉再交给父组件：onPlay 里父组件八成要改自己的状态，
+    // 让它一次性看到"没在拖了"更省事。它要判这次是拖出来的还是点出来的，看 via 参数。
+    onDragStateChange?.(null)
+    // 父组件在这一步里同步截取 Flip 状态、或者量这张牌落在了谁身上，
+    // 所以此刻 slot 必须还停在松手那一刻的拖拽位置——useCardDrag 已经在调过来之前
+    // 把跟随补间停掉了。
+    onPlay(drag.id, 'drag')
     restoreIfRejected(drag.id, true)
+  }
+
+  /** 拖拽没成（落在别处、被 disabled、被浏览器中断）：收掉高亮通知，把牌送回扇形。 */
+  const handleDragCancel = () => {
+    onDragStateChange?.(null)
+    returnToFan()
   }
 
   /**
@@ -625,7 +705,7 @@ export function HandFan({
   const handleTap = (id: string) => {
     if (playedRef.current.has(id)) return
     playedRef.current.add(id)
-    onPlay(id)
+    onPlay(id, 'tap')
     restoreIfRejected(id, false)
   }
 
@@ -655,7 +735,7 @@ export function HandFan({
     onDragStart: handleDragStart,
     onDrop: handleDrop,
     // 落在别处（包括拖回手牌上方）、拖到一半被 disabled、被浏览器中断，都是取消，一律回扇形。
-    onCancel: returnToFan,
+    onCancel: handleDragCancel,
     onTap: handleTap,
   })
 
@@ -711,12 +791,30 @@ export function HandFan({
     layoutRef.current('hover')
   }, [frozen])
 
+  /**
+   * 进出选目标态时重排一次：那张牌要抬起来单独亮着，或者从抬起的位置落回扇形。
+   *
+   * 和上面那段 frozen 的收尾分工不同，两个都要留着：那段只在"当时有牌被抬起来"时才重排
+   * （它管的是收 hover），而这里两个方向都必须重排一次，不然点出去的牌不会抬起来、
+   * 取消之后也落不回去。指针八成还停在这张牌上，hover 一并清掉——
+   * 选目标态下父组件同时会打开 frozen，之后也不会再有新的 hover 进来。
+   * 用 layout effect：抬起和压暗要和这一帧一起出现，不能等到下一帧再跳一下。
+   */
+  useLayoutEffect(() => {
+    cancelLeaveTimer()
+    hoverRef.current = null
+    layoutRef.current('hover')
+  }, [castingId])
+
   return (
     // --hand-card-zoom 是 slot 盒子的放大倍数，CSS 那边全靠它算宽高和 zoom；
     // 值来自 HOVER_SCALE（按扇形几何算出来的），所以只能由 JS 传下去。
+    // data-casting 只管一件样式：把整个扇形抬到全屏压暗层之上，正在施放的那张才亮得起来
+    //（同排其余的靠上面那份 opacity 自己压暗）。不接指针那件事归 frozen 管，不写在 CSS 里。
     <div
       className="hand-fan"
       ref={rootRef}
+      data-casting={castingId === null ? undefined : 'true'}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}
     >
       {cards.map((card) => {

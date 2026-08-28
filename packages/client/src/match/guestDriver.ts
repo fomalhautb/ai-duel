@@ -3,6 +3,9 @@
  *
  * 界面照样能点，但点完不会立刻变——要等房主执行完把新局面转回来。
  * 指令非法时房主会把 COMMAND_REJECTED 一起转回来，显示成提示。
+ *
+ * 刻意不接答题阶段的自动驾驶（match/quizAutopilot.ts）：`SUBMIT_ANSWERS` 只该由跑引擎的
+ * 那一端发，客人也发的话同一轮会被提交两次（第二次被引擎拒掉，白白多一条错误提示）。
  */
 
 import type { Command } from '@ai-duel/core'

@@ -7,7 +7,7 @@
 
    两处和 demo 不一样，都是为了和 app 现有的 styles.css 共存：
 
-   1. 不定义 --accent。styles.css 里 .card-face--model 之类已经在用同名变量，
+   1. 不定义 --accent。styles.css 里 .card-face--agent 之类已经在用同名变量，
       :root 上再定义一份会顺着继承覆盖它们的兜底逻辑。主题色改由调用处
       就地设置（见各组件的 accent 属性），组件样式一律写
       var(--accent, var(--c-blue))，兜底放在使用处。

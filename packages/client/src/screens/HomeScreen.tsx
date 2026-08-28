@@ -386,6 +386,9 @@ function HomeStage() {
           >
             测试对局
           </button>
+          <button type="button" className="home__dev-link" onClick={() => navigate('/deck')}>
+            组建牌组
+          </button>
           <button type="button" className="home__dev-link" onClick={() => navigate('/loader')}>
             加载动画
           </button>

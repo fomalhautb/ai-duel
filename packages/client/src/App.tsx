@@ -14,6 +14,7 @@ import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { DesignScreen } from './screens/DesignScreen'
+import { DeckScreen } from './screens/DeckScreen'
 import { CardGallery } from './dev/CardGallery'
 import { LoaderDemo } from './dev/LoaderDemo'
 
@@ -27,6 +28,9 @@ export function App() {
         <Route path="/match" component={MatchScreen} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
+        {/* 组建牌组的交互 demo 页：卡池用的是 screens/deckDemoCards.ts 里那批假卡，
+            选出来的牌组不落盘也进不了对局，只用来跑通选卡的手势和版式。真卡池落地后重做。 */}
+        <Route path="/deck" component={DeckScreen} />
         {/* 卡牌图鉴 / 卡面调试页：把全部卡牌按真实尺寸摆开，改卡面排版时用来一眼对照，
             也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />

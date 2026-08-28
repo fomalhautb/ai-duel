@@ -74,6 +74,26 @@ const TILE_HOVER_SCALE = 1.05
 /** 我方打出的技能卡在战场中央停留多久（秒），停完淡出。 */
 const SKILL_SHOWCASE_HOLD = 1.2
 
+/**
+ * 落地特效（震屏 + 烟尘 + 追光）从落地那一刻起还要再演这么久（秒）。
+ * 演出锁要一直挂到这段演完：Flip 一到位就解锁的话，手牌立刻能 hover，
+ * 抬起来的下一张牌会盖住还在冒烟的那张。
+ * 我方出牌和对手的牌落场用同一段尾巴，两边的手感才一致。
+ */
+const SUMMON_FX_TAIL = 0.8
+/**
+ * 出牌演出的兜底解锁时间（秒）。两条出牌链路（AI 卡飞向战场、技能卡中央亮相）共用。
+ *
+ * 两条链路都是同一个套路：出牌那一刻先上锁，等对面回来的新局面/事件把演出起起来，
+ * 最后由演出收尾解锁。要是那一步压根没来（联机丢包，或者房主标签页被冻住而 socket 没断、
+ * onPeerLeft 也不触发），锁就再没人放了——手牌会连 hover 抬牌都做不到，只能刷新页面。
+ * 所以出牌时一并挂上这个定时器：演出真的起来了就把它撤掉（解锁交回给演出收尾），
+ * 到点还没起来就把锁放开，退回"出不了牌但还能把牌抬起来看"这个能忍的状态。
+ *
+ * 取值只要盖得住一次联机往返，演出本身有多长不影响（演出一起来定时器就撤了）。
+ */
+const PLAY_LOCK_FALLBACK = 2.5
+
 /** 遮罩淡入 / 淡出。淡出比淡入慢一点，让"看完了"这一下收得柔和些。 */
 const OVERLAY_IN_DUR = 0.25
 const OVERLAY_OUT_DUR = 0.3
@@ -247,6 +267,19 @@ function BattleField({
    * 停在落点上等结果，而不是被当成"父组件没受理"立刻飞回手牌。
    */
   const [awaiting, setAwaiting] = useState(false)
+  /**
+   * 屏幕上有牌正在飞或刚落地，演出还没收尾。
+   *
+   * 三条链路共用这一个锁：我方出牌（AI 卡飞向战场并落地冒烟，技能卡在中央亮相）、
+   * 对手的牌从展示位飞向他的战场行、以及放大查看结束后飞回原格。
+   * 只有"我方出牌"那条会先经过 awaiting，而 awaiting 只管到"新局面到手"为止，
+   * 那时动画才刚开始，所以必须另有这个锁接着挂。
+   *
+   * 它同时喂给 HandFan 的 frozen：这段时间手牌只要还能 hover，抬起来的下一张牌
+   * 就会盖住正在演的那张（放大后的手牌必然戳进我方战场行，见 HandFanProps.frozen）。
+   * 和 flyingRef 是一对：ref 给动画回调判活，state 只负责触发重渲染去更新 actionsLocked。
+   */
+  const [landing, setLanding] = useState(false)
   /** 我方刚打出的技能卡，短暂展示在战场中央。key 让连打同一张卡也能重新播一遍。 */
   const [skillShow, setSkillShow] = useState<{ cardId: CardId; key: number } | null>(null)
   /** 开局抛硬币过场；播完置回 null 把整层卸载掉。 */
@@ -285,8 +318,29 @@ function BattleField({
   const revealClipRef = useRef<HTMLDivElement>(null)
   /** 战场上每张小卡的倾斜跟随，按 tile 元素存着（tile 上没有别的稳定标识可用）。 */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
+  /** 上面那段演出是否还在进行中。事件回调和延迟回调读它判活，见 landing。 */
+  const flyingRef = useRef(false)
+  /**
+   * 演出锁的持有者编号，每上一次锁 +1。
+   *
+   * 解锁的回调常常延迟很久才跑（落地特效的尾巴、出牌的兜底定时器），中间锁很可能
+   * 已经易主给下一次演出了——比如联机时技能卡的兜底先到点放了锁，玩家立刻又打出一张 AI 卡，
+   * 迟到的技能展示时间线跑完时放掉的就是别人的锁。带着编号解锁，对不上号就不放。
+   */
+  const landingTokenRef = useRef(0)
+  /**
+   * 出牌那把锁的兜底解锁定时器，演出真的起来了就把它撤掉。见 PLAY_LOCK_FALLBACK。
+   *
+   * 两条出牌链路共用一个 ref 是安全的：锁一上手牌就冻住了，不解开就打不出下一张牌，
+   * 所以同一时刻最多只有一条兜底在等。
+   */
+  const lockFallbackRef = useRef<gsap.core.Tween | null>(null)
+  /** 这次技能卡展示持有的是哪一号锁。展示时间线演完时凭它解锁（见 landingTokenRef）。 */
+  const skillLockTokenRef = useRef(0)
+  /** 当前正在展示的那张技能卡的 key。连打时用它认出"我这条时间线是不是已经过气了"。 */
+  const skillShowKeyRef = useRef<number | null>(null)
   /** 松手那一刻记下的手牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。 */
-  const flipStateRef = useRef<{ state: Flip.FlipState; id: string } | null>(null)
+  const flipStateRef = useRef<{ state: Flip.FlipState; id: string; token: number } | null>(null)
   /**
    * 兜底：展示链路被占用（连着出牌）或找不到起飞点时，对方新上场的 AI 只播一段简易进场。
    * 收到事件那一刻它的 DOM 还不存在，所以攒到下一次提交后再播。
@@ -306,12 +360,23 @@ function BattleField({
    * 它同时是横幅队列的闸门：为 true 期间的横幅先排队，等遮罩淡出再补播。
    */
   const revealBusyRef = useRef(false)
-  /** 待播的"从展示位飞向战场格子"动画。展示卡马上要被摘掉，只能靠 id 找落点那个新格子。 */
-  const landingFlipRef = useRef<{ state: Flip.FlipState; id: InstanceId } | null>(null)
+  /**
+   * 待播的"从展示位飞向战场格子"动画。展示卡马上要被摘掉，只能靠 id 找落点那个新格子。
+   * token 是这段飞行占着的那把演出锁（见 landingTokenRef），飞完或者半路作废时凭它解锁。
+   */
+  const landingFlipRef = useRef<{
+    state: Flip.FlipState
+    id: InstanceId
+    token: number
+  } | null>(null)
   /** 待播的"小卡飞向展示位"动画，记的是战场上那个格子起飞前的位置。 */
   const inspectFlipRef = useRef<Flip.FlipState | null>(null)
-  /** 待播的"从展示位飞回战场格子"动画，同样要连 id 一起存。 */
-  const inspectReturnRef = useRef<{ state: Flip.FlipState; id: InstanceId } | null>(null)
+  /** 待播的"从展示位飞回战场格子"动画，同样要连 id 和演出锁的编号一起存。 */
+  const inspectReturnRef = useRef<{
+    state: Flip.FlipState
+    id: InstanceId
+    token: number
+  } | null>(null)
   /**
    * 查看的卡是否已经飞到位。飞入途中的点击一律忽略：
    * 半路把飞入换成飞回，起点就是一个还在被 Flip 改写的元素，容易留下收不干净的补间。
@@ -476,6 +541,8 @@ function BattleField({
     inspectHeldRef.current = false
     floatRef.current?.kill()
     floatRef.current = null
+    // 飞回那段已经上了锁、却还没起跑就被打断，锁得还回去，否则手牌永远解不开。
+    if (inspectReturnRef.current !== null) releaseLanding(inspectReturnRef.current.token)
     inspectReturnRef.current = null
     closeInspect()
   }
@@ -551,6 +618,8 @@ function BattleField({
     floatRef.current?.kill()
     floatRef.current = null
     revealFlipRef.current = null
+    // 同 abortInspect：落场那段飞行已经上了锁却不会再跑了，锁得还回去。
+    if (landingFlipRef.current !== null) releaseLanding(landingFlipRef.current.token)
     landingFlipRef.current = null
     const overlay = overlayRef.current
     if (overlay !== null) gsap.to(overlay, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
@@ -674,6 +743,10 @@ function BattleField({
         return
       }
       const shownKey = skillShow.key
+      skillShowKeyRef.current = shownKey
+      // 展示真的起来了，兜底定时器可以撤了，解锁交给这条时间线的末尾。
+      lockFallbackRef.current?.kill()
+      lockFallbackRef.current = null
       gsap
         .timeline()
         .fromTo(
@@ -689,11 +762,18 @@ function BattleField({
         // 只清掉自己这一次的展示：依赖变化时 useGSAP 默认不 revert 旧 context，
         // 连打两张技能卡时上一张的时间线还在跑，它到点后也会来执行这个 call。
         // 无条件 setSkillShow(null) 的话，刚开始展示的第二张会被上一条时间线提前掐掉。
+        // 演出锁同样只认自己这一次：连打两张技能卡时，上一条时间线到点也会跑到这儿，
+        // 无条件解锁会把第二张还在展示的锁提前放掉。
+        // 计数和抵消提示则不分是谁：那两样按"演完一段减一段"记账，过气的这条也得销账。
         .call(() => {
-          setSkillShow((current) => (current?.key === shownKey ? null : current))
           // 亮相演完了，轮到憋着的抵消提示（如果有的话）。计数减到 0 才算全部演完。
           skillShowBusyRef.current = Math.max(0, skillShowBusyRef.current - 1)
           pumpSkillCancel()
+          if (skillShowKeyRef.current !== shownKey) return
+          setSkillShow((current) => (current?.key === shownKey ? null : current))
+          // 凭编号解锁：兜底定时器先到点放了锁、玩家又打出下一张牌时，
+          // 这条迟到的时间线放掉的会是别人的锁（见 landingTokenRef）。
+          releaseLanding(skillLockTokenRef.current)
         })
     },
     { dependencies: [skillShow] },
@@ -928,23 +1008,73 @@ function BattleField({
   }
 
   /**
+   * 上一把演出锁：手牌整个冻住、「结束出牌」也按不动，直到对应的 releaseLanding。
+   * 返回这次的编号，交给延迟解锁的那个回调带着（见 landingTokenRef）。
+   */
+  const acquireLanding = (): number => {
+    landingTokenRef.current += 1
+    flyingRef.current = true
+    setLanding(true)
+    return landingTokenRef.current
+  }
+
+  /**
+   * 演出收尾，把手牌和「结束出牌」放开。见 landing。
+   *
+   * token 是上锁时拿到的编号：对不上号就说明锁已经易主给下一次演出了，这次不能放。
+   * 不传编号是无条件强放，只给"确实该收掉一切"的场合用。
+   */
+  const releaseLanding = (token?: number) => {
+    if (token !== undefined && token !== landingTokenRef.current) return
+    lockFallbackRef.current?.kill()
+    lockFallbackRef.current = null
+    flyingRef.current = false
+    setLanding(false)
+  }
+
+  /**
+   * 出牌专用的上锁：在 acquireLanding 之上再挂一条兜底解锁定时器。
+   *
+   * 出牌这两条链路的解锁都要等对面把局面/事件送回来，中间隔着一次联机往返，
+   * 是唯一可能"等不到解锁的人"的场合，所以只有它们需要兜底。见 PLAY_LOCK_FALLBACK。
+   * （对手出牌落场、放大查看飞回那两条链路的解锁全在本地驱动，不会卡住，不用兜底。）
+   *
+   * 唯一的调用方 handlePlay 整个走 contextSafe：这条定时器是在 React 事件回调里建的，
+   * 不包一层就不归 useGSAP 的 context 管，组件在到点前卸载时 revert 不掉，
+   * 到点还会去动一个已经卸载的组件（架构 5.5）。
+   */
+  const acquirePlayLanding = (): number => {
+    const token = acquireLanding()
+    lockFallbackRef.current?.kill()
+    lockFallbackRef.current = gsap.delayedCall(PLAY_LOCK_FALLBACK, () => releaseLanding(token))
+    return token
+  }
+
+  /**
    * 手牌被打出（拖进战场松手，或者原地点一下）。
    *
    * 两种牌都是直接发 PLAY_CARD，没有费用也不选目标。差别只在动画：
    * AI 卡要飞进战场，所以先截 Flip 状态；技能卡打完就进弃牌堆，战场上没有它的落点，
    * 截了也没有目标元素可飞，它靠 SKILL_PLAYED 在中央亮相。
    */
-  const handlePlay = (instanceId: string) => {
+  const handlePlay = contextSafe((instanceId: string) => {
     const instance = me.hand.find((item) => item.instanceId === instanceId)
     if (instance === undefined) return
     if (getCard(instance.cardId).kind === 'agent') {
       // 此刻手牌那张卡还在 DOM 里、还停在松手那一刻的位置，正好当飞行起点。
       // 查询限定在 .hand-fan 里：战场小卡用的是同一套 data-flip-id，不限定会抓错元素。
       const slot = document.querySelector(`.hand-fan [data-flip-id="${CSS.escape(instanceId)}"]`)
-      flipStateRef.current = slot === null ? null : { state: Flip.getState(slot), id: instanceId }
+      // 锁挂到新局面到手、那段飞行演完为止（解锁在下面消费 flipStateRef 那段 useGSAP 里）。
+      flipStateRef.current =
+        slot === null
+          ? null
+          : { state: Flip.getState(slot), id: instanceId, token: acquirePlayLanding() }
+    } else {
+      // 技能卡没有飞行，锁挂到中央展示演完为止（解锁在下面那条展示时间线的末尾）。
+      skillLockTokenRef.current = acquirePlayLanding()
     }
     sendMine({ type: 'PLAY_CARD', player: mySeat, instanceId })
-  }
+  })
 
   /** 测试房里点对方手牌：无视出牌轮次替对方打出去，其余结算和正常出牌完全一致。 */
   const playForFoe = (instance: CardInstance) => {
@@ -958,6 +1088,8 @@ function BattleField({
    */
   const handleInspect = (agent: AgentInstance) => {
     if (reveal !== null || inspecting !== null) return
+    // 有牌正在飞或刚落地时也不受理：点开的很可能正是那张还被 Flip 改写着的格子。
+    if (flyingRef.current) return
     if (
       revealBusyRef.current ||
       inspectFlipRef.current !== null ||
@@ -989,7 +1121,12 @@ function BattleField({
     // 在卡还停在屏幕中央、还没被 React 摘掉的这一帧取位置，飞回那段从这儿接着走。
     const el = revealCardRef.current
     if (el !== null) {
-      inspectReturnRef.current = { state: Flip.getState(el), id: inspecting.instanceId }
+      // 飞回那 0.6 秒同样要冻住手牌：遮罩这时已经在淡出，挡不住指针了。
+      inspectReturnRef.current = {
+        state: Flip.getState(el),
+        id: inspecting.instanceId,
+        token: acquireLanding(),
+      }
     }
     closeInspect()
   }
@@ -998,7 +1135,17 @@ function BattleField({
   // 「结束出牌」按钮在视觉上也是关着的）。
   const showcasing = reveal !== null || inspecting !== null
   // 出牌和「结束出牌」同一个口径：不是我的出牌轮、对局已结束、正在等回包、展示层演着时都锁住。
-  const actionsLocked = !myPlayTurn || view.status !== 'playing' || awaiting || showcasing
+  const actionsLocked =
+    !myPlayTurn || view.status !== 'playing' || awaiting || showcasing || landing
+  /**
+   * 手牌彻底冻住（连 hover 都不接）的时刻：屏幕上有牌在飞或刚落地，或者展示层正演着。
+   *
+   * 刻意比 actionsLocked 窄一大截：不是我的回合、等回包这些"只是出不了牌"的时刻
+   * 玩家仍然应该能把牌抬起来看清楚，那归 HandFan 的 disabled 管（两者的分工见 HandFanProps）。
+   * 展示期间遮罩本来就吃掉了指针事件，但展示开始前指针已经停在某张牌上的话
+   * 它不会收到 pointerleave，那张牌会一直抬着，所以这里也一并冻上。
+   */
+  const handFrozen = landing || showcasing
 
   /**
    * 现算的话每次渲染都是个新数组，两个 Fan 的 useGSAP 会跟着重跑一遍归位补间；
@@ -1013,18 +1160,37 @@ function BattleField({
   useGSAP(
     (_context, safe) => {
       const pending = flipStateRef.current
-      if (pending !== null) {
+      if (pending === null) {
+        // 演出途中也会因为别的局面更新跑到这儿（包括对手的牌正在飞的时候），
+        // 那时不能把锁解掉。判据是 flyingRef：它和 landing 永远同进同出。
+        if (flyingRef.current === false) setLanding(false)
+      } else {
         flipStateRef.current = null
+        // 新局面到手了，这条链路的兜底定时器可以撤了：底下要么当场解锁，要么解锁交给这段飞行的收尾。
+        // 不撤的话，往返慢一点就会被它在飞行途中把手牌放开（见 PLAY_LOCK_FALLBACK）。
+        lockFallbackRef.current?.kill()
+        lockFallbackRef.current = null
         // 必须显式把战场上的新元素交给 Flip：不传 targets 的话它会退回用 state.targets，
         // 也就是手牌里那个已经被 React 摘掉的旧节点，补间挂在脱离文档的 div 上，
         // 战场小卡一动不动。Flip 不会自己按 data-flip-id 去全文档找新元素（架构 5.5）。
         const target = document.querySelector<HTMLElement>(
           `.battle__board [data-flip-id="${CSS.escape(pending.id)}"]`,
         )
-        if (target !== null) {
+        if (target === null) {
+          // 没有落点可飞，这次就没有飞行动画，锁当场放开。
+          releaseLanding(pending.token)
+        } else {
           // 落地特效是在 onComplete 里才建的补间，出了 useGSAP 回调的同步区间，
           // 不用 contextSafe 包一层就不归 context 管，组件卸载时 revert 不掉。
-          const landed = () => playSummonFx(target)
+          const landed = () => {
+            // Flip 把 zIndex 直接写死在元素的内联样式上，飞完不会自己收——
+            // 不清的话这张 tile 会永久停在第 60 层，之后一直压着手牌（见 .battle__board 的注释）。
+            // 只能点名清 zIndex：clearProps: true 会把落位用的 transform 一起抹掉。
+            gsap.set(target, { clearProps: 'zIndex' })
+            playSummonFx(target)
+            // 锁再多挂一会儿，等落地特效也演完（见 SUMMON_FX_TAIL）。
+            gsap.delayedCall(SUMMON_FX_TAIL, () => releaseLanding(pending.token))
+          }
           Flip.from(pending.state, {
             targets: target,
             duration: 0.65,
@@ -1119,7 +1285,15 @@ function BattleField({
           })
           if (landingId !== null) {
             // 在卡还停在屏幕中央、还没被 React 摘掉的这一帧取位置，下一段飞行从这儿接着走。
-            if (el !== null) landingFlipRef.current = { state: Flip.getState(el), id: landingId }
+            // 遮罩这时已经开始淡出、马上就不吃指针了，而牌还要飞 0.6 秒再冒 0.8 秒烟，
+            // 所以这段也要上演出锁，把手牌一起冻住。
+            if (el !== null) {
+              landingFlipRef.current = {
+                state: Flip.getState(el),
+                id: landingId,
+                token: acquireLanding(),
+              }
+            }
             setReveal(null)
             return
           }
@@ -1196,18 +1370,30 @@ function BattleField({
         return
       }
 
-      const landing = landingFlipRef.current
-      if (landing === null) return
+      // 局部名字用 landingFlight，别写成 landing：那是外面那个演出锁的 state。
+      const landingFlight = landingFlipRef.current
+      if (landingFlight === null) return
       landingFlipRef.current = null
       // 落点那个格子此刻已经跟着 held 变 false 恢复可见了。useGSAP 是 layout effect，
       // 恢复可见和 Flip 把它摆到起飞位置发生在同一次绘制之前，中间不会闪一下空格子。
       const tile = boardRef.current?.querySelector<HTMLElement>(
-        `[data-flip-id="${CSS.escape(landing.id)}"]`,
+        `[data-flip-id="${CSS.escape(landingFlight.id)}"]`,
       )
-      if (tile == null) return
+      if (tile == null) {
+        // 没有落点可飞，这次就没有飞行动画，锁当场放开（同我方出牌那条）。
+        releaseLanding(landingFlight.token)
+        return
+      }
       // 同我方出牌：onComplete 出了同步区间，里面新建的特效补间必须包一层才归 context 管。
-      const landed = () => playSummonFx(tile)
-      Flip.from(landing.state, {
+      const landed = () => {
+        // 同我方出牌：Flip 写在内联样式上的 zIndex 飞完不会自己收，不清的话这张 tile 会
+        // 永久停在 1200 层——那比展示遮罩（1100）还高，之后每次展示都会被它戳穿。
+        gsap.set(tile, { clearProps: 'zIndex' })
+        playSummonFx(tile)
+        // 锁挂到落地特效也演完，和我方出牌一个节奏（见 SUMMON_FX_TAIL）。
+        gsap.delayedCall(SUMMON_FX_TAIL, () => releaseLanding(landingFlight.token))
+      }
+      Flip.from(landingFlight.state, {
         targets: tile,
         duration: REVEAL_OUT_DUR,
         ease: 'power2.inOut',
@@ -1279,7 +1465,11 @@ function BattleField({
       if (back === null || inspecting !== null) return
       inspectReturnRef.current = null
       const overlay = overlayRef.current
-      if (overlay === null) return
+      if (overlay === null) {
+        // 飞不成了，锁得还回去，否则手牌永远解不开。
+        releaseLanding(back.token)
+        return
+      }
       gsap.to(overlay, {
         autoAlpha: 0,
         duration: OVERLAY_OUT_DUR,
@@ -1291,7 +1481,17 @@ function BattleField({
       const target = boardRef.current?.querySelector<HTMLElement>(
         `[data-flip-id="${CSS.escape(back.id)}"]`,
       )
-      if (target == null) return
+      if (target == null) {
+        releaseLanding(back.token)
+        return
+      }
+      // onComplete 出了同步区间，里面的 gsap.set 不包一层就不归 context 管。
+      const settled = () => {
+        // 同另外两段飞行：Flip 写在内联样式上的 zIndex 飞完不会自己收，不清的话这张 tile
+        // 会永久停在 1200 层——那比展示遮罩（1100）还高，之后每次展示都会被它戳穿。
+        gsap.set(target, { clearProps: 'zIndex' })
+        releaseLanding(back.token)
+      }
       Flip.from(back.state, {
         targets: target,
         duration: REVEAL_OUT_DUR,
@@ -1299,6 +1499,7 @@ function BattleField({
         scale: true,
         // 层级必须给：飞回途中要压过正在淡出的遮罩（1100），同对手牌落场那段飞行。
         zIndex: REVEAL_FLIGHT_Z,
+        onComplete: safe ? safe(settled) : settled,
       })
     },
     { dependencies: [inspecting] },
@@ -1481,12 +1682,15 @@ function BattleField({
           但玩家不该点得动它。张数信息侧栏的玩家面板本来就有一份。 */}
       {testMode ? null : <OpponentFan cards={foeHandCards} onReveal={noopReveal} disabled />}
 
+      {/* disabled 和 frozen 分工不同：前者是"出不了牌但还能 hover 看牌"（不是我的回合、
+          等回包……），后者是演出期间整排手牌冻住，连 hover 都不接。见 HandFanProps。 */}
       <HandFan
         cards={handCards}
         dropZoneRef={boardRef}
         returnZoneRef={returnZoneRef}
         onPlay={handlePlay}
         disabled={actionsLocked}
+        frozen={handFrozen}
       />
 
       {/* 特效层：技能卡在中央亮相、横幅一条条排队播，整层不吃指针事件。 */}

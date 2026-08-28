@@ -93,7 +93,7 @@ const COIN_SPIN = 1.6
  */
 const COIN_SPINS = 4
 /** 硬币停稳后停留多久（秒）再整层淡出，留出看清「谁先出牌」的时间。 */
-const COIN_HOLD = 0.8
+const COIN_HOLD = 1.3
 
 /** 答题结果逐条淡入的间隔（秒）。 */
 const QUIZ_ROW_STAGGER = 0.16
@@ -627,7 +627,7 @@ function BattleField({
       const inner = coinInnerRef.current
       if (coinToss === null || node === null || inner === null) return
       const shownKey = coinToss.key
-      // 落在正面（0°）还是背面（180°）就是「你先出牌」和「对方先出牌」的区别。
+      // 落在正面（0°）还是背面（180°）就是「先手」和「后手」两张币面的区别。
       const landing = COIN_SPINS * 360 + (coinToss.firstPlayer === seatRef.current ? 0 : 180)
       const coin = node.querySelector<HTMLElement>('.coin-toss__coin')
       gsap
@@ -1415,10 +1415,20 @@ function BattleField({
             {/* 这一层承担 rotationY，下面两面靠 data-flip-face 对号（契约见 ui/flipCard.ts）。 */}
             <div className="coin-toss__inner" ref={coinInnerRef}>
               <span className="coin-toss__face" data-flip-face="front">
-                你先出牌
+                <img
+                  className="coin-toss__img"
+                  src="/battle/coin-first.webp"
+                  alt="先手"
+                  draggable={false}
+                />
               </span>
               <span className="coin-toss__face coin-toss__face--back" data-flip-face="back">
-                对方先出牌
+                <img
+                  className="coin-toss__img"
+                  src="/battle/coin-second.webp"
+                  alt="后手"
+                  draggable={false}
+                />
               </span>
             </div>
           </div>

@@ -1,4 +1,11 @@
-import { useLocation } from 'wouter'
+/** 轮次和比分中间那颗小菱形，纯装饰。 */
+function DiamondMark() {
+  return (
+    <svg className="battle-topbar__diamond" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M6 .6 11.4 6 6 11.4.6 6Z" />
+    </svg>
+  )
+}
 
 function BookIcon() {
   return (
@@ -18,24 +25,43 @@ function SettingsIcon() {
   )
 }
 
-export function BattleTopBar() {
-  const [, navigate] = useLocation()
+export interface BattleTopBarProps {
+  /**
+   * 顶栏正中那块「第几轮 + 比分」。局面还没到手时（联机客人在等房主开局）不传，
+   * 这块留空。
+   */
+  status?: {
+    round: number
+    myScore: number
+    foeScore: number
+  }
+}
+
+export function BattleTopBar({ status }: BattleTopBarProps) {
   return (
     <header className="battle-topbar">
-      {/* 左侧留白：顶栏靠三栏网格让中间的导航居中显示，撤掉品牌区后仍需占位保持对齐 */}
+      {/* 左侧留白：顶栏靠三栏网格让中间那块居中显示，撤掉品牌区后仍需占位保持对齐 */}
       <div className="battle-topbar__brand" aria-hidden="true" />
 
-      <nav className="battle-topbar__nav" aria-label="主导航">
-        <button className="battle-topbar__tab is-active" type="button" aria-current="page">
-          对战
-        </button>
-        <button className="battle-topbar__tab" type="button" onClick={() => navigate('/deck')}>
-          牌组
-        </button>
-        <button className="battle-topbar__tab" type="button" onClick={() => navigate('/card')}>
-          图鉴
-        </button>
-      </nav>
+      {/* 没有 status 时这个 div 也照样渲染：顶栏是「左 / 中 / 右」三列网格，
+          少一个子元素的话右边那组图标按钮会被自动排进中间那列。 */}
+      <div className="battle-topbar__status">
+        {status === undefined ? null : (
+          <>
+            <span className="battle-topbar__round">
+              第 <span className="battle-topbar__round-num">{status.round}</span> 轮
+            </span>
+            <DiamondMark />
+            <span className="battle-topbar__score">
+              <span className="battle-topbar__score-side">我方</span>
+              <span className="battle-topbar__score-num">{status.myScore}</span>
+              <span className="battle-topbar__score-colon">:</span>
+              <span className="battle-topbar__score-num">{status.foeScore}</span>
+              <span className="battle-topbar__score-side">对方</span>
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="battle-topbar__actions">
         <button className="battle-topbar__icon-button" type="button" aria-label="规则手册">

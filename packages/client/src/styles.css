@@ -1,13 +1,14 @@
 :root {
   color-scheme: dark;
   /*
-   * 全站唯一的字体栈，和设计参考 paper-demo.html 一致：EB Garamond 管拉丁字母和数字，
-   * Noto Serif SC 管中文，两者都从 Google Fonts 拿（引入写在 index.html）。
+   * 全站唯一的字体栈，和 /design 设计参考页一致（那套纸张 token 在 src/ui/paper/paper.css）：
+   * EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文，两者都从 Google Fonts 拿
+   * （引入写在 index.html）。
    * 后面三个本地宋体是兜底：断网或字体没加载成功时至少还是衬线体，
    * 不会一下掉回黑体、把整个古典调子毁掉。
    *
-   * 注意 Noto Serif SC 只引到 700，全站字重别写超过 700，
-   * 否则浏览器会自己拉伸出一份很难看的伪粗体。
+   * 注意 Noto Serif SC 只引了 300～700 这几档，全站字重别写出这个范围，
+   * 否则浏览器会自己拉伸出一份很难看的伪粗体 / 伪细体。
    */
   font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
   color: #e5e7eb;
@@ -152,7 +153,12 @@ body,
  * 首页复原的是一整张 1672×941 的设计稿，做法是"固定宽高比的舞台 + 容器查询单位"：
  * 舞台按原比例撑到视口里最大的那一档，里面所有尺寸都写成 cqi（= 舞台宽的百分之一），
  * 于是换窗口大小只是整体等比缩放，图和字的关系一点不变，也就不用写断点。
- * 舞台之外露出的那圈米色，就是设计稿画布外沿的纸色。
+ *
+ * 舞台之外露出的那圈留边，铺的是 /design 设计参考页那套纸张做法：底色 + 两层纸纹 + 暗角，
+ * 整幅画面就像被印在一张纸上。纸纹由 .grain 提供（定义在 src/ui/paper/paper.css，
+ * 根节点上和 .home 一起写着），这里只负责底色和暗角。
+ * 底色跟的是设计稿画布边缘，不是全局纸张 token，具体见下面 background-color 处的说明。
+ * 暗角的 var() 带兜底值：paper.css 还没加载时也要有暗角，不能整片平掉。
  */
 .home {
   /* 画面上所有米色字的颜色，从设计稿里取的。 */
@@ -164,24 +170,82 @@ body,
   place-items: center;
   height: 100%;
   overflow: hidden;
-  background: #ddcab7;
+  /*
+   * 留边底色要和 16:9 背景图 /home/home-bg.jpg 的边缘无缝接上，所以取的是图片边缘实测
+   * 平均色 rgb(221 201 180)（≈#ddc9b4，暖棕），而不是全局纸张 token --paper（#f0ecdf，偏冷的米白）——
+   * 那个白跟这张图接在一起会在图片四周留下一道明显的硬接缝。
+   * 写进来的值比 #ddc9b4 再亮约 2%，是给上面叠的 .grain 留的补偿：斑驳层平均把底色压暗约 2%
+   * （原因见 paper.css 里 --tex-mottle 的注释），提亮之后叠完纹理的平均亮度正好落回图片边缘色。
+   * 图片那边还另做了一层边缘羽化（见 .home__layer），接缝因此是软的；但羽化只抹得平图片四角
+   * 那点亮度不均，底色本身仍要贴着图片边缘色——差得多了，羽化的那段渐变自己就成了一圈看得见的色带。
+   */
+  background-color: #e1cdb8;
+  /* 暗角范围很大、很淡，只是让四周比中间沉一点。 */
+  background-image: var(
+    --vignette,
+    radial-gradient(ellipse 130% 100% at 50% 42%, rgb(0 0 0 / 0%) 45%, rgb(122 106 74 / 0.189) 100%)
+  );
   user-select: none;
 }
 
 .home__stage {
   container-type: size;
   position: relative;
+  /*
+   * 纸纹只该出现在舞台之外的留边上。
+   * .grain 的两层纹理是宿主（.home）的 ::before / ::after，其中 ::after 排在所有子元素之后，
+   * 默认会盖在舞台上面；这里把舞台抬一级，整块 16:9 画面就压到两层纹理之上了。
+   * 溢出的 multiply 不用管：.grain 自带 isolation: isolate，混合出不了 .home。
+   */
+  z-index: 1;
   width: min(100vw, 100vh * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
-/* 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
-   桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。 */
+/*
+ * 三张整幅切图（夜空底、桌面弧、前景道具）都只是画面，绝不能吃掉按钮和卡牌的点击。
+ * 桌面弧和前景道具那两张尤其要紧：它们铺满舞台又压在卡牌上面，一旦收指针事件，卡就再也 hover 不到了。
+ *
+ * 四条边用 mask 羽化，让图片边缘渐隐进下面的纸底（见 .home 的 background-color）。
+ * 起因是切图四条边的角落亮度并不均匀（左上偏亮、右下偏暗），下面是一整片纯色，怎么校准都对不齐每个角，
+ * 接缝处总能看出一点色差；把边缘化开，色差就没有硬边可以贴着显形了。
+ *
+ * 羽化只能写在图片层，不能写到 .home__stage 上：舞台里还装着标题、开始按钮、导航和四张展示卡，
+ * mask 一挂到舞台，这些东西靠边的部分会跟着一起虚掉——字发糊、按钮缺角。它们是画面上的实体，不该被溶掉。
+ * 三张图共用这一个类，一条规则就全覆盖，这正是要的：桌面弧和道具都贴着舞台底边，
+ * 只羽化背景图的话，它们俩会在底边露出一道硬边。
+ *
+ * 两条渐变一横一纵，各自只管一个方向的两端；mask-composite: intersect 让两层 alpha 相乘取交集。
+ * 这一步不能省：默认的 add 是取并集，横向没虚的地方会被竖向那层补成不透明，四条边一条都虚不起来。
+ * 相乘还顺带把四个角压得更淡，而角上正是色差最扎眼的地方。
+ *
+ * 已知副作用：窗口正好是 16:9 时舞台铺满视口、外面一圈留边都没有，四边会直接露出一线极窄的纸色渐变。
+ * 这是预期效果——整幅画本来就是"印在纸上"的，边上透出一点纸色反而对味，不是要修的漏。
+ */
 .home__layer {
+  /* 羽化宽度。cqi 跟的是舞台宽度，所以横竖四条边虚化的实际像素一样宽（约合设计稿的 29px）。
+     再往宽了写会开始啃画面内容：左右两侧的人物、底边的道具都离边不远。 */
+  --home-layer-feather: 1.75cqi;
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      black var(--home-layer-feather),
+      black calc(100% - var(--home-layer-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      black var(--home-layer-feather),
+      black calc(100% - var(--home-layer-feather)),
+      transparent
+    );
+  mask-composite: intersect;
   pointer-events: none;
 }
 
@@ -220,9 +284,10 @@ body,
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 7.3cqi;
-  /* 700 是 Noto Serif SC 引进来的最重一档。再往上写 800/900 不会更粗，
+  /* 600 比原来的 700 收一档：字号本来就大（7.3cqi），太重会显得笨，细一点更像刻上去的。
+     上限还是 700——Noto Serif SC 只引到 700，再往上写 800/900 不会更粗，
      只会让浏览器自己拉出一份伪粗体，笔画会发糊。 */
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   text-align: center;
   /* 设计稿里是往右下压出一道硬边影子，再垫一层散开的暗色让字从夜空里浮出来。 */
@@ -248,6 +313,9 @@ body,
   transform: translateY(-50%);
   color: var(--home-ink);
   font-size: 1.75cqi;
+  /* 300 是引进来的最细一档，副标题要明显比标题轻。
+     EB Garamond 没有 300，这行里的拉丁字符会落在 400 上，中英会有一点粗细差，可以接受。 */
+  font-weight: 300;
   line-height: 1;
 }
 
@@ -376,14 +444,19 @@ body,
   }
 }
 
+/* 文字排版参照 /design 页那块八角匾额按钮（.plaque-button，定义在本文件下方）：
+   同样的 600 字重、同样的宽字距。字距比它稍宽一点（0.28em 对 0.25em），
+   是对着首页这张铜牌切图单独调出来的。 */
 .home__start-label {
+  /* 只有颜色没跟着抄：参考页的匾额是深墨蓝底配米白字，而这里的匾额切图是浅色铜牌，
+     米白字放上去看不清，所以换成深墨色。 */
   color: #2c2926;
   font-size: 3cqi;
-  font-weight: 700;
-  letter-spacing: 0.36em;
-  /* 两处补偿：横向抵消末字后面多出的一格字距；纵向是因为切图带着下缘的投影，
-     几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
-  transform: translate(0.18em, -0.5cqi);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  /* 两处补偿：横向抵消末字后面多出的一格字距，取字距的一半正好把整行推回视觉居中；
+     纵向是因为切图带着下缘的投影，几何中心比看上去的板面中心低，字得往上挪才落在板子正中。 */
+  transform: translate(0.14em, -0.5cqi);
 }
 
 .home__start:hover {

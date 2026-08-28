@@ -4,13 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Duel · 斗AI</title>
-    <!-- 全站字体，和设计参考 paper-demo.html 用的是同一套：
+    <!-- 全站字体，和 /design 设计参考页（纸张 token 在 src/ui/paper/paper.css）用的是同一套：
          EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文。
+         Noto Serif SC 多引一档 300 给首页副标题用；EB Garamond 没有 300，
+         副标题里的拉丁字符会落回 400，中英之间会有一点粗细差，可以接受。
          preconnect 提前握手，字体文件真正在 gstatic 那个域名上，两个域都要连。 -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <!--

@@ -4,9 +4,12 @@
  * 整页是照着一张 1672×941 的设计稿复原的，做法是把它当成一个固定宽高比的"舞台"塞进视口居中，
  * 舞台内所有尺寸都用 cqi（1cqi = 舞台宽的 1%）。这样窗口怎么变都只是整体等比缩放，
  * 不用为各种分辨率写断点，也不会出现"字大了图小了"的错位。
+ * 根节点带 .grain（定义在 src/ui/paper/paper.css）：舞台之外的留边铺成纸张——
+ * 纸底色 + 两层纸纹 + 暗角，纹理只出现在舞台外面（怎么做到的见 styles.css 的 .home__stage）。
  *
- * 层叠自下而上是：夜空底 → 四张展示卡 → 人物占位方块 → 桌面弧 → 前景道具 → 文字类 UI
- * （标题、副标题、开始按钮、导航、设置、调试入口）。顺序完全由 JSX 的先后决定，没有一处 z-index。
+ * 舞台内部层叠自下而上是：夜空底 → 四张展示卡 → 人物占位方块 → 桌面弧 → 前景道具 → 文字类 UI
+ * （标题、副标题、开始按钮、导航、设置、调试入口）。顺序完全由 JSX 的先后决定，舞台里没有一处
+ * z-index（舞台自己有一个，那是用来压住外层纸纹的，和内部层叠无关）。
  * 桌面弧夹在人物和道具中间，对应的是现实关系：人站在桌子后面被桌沿挡住下半身，
  * 而地球仪、望远镜这些道具又摆在桌沿上。
  * 压在卡牌上面的那三层（人物、桌面弧、道具）都是 pointer-events: none，不会挡住卡牌 hover。
@@ -220,7 +223,7 @@ export function HomeScreen() {
   )
 
   return (
-    <div className="home">
+    <div className="home grain">
       <div className="home__stage" ref={stageRef}>
         <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
 

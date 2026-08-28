@@ -31,6 +31,8 @@ import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
+import { AI_MODEL_FACE } from './aiModelFace'
+import { CardFaceOverlay } from './CardFaceOverlay'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -58,6 +60,8 @@ gsap.registerPlugin(useGSAP)
  */
 export interface HandCardData {
   id: string
+  /** 动画使用实例 id；原画和铭牌使用定义 id，避免出牌后丢失图层。 */
+  definitionId?: string
   name: string
   /**
    * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
@@ -70,7 +74,7 @@ export interface HandCardData {
   text: string
   /** 翻到背面时展示的补充说明。 */
   backText: string
-  /** 卡面插画的图片地址。不填就按 id 稳定地分一张占位图（见 ui/cardArt.ts）。 */
+  /** 卡面插画地址；不填时按定义 id 查找原画，其余卡牌使用占位图。 */
   art?: string
 }
 
@@ -917,22 +921,25 @@ export function HandFan({
  * 画面前后是同一份排版，落位时不会突然换一套内容。
  *
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
- * 卡名、描述、底部那一行标识都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
- *
- * 现在卡面上没有任何数值：出牌不要费用，AI 牌也没有攻防。底下那一行只是"这是谁 / 这是什么牌"，
- * 排版是占位程度，等正式卡面设计出来再重排。
+ * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌，其余卡牌保留渐变信息层。
+ * Token 沿用原稿的展示数值，不改变当前答题制的出牌与胜负规则。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
+  const definitionId = card.definitionId ?? card.id
+  const face = card.kind === 'ai' ? AI_MODEL_FACE[definitionId] : undefined
   return (
     <div className={`card-face card-face--${card.kind}`}>
       {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
           念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
       <img
         className="card-face__art"
-        src={card.art ?? cardArtFor(card.id)}
+        src={card.art ?? cardArtFor(definitionId)}
         alt=""
         draggable={false}
       />
+      {face ? (
+        <CardFaceOverlay cost={face.tokenCost} skillName={face.skillName} name={card.name} accent={face.accent} />
+      ) : (
       <div className="card-face__body">
         <div className="card-face__name">{card.name}</div>
         <p className="card-face__text">{card.text}</p>
@@ -941,6 +948,7 @@ export function HandCardFace({ card }: { card: HandCardData }) {
           <span>{faceStamp(card)}</span>
         </div>
       </div>
+      )}
       {/*
         跟着指针跑的微高光（落在指针的镜像位置，见 cardTilt.ts）。
         战场小卡也用同一份卡面，所以这一层它们也有。

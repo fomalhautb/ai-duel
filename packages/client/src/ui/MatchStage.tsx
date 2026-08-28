@@ -2426,7 +2426,7 @@ function handCardOfInstance(instance: CardInstance): HandCardData {
 function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
   // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
-  const base = { id: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
+  const base = { id: card.id, definitionId: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
   if (card.kind === 'ai') {
     return { ...base, kind: 'ai', model: card.model }
   }

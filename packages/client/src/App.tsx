@@ -14,6 +14,7 @@ import { HomeScreen } from './screens/HomeScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { HandDemo } from './dev/HandDemo'
+import { CardGallery } from './dev/CardGallery'
 
 export function App() {
   return (
@@ -24,6 +25,9 @@ export function App() {
         <Route path="/match" component={MatchScreen} />
         {/* 动画调试页。原来走 ?demo=hand，现在归到 /dev 下面。 */}
         <Route path="/dev/hand" component={HandDemo} />
+        {/* 卡牌图鉴 / 卡面调试页：把全部卡牌按真实尺寸摆开，改卡面排版时用来一眼对照，
+            也方便和协作的 AI 隔着屏幕指同一张卡。 */}
+        <Route path="/card" component={CardGallery} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

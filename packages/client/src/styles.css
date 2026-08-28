@@ -897,17 +897,23 @@ body,
 
 /* ---------- 卡面 ---------- */
 
+/*
+ * 卡面 = 一张铺满的整版插画 + 浮在上面的信息层。
+ *
+ * 插画自带装饰边框和羊皮纸底色，所以这里不再画"插画框"那种分区版式：
+ * 图是底，费用角标压左上角，卡名/描述/数值挤在底部的 .card-face__body 上。
+ * 卡种（模型 / 提示）的区分退到 --accent 上，只出现在角标和数值那两处，
+ * 边框改成墨色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
+ */
 .card-face {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   width: 100%;
   height: 100%;
-  padding: 10px;
-  border: 1px solid var(--accent);
+  border: 1px solid rgb(32 24 16 / 55%);
   border-radius: 12px;
-  background: linear-gradient(160deg, #1b2430 0%, #11161d 60%, #0d1117 100%);
+  /* 图还没加载完时垫的底色。深色是为了和下面 body 的黑色渐变接得上，
+     不至于在加载那一瞬间露出一块和卡面无关的亮色。 */
+  background: #17140f;
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
   /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
@@ -916,13 +922,35 @@ body,
 }
 
 .card-face--model {
-  --accent: #38bdf8;
+  --accent: #7fd1ff;
 }
 
 .card-face--prompt {
-  --accent: #f59e0b;
+  --accent: #ffc158;
 }
 
+/*
+ * 插画：铺满整个卡面当底图。
+ *
+ * 图是 2:3，卡面是 5:7，cover 会把上下各裁掉一点点，构图中心留得住。
+ * 圆角自己也写一份而不是全靠父级的 overflow: hidden：卡面整棵子树在手牌里是被 3D 变换
+ * 带着转的，WebKit 会把它提成独立合成层，这时祖先的圆角裁剪偶尔会漏掉，四角露出直角。
+ */
+.card-face__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  user-select: none;
+}
+
+/*
+ * 费用角标、下面的信息层、以及最后那层高光都不写 z-index：这四个孩子（插画、角标、
+ * 信息层、高光）全是定位元素，层级就按 DOM 顺序来，高光排在最后自然盖在所有内容之上。
+ * 给中间任何一层加上正的 z-index，都会把高光压到它下面，卡面上就会多出一条"反光到此为止"的边。
+ */
 .card-face__cost {
   position: absolute;
   top: 6px;
@@ -933,36 +961,52 @@ body,
   height: 28px;
   border: 1px solid var(--accent);
   border-radius: 50%;
-  background: #0b1220;
+  /* 角标压在插画上，底色得够实才读得出数字；外面那圈黑影是让它从浅色羊皮纸里浮出来。 */
+  background: rgb(11 12 18 / 88%);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
   color: var(--accent);
   font-size: 15px;
   font-weight: 700;
 }
 
-.card-face__art {
-  display: grid;
-  place-items: center;
-  height: 60px;
-  margin-top: 24px;
-  border-radius: 8px;
-  background: rgb(56 189 248 / 8%);
-  color: var(--accent);
-  font-size: 13px;
-  letter-spacing: 6px;
+/*
+ * 底部信息层。渐变遮罩直接写在这一层的背景上，而不是另起一个节点：
+ * 遮罩高度就自动跟着文字的多少走，描述短的卡不会白盖住一大块插画。
+ */
+.card-face__body {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* 上边留 26px 给渐变淡出，文字实际是从遮罩最实的那一段开始排的。 */
+  padding: 26px 10px 9px;
+  background: linear-gradient(
+    to top,
+    rgb(9 8 6 / 92%) 0%,
+    rgb(9 8 6 / 86%) 45%,
+    rgb(9 8 6 / 0%) 100%
+  );
 }
 
 .card-face__name {
+  color: #f4ecdb;
   font-size: 14px;
   font-weight: 600;
   text-align: center;
 }
 
 .card-face__text {
-  flex: 1;
   margin: 0;
-  color: #9ca3af;
+  color: rgb(226 217 199 / 82%);
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.4;
+  /* 卡面高度固定而描述长短不一，超过三行就截断，免得遮罩一路顶到插画主体上。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
 }
 
@@ -1112,9 +1156,9 @@ body,
 /*
  * 混合模式只在跟随期间开。
  *
- * 选 soft-light 而不是 overlay：卡面底色很深（≈#11161d），
- * overlay 在深色底上只是把原亮度翻一倍，仍然是黑的，高光几乎看不见；
- * soft-light 会把深色往上提一截，更接近覆膜那种"哑光反光"。
+ * 选 soft-light 而不是 overlay：卡面现在是整张插画，同一张卡上既有羊皮纸那样的亮部
+ * 也有近黑的暗部，而 overlay 的效果完全取决于底色——亮部会直接烧成一片白，
+ * 暗部又几乎看不出变化。soft-light 两头都只是柔和地提一截，更接近覆膜那种"哑光反光"。
  *
  * 但只要 mix-blend-mode 不是 normal，WebKit 就无条件给这个元素单独提一层、每帧离屏合成，
  * 一屏二十张牌（正反两面各一层高光）就是四十层常驻开销；而没人 hover 时高光的 opacity 是 0，
@@ -2233,4 +2277,149 @@ body:has(.demo) {
   .demo__sidebar-frame--actions .ornate-frame__content {
     padding-bottom: 42px;
   }
+}
+
+/* ---------- 卡牌图鉴页（/card） ---------- */
+
+/*
+ * 纸面配色和对局页是同一套，但那几个变量定义在 .demo 自己身上（见 .demo），
+ * 这一页取不到，所以照抄一份到 .gallery 上。没有把它们提到 :root，是因为那批变量
+ * 现在的名字（--demo-*）就是"对局页的"，提上去等于给全站背一套命名错位的主题变量。
+ *
+ * 这一页要能滚：#root 是 height: 100%，内容比它高的时候溢出的部分照样撑开文档，
+ * 由视口来滚（把 html/body 焊死的那条 :has(.demo) 规则只对对局页生效）。
+ */
+.gallery {
+  --gallery-paper: #eee9dc;
+  --gallery-paper-shade: #e2dbc8;
+  --gallery-ink: #30313b;
+  --gallery-ink-muted: #6d6b61;
+  --gallery-line: #aaa391;
+  min-height: 100%;
+  padding: 40px clamp(20px, 4vw, 64px) 72px;
+  color: var(--gallery-ink);
+  background-color: var(--gallery-paper);
+  /* 中间亮、四周退到深一档的纸色，让整页不是一块平色。 */
+  background-image: radial-gradient(
+    ellipse at 50% 0%,
+    var(--gallery-paper) 0%,
+    var(--gallery-paper-shade) 78%
+  );
+}
+
+.gallery__header {
+  max-width: 720px;
+  margin-bottom: 36px;
+}
+
+.gallery__title {
+  margin: 0 0 8px;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.gallery__lead {
+  margin: 0 0 14px;
+  color: var(--gallery-ink-muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.gallery__back {
+  padding: 6px 16px;
+  border: 1px solid var(--gallery-line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--gallery-ink);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.gallery__back:hover {
+  background: rgb(48 49 59 / 8%);
+}
+
+.gallery__section {
+  margin-top: 44px;
+}
+
+.gallery__section-title {
+  margin: 0 0 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gallery-line);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.gallery__section-note {
+  margin: 0 0 18px;
+  color: var(--gallery-ink-muted);
+  font-size: 13px;
+}
+
+/* 占位插画原图那一排：缩略图 + 文件名，只为了协作时指认，不参与卡面排版。 */
+.gallery__arts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.gallery__art {
+  margin: 0;
+  text-align: center;
+}
+
+.gallery__art-img {
+  display: block;
+  width: 96px;
+  border: 1px solid var(--gallery-line);
+  border-radius: 4px;
+}
+
+.gallery__art-name {
+  margin-top: 6px;
+  color: var(--gallery-ink-muted);
+  font-size: 11px;
+}
+
+.gallery__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px 22px;
+  margin-top: 20px;
+}
+
+/* 一列的宽度就是卡面宽度，卡下面那块说明再宽一点也不许把整列撑开。 */
+.gallery__item {
+  width: var(--card-w);
+}
+
+.gallery__card {
+  width: var(--card-w);
+  height: var(--card-h);
+}
+
+.gallery__meta {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gallery__meta-row {
+  display: flex;
+  gap: 6px;
+}
+
+.gallery__meta-key {
+  flex: none;
+  color: var(--gallery-ink-muted);
+}
+
+.gallery__meta-value {
+  margin: 0;
+  color: var(--gallery-ink);
 }

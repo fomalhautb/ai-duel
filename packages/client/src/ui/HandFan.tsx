@@ -23,6 +23,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { placeholderArtFor } from './cardArt'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -46,6 +47,7 @@ gsap.registerPlugin(useGSAP)
  * 注意这里还缺核心机制要用的两项：模型卡的六维弱点画像（ModelCard.weaknesses）
  * 和提示卡的目标维度（PromptCard.targetWeakness）。卡面上现在也没有给它们留版面，
  * 接真对局时得先扩字段、再重排卡面，不是加两个 props 就完事。
+ * （在此之前，这两项由图鉴页 /card 列在卡面外面，见 dev/CardGallery.tsx。）
  * backText 是演示用的占位文案，core 里没有对应字段。
  */
 export interface HandCardData {
@@ -60,6 +62,8 @@ export interface HandCardData {
   text: string
   /** 翻到背面时展示的补充说明。 */
   backText: string
+  /** 卡面插画的图片地址。不填就按 id 稳定地分一张占位图（见 ui/cardArt.ts）。 */
+  art?: string
 }
 
 export interface HandFanProps {
@@ -865,23 +869,35 @@ export function HandFan({
  *
  * 战场上的小卡也用它渲染（外面套一个缩放容器），这样打出时的 FLIP 飞行里
  * 画面前后是同一份排版，落位时不会突然换一套内容。
+ *
+ * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
+ * 费用、卡名、描述、数值都是浮在图上的一层，底部靠 .card-face__body 的渐变压住底图保证可读。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   return (
     <div className={`card-face card-face--${card.kind}`}>
+      {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
+          念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+      <img
+        className="card-face__art"
+        src={card.art ?? placeholderArtFor(card.id)}
+        alt=""
+        draggable={false}
+      />
       <div className="card-face__cost">{card.cost}</div>
-      <div className="card-face__art">{card.kind === 'model' ? '模型' : '提示'}</div>
-      <div className="card-face__name">{card.name}</div>
-      <p className="card-face__text">{card.text}</p>
-      <div className="card-face__stats">
-        {card.kind === 'model' ? (
-          <>
-            <span>算力 {card.power ?? 0}</span>
-            <span>完整度 {card.integrity ?? 0}</span>
-          </>
-        ) : (
-          <span>伤害 {card.damage ?? 0}</span>
-        )}
+      <div className="card-face__body">
+        <div className="card-face__name">{card.name}</div>
+        <p className="card-face__text">{card.text}</p>
+        <div className="card-face__stats">
+          {card.kind === 'model' ? (
+            <>
+              <span>算力 {card.power ?? 0}</span>
+              <span>完整度 {card.integrity ?? 0}</span>
+            </>
+          ) : (
+            <span>伤害 {card.damage ?? 0}</span>
+          )}
+        </div>
       </div>
       {/*
         跟着指针跑的微高光（落在指针的镜像位置，见 cardTilt.ts）。

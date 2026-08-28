@@ -13,9 +13,179 @@
       href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <!--
+      首屏 loader 的样式。
+
+      为什么内联在这里、不走 styles.css：styles.css 是被 main.tsx import 进来的，
+      要等整个 JS bundle 下载完才存在。而这段动画要解决的正是"bundle 还在路上"那几秒，
+      内联进 HTML 才能随第一个字节一起到达、立刻开跑。同理它只能是纯 CSS，不能碰 JS。
+
+      这是 src/styles.css「卡片加载动画」一节按默认参数（size 72 / speed 1.75s / 纸色）
+      写死的精简拷贝，**改这份必须同步改那一份**，否则首屏和 React 挂载后的 <CardLoader>
+      会是两个样子。数值怎么来的、各段缓动为什么这么分，都写在那一节里，这里不重复。
+    -->
+    <style>
+      .boot-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #0d1117;
+        /* 和 styles.css 的 :root 同一套字体栈。这时候 Google Fonts 多半还没到，
+           后面几个本地宋体就是兜底，至少落在衬线体上，不会先闪一下黑体。 */
+        font-family: 'EB Garamond', 'Noto Serif SC', 'Songti SC', STSong, SimSun, serif;
+      }
+
+      .boot-loader__stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4.32px;
+        /* 弹跳最高点约 32px，transform 不占布局空间，靠这块内边距把位置让出来。 */
+        padding-top: 32.4px;
+      }
+
+      /* 51.43 = 72 × 5 / 7，和游戏卡面 150:210 同比例。 */
+      .boot-loader__card {
+        position: relative;
+        box-sizing: border-box;
+        width: 51.43px;
+        height: 72px;
+        border: 2px solid #ddcab7;
+        border-radius: 4.32px;
+        /* 底边中心：压扁时下沿钉在地面上不动，倾斜也绕这个点转。 */
+        transform-origin: 50% 100%;
+        animation: boot-loader-bounce 1.75s infinite;
+      }
+
+      .boot-loader__card::before {
+        content: '';
+        position: absolute;
+        inset: 7%;
+        border: 1px solid #ddcab7;
+        border-radius: 2.59px;
+        opacity: 0.6;
+      }
+
+      .boot-loader__card::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        box-sizing: border-box;
+        width: 26%;
+        aspect-ratio: 1;
+        border: 1px solid #ddcab7;
+        opacity: 0.35;
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+
+      .boot-loader__shadow {
+        width: 51.43px;
+        height: 5.04px;
+        border-radius: 50%;
+        background: #ddcab7;
+        filter: blur(2.16px);
+        animation: boot-loader-shadow 1.75s infinite;
+      }
+
+      .boot-loader__text {
+        margin: 0 -0.32em 0 0;
+        color: #9ca3af;
+        font-size: 15px;
+        letter-spacing: 0.32em;
+      }
+
+      @keyframes boot-loader-bounce {
+        0% {
+          transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+          animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+        }
+        12% {
+          transform: translateY(-14%) scale(0.96, 1.05) rotate(-1.2deg);
+          animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+        }
+        48% {
+          transform: translateY(-45%) scale(1, 1) rotate(2.5deg);
+          animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+        }
+        84% {
+          transform: translateY(-12%) scale(0.97, 1.04) rotate(1deg);
+          animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+        }
+        100% {
+          transform: translateY(0) scale(1.08, 0.88) rotate(-2.5deg);
+        }
+      }
+
+      @keyframes boot-loader-shadow {
+        0% {
+          opacity: 0.45;
+          transform: scale(1);
+          animation-timing-function: cubic-bezier(0.16, 0.72, 0.4, 1);
+        }
+        12% {
+          opacity: 0.4;
+          transform: scale(0.94);
+          animation-timing-function: cubic-bezier(0.3, 0.42, 0.5, 1);
+        }
+        48% {
+          opacity: 0.16;
+          transform: scale(0.56);
+          animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.36);
+        }
+        84% {
+          opacity: 0.38;
+          transform: scale(0.92);
+          animation-timing-function: cubic-bezier(0.62, 0, 0.9, 0.5);
+        }
+        100% {
+          opacity: 0.45;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes boot-loader-breathe {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-loader__card {
+          animation: boot-loader-breathe 3.15s ease-in-out infinite;
+        }
+
+        .boot-loader__shadow {
+          animation: none;
+          opacity: 0.22;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      #root 里预先放着首屏 loader，不是空的。
+      React 19 的 createRoot().render() 首次渲染会把容器里已有的子节点全部清掉，
+      所以 App 一挂载这段 DOM 自己就消失了，不需要任何代码去删它。
+      样式在 <head> 的内联 <style> 里，那儿也写了为什么必须内联。
+    -->
+    <div id="root">
+      <div class="boot-loader" role="status" aria-label="加载中">
+        <div class="boot-loader__stack" aria-hidden="true">
+          <div class="boot-loader__card"></div>
+          <div class="boot-loader__shadow"></div>
+        </div>
+        <p class="boot-loader__text" aria-hidden="true">加载中…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -4,7 +4,7 @@
   color: #e5e7eb;
   background: #0d1117;
 
-  /* 卡面基准尺寸。改这两个值必须同步改 HandFan.tsx 里的 CARD_WIDTH / CARD_HEIGHT：
+  /* 卡面基准尺寸。改这两个值必须同步改 ui/fanMath.ts 里的 CARD_WIDTH / CARD_HEIGHT：
      那两个常量决定卡牌沉出视口的深度和 hover 放大的下限，
      和这里对不上号，hover 防抖动的几何前提就不成立了（卡会开始抖）。 */
   --card-w: 150px;
@@ -14,6 +14,9 @@
   --tile-w: 110px;
   --tile-h: 154px;
   --tile-scale: 0.733333;
+  /* 强制展示时那张大卡的放大倍数：150×210 × 1.7 = 255×357。
+     和下面 .reveal-card 的宽高是同一组数，改一处必须改另一处，否则起飞那一帧会跳变。 */
+  --reveal-scale: 1.7;
 }
 
 * {
@@ -387,9 +390,10 @@ body,
  * 正反两面。两层完全重叠，靠 opacity 互斥：同一时刻只有一面是 1，另一面是 0。
  *
  * 这里没有 backface-visibility，是故意的——Chrome 在逐帧补间期间对合成层的朝向判断不可靠，
- * 翻面途中正面不消失、结束才闪一下（详见 HandFan.tsx 里 flipTo 的说明）。
+ * 翻面途中正面不消失、结束才闪一下（详见 ui/flipCard.ts 里 flipTo 的说明）。
  * 翻面途中的切换由 flipTo 每帧按当前角度写 opacity 完成；下面这两条只管静止时的初始值，
  * 不能指望 JS 首帧补上：牌还没翻过，正面就该是亮的。
+ * flipTo 认的是 HTML 上的 data-flip-face 属性，不是这两个类名——类名只管样式。
  */
 .hand-fan__face {
   position: absolute;
@@ -465,6 +469,50 @@ body,
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
+}
+
+/* ---------- 对手的倒扇形手牌 ---------- */
+
+/*
+ * 和 .hand-fan 结构完全同构的锚点：高度为 0，只不过钉在视口**顶**边，
+ * 然后整块 rotate(180deg)。
+ *
+ * 这么做是为了让 JS 那边一行坐标数学都不用改（见 ui/OpponentFan.tsx 与 ui/fanMath.ts）：
+ * slot 照旧 bottom: 0、变换原点照旧是底边中点、y 照旧向下为正，
+ * 容器一转，"往下沉"就变成"往上沉"、"两端向下垂"就变成"两端向上垂"，
+ * 牌面内容也跟着倒过来——正好是"对面那个人握着牌，我们从背后看"的样子。
+ *
+ * 旋转让这一层成了层叠上下文，所以 z-index: 20 是它整体相对页面的层级：
+ * 比顶栏（70）低，顶栏会把最上面一截牌压住，这正是设计要的遮挡量。
+ */
+.opponent-fan {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  z-index: 20;
+  pointer-events: none;
+  transform: rotate(180deg);
+}
+
+/*
+ * 尺寸和玩家手牌一样是 150×210，但屏幕上看到的是它的 0.64 倍（134.4 高）：缩放由 OpponentFan
+ * 写在每次布局补间里（见那边的 CARD_SCALE），牌心间距也乘同一个系数，整排是等比收紧的。
+ * 缩放不能挪到这里来——slot 的 transform 归 GSAP 管，写在 CSS 上会被每一帧的补间覆盖掉。
+ */
+.opponent-fan__slot {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: var(--card-w);
+  height: var(--card-h);
+  margin-left: calc(var(--card-w) / -2);
+  pointer-events: auto;
+  /* 只有"点一下看牌"这一种交互，所以是手指而不是 .hand-fan__slot 那种抓手。 */
+  cursor: pointer;
+  user-select: none;
+  will-change: transform;
 }
 
 /* ---------- 卡面 ---------- */
@@ -546,6 +594,11 @@ body,
   font-size: 11px;
 }
 
+/*
+ * 玩家自己手牌的**详情背面**：翻过去看稀有度和说明文字用的，上面印着卡名。
+ * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
+ * .card-back-hidden。
+ */
 .card-back {
   position: relative;
   display: flex;
@@ -574,6 +627,76 @@ body,
   color: #9ca3af;
   font-size: 11px;
   line-height: 1.6;
+}
+
+/*
+ * 对手手牌的隐藏牌背：米白纸面 + 藏青徽记，不带任何牌面信息。
+ *
+ * 用纸面浅色而不是藏青底，是因为这张牌背只出现在深蓝色的战场上（.demo__battlefield，
+ * 底色 #26334c）：同为深色的话对比度太低，倒挂在顶栏下的那截几乎看不出是牌。
+ * 反过来用米白，牌背就是战场上最亮的一块，同时又和顶栏、侧栏是同一张纸，
+ * 藏青退到描边和徽记上，整体仍是那套水墨纸面。
+ *
+ * 颜色全取页面已有的 --demo-paper / --demo-paper-shade / --demo-grain / --demo-navy
+ * （都定义在 .demo 上，靠继承传进来）。牌背的两个用处——对手手牌和强制展示卡的背面——
+ * 都在 .demo 里面，取得到这些变量；两处必须长得一模一样，起飞那一瞬间才不会跳变。
+ *
+ * 藏青那几档半透明写成 color-mix 而不是 rgb(37 49 73 / 62%)：--demo-navy 存的是十六进制色，
+ * 没法直接往里塞透明度，抄成字面值的话改主题色时这张牌背会被落下。
+ * 每处都补了 #253149 兜底——万一牌背哪天用到 .demo 外面，变量取不到会让整条声明失效
+ * （描边直接消失），而不是只丢一个颜色。
+ */
+.card-back-hidden {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--demo-navy, #253149) 62%, transparent);
+  border-radius: 12px;
+  background-color: var(--demo-paper-shade, #e2dbc8);
+  /* 纸纹放在**最上面**一层用 multiply 压下去，底下是"中间亮一点、四周退到 --demo-paper-shade"
+     的纸面。反过来把纸纹垫在底下的话，上面那层不透明的渐变会把中间那块颗粒盖掉。 */
+  background-image:
+    var(--demo-grain),
+    radial-gradient(ellipse at 50% 32%, var(--demo-paper, #eee9dc), transparent 76%);
+  background-blend-mode: multiply, normal;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 65%),
+    0 10px 24px rgb(0 0 0 / 42%);
+  overflow: hidden;
+}
+
+/* 内圈细边，纯装饰：让牌背有"压了一道边"的层次，不至于是一整块平色。 */
+.card-back-hidden__rim {
+  position: absolute;
+  inset: 9px;
+  border: 1px solid color-mix(in srgb, var(--demo-navy, #253149) 24%, transparent);
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+.card-back-hidden__crest {
+  width: 58%;
+  max-width: 76px;
+  fill: none;
+  stroke: color-mix(in srgb, var(--demo-navy, #253149) 72%, transparent);
+  /* 和顶栏、雕花框共用的手绘抖动，线条才不像矢量图那样死板（滤镜由 HandDrawnFilterDefs 提供）。 */
+  filter: url('#ai-duel-rough-icon');
+}
+
+.card-back-hidden__crest-outer {
+  stroke-width: 1.4;
+}
+
+.card-back-hidden__crest-inner {
+  stroke-width: 0.9;
+  opacity: 0.7;
+}
+
+.card-back-hidden__crest-spark {
+  fill: color-mix(in srgb, var(--demo-navy, #253149) 78%, transparent);
+  stroke: none;
 }
 
 /*
@@ -626,6 +749,13 @@ body:has(.demo) {
   overscroll-behavior: none;
 }
 
+/*
+ * 演示页根元素。上场特效的震屏会临时给它加一个 transform（见 ui/playSummonFx.ts），
+ * 那 0.3 秒里它会变成内部所有 fixed 元素（.hand-fan、.opponent-fan、.reveal-overlay……）
+ * 的 containing block，下面的 overflow: hidden 也就开始对它们生效。
+ * 因为 .demo 本来就正好铺满视口，这些元素算出来还是同一个矩形，画面上看不出差别；
+ * 同理它临时成为层叠上下文也不影响任何东西——页面上所有 z-index 都在 .demo 内部。
+ */
 .demo {
   --demo-paper: #eee9dc;
   --demo-paper-shade: #e2dbc8;
@@ -635,8 +765,11 @@ body:has(.demo) {
   --demo-ink-muted: #6d6b61;
   --demo-navy: #253149;
   --demo-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+  /* 顶栏高度。写成变量是因为不止排版要用：展示卡的裁剪层（.reveal-clip）也拿它当
+     "顶栏下沿"那条线，两处必须是同一个数，矮窗口那一档改的也只是这一个变量。 */
+  --demo-topbar-h: 72px;
   display: grid;
-  grid-template-rows: 72px minmax(0, 1fr);
+  grid-template-rows: var(--demo-topbar-h) minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
@@ -963,11 +1096,23 @@ body:has(.demo) {
   box-shadow: inset 0 0 24px rgb(5 11 24 / 36%);
 }
 
+/*
+ * 演示页的调试工具条。
+ *
+ * z-index 必须压过对手的倒扇形手牌（.opponent-fan，20）：那排牌吊在视口顶边、
+ * 在顶栏下方还露出约 47~62px（屏幕 y 72~134，中间那张最长、满手 12 张时两端最短），
+ * 正好横着压在工具条这一条（y 87~125）上，
+ * 而 .opponent-fan__slot 是 pointer-events: auto，命中测试也会被牌抢走——
+ * 不抬层级的话工具条既看不见、又点不动，点上去反而抽出一张对手牌强制展示 1.5 秒。
+ * 战场那一带在视口里已经没有不被两排手牌扫到的空位，所以只能靠层级解决：
+ * 工具条是演示页的调试控件，必须点得到，横着遮住对手手牌一条可以接受。
+ * 取 40 是排在侧栏（30）和顶栏（70）之间；它横向不出中间那列，和侧栏碰不上。
+ */
 .demo__bar {
   position: absolute;
   top: 15px;
   left: 50%;
-  z-index: 10;
+  z-index: 40;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1022,6 +1167,21 @@ body:has(.demo) {
   text-align: center;
 }
 
+/* 工具条里"我方 / 对手"两组控件的小标签。 */
+.demo__group {
+  margin-left: 4px;
+  color: var(--demo-ink);
+  letter-spacing: 0.08em;
+}
+
+/* 分组之间的竖线，纯视觉。工具条塞了两组控件，没有它一眼看不出哪个 −1 管谁。 */
+.demo__bar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgb(119 116 101 / 45%);
+}
+
 /*
  * 真正的战场落点只占手牌上方这块区域，不能再铺满整个中央画面：
  * 否则拖回底部的卡也会被 isInsideDropZone 判成打出。
@@ -1033,17 +1193,76 @@ body:has(.demo) {
   position: absolute;
   inset: 68px clamp(16px, 2vw, 28px) var(--demo-hand-zone-h);
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  flex-direction: column;
   gap: 12px;
   min-height: 0;
-  padding: 62px 24px 24px;
+  /* 上下留白比单行时紧了一圈：同一块高度现在要塞两排 154px 的小卡，
+     1440×900 这类常见窗口下，多留 20px 就会让两排挤到互相压边。
+     顶上那 54px 是给 .demo__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。 */
+  padding: 54px 24px 16px;
   border: 1px dashed transparent;
   border-radius: 18px;
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,
     background-color 0.18s ease;
+}
+
+/*
+ * 战场上下两行：上面是对方的，下面是我方的。
+ *
+ * 和 .demo__board 一样，这两行刻意不写 transform / z-index / isolation——
+ * 一旦其中任何一个成了层叠上下文，Flip 飞行时打在卡上的 z-index（60 / 1200）
+ * 就只在行内部有效，飞行中的卡会被手牌或遮罩压住。
+ *
+ * 两行的内容各自往中线靠（对方行贴下、我方行贴上），中间那道缝就是"交战线"。
+ */
+.demo__board-row {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  min-height: 0;
+}
+
+.demo__board-row--enemy {
+  align-content: flex-end;
+}
+
+.demo__board-row--ally {
+  align-content: flex-start;
+}
+
+/*
+ * 上场特效的烟尘层。
+ *
+ * 烟尘不能塞进 tile：tile 的裁剪层 overflow: hidden 会把飘出卡外的部分全切掉。
+ * 这一层铺满战场、不吃指针事件，并且**刻意不设 z-index**——它排在两行之前，
+ * 层级保持 auto，飞行中的卡（zIndex 60 / 1200）和场上的 tile 才都压得住它，
+ * 烟尘看起来是从卡后面扑出来的。
+ */
+.demo__fx-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/*
+ * 烟尘：模糊的灰褐色圆团。双方同款——扬起来的是土，不是法术光。
+ * 尺寸和落点由 JS 逐个写在 style 上，这里只定材质。
+ */
+.demo__fx-smoke {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(152 140 118 / 85%) 0%,
+    rgb(120 110 94 / 45%) 45%,
+    rgb(110 100 86 / 0%) 72%
+  );
+  filter: blur(6px);
+  opacity: 0;
 }
 
 /*
@@ -1349,23 +1568,31 @@ body:has(.demo) {
   }
 }
 
-/* position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。 */
+/*
+ * 战场小卡，三层结构，每层只写自己那份 transform，谁也不许挪到别人身上：
+ * tile（Flip 飞行） → tilt（指针倾斜 + 裁剪） → inner（缩放成小卡）。
+ *
+ * position: relative 是为了让 Flip 在飞行途中设的 z-index 生效。
+ * perspective 必须写在这里：它只作用于**直接子元素**，也就是下面那个倾斜层；
+ * 中间但凡再垫一层，倾斜层就吃不到透视，小卡的立体感直接没了。
+ * 数值按卡宽等比缩小（大卡 150px 配 1000px，小卡 110px 约 700px），
+ * 这样大小两种卡在同样的倾角下"凸出来"的程度看着一致。
+ */
 .demo__tile {
   position: relative;
   width: var(--tile-w);
   height: var(--tile-h);
-  /* 3D 透视给里面的倾斜层用。数值按卡宽等比缩小（大卡 150px 配 1000px，小卡 110px 约 700px），
-     这样大小两种卡在同样的倾角下"凸出来"的程度看着一致。 */
   perspective: 700px;
 }
 
 /*
  * 战场小卡的倾斜层。tile 自己的 transform 留给 Flip 飞行，倾斜只写在这一层。
  *
- * 裁剪（overflow + border-radius）也放在这里而不是 tile 上：这一层跟着卡一起倾斜，
- * 裁切边就跟着一起转；留在 tile 上的话，倾斜时卡角会被一条不动的直边削掉。
+ * 裁剪（overflow + border-radius）也放在这里而不是外层：这一层跟着卡一起倾斜，
+ * 裁切边就跟着一起转；留在外层的话，倾斜时卡角会被一条不动的直边削掉。
  * 要裁是因为里面那张卡的布局尺寸仍是 150×210，只是被缩小画出来，
  * 不裁掉溢出的部分会把整页撑出滚动条。
+ * 这里的 9px 圆角是卡牌轮廓的基准，上场追光的环要照着它对齐（见 .demo__tile-edge-ring）。
  */
 .demo__tile-tilt {
   position: absolute;
@@ -1378,6 +1605,171 @@ body:has(.demo) {
   width: var(--card-w);
   height: var(--card-h);
   transform: scale(var(--tile-scale));
+  transform-origin: top left;
+}
+
+/*
+ * 上场时沿卡牌边缘跑一圈的金色追光——外层只管辉光和整体明灭，环本身画在里面那层。
+ *
+ * 分成两层是因为同一个元素上 mask 在 filter 之后才生效：drop-shadow 要是和 mask 写在
+ * 一起，光晕刚画出来就被 mask 连着抠掉，只剩一圈硬邦邦的亮线。外层不带 mask，
+ * filter 拿到的是内层已经抠好的环形，光晕才铺得出去。
+ *
+ * 位置必须在裁剪层（.demo__tile-tilt）**外面**：那一层 overflow: hidden，
+ * 会把环外的辉光整圈切掉。不用写 z-index：它和裁剪层同是定位元素、又排在裁剪层后面，
+ * 本来就画在卡面之上。也不必担心它盖住正在飞行的别的卡——上面那层 perspective
+ * 已经让 .demo__tile 成了层叠上下文，这里写多大的 z-index 都出不了自己这张卡。
+ * 整层往外扩 2px，环画在卡的轮廓外沿，不压着卡面上的字。
+ * 双方同款，不按阵营分色。
+ */
+.demo__tile-edge {
+  --edge-angle: 0deg;
+  position: absolute;
+  inset: -2px;
+  filter: drop-shadow(0 0 4px rgb(255 213 121 / 70%))
+    drop-shadow(0 0 11px rgb(255 196 96 / 45%));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/*
+ * 亮弧本体。conic-gradient 从透明一路烧到近白的金，只有末尾那几十度是亮的，
+ * 于是画面上就是一小段带拖尾的亮弧；起始角 --edge-angle 由 JS 每帧改写，
+ * 亮弧就跟着绕边跑（见 ui/playSummonFx.ts 的 runEdgeLight）。
+ *
+ * 两张 mask 叠 exclude 是画环的老办法：一张只盖内容盒、一张盖整个边框盒，
+ * 相减剩下的正好是 padding 那一圈，所以 padding 就是环厚。
+ * 圆角写 11px：外层已经往外扩了 2px，环的外沿正好落在卡的轮廓外 2px；
+ * 而内容盒的圆角会自动减去 padding（11 − 2 = 9px），
+ * 于是环的内沿和裁剪层那 9px 的卡角严丝合缝，四个角上的环也不会忽粗忽细。
+ */
+.demo__tile-edge-ring {
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: 11px;
+  background: conic-gradient(
+    from var(--edge-angle),
+    rgb(255 213 121 / 0%) 0deg,
+    rgb(255 213 121 / 0%) 286deg,
+    rgb(255 213 121 / 32%) 330deg,
+    rgb(255 232 176 / 88%) 352deg,
+    rgb(255 249 226 / 100%) 360deg
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* ---------- 对手牌的强制展示层 ---------- */
+
+/*
+ * 压暗 + 模糊的全屏遮罩。
+ *
+ * 常驻 DOM、默认 visibility: hidden，由 GSAP 的 autoAlpha 开关——
+ * 挂在 React 状态上的话，展示一结束元素就没了，那 0.3s 的淡出根本演不出来。
+ * visibility: hidden 顺带让它不吃指针事件；一旦淡入，它就吃掉全部指针事件，
+ * 强制动画期间玩家什么都点不了。
+ *
+ * z-index 1100 高于顶栏（70）、手牌（20）和拖拽中的牌（1000），低于展示卡的裁剪层（1101）
+ * 和展示卡落场时的飞行层级（1200）。
+ */
+.reveal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgb(0 0 0 / 50%);
+  backdrop-filter: blur(7px);
+  opacity: 0;
+  visibility: hidden;
+}
+
+/*
+ * 展示卡的裁剪层：把顶栏那一截挡在外面。
+ *
+ * 展示卡必须压过遮罩（1100），也就必然压过顶栏（70）。可它起飞时正停在对手手牌的位置，
+ * 那张牌本来有一截（最上面 72px，也就是它 134.4px 高里的一多半）是被不透明顶栏遮住的——
+ * 不裁的话，点下去的第一帧这截会突然画到顶栏上面，露出来的部分从六十来像素涨到一百三十多，
+ * 牌看着凭空长高一倍，而 power3.inOut 开头几乎不移动，
+ * 这个跳变要停留约 0.1 秒才飞走，和"起飞瞬间不能跳变"直接冲突。
+ *
+ * 所以裁剪写在这一层而不是展示卡自己身上：卡的 transform 归 Flip 管，
+ * clip-path 是在元素自己的坐标系里裁的，会跟着卡一起缩放旋转，裁不出"屏幕上那条水平线"。
+ * 这一层不做任何变换、正好铺满视口，裁出来的就是顶栏下沿那条线。
+ * 卡飞到屏幕中央、整张都在顶栏下方之后，JS 会把这里的裁剪撤掉（见 HandDemo 的 revealed），
+ * 免得后面的呼吸浮动和落场飞行还受它限制。
+ *
+ * 是 fixed 而不是 absolute：展示卡原来就是 fixed，靠这一层接管定位基准，
+ * 卡改成 absolute 之后算出来还是同一个矩形。
+ */
+.reveal-clip {
+  position: fixed;
+  inset: 0;
+  z-index: 1101;
+  clip-path: inset(var(--demo-topbar-h) 0 0 0);
+  pointer-events: none;
+}
+
+/*
+ * 屏幕中央那张放大的展示卡：150×210 的 1.7 倍。
+ *
+ * 定位用 left/top + 负 margin，**不能**用 transform: translate(-50%, -50%)——
+ * 这个元素的 transform 归 Flip 飞行和呼吸浮动管，写在这里会被它们整个覆盖掉，
+ * 卡会瞬间跳到视口中线的右下方。
+ * top 取 46% 让它比正中略高一点，下方留给对方战场行，落场的飞行看着更顺。
+ * 层级归上面的裁剪层管，这里不再写 z-index。
+ */
+.reveal-card {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: calc(var(--card-w) * var(--reveal-scale));
+  height: calc(var(--card-h) * var(--reveal-scale));
+  margin-top: calc(var(--card-h) * var(--reveal-scale) * -0.5);
+  margin-left: calc(var(--card-w) * var(--reveal-scale) * -0.5);
+  perspective: 1400px;
+}
+
+/* 翻面层，和手牌的 .hand-fan__inner 同一个角色：只负责绕 Y 轴转。 */
+.reveal-card__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+/*
+ * 正反两面。同 .hand-fan__face：两层完全重叠，靠 opacity 互斥，不用 backface-visibility
+ * （原因见 ui/flipCard.ts）。
+ *
+ * 强调用的大投影和外发光写在这里而不是 .reveal-card 上：那一层有 perspective，
+ * 再叠 filter 之类的分组属性容易把里面的 3D 拍平；而且投影跟着"当前可见的那一面"走，
+ * 翻面时不会出现两份影子。圆角要和卡面的 12px × 1.7 对上，否则影子会露出直角。
+ */
+.reveal-card__face {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(12px * var(--reveal-scale));
+  box-shadow:
+    0 26px 60px rgb(0 0 0 / 62%),
+    0 6px 18px rgb(0 0 0 / 45%),
+    0 0 42px rgb(255 233 190 / 20%);
+  opacity: 1;
+}
+
+.reveal-card__face--back {
+  transform: rotateY(180deg);
+  opacity: 0;
+}
+
+/*
+ * 卡面的布局尺寸仍然是 150×210，靠整体缩放变大，字号、描边、圆角才等比放大。
+ * 直接把卡面撑到 255×357 的话，文字不会跟着变大，排版会散架。
+ */
+.reveal-card__scale {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--reveal-scale));
   transform-origin: top left;
 }
 
@@ -1408,9 +1800,30 @@ body:has(.demo) {
   }
 }
 
-@media (max-height: 660px) {
+/*
+ * 741px 这个阈值是算出来的，不是拍的：战场两行各要 154px 才放得下一张小卡，
+ * 而战场高度 = 视口高 − 顶栏 72 − 上偏移 68 − 手牌区 210（27vh 在这个高度段恒被 clamp 到下限）
+ * − 内边距 54/16 − 边框 2 − 行间距 12，两行平分，
+ * 解出来要 742px 高才够。差一点点的话小卡不会自己变矮（.demo__tile 高度写死），
+ * 而是整条 flex line 溢出行盒：对方行 align-content: flex-end 往上顶进拖拽提示药丸，
+ * 我方行 flex-start 往下戳破战场的虚线框，一直捅到手牌区里。
+ * 所以 1366×768 这类笔记本（视口高约 690~720）必须走这一档。
+ * 缩一号之后的下限是 652px，再矮连 119px 的小卡也放不下——窗口小到那个程度这页本来就没法看了。
+ */
+@media (max-height: 741px) {
   .demo {
-    grid-template-rows: 62px minmax(0, 1fr);
+    --demo-topbar-h: 62px;
+    /* 矮窗口下战场那块只剩三百来像素，两排 154px 的小卡放不下，整体缩一号。
+       比例必须仍是 85 / 150 = 0.566667（210 × 0.566667 = 119），
+       比例一变，打出时的飞行就会把卡面拉变形。 */
+    --tile-w: 85px;
+    --tile-h: 119px;
+    --tile-scale: 0.566667;
+  }
+
+  .demo__board {
+    padding-top: 48px;
+    padding-bottom: 12px;
   }
 
   .battle-topbar__brand-cn {

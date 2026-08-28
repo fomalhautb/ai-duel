@@ -7,17 +7,23 @@
  * 两边各抄一份的话，改了一边图鉴就开始骗人。
  */
 
-import type { Card } from '@ai-duel/core'
+import type { Card, HeroCard } from '@ai-duel/core'
 
 /**
  * 卡牌翻到背面时的补充说明。
  *
  * 正面版面太小，只放得下卡名、一句描述和底部那行标识；背面补的是"这张牌打出去会怎样"
  * ——这条规则卡面上印不下，可玩家每一轮都要据此决定出不出。
+ *
+ * 英雄卡也走这里：它不进牌组、打不出去，但正反两面用的是同一套卡面组件，
+ * 背面同样得有话说（正面印技能，背面就补人物本身）。
  */
-export function cardBackText(card: Card): string {
+export function cardBackText(card: Card | HeroCard): string {
   if (card.kind === 'agent') {
     return `模型：${card.model}。打出后留在场上，每轮跟着一起答题，答错才被罚下。`
   }
-  return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
+  if (card.kind === 'hero') {
+    return `${card.enName}。${card.text}英雄不占牌组的 20 张，开局就在场上。`
+  }
+  return '技能卡：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
 }

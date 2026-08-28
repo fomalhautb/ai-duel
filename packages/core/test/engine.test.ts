@@ -15,6 +15,7 @@ import type {
   Command,
   GameEvent,
   GameState,
+  HeroId,
   InstanceId,
   PlayerId,
   Question,
@@ -33,6 +34,9 @@ interface NewGameOptions {
   deck1?: CardId[]
   /** 只想打一两轮就见到 GAME_OVER 时，塞一份短题库。 */
   questions?: Question[]
+  /** 不填就是默认英雄（格蕾丝·霍珀）；传 null 是这一方不带英雄。 */
+  hero0?: HeroId | null
+  hero1?: HeroId | null
 }
 
 /**
@@ -44,11 +48,17 @@ function newGame(options: NewGameOptions = {}) {
   return createGame({
     seed: options.seed ?? SEED_FIRST_0,
     players: [
-      { name: '甲', deck: [...(options.deck0 ?? STARTER_DECK)] },
-      { name: '乙', deck: [...(options.deck1 ?? STARTER_DECK)] },
+      // hero 只在显式传了的时候才带上：不传才走 createGame 里的默认英雄，
+      // 而这条默认路径正是联机和测试房实际走的那条。
+      { name: '甲', deck: [...(options.deck0 ?? STARTER_DECK)], ...heroOf(options.hero0) },
+      { name: '乙', deck: [...(options.deck1 ?? STARTER_DECK)], ...heroOf(options.hero1) },
     ],
     questions: options.questions,
   })
+}
+
+function heroOf(hero: HeroId | null | undefined) {
+  return hero === undefined ? {} : { hero }
 }
 
 function deckOf(cardId: CardId, count = 12): CardId[] {
@@ -147,7 +157,7 @@ describe('开局', () => {
 })
 
 describe('出牌阶段', () => {
-  it('一轮里想出几张出几张：AI 卡上场，技能牌进弃牌堆', () => {
+  it('一轮里想出几张出几张：AI 卡上场，技能卡进弃牌堆', () => {
     const game = newGame({ deck0: [...deckOf('agent-gpt', 6), ...deckOf('placeholder-skill', 6)] })
     const hand = game.state.players[0].hand
     const result = run(
@@ -643,7 +653,7 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
     expect(result.state.activePlayer).toBe(0)
   })
 
-  it('技能牌照样进弃牌堆', () => {
+  it('技能卡照样进弃牌堆', () => {
     const game = newGame({ deck1: deckOf('placeholder-skill') })
     const card = handCard(game.state, 1, 'placeholder-skill')
     const result = execute(game.state, {
@@ -653,7 +663,8 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
     })
 
     expect(result.state.players[1].discard.map((c) => c.cardId)).toEqual(['placeholder-skill'])
-    // instanceId 是打出的那张技能牌自己，客户端靠它定位起飞的手牌。
+    // instanceId 是打出的那张技能卡自己，客户端靠它定位起飞的手牌。
+    // 调试出牌和正常出牌走同一个 playCard，所以对手的 Debug 照样抵消这一张（见下面的英雄用例）。
     expect(result.events).toEqual([
       {
         type: 'SKILL_PLAYED',
@@ -661,7 +672,16 @@ describe('调试指令：DEBUG_PLAY_CARD', () => {
         cardId: 'placeholder-skill',
         instanceId: card.instanceId,
       },
+      {
+        type: 'SKILL_CANCELED',
+        player: 1,
+        by: 0,
+        heroId: 'grace-hopper',
+        cardId: 'placeholder-skill',
+        instanceId: card.instanceId,
+      },
     ])
+    expect(result.state.players[0].heroSkillUsed).toBe(true)
   })
 
   it('答题阶段也不能出牌', () => {
@@ -692,6 +712,131 @@ describe('调试指令的边界', () => {
     expect(result.state.phase).toBe(game.state.phase)
     expect(result.events.some((e) => e.type === 'ROUND_STARTED')).toBe(false)
     expect(result.events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
+  })
+})
+
+describe('英雄技能：Debug（格蕾丝·霍珀）', () => {
+  /** 一张技能卡的完整事件对：出牌 + 被对手抵消。 */
+  function cancelPair(player: PlayerId, instanceId: InstanceId): GameEvent[] {
+    return [
+      { type: 'SKILL_PLAYED', player, cardId: 'placeholder-skill', instanceId },
+      {
+        type: 'SKILL_CANCELED',
+        player,
+        by: other(player),
+        heroId: 'grace-hopper',
+        cardId: 'placeholder-skill',
+        instanceId,
+      },
+    ]
+  }
+
+  it('对方打出的第一张技能卡被抵消，牌照常进弃牌堆', () => {
+    const game = newGame({ deck0: deckOf('placeholder-skill') })
+    // 开局双方都没用过技能。
+    expect(game.state.players.map((p) => p.hero)).toEqual(['grace-hopper', 'grace-hopper'])
+    expect(game.state.players.map((p) => p.heroSkillUsed)).toEqual([false, false])
+
+    const card = handCard(game.state, 0, 'placeholder-skill')
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: card.instanceId,
+    })
+
+    // 抵消必须排在出牌之后：客户端先演牌飞出去，再演抵消。
+    expect(result.events).toEqual(cancelPair(0, card.instanceId))
+    // 发动的是对手（1 号）的英雄，出牌方自己的技能没被动用。
+    expect(result.state.players[1].heroSkillUsed).toBe(true)
+    expect(result.state.players[0].heroSkillUsed).toBe(false)
+    // 抵消的是效果不是这次出牌：牌照样离开手牌进弃牌堆。
+    expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([card.instanceId])
+    expect(result.state.players[0].hand.some((c) => c.instanceId === card.instanceId)).toBe(false)
+  })
+
+  it('同一局第二张技能卡不再被抵消', () => {
+    const game = newGame({ deck0: deckOf('placeholder-skill') })
+    const first = game.state.players[0].hand[0]!
+    const second = game.state.players[0].hand[1]!
+    const result = run(game.state, [
+      { type: 'PLAY_CARD', player: 0, instanceId: first.instanceId },
+      { type: 'PLAY_CARD', player: 0, instanceId: second.instanceId },
+    ])
+
+    const canceled = result.events.filter((e) => e.type === 'SKILL_CANCELED')
+    expect(canceled).toEqual([cancelPair(0, first.instanceId)[1]])
+    expect(result.events.filter((e) => e.type === 'SKILL_PLAYED')).toHaveLength(2)
+    expect(result.state.players[1].heroSkillUsed).toBe(true)
+  })
+
+  it('双方各自的第一张技能卡分别被对方抵消，两个标志互不影响', () => {
+    const game = newGame({
+      deck0: deckOf('placeholder-skill'),
+      deck1: deckOf('placeholder-skill'),
+    })
+    const mine = handCard(game.state, 0, 'placeholder-skill')
+    const passed = run(game.state, [
+      { type: 'PLAY_CARD', player: 0, instanceId: mine.instanceId },
+      { type: 'END_PLAY', player: 0 },
+    ])
+    expect(passed.state.players[1].heroSkillUsed).toBe(true)
+    expect(passed.state.players[0].heroSkillUsed).toBe(false)
+
+    const theirs = handCard(passed.state, 1, 'placeholder-skill')
+    const result = execute(passed.state, {
+      type: 'PLAY_CARD',
+      player: 1,
+      instanceId: theirs.instanceId,
+    })
+
+    expect(result.events).toEqual(cancelPair(1, theirs.instanceId))
+    expect(result.state.players.map((p) => p.heroSkillUsed)).toEqual([true, true])
+  })
+
+  it('对手没有英雄时不发生抵消', () => {
+    const game = newGame({ deck0: deckOf('placeholder-skill'), hero1: null })
+    const card = handCard(game.state, 0, 'placeholder-skill')
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: card.instanceId,
+    })
+
+    expect(result.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
+    expect(result.state.players[1].hero).toBeNull()
+    expect(result.state.players[1].heroSkillUsed).toBe(false)
+  })
+
+  it('重开一局后 Debug 又能用一次', () => {
+    const first = newGame({ deck0: deckOf('placeholder-skill') })
+    const firstCard = handCard(first.state, 0, 'placeholder-skill')
+    const used = execute(first.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: firstCard.instanceId,
+    })
+    expect(used.state.players[1].heroSkillUsed).toBe(true)
+
+    // "每局一次"的一局就是一个 GameState 的生命周期：重新 createGame 就回到没用过。
+    const fresh = newGame({ deck0: deckOf('placeholder-skill') })
+    expect(fresh.state.players.map((p) => p.heroSkillUsed)).toEqual([false, false])
+    const card = handCard(fresh.state, 0, 'placeholder-skill')
+    const again = execute(fresh.state, { type: 'PLAY_CARD', player: 0, instanceId: card.instanceId })
+    expect(again.events).toEqual(cancelPair(0, card.instanceId))
+  })
+
+  it('DEBUG_PLAY_CARD 打出的技能卡同样被抵消', () => {
+    // 调试出牌和正常出牌共用 playCard，抵消是顺带覆盖到的，不需要单独接一遍。
+    const game = newGame({ deck1: deckOf('placeholder-skill') })
+    const card = handCard(game.state, 1, 'placeholder-skill')
+    const result = execute(game.state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: card.instanceId,
+    })
+
+    expect(result.events).toEqual(cancelPair(1, card.instanceId))
+    expect(result.state.players[0].heroSkillUsed).toBe(true)
   })
 })
 

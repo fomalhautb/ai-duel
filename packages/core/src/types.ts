@@ -48,12 +48,40 @@ export interface AgentCard extends CardBase {
   model: string
 }
 
-/** 技能牌：打出后直接进弃牌堆。本迭代只有卡面和动画，没有任何效果。 */
+/** 技能卡：打出后直接进弃牌堆。本迭代只有卡面和动画，没有任何效果。 */
 export interface SkillCard extends CardBase {
   kind: 'skill'
 }
 
 export type Card = AgentCard | SkillCard
+
+/** 英雄 id。英雄很少，直接用字面量联合，写错卡名当场就是类型错误。 */
+export type HeroId = 'grace-hopper'
+
+/**
+ * 英雄卡：开局就跟着玩家，不是牌组里的一张牌。
+ *
+ * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
+ *
+ * **它刻意不进 Card 联合、CARDS、CARD_POOL、STARTER_DECK**：
+ * 英雄技能不占 20 张牌的牌组空间（见 docs/Agent卡牌对战游戏_游戏机制与流程_V0.1.md 第 4 节），
+ * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
+ * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。
+ */
+export interface HeroCard {
+  kind: 'hero'
+  id: HeroId
+  /** 中文名，卡面主标题。 */
+  name: string
+  /** 英文名，卡面上当副标题印一行。 */
+  enName: string
+  /** 人物简介。 */
+  text: string
+  /** 技能名，界面上要单独拎出来显示（如抵消过场的大字）。 */
+  skillName: string
+  /** 技能效果的说明文案。 */
+  skillText: string
+}
 
 /** 牌堆/手牌/弃牌堆里的一张牌。 */
 export interface CardInstance {
@@ -97,6 +125,19 @@ export interface PlayerState {
   deck: CardInstance[]
   board: AgentInstance[]
   discard: CardInstance[]
+  /**
+   * 这一方选的英雄。英雄不进牌组，只是挂在玩家身上的一份身份 + 一个技能。
+   * 为 null 表示这一方没有英雄（技能一律不发动）。
+   */
+  hero: HeroId | null
+  /**
+   * 英雄技能这一局用掉了没有。
+   *
+   * 现在只有格蕾丝·霍珀的 Debug 是"每局一次"，所以一个布尔够用；
+   * 将来有"每若干轮一次"的技能时再换成记轮次的字段。
+   * 一个 GameState 的生命周期就是一局，createGame 重新建状态时它天然回到 false。
+   */
+  heroSkillUsed: boolean
 }
 
 export interface GameState {
@@ -170,7 +211,7 @@ export type GameEvent =
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
   | { type: 'AGENT_DEPLOYED'; player: PlayerId; agent: AgentInstance }
-  /** 技能牌打出：中央亮相一下再进弃牌堆。 */
+  /** 技能卡打出：中央亮相一下再进弃牌堆。 */
   | {
       type: 'SKILL_PLAYED'
       player: PlayerId
@@ -179,6 +220,25 @@ export type GameEvent =
        * 打出的那张手牌的实例 id。结算完全用不上它，纯粹给客户端定位用：
        * 对手出牌时要从他手牌里揪出这张牌飞到屏幕中央，而不是让它凭空出现。
        */
+      instanceId: InstanceId
+    }
+  /**
+   * 一张技能卡的效果被英雄技能抵消。
+   *
+   * 紧跟在被抵消的那张牌的 SKILL_PLAYED 之后：牌照常打出、照常进弃牌堆，只是效果作废，
+   * 客户端也就先演出牌、再演抵消。
+   *
+   * 两个玩家 id 方向相反，别弄混：
+   * - `player` 是打出这张技能卡的一方（被抵消的那一方）；
+   * - `by` 是发动英雄技能的一方，也就是 `player` 的对手。
+   */
+  | {
+      type: 'SKILL_CANCELED'
+      player: PlayerId
+      by: PlayerId
+      heroId: HeroId
+      cardId: CardId
+      /** 被抵消的那张牌的实例 id，和它的 SKILL_PLAYED 是同一个，客户端要靠它对上号。 */
       instanceId: InstanceId
     }
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */

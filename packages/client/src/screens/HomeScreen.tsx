@@ -22,6 +22,7 @@ import type { CSSProperties } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
@@ -231,6 +232,10 @@ export function HomeScreen() {
 
   return (
     <div className="home grain">
+      {/* CSS 里的 url(#ai-duel-rough-*) 要在同一个文档里找得到滤镜定义，每个页面各挂一次。
+          本身是 0 尺寸的 svg，不占布局。 */}
+      <HandDrawnFilterDefs />
+
       <div className="home__stage" ref={stageRef}>
         <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
 

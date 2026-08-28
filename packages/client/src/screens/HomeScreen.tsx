@@ -5,8 +5,10 @@
  * 舞台内所有尺寸都用 cqi（1cqi = 舞台宽的 1%）。这样窗口怎么变都只是整体等比缩放，
  * 不用为各种分辨率写断点，也不会出现"字大了图小了"的错位。
  *
- * 画面由三张切好的整幅图叠成（夜空底 → 桌面弧 → 前景道具），中间夹一层人物占位方块——
- * 人物抠图还没做，先用方块占住位置，被上面两层挡掉一部分正是设计稿里的效果。
+ * 层叠自下而上是：夜空底 → 桌面弧 → 四张展示卡 → 人物占位方块 → 前景道具 → 文字类 UI
+ * （标题、副标题、开始按钮、导航、设置、调试入口）。顺序完全由 JSX 的先后决定，没有一处 z-index。
+ * 人物层和道具层都是 pointer-events: none，压在卡牌上面也不会挡住 hover。
+ * 人物抠图还没做，先用方块占住位置，被前景道具挡掉一部分正是设计稿里的效果。
  *
  * 功能上仍然只有"一键开始"的分流：教程没通关完就接着打教程，通关完了直接进匹配房。
  */
@@ -122,7 +124,8 @@ const SEATS: Seat[] = [
  * 七个人物的占位方块，位置是照着设计稿目测量的（单位都是舞台宽/高的百分比）。
  *
  * 数组顺序就是叠放顺序，后面的盖住前面的，所以站在前排的人排在后面。
- * 方块本身会被桌面弧和前景道具挡掉下半截，这和设计稿里人物半身埋在桌后是一致的。
+ * 整层压在卡牌之上：设计稿里两侧的人是挡住最外侧那两张卡的边缘的。
+ * 方块本身又会被前景道具（地球仪、望远镜那些）挡掉一部分，这和设计稿一致。
  */
 const CAST: Array<{ id: string; left: number; top: number; width: number; height: number }> = [
   { id: 'left-back', left: 14.5, top: 22.0, width: 13.0, height: 38.0 },
@@ -185,8 +188,9 @@ export function HomeScreen() {
         // 静止的倾角在卡槽的 CSS 上，这里补的是"相对卡槽再转多少"：
         // 转 -rot 正好抵消卡槽的倾角，卡就立正了。
         const straighten = -seat.rot
+        // hover 只做上浮、放大、回正，不动层级：卡与卡的遮挡一律按 DOM 顺序，
+        // 抬起来的卡照样被右边的邻居、以及上层的人物和道具压住，这正是设计稿要的效果。
         const enter = () => {
-          gsap.set(slot, { zIndex: 2 })
           gsap.to(lift, {
             yPercent: CARD_LIFT_PERCENT,
             scale: 1.06,
@@ -204,8 +208,6 @@ export function HomeScreen() {
             duration: CARD_HOVER_DUR,
             ease: 'power2.out',
             overwrite: 'auto',
-            // 层级要等落回原位才撤。中途撤的话，还在半路的卡会突然钻到邻居底下闪一下。
-            onComplete: () => gsap.set(slot, { clearProps: 'zIndex' }),
           })
         }
 
@@ -230,46 +232,7 @@ export function HomeScreen() {
       <div className="home__stage" ref={stageRef}>
         <img className="home__layer" src="/home/home-bg.jpg" alt="" draggable={false} />
 
-        <div className="home__cast">
-          {CAST.map((figure) => (
-            <div
-              key={figure.id}
-              className="home__figure"
-              style={{
-                left: `${figure.left}%`,
-                top: `${figure.top}%`,
-                width: `${figure.width}%`,
-                height: `${figure.height}%`,
-              }}
-            >
-              人物占位
-            </div>
-          ))}
-        </div>
-
         <img className="home__layer" src="/home/home-table.png" alt="" draggable={false} />
-        <img className="home__layer" src="/home/home-props.png" alt="" draggable={false} />
-
-        {/*
-          感叹号用半角而不是全角「！」：宋体把全角标点画在字身框左侧、右边空出大半格，
-          那半格算进行宽里，整行看上去就偏左了。半角号配一段 padding 自己撑出设计稿里
-          「I」和「!」之间的空当，行宽和视觉重心才对得上。
-        */}
-        <h1 className="home__title">
-          出牌吧，AI<span className="home__title-bang">!</span>
-        </h1>
-
-        <p className="home__subtitle">
-          <span className="home__flourish" aria-hidden="true">
-            <i className="home__flourish-line" />
-            <Sparkle className="home__flourish-star" />
-          </span>
-          <span className="home__subtitle-text">这题你ai会吗？</span>
-          <span className="home__flourish home__flourish--right" aria-hidden="true">
-            <Sparkle className="home__flourish-star" />
-            <i className="home__flourish-line" />
-          </span>
-        </p>
 
         <div className="home__cards" ref={cardsRef}>
           {SEATS.map((seat) => (
@@ -295,6 +258,46 @@ export function HomeScreen() {
             </div>
           ))}
         </div>
+
+        <div className="home__cast">
+          {CAST.map((figure) => (
+            <div
+              key={figure.id}
+              className="home__figure"
+              style={{
+                left: `${figure.left}%`,
+                top: `${figure.top}%`,
+                width: `${figure.width}%`,
+                height: `${figure.height}%`,
+              }}
+            >
+              人物占位
+            </div>
+          ))}
+        </div>
+
+        <img className="home__layer" src="/home/home-props.png" alt="" draggable={false} />
+
+        {/*
+          感叹号用半角而不是全角「！」：宋体把全角标点画在字身框左侧、右边空出大半格，
+          那半格算进行宽里，整行看上去就偏左了。半角号配一段 padding 自己撑出设计稿里
+          「I」和「!」之间的空当，行宽和视觉重心才对得上。
+        */}
+        <h1 className="home__title">
+          出牌吧，AI<span className="home__title-bang">!</span>
+        </h1>
+
+        <p className="home__subtitle">
+          <span className="home__flourish" aria-hidden="true">
+            <i className="home__flourish-line" />
+            <Sparkle className="home__flourish-star" />
+          </span>
+          <span className="home__subtitle-text">这题你ai会吗？</span>
+          <span className="home__flourish home__flourish--right" aria-hidden="true">
+            <Sparkle className="home__flourish-star" />
+            <i className="home__flourish-line" />
+          </span>
+        </p>
 
         <button type="button" className="home__start" onClick={handleStart}>
           <span className="home__start-label">

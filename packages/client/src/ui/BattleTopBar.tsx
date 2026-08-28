@@ -1,17 +1,5 @@
 import { useLocation } from 'wouter'
 
-function ConstellationMark() {
-  return (
-    <svg className="battle-topbar__constellation" viewBox="0 0 54 30" aria-hidden="true">
-      <path d="M4 26 19 10l14-7 17 16" />
-      <circle cx="4" cy="26" r="2" />
-      <circle cx="19" cy="10" r="2" />
-      <circle cx="33" cy="3" r="2" />
-      <circle cx="50" cy="19" r="2" />
-    </svg>
-  )
-}
-
 function BookIcon() {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -34,11 +22,8 @@ export function BattleTopBar() {
   const [, navigate] = useLocation()
   return (
     <header className="battle-topbar">
-      <div className="battle-topbar__brand" aria-label="斗 AI">
-        <span className="battle-topbar__brand-cn">斗</span>
-        <span className="battle-topbar__brand-ai">AI</span>
-        <ConstellationMark />
-      </div>
+      {/* 左侧留白：顶栏靠三栏网格让中间的导航居中显示，撤掉品牌区后仍需占位保持对齐 */}
+      <div className="battle-topbar__brand" aria-hidden="true" />
 
       <nav className="battle-topbar__nav" aria-label="主导航">
         <button className="battle-topbar__tab is-active" type="button" aria-current="page">

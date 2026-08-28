@@ -1355,44 +1355,9 @@ body:has(.battle) {
   pointer-events: none;
 }
 
+/* 空占位：撑住三栏网格的左列宽度，让中间的导航保持视觉居中（见 BattleTopBar.tsx 里的说明） */
 .battle-topbar__brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   min-width: 0;
-  padding-left: clamp(22px, 2.8vw, 46px);
-  color: #34343d;
-  white-space: nowrap;
-}
-
-/* 中英两半故意不再各挑一套字体：全站统一走 :root 那条栈，
-   区别只留在字号、字距和这里的倾斜上。 */
-.battle-topbar__brand-cn {
-  font-size: 42px;
-  line-height: 1;
-  transform: rotate(-5deg);
-}
-
-.battle-topbar__brand-ai {
-  font-size: 31px;
-  letter-spacing: 0.06em;
-}
-
-.battle-topbar__constellation {
-  width: 54px;
-  height: 30px;
-  margin-left: 4px;
-  overflow: visible;
-  color: #777b86;
-  opacity: 0.82;
-  fill: currentColor;
-  stroke: currentColor;
-  stroke-width: 0.85;
-  filter: url('#ai-duel-rough-icon');
-}
-
-.battle-topbar__constellation path {
-  fill: none;
 }
 
 .battle-topbar__nav {
@@ -3028,10 +2993,6 @@ body:has(.battle) {
     grid-template-columns: minmax(180px, 1fr) auto minmax(120px, 1fr);
   }
 
-  .battle-topbar__constellation {
-    display: none;
-  }
-
   .battle-topbar__nav {
     gap: 6px;
   }
@@ -3070,14 +3031,6 @@ body:has(.battle) {
   .battle__board {
     padding-top: 48px;
     padding-bottom: 12px;
-  }
-
-  .battle-topbar__brand-cn {
-    font-size: 36px;
-  }
-
-  .battle-topbar__brand-ai {
-    font-size: 27px;
   }
 
   .battle__sidebar-frame--actions .ornate-frame__content {

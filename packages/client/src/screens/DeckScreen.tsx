@@ -2158,7 +2158,7 @@ const PoolCard = memo(function PoolCard({
         {comingSoon ? <span className="deck-pool-card__soon">即将上线</span> : null}
         {picked > 0 ? (
           <span className="deck-pool-card__seal" aria-hidden="true">
-            {picked > 1 ? `×${picked}` : '✓'}
+            {`×${picked}`}
           </span>
         ) : null}
       </div>

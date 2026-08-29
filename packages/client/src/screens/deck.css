@@ -1832,20 +1832,11 @@
 }
 
 /* 不满 20 张时的提示。这一条是「为什么按钮点不了」的答案，所以用生命红，
-   不跟旁边的说明文字同色。 */
+   不跟旁边的说明文字同色。凑满之后这一条整个消失，只剩左边那行操作说明。 */
 .deck-shortfall {
   flex: none;
   margin: 0;
   color: var(--c-life);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-}
-
-/* 凑满 20 张之后顶替上面那条红字。留一句话而不是留空，是为了这一行的高度不跳。 */
-.deck-done {
-  flex: none;
-  margin: 0;
-  color: var(--c-green);
   font-size: 13px;
   letter-spacing: 0.08em;
 }

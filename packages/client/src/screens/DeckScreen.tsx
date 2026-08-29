@@ -5,7 +5,8 @@
  * 整页的存档读写走 save/deckStore.ts：加一张牌、改一次名都立刻写回 localStorage，
  * 所以界面上没有"未保存"这个状态，也没有保存按钮。
  *
- * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack。
+ * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack
+ * （左上角的返回按钮，纯查看时右下角还有一颗同样调 onBack 的「返回匹配」）。
  * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
  * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
  *
@@ -64,7 +65,7 @@ import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
-import { HandCardFace } from '../ui/HandFan'
+import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
@@ -356,7 +357,8 @@ export interface DeckScreenProps {
   /**
    * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
    * 不用在回调里落盘：这一页每改一张牌就写过 deckStore 了。
-   * 不传就不渲染「确认牌组」：大厅横幅进来的是纯查看，牌组的增删本来就已经实时存档了。
+   * 不传就不渲染「确认牌组」：大厅横幅进来的是纯查看，牌组的增删本来就已经实时存档了，
+   * 右下角那一格改放「返回匹配」。
    */
   onConfirm?: (deck: CardId[]) => void
   /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
@@ -366,10 +368,10 @@ export interface DeckScreenProps {
 export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   /**
-   * 选中的阵营，null = 不按阵营筛。
+   * 选中的阵营，null = 不按阵营筛。只在「AI 牌」页签下生效（见 shown）。
    *
-   * 切到「技能牌」页签时刻意**不重置**：技能牌那一页压根不显示阵营药丸（技能牌没有阵营），
-   * 玩家去技能页看一眼再切回来，多半是想接着挑刚才那家的 AI。
+   * 切去别的页签时刻意**不重置**：那两页压根不显示阵营药丸（「技能牌」没有阵营，
+   * 「全部」是一屏铺开的总览），玩家去别处看一眼再切回来，多半是想接着挑刚才那家的 AI。
    */
   const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
@@ -1269,11 +1271,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   // ---------- 筛选 ----------
 
-  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里（阵营只作用于 AI 牌）。
+  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里。
+  // 阵营只在「AI 牌」页签下参与筛选：另外两页不摆药丸，界面上看不见的筛选条件不该偷偷生效。
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
+  const factionFilter = kindFilter === 'ai' ? faction : null
   const shown = useMemo(
-    () => filterDeckCards(pool, kindFilter, faction),
-    [pool, kindFilter, faction],
+    () => filterDeckCards(pool, kindFilter, factionFilter),
+    [pool, kindFilter, factionFilter],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -1508,15 +1512,15 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                       <i className="deck-kinds__dia" />
                     </i>
                   </div>
-                  {/* 阵营药丸。技能牌和阵营无关，所以「技能牌」页签下不摆那六颗，
-                      只留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
+                  {/* 阵营药丸只摆在「AI 牌」页签下：技能牌和阵营无关，「全部」是不加筛的总览。
+                      另外两页各留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
                       切页签时下面的卡池网格会跟着上下跳一截。 */}
                   <div
                     className="deck-factions"
                     role="group"
-                    aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}
+                    aria-label={kindFilter === 'ai' ? '按阵营筛选' : '卡池范围'}
                   >
-                    {kindFilter === 'skill' ? (
+                    {kindFilter !== 'ai' ? (
                       <button type="button" className="deck-faction" data-active>
                         全部卡牌
                       </button>
@@ -1743,18 +1747,22 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                           <p className="deck-side__hint">问号看背面 · 点击放大 · 返回按钮或拖出移除</p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
-                          ) : (
-                            <p className="deck-done">牌组已满 · 可以出发</p>
-                          )}
+                          ) : null}
                         </div>
-                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。 */}
-                        {onConfirm === undefined ? null : (
+                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。
+                            纯查看时（没有 onConfirm）这一格换成「返回匹配」，
+                            省得只能去左上角找返回按钮。 */}
+                        {onConfirm !== undefined ? (
                           <PlaqueButton
                             className="deck-confirm"
                             disabled={shortfall > 0}
                             onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
                           >
                             确认牌组
+                          </PlaqueButton>
+                        ) : onBack === undefined ? null : (
+                          <PlaqueButton className="deck-confirm" onClick={onBack}>
+                            返回匹配
                           </PlaqueButton>
                         )}
                       </div>
@@ -2137,11 +2145,11 @@ const DeckSlotItem = memo(function DeckSlotItem({
  *
  * markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
  * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样。
- * AI 牌铺统一卡背图，技能牌印卡名和 backText。
+ * AI 牌铺统一卡背图，技能牌在星象边框底图上印卡名和 backText（底图见 .card-back--skill）。
  */
 function CardBackFace({ card }: { card: HandCardData }) {
   return (
-    <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+    <div className={cardBackClassName(card.kind)}>
       {card.kind === 'ai' ? (
         <img
           className="card-back__art"

@@ -674,6 +674,17 @@ html {
   color: var(--home-ink-lit);
   text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
 }
+/* 真能点的那一项（现在只有「信息」）。它是 <button>，得把浏览器自带的边框、底色和
+   小一号的字全收回来，才和旁边两个 <span> 排在同一条基线上、看起来是同一排字。
+   font 用简写一次性覆盖 font-size / font-weight / line-height 那一整组——
+   .home__nav 上给的 2cqi 字号是继承来的，只改 font-family 补不回来。 */
+.home__nav-item--link {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
 
 .home__nav-dot {
   width: 1.1cqi;
@@ -1334,7 +1345,8 @@ html {
 }
 
 /*
- * 玩家自己手牌的背面容器：AI 牌铺统一美术图，其他牌展示卡名和说明文字。
+ * 玩家自己手牌的背面容器：AI 牌铺整张统一美术图，技能牌在星象边框底图上印卡名和说明
+ * （见下面的 --ai-art / --skill），英雄牌是默认的深色底加同一套文字。
  * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
  * .card-back-hidden。
  */
@@ -1379,6 +1391,44 @@ html {
   height: 100%;
   object-fit: cover;
   user-select: none;
+}
+
+/*
+ * 技能牌的背面：铺和放大查看那张（deck.css 的 .deck-skill-back）同一路数的星象边框底图，
+ * 卡名和说明压在中间留白里。
+ *
+ * 不铺底图的话这一面就是块深色板子，和正面那张米色原画完全不像同一张牌——AI 牌早就有
+ * 自己的美术卡背（上面的 --ai-art），只有技能牌翻过去是空的。英雄牌不进牌组也不进手牌，
+ * 仍走默认的深色底，没跟着改。
+ *
+ * 底图按 100% 100% 拉满而不是 cover：底图和卡框都是 2:3，拉伸看不出来，还省掉 cover 的裁切
+ * ——边框上的花纹一旦被裁掉一圈，四角的罗盘就缺了角。
+ * 内边距写成百分比，是因为这张背面在手牌（150×225）、卡池格子和图鉴预览里尺寸各不相同，
+ * 而文字必须始终落在底图中央那圈留白里，不能压到边框的花纹上。
+ */
+.card-back--skill {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 15% 13%;
+  border-color: #cbbb9a;
+  background: #eee4d2 url('/cards/card-back-v1.webp') center / 100% 100% no-repeat;
+  text-align: center;
+}
+
+/* 底图是米色纸面，字色照 .deck-skill-back 那套墨色来，深色底下那两档蓝灰在这上面看不清。 */
+.card-back--skill .card-back__title {
+  color: #4a4034;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.card-back--skill .card-back__text {
+  color: #554b3e;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 /*
@@ -5868,6 +5918,30 @@ body:has(.battle) {
   color: var(--ink-2, #6b6a5f);
   font-size: 17px;
   line-height: 1.75;
+}
+
+/*
+ * 「一键横屏」：进全屏 + 锁横屏的那颗（什么时候出现见 ui/OrientationNotice.tsx）。
+ * 这是整块提示的主要动作，所以给足对比——墨色实心，和下面那行淡淡的「仍要继续」拉开层级。
+ * 高度按触屏的 44px 起步，宽度取面板的大半而不是撑满，免得看着像一条横幅。
+ */
+.rotate-notice__rotate {
+  min-height: 44px;
+  padding: 12px 28px;
+  border: 1px solid var(--ink, #2e2e38);
+  background-color: var(--ink, #2e2e38);
+  color: var(--paper, #f0ecdf);
+  font: inherit;
+  font-size: 17px;
+  letter-spacing: 0.25em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.25em;
+  cursor: pointer;
+}
+
+.rotate-notice__rotate:active {
+  /* 触屏没有 hover，按下去这一下就是唯一的反馈。 */
+  opacity: 0.82;
 }
 
 /*

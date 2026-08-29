@@ -14,6 +14,7 @@ import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
 import { OrientationNotice } from './ui/OrientationNotice'
 import { HomeScreen } from './screens/HomeScreen'
+import { InfoScreen } from './screens/InfoScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
@@ -39,6 +40,8 @@ export function App() {
       <OrientationNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
+        {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}
+        <Route path="/info" component={InfoScreen} />
         {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
         <Route path="/hero" component={HeroRoute} />
         {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，

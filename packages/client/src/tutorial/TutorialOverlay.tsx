@@ -105,8 +105,8 @@ export function TutorialOverlay({
       for (const selector of selectors) {
         const node = document.querySelector<HTMLElement>(selector)
         if (node === null) continue
-        const rect = node.getBoundingClientRect()
-        if (rect.width === 0 || rect.height === 0) continue
+        const rect = anchorRect(node)
+        if (rect === null) continue
         next.push({
           x: (rect.left - metrics.left) / metrics.scale - HOLE_PADDING,
           y: (rect.top - metrics.top) / metrics.scale - HOLE_PADDING,
@@ -219,6 +219,47 @@ export function TutorialOverlay({
       )}
     </div>
   )
+}
+
+/** 视口坐标下的一个矩形。换算成舞台内坐标是调用处的事。 */
+interface ViewportRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * 量一个高亮目标占了视口里的哪一块，量不出来返回 null。
+ *
+ * 多一条"退到直接子元素的并集"是因为有的锚点自己是**零面积的定位基线**：
+ * 手牌的 `data-tutorial-anchor="hand"` 挂在 `.hand-fan` 上，那个盒子宽一千来像素但高是 0，
+ * 每张牌都靠绝对定位溢出摆出去（扇形几何是这么排的）。直接量容器只会得到零高矩形，
+ * 按零面积跳过的话手牌那几步就永远挖不出洞，气泡只能退到"一个洞都没有"的兜底位。
+ * 所以这里不动 `.hand-fan` 的布局，改成从孩子身上把这排牌实际占的地方拼出来。
+ *
+ * 只往下退一层，不递归：再往下会把卡面里每个小块都算进来，而这里要的就是"这排牌占多大地方"。
+ * 子元素里同样零面积的（纯装饰的空节点之类）跳过；一个都没量到就当这个目标不存在。
+ */
+function anchorRect(node: HTMLElement): ViewportRect | null {
+  const rect = node.getBoundingClientRect()
+  if (rect.width > 0 && rect.height > 0) {
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+  }
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  for (const child of Array.from(node.children)) {
+    const box = child.getBoundingClientRect()
+    if (box.width === 0 || box.height === 0) continue
+    left = Math.min(left, box.left)
+    top = Math.min(top, box.top)
+    right = Math.max(right, box.right)
+    bottom = Math.max(bottom, box.bottom)
+  }
+  if (left === Number.POSITIVE_INFINITY) return null
+  return { left, top, width: right - left, height: bottom - top }
 }
 
 function rectStyle(rect: OverlayRect): CSSProperties {

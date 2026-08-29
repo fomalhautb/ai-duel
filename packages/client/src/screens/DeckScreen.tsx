@@ -332,8 +332,9 @@ export interface DeckScreenProps {
   /**
    * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
    * 不用在回调里落盘：这一页每改一张牌就写过 deckStore 了。
+   * 不传就不渲染「确认牌组」：大厅横幅进来的是纯查看，牌组的增删本来就已经实时存档了。
    */
-  onConfirm: (deck: CardId[]) => void
+  onConfirm?: (deck: CardId[]) => void
   /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
   onBack?: () => void
 }
@@ -1659,13 +1660,15 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                           )}
                         </div>
                         {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。 */}
-                        <PlaqueButton
-                          className="deck-confirm"
-                          disabled={shortfall > 0}
-                          onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
-                        >
-                          确认牌组
-                        </PlaqueButton>
+                        {onConfirm === undefined ? null : (
+                          <PlaqueButton
+                            className="deck-confirm"
+                            disabled={shortfall > 0}
+                            onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
+                          >
+                            确认牌组
+                          </PlaqueButton>
+                        )}
                       </div>
                     </div>
                   </OrnateFrame>

@@ -337,7 +337,7 @@
  */
 .hero__card-hint {
   position: absolute;
-  bottom: 0.9cqi;
+  top: 0.9cqi;
   left: 50%;
   transform: translateX(-50%);
   padding: 0.35cqi 0.9cqi;

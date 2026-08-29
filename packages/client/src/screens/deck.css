@@ -261,7 +261,7 @@
   color: var(--line-dark);
   /* 和页面上其它线条共用同一份手绘抖动滤镜（见 ui/HandDrawnFilterDefs.tsx）。
      图形本身就是实心面，位移只会让四个角歪一点，不存在细线被扯断的问题。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* ============================================================
@@ -400,7 +400,7 @@
   bottom: -3px;
   left: 0;
   height: 8px;
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
@@ -471,7 +471,7 @@
   border: 1.5px solid var(--line);
   border-radius: 999px;
   background: rgb(255 255 255 / 4%);
-  filter: url('#ai-duel-rough-button');
+  filter: var(--rough-button);
 }
 
 .deck-faction:hover:not([data-active='true'])::before {
@@ -922,7 +922,7 @@
   border: 3px solid #8b6a24;
   border-radius: 50%;
   background: var(--c-gold);
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* 和筛选栏一样在滚动区之外：它说的是"现在这块面板能怎么操作"，得一直看得见。 */
@@ -977,7 +977,7 @@
   stroke-width: 1.7;
   stroke-linecap: round;
   /* 和页面上其它线条共用同一份手绘抖动滤镜（见 ui/HandDrawnFilterDefs.tsx）。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* 右下角。四个角的分配见 .deck-pool-card__seal 的注释；右下正好是卡面插画的底部留白，
@@ -1555,7 +1555,7 @@
   position: relative;
   flex: 1;
   height: 12px;
-  filter: url('#ai-duel-rough-button');
+  filter: var(--rough-button);
 }
 
 .deck-progress__track::before {

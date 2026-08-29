@@ -19,7 +19,7 @@ export type BackButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
  * 写进公共样式反而每个页面都要覆盖一遍。样式见 styles.css 的「可复用返回按钮」一节。
  *
  * 使用方所在的页面必须渲染过 <HandDrawnFilterDefs />，否则公共样式里的
- * filter: url(#ai-duel-rough-icon) 会指向一个不存在的滤镜（Chrome 上整颗按钮直接不画）。
+ * filter: var(--rough-icon) 会指向一个不存在的滤镜（Chrome 上整颗按钮直接不画）。
  */
 export function BackButton({ label = '返回', className = '', ...props }: BackButtonProps) {
   return (

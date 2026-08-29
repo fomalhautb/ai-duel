@@ -42,7 +42,8 @@
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
  *    （回调 useCallback、拖拽事件按 id 缓存、卡数据是模块级常量），加一张牌只会重渲染
  *    受影响的那一两张，而不是整屏几十张；
- * 2. 这两处的卡面走缩略图（thumbFor），放大查看仍用原画；
+ * 2. 这两处的卡面走 300 宽那一档（thumbFor）；放大查看那张卡走的是公共卡面组件，
+ *    它自己吃 600 宽那一档（见 ui/cardArtThumb.ts）。原画在这一页任何地方都不再加载；
  * 3. 卡面挂了 content-visibility: auto，离屏的卡不渲染内部（见 deck.css）。
  *
  * 视觉沿用 /design 那套纸面 token：整页是羊皮纸，左边卡池是嵌在纸上的深蓝星图面板
@@ -76,7 +77,7 @@ import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { AiCardBack } from '../ui/AiCardBack'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
-import { thumbFor } from '../ui/cardArtThumb'
+import { midFor, thumbFor } from '../ui/cardArtThumb'
 import { CardHelpMark } from '../ui/CardHelpMark'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
@@ -310,7 +311,9 @@ export const DECK_ASSETS = Array.from(
     '/battle/battle-bg.webp',
     // 放大查看时右边那张技能牌背面的边框底图（见下面的 SkillCardBack）。
     // 它是这一页少数几张不走卡面的图，而且一翻开就要用，所以并进闸门一起等。
-    '/cards/skills/skill-card-back.webp',
+    // 走 mid 档：这张底图设计尺寸 284×426，2 倍 DPR 下 568 像素，600 宽那一档正好够。
+    // 地址在下面 SkillCardBack 的 <img> 里再写一遍，两处必须是同一个 URL，否则等于没预载。
+    midFor('/cards/skills/skill-card-back.webp'),
     ...DISPLAY_CARD_IDS.map(thumbArtFor),
     // 占位图的缩略图。眼下卡池里每张卡都有专属原画，谁也分不到占位图，
     // 但新卡的原画补齐之前会先落到这儿（见 ui/cardArt.ts 的 placeholderArtFor），
@@ -2382,7 +2385,7 @@ function SkillCardBack({ card }: { card: HandCardData }) {
     <div className="deck-skill-back" data-copy-size={longCopy ? 'long' : 'normal'}>
       <img
         className="deck-skill-back__frame"
-        src="/cards/skills/skill-card-back.webp"
+        src={midFor('/cards/skills/skill-card-back.webp')}
         alt=""
         draggable={false}
       />

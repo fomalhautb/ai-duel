@@ -48,6 +48,7 @@ import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
+import { midFor } from './cardArtThumb'
 import { CardHelpMark } from './CardHelpMark'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
@@ -1814,10 +1815,16 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       aria-label={illustratedSkill ? `${card.name}。${card.text}` : undefined}
     >
       {/* 普通插画的信息由文字层提供；完整技能牌的烘焙文字通过外层 aria-label 朗读。
-          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。
+
+          图一律过 midFor：这个组件是全站唯一画卡面的地方（手牌、战场小卡、强制展示、
+          回合结算、牌库放大查看都是它），而这些场合里卡最大也只到 524 个设备像素，
+          600 宽那一档全盖得住。铺原画（1024×1536）的话每张卡都要解码 157 万像素再降采样，
+          手机上是掉帧的主因之一。卡牌自带的外部图（card.art 可以是任意 URL）
+          midFor 会原样放行，不用在这儿判。 */}
       <img
         className="card-face__art"
-        src={card.art ?? cardArtFor(definitionId)}
+        src={midFor(card.art ?? cardArtFor(definitionId))}
         alt=""
         draggable={false}
       />

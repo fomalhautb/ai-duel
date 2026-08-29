@@ -26,7 +26,7 @@ function CardRays() {
     <svg
       className="paper-card__rays"
       viewBox="0 0 120 120"
-      style={{ filter: 'url(#ai-duel-rough-rays)' }}
+      style={{ filter: 'var(--rough-rays)' }}
       aria-hidden="true"
     >
       <g stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.75">

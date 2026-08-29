@@ -74,6 +74,27 @@
   --fs-cqi-md: calc(1.05cqi * var(--fs-scale));
   --fs-cqi-md-plus: calc(1.1cqi * var(--fs-scale));
   --fs-cqi-lg: calc(1.15cqi * var(--fs-scale));
+
+  /*
+   * 手绘线条滤镜的引用。定义见 ui/HandDrawnFilterDefs.tsx，那边是滤镜本体，这里是"怎么引"。
+   *
+   * 全站引用这套滤镜一律走这几个变量，**不要再直接写 url('#ai-duel-rough-*')**：
+   * 触屏档要把它们整批关掉（见文件末尾"移动端性能档"），而开关只有把引用收敛到一处才做得成。
+   * 内联 style 里的几处（PaperCard / PaperCardBack / PaperIcons / RoundSettleLayer 的罗盘）
+   * 尤其只能走变量——内联样式的优先级压过任何样式表规则，媒体查询覆盖不掉它们。
+   *
+   * 关掉时把变量置成**空值**而不是 none：好几处是 `filter: var(--rough-icon) drop-shadow(…)`
+   * 这样和别的滤镜函数拼在一起用的，代进 none 就成了非法的 `filter: none drop-shadow(…)`，
+   * 整条声明作废、连投影一起丢。空值代进去是 `filter:  drop-shadow(…)`，投影照留；
+   * 而单独使用的那些变成 `filter:`，按 CSS 规则整条声明在计算值阶段失效、回落到初始值 none，
+   * 正是想要的结果。
+   */
+  --rough-icon: url('#ai-duel-rough-icon');
+  --rough-button: url('#ai-duel-rough-button');
+  --rough-frame: url('#ai-duel-rough-frame');
+  --rough-alt: url('#ai-duel-rough-alt');
+  --rough-rays: url('#ai-duel-rough-rays');
+  --rough-compass: url('#ai-duel-rough-compass');
 }
 
 * {
@@ -486,7 +507,7 @@ html {
     0 0.5cqi 1.1cqi rgb(10 14 20 / 50%);
   /* 和 /design 页同一套手绘抖动（定义见 HandDrawnFilterDefs）。这一页上的文字类 UI
      各用一个不同 seed 的滤镜：同一个 id 抖出来的噪声是一样的，几处一起用会歪成同一条线。 */
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
 }
 
 .home__title-bang {
@@ -517,7 +538,7 @@ html {
      不用负 margin 收掉的话，整行看起来是偏左的。 */
   margin-right: -0.5em;
   letter-spacing: 0.5em;
-  filter: url('#ai-duel-rough-alt');
+  filter: var(--rough-alt);
 }
 
 /*
@@ -549,7 +570,7 @@ html {
   width: var(--home-flourish-star-size, 1.5cqi);
   height: var(--home-flourish-star-size, 1.5cqi);
   color: var(--home-flourish-star-color, currentcolor);
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 .home__cards {
@@ -678,7 +699,7 @@ html {
   /* 和 /design 页的匾额按钮 .plaque-button__label 用同一个滤镜，两处按钮的字保持一种抖法。
      滤镜只加在文字上，不加在按钮那张铜牌切图上：切图边缘是照着背景里桌面的凹槽对齐的，
      一歪就和凹槽错开了。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 .home__start:hover {
@@ -723,7 +744,7 @@ html {
   padding: 0.6em 0;
   letter-spacing: 0.24em;
   cursor: default;
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   transition:
     color 0.16s ease,
     text-shadow 0.16s ease;
@@ -749,7 +770,7 @@ html {
   width: 1.1cqi;
   height: 1.1cqi;
   color: rgb(232 198 159 / 70%);
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。 */
@@ -880,8 +901,8 @@ html {
 /*
  * 倾斜层：夹在扇形摆位（slot）和 3D 翻转（inner）中间，只写 rotationX / rotationY。
  * 单开一层是因为倾斜和翻转都要动 rotationY，写在同一个元素上就是两边抢一个属性。
- * preserve-3d 是必需的：少了它，翻转层会被压成一张平面图片再做倾斜，
- * 翻到背面之后的立体感就没了。
+ * transform-style 平时是 flat，**只在真的要用三维的那几秒**才切成 preserve-3d
+ * （切换规则和理由见下面 .hand-fan__inner 后面那条）。
  * position 也不能去掉：问号的透明热区就挂在这一层里，靠它当绝对定位的基准
  * （这里 inset: 0，和卡面同一个框，所以热区的 top / right 落在卡面右上角）。
  *
@@ -898,7 +919,7 @@ html {
 .hand-fan__tilt {
   position: absolute;
   inset: 0;
-  transform-style: preserve-3d;
+  transform-style: flat;
   zoom: var(--hand-card-zoom);
 }
 
@@ -917,8 +938,39 @@ html {
 .hand-fan__inner {
   position: absolute;
   inset: 0;
-  transform-style: preserve-3d;
+  transform-style: flat;
   pointer-events: none;
+}
+
+/*
+ * 三维按需开：只有"这张牌正被倾斜"或"它正翻着 / 停在背面"时，这两层才是 preserve-3d。
+ *
+ * 为什么不一直开着：preserve-3d 的含义是"别把这棵子树拍平"，于是卡里的十几个节点
+ *（卡面、插画、信息层、高光、两个问号圆章、卡背那一套）浏览器一个都不能合并，
+ * 全部各占一层。一排五张手牌、每张两层 preserve-3d，就是几十层常驻的合成开销——
+ * 而绝大多数时候这些牌是静止摊在那儿的，一点三维都没用上。
+ * 手机上这笔开销尤其还不起（对局页整体缩放才 0.36~0.41，要画的东西却和桌面一样多）。
+ *
+ * 两个开关各有主人，互不干涉，所以不用引用计数：
+ * - data-tilting 由 ui/cardTilt.ts 打在 slot 上，和高光的 data-glare 同生共死
+ *  （都由 following 驱动）。注意触屏上 cardTilt 直接跳过倾斜，这个属性根本不会出现。
+ * - data-flip3d 由 ui/flipCard.ts 打在 inner 上，判据是**角度不为 0**而不是"补间在不在跑"：
+ *   牌停在背面时补间早结束了，可那一面正靠 rotateY(180°) 立着，这时候拍平会当场
+ *   变成一张水平镜像的正面。
+ * 两处都是先打属性、后写变换，落在同一个同步块里，所以不会有"3D 还没开、角度已经写了"的那一帧。
+ *
+ * tilt 层要跟着 inner 一起开（那条 :has()）：perspective 挂在更外面的 slot 上，
+ * 只作用于直接子元素，得靠 tilt 的 preserve-3d 才透得下去。tilt 要是还平着，
+ * inner 的翻转就没有透视，卡会均匀变窄而不是近大远小。
+ *
+ * 静止时拍平是安全的：背面那层自带的 rotateY(180deg) 在 flat 下退化成水平镜像，
+ * 但它这时 opacity 正好是 0（谁可见由 flipTo 按角度切，见 ui/flipCard.ts），看不见。
+ */
+.hand-fan__slot[data-tilting] .hand-fan__tilt,
+.hand-fan__slot[data-tilting] .hand-fan__inner,
+.hand-fan__tilt:has(> .hand-fan__inner[data-flip3d]),
+.hand-fan__inner[data-flip3d] {
+  transform-style: preserve-3d;
 }
 
 /*
@@ -1466,7 +1518,10 @@ html {
   gap: 6px;
   padding: 15% 13%;
   border-color: #cbbb9a;
-  background: #eee4d2 url('/cards/card-back-v1.webp') center / 100% 100% no-repeat;
+  /* 走 mid 档（600 宽）而不是原画：这张背面最大也只画到 150×225，原画是 1024×1536。
+     地址写死在 CSS 里，改档位时 ui/backgroundPreload.ts 的 CARD_BACK_ASSETS 要一起改，
+     不然预载的和这里加载的不是同一个 URL，等于没预载。 */
+  background: #eee4d2 url('/cards/mid/card-back-v1.webp') center / 100% 100% no-repeat;
   text-align: center;
 }
 
@@ -1517,7 +1572,7 @@ html {
   stroke-linejoin: round;
   /* 和页面上其它线条共用同一份手绘抖动（见 ui/HandDrawnFilterDefs.tsx）；
      所在页面没渲染那份 defs 的话，Chrome 上整枚章都不画。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* 问号底下那一点：填实，盖掉上面继承下来的 fill: none。 */
@@ -1580,7 +1635,7 @@ html {
   fill: none;
   stroke: color-mix(in srgb, var(--battle-navy, #253149) 72%, transparent);
   /* 和顶栏、雕花框共用的手绘抖动，线条才不像矢量图那样死板（滤镜由 HandDrawnFilterDefs 提供）。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 .card-back-hidden__crest-outer {
@@ -1791,7 +1846,7 @@ body:has(.battle) {
     transparent 1px 3px,
     rgb(132 126 112 / 45%) 3px 4px
   );
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
@@ -1888,7 +1943,7 @@ body:has(.battle) {
   position: absolute;
   z-index: 2;
   display: block;
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
@@ -1992,7 +2047,7 @@ body:has(.battle) {
      套在按钮这一层，箭头和文字一起抖：按钮里就这两样东西，也没有背景和描边，
      和分别套在两个子元素上画出来是一样的，少写一条规则。
      代价是使用方所在的页面必须渲染过 HandDrawnFilterDefs，否则 Chrome 上整颗按钮不画。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /*
@@ -2071,7 +2126,7 @@ body:has(.battle) {
   bottom: 0;
   width: 1px;
   background: var(--battle-line-dark);
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
@@ -2221,7 +2276,7 @@ body:has(.battle) {
     var(--battle-line-dark) 80%,
     rgb(119 116 101 / 0%)
   );
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
 }
 
 /* 菱形排在细线后面，靠不透明底色把线从中间截断——两头淡出加中间这一颗，看着才像一件装饰。 */
@@ -2620,7 +2675,7 @@ body:has(.battle) {
   height: 100%;
   /* 手绘滤镜只套在图形上，不套文字：一起套的话字会跟着抖歪
      （PlaqueButton 和回合牌匾同理，见各自的 __frame）。 */
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
@@ -2812,7 +2867,7 @@ body:has(.battle) {
   stroke: #5b4a20;
   stroke-width: 5;
   paint-order: stroke;
-  filter: url('#ai-duel-rough-icon') drop-shadow(0 1px 2px rgb(90 72 30 / 45%))
+  filter: var(--rough-icon) drop-shadow(0 1px 2px rgb(90 72 30 / 45%))
     drop-shadow(0 0 3px rgb(245 185 92 / 85%)) drop-shadow(0 0 9px rgb(232 158 47 / 55%));
 }
 
@@ -2827,7 +2882,7 @@ body:has(.battle) {
   fill: #8b8578;
   stroke: #6f6a5e;
   opacity: 0.7;
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /*
@@ -2839,14 +2894,14 @@ body:has(.battle) {
 .battle__token-star[data-extra] {
   fill: #6fd3c7;
   stroke: #2c5f5a;
-  filter: url('#ai-duel-rough-icon') drop-shadow(0 1px 2px rgb(30 70 68 / 45%))
+  filter: var(--rough-icon) drop-shadow(0 1px 2px rgb(30 70 68 / 45%))
     drop-shadow(0 0 3px rgb(111 211 199 / 85%)) drop-shadow(0 0 9px rgb(64 176 164 / 55%));
 }
 
 .battle__token-star[data-extra][data-spent] {
   fill: #8b8578;
   stroke: #6f6a5e;
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
 }
 
 /* 落款分两行：细条只有 44px 宽，「12/12 token」一行放不下。 */
@@ -2857,7 +2912,7 @@ body:has(.battle) {
   align-items: center;
   gap: 1px;
   /* 和星星同一种抖法：这一行紧挨着星星，用别的 seed 反而看得出是两套东西。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
   color: var(--battle-ink-muted);
   line-height: 1.1;
   letter-spacing: 0.04em;
@@ -3156,7 +3211,7 @@ body:has(.battle) {
    * 两个伪元素共用同一个滤镜——同宽的盒子会取到同一段噪声，但它们分居匾的两侧、
    * 隔着大半个战场，看不出是同一条抖法。
    */
-  filter: url('#ai-duel-rough-rays');
+  filter: var(--rough-rays);
 }
 
 .battle__midline::before {
@@ -3186,7 +3241,7 @@ body:has(.battle) {
   border-radius: 10px;
   background: #232f48;
   box-shadow: 0 1px 4px rgb(6 12 24 / 45%);
-  filter: url('#ai-duel-rough-compass');
+  filter: var(--rough-compass);
   color: rgb(228 218 192 / 88%);
   font-size: var(--fs-md);
   line-height: 18px;
@@ -3384,7 +3439,7 @@ body:has(.battle) {
   z-index: 1;
   width: 100%;
   height: 100%;
-  filter: url('#ai-duel-rough-button');
+  filter: var(--rough-button);
   transform: scale(1);
   transform-origin: center;
   pointer-events: none;
@@ -3424,7 +3479,7 @@ body:has(.battle) {
   z-index: 2;
   /* 和框线共用页面上那份公共滤镜。参数和按钮原来自带的私有滤镜完全一致（只差 seed），
      共用之后浏览器只需要为这个 id 算一次噪声。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
   transform: translateY(0);
   transition: transform 220ms cubic-bezier(0.16, 1.45, 0.35, 1);
 }
@@ -3679,13 +3734,13 @@ body:has(.battle) {
   fill: none;
   stroke: #8a92ad;
   stroke-width: 1.5;
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
   pointer-events: none;
 }
 
 .battle__turn-plaque-label {
   /* 和框线分开套滤镜，抖法也换一种，免得字和框歪成同一条线。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
   color: #b8c2d9;
   font-size: 21px;
   letter-spacing: 0.3em;
@@ -6957,5 +7012,73 @@ body:has(.battle) {
    */
   :root {
     --mute-size: 44px;
+  }
+}
+
+/* ============================================================
+   移动端性能档
+   ------------------------------------------------------------
+   同样按 pointer: coarse 判定（理由见上一节），但这一节和版式无关，
+   做的全是「把手机 GPU / CPU 吃不消的效果整批关掉」。分成两节而不是合并，
+   是因为两者的取舍标准完全不同：上一节改坏了是读不清，这一节改坏了是掉帧，
+   将来要回退也多半只回退其中一节。
+
+   为什么手机上非关不可：全站是 1672×941 的死版式再整体缩放到 0.36~0.41，
+   也就是说手机要画的东西和桌面一模一样多，而它的 GPU 和内存带宽差一个数量级。
+   ============================================================ */
+@media (pointer: coarse) {
+  /*
+   * 手绘线条滤镜整批关掉。变量的定义和「为什么置空值不置 none」写在文件开头的 :root，
+   * 内联 style 里那几处也是靠同一批变量才关得掉的。
+   *
+   * 为什么关：这套滤镜是 feTurbulence + feDisplacementMap，WebKit 在 CPU 上逐像素算，
+   * 而对局页同屏挂着它的元素有五六十个（三个雕花框各四角、两侧的额度星、每张手牌的问号
+   * 和匾额按钮、对手五张牌的徽记、顶栏描边、中线、分隔线…）。只要那片区域重绘一次
+   * ——出牌时的震屏抖的是 .battle 整棵树，额度花掉时星星换类名，按钮 hover / disabled——
+   * 这五六十条滤镜链就要全部重跑。
+   *
+   * 代价：线条从"手绘的歪"变回"尺子画的直"。位移本来就只有 ±1.5px 上下，
+   * 再乘 0.38 的舞台缩放，落到手机屏幕上不到半个像素，对局页基本看不出区别。
+   * 首页那几处（大标题、副标题）是 cqi 排版、不吃舞台缩放，字大、抖动看得出来，
+   * 这一档下会明显变直——这是明知道的取舍：首页只有十几个滤镜元素、本来也不卡，
+   * 但为了同一颗返回按钮在各页长相一致，不做"对局页关、别处不关"的分裂。
+   */
+  :root {
+    --rough-icon: ;
+    --rough-button: ;
+    --rough-frame: ;
+    --rough-alt: ;
+    --rough-rays: ;
+    --rough-compass: ;
+  }
+
+  /*
+   * 全屏背景模糊整批关掉，只留压暗。
+   *
+   * 为什么关：backdrop-filter 要求合成器把整块背景抠出来、降采样、模糊、再贴回去，
+   * 是移动端最贵的合成操作之一。而这几层偏偏都是**淡入淡出**的（GSAP 的 autoAlpha），
+   * 每一帧透明度都在变，等于整屏模糊要按帧重算。亮相层（.reveal-overlay）尤其要命：
+   * 每出一张牌都要过一遍，一局里几十次。
+   *
+   * 压暗补深一档作为补偿：模糊原本承担了一半的"把背景推远"，只剩半透明黑的话，
+   * 战场的线条会透过来和前景抢注意力。数值是照着"背景还认得出是战场、但不再吸引视线"定的。
+   *
+   * .settle 不在这里：它自己的背景是一整张不透明的羊皮纸，
+   * 早就写了 backdrop-filter: none（见那条规则），本来就没有模糊可关。
+   * .battle__result 那档只有 blur(2px)、压暗又已经到 78%，直接关掉不用补偿。
+   */
+  .reveal-overlay {
+    background: rgb(0 0 0 / 66%);
+    backdrop-filter: none;
+  }
+
+  .coin-toss,
+  .skill-cancel {
+    background: rgb(0 0 0 / 68%);
+    backdrop-filter: none;
+  }
+
+  .battle__result {
+    backdrop-filter: none;
   }
 }

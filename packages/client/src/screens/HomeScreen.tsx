@@ -50,6 +50,7 @@ import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardArtFor } from '../ui/cardArt'
+import { midFor } from '../ui/cardArtThumb'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
@@ -264,6 +265,15 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
  * 卡面插画走 cardArtFor 现算而不是写死文件名，是为了跟卡面里实际用的那张永远一致；
  * 四张卡有两张会分到同一张图，Set 去重一下，别为同一个地址排两次队。
  *
+ * 外面还要再套一层 midFor：这四张卡是 HandCardFace 画的，而它铺的是 600 宽那一档，
+ * 不是原画。这里少套一层，预载下来的和卡面请求的就是两个地址——图照下不误、
+ * 首页闸门照过不误，然后玩家眼看着四张卡一张张显影。
+ * （test/assetManifest.test.ts 有一条断言专门守这个"档位分家"。）
+ *
+ * 600 宽在这里是够用的：卡按 11cqi 排版，2 倍 DPR 下 2560 宽的屏幕要 563 个设备像素。
+ * 再宽的超宽屏（3440）会略微超出、插画轻微变软——这是全站唯一会碰到上界的地方，
+ * 真觉得看得出来，就把 scripts/gen-card-thumbs.sh 里 mid 档的宽度调大重烤。
+ *
  * index.html 里给 /home/ 下这几张写了 <link rel="preload">，那份清单要跟这里对得上：
  * 少写了只是晚一点开始下载，多写了会白下一张用不上的图。
  *
@@ -280,7 +290,7 @@ export const HOME_ASSETS = Array.from(
     // 匾额是「开始游戏」按钮的 CSS 背景图（见 styles.css 的 .home__start），
     // 页面里没有对应的 <img>，但同样得等它，否则按钮会先空着一块。
     '/home/home-plaque.webp',
-    ...SEATS.map((seat) => cardArtFor(seat.card.id)),
+    ...SEATS.map((seat) => midFor(cardArtFor(seat.card.id))),
   ]),
 )
 

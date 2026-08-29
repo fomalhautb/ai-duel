@@ -10,12 +10,18 @@
  * 只判竖屏的话，把电脑浏览器窗口拖窄成竖条的人也会被弹一脸提示，而他们本来就该自己拉宽窗口；
  * `pointer: coarse` 描述的是主要指针设备的精度，手机平板才为真，恰好是这条提示要拦的人。
  *
- * 留了一颗「仍要继续」：系统开了旋转锁定的人转多少下屏幕都不会变横，
- * 没有这个出口他们就被永久挡在门外了。关掉之后转回横屏、再转回竖屏会重新弹——
- * 这一次关闭只对"当前这一次竖屏"有效，不写存档，理由和整块提示一样：它本就该是临时的。
+ * 支持的浏览器上还给一颗「一键横屏」：进全屏 + 锁横屏，玩家不用转手机，也不用去关系统的
+ * 旋转锁定（见 ui/fullscreen.ts）。iPhone 上这两样都没有，按钮不会出现，提示退回纯文字版。
+ * 锁成功后设备方向变了，这层提示自己就消失了，不需要谁去关它。
+ *
+ * 另外留了一颗「仍要继续」：系统开了旋转锁定、又按不了「一键横屏」的人，
+ * 转多少下屏幕都不会变横，没有这个出口他们就被永久挡在门外了。
+ * 关掉之后转回横屏、再转回竖屏会重新弹——这一次关闭只对"当前这一次竖屏"有效，
+ * 不写存档，理由和整块提示一样：它本就该是临时的。
  */
 
 import { useEffect, useState } from 'react'
+import { canGoFullscreen, canLockLandscape, enterLandscapeFullscreen } from './fullscreen'
 
 /**
  * 竖屏 + 触屏。写成常量是为了在 SSR / 测试等没有 matchMedia 的环境里也能安全求值。
@@ -30,6 +36,12 @@ export function OrientationNotice() {
   const [portrait, setPortrait] = useState(false)
   /** 玩家按过「仍要继续」。转回横屏时清掉（见下面 apply）。 */
   const [dismissed, setDismissed] = useState(false)
+  /**
+   * 「一键横屏」能不能用。浏览器支持什么是一开始就定死的，只算一次。
+   * 两个条件都要：光能全屏、锁不了方向的话（比如 iPad Safari），按下去画面变大但没转过来，
+   * 玩家会以为按钮坏了，不如不给。
+   */
+  const [canRotate] = useState(() => canGoFullscreen() && canLockLandscape())
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -67,7 +79,19 @@ export function OrientationNotice() {
         <h2 className="rotate-notice__title" id="rotate-notice-title">
           请横屏游玩
         </h2>
-        <p className="rotate-notice__text">把手机横过来，画面会自动铺满。</p>
+        <p className="rotate-notice__text">
+          {canRotate ? '点下面这颗，画面会自动转成横屏并铺满。' : '把手机横过来，画面会自动铺满。'}
+        </p>
+        {canRotate && (
+          <button
+            type="button"
+            className="rotate-notice__rotate"
+            // 必须在这个点击回调里同步发起，全屏和方向锁都只认用户手势。
+            onClick={() => void enterLandscapeFullscreen()}
+          >
+            一键横屏
+          </button>
+        )}
         <button type="button" className="rotate-notice__skip" onClick={() => setDismissed(true)}>
           仍要继续
         </button>

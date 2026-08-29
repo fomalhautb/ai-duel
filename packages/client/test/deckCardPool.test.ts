@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { CARD_POOL, SKILL_DESIGN_CARD_IDS, getCard } from '@ai-duel/core'
+import {
+  AI_MODEL_CARD_IDS,
+  CARD_POOL,
+  COMING_SOON_SKILL_CARD_IDS,
+  OPEN_SKILL_CARD_IDS,
+  SKILL_DESIGN_CARD_IDS,
+  getCard,
+} from '@ai-duel/core'
 import type { CardId, SkillCard } from '@ai-duel/core'
 import { cardBackText } from '../src/ui/cardText'
 
@@ -38,21 +45,32 @@ describe('牌组页卡池', () => {
     expect(counted).toBe(CARD_POOL.length)
   })
 
-  it('24 张技能卡都在卡池里，要选目标的正好是接进引擎的那 5 张', () => {
+  it('卡池 = 18 张 AI + 已开放的 10 张技能牌', () => {
+    // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、示例牌组和抽卡全都按它走，
+    // 名单一改（开放 / 收回某张技能牌）就该在这里当场红。
+    expect(CARD_POOL).toEqual([...AI_MODEL_CARD_IDS, ...OPEN_SKILL_CARD_IDS])
+    expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(OPEN_SKILL_CARD_IDS).toHaveLength(10)
+  })
+
+  it('开放的 10 张技能卡都在卡池里，要选目标的正好是其中那 5 张', () => {
     // 这批牌从"只有设计稿的展示数据"转正成了真卡（core 的 SKILL_DESIGN_CARDS），
     // 所以它们必须满足卡池的全部约束：取得到定义、算技能牌。
     // target 那条尤其要守：效果还没接进引擎的牌一旦填了 target，引擎就会逼玩家点一个目标，
     // 而点完什么都不会发生。反过来，接进引擎、又确实要玩家指一个目标的那几张必须填对档位
     //（客户端照 target 决定亮哪一批目标，见 MatchStage 的 boardTargetsOf）。
     const pool = new Set<string>(CARD_POOL)
-    expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
-    for (const cardId of SKILL_DESIGN_CARD_IDS) {
+    for (const cardId of OPEN_SKILL_CARD_IDS) {
       expect(pool.has(cardId)).toBe(true)
       const card = getCard(cardId)
       // 这一句既是"必须是技能牌"那条断言，也顺带把类型收窄到 SkillCard，下面才读得到 target。
       if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)
       expect(card.target).toBe(TARGETED_SKILLS[cardId])
     }
+    // 反过来也要成立：要选目标的这 5 张全在开放名单里，没有一张漏在「即将上线」那边。
+    expect(Object.keys(TARGETED_SKILLS).sort()).toEqual([...OPEN_SKILL_CARD_IDS]
+      .filter((id) => TARGETED_SKILLS[id] !== undefined)
+      .sort())
   })
 
   it('接进引擎的技能牌各有一段自己的卡背文案，不会印成「还没实装」', () => {
@@ -67,6 +85,18 @@ describe('牌组页卡池', () => {
       // 认的是占位分支那句独一份的话（「还没接进规则引擎」）：光找"还没"两个字会误伤
       //「还没被干扰过的 AI」这种正经文案。
       expect(text.includes('还没接进规则引擎')).toBe(card.plannedEffect !== undefined)
+    }
+  })
+
+  it('「即将上线」的 14 张不在卡池里，但卡面照样查得到', () => {
+    // 牌组页把这批牌拼在卡池后面灰着展示（见 DeckScreen 的 DISPLAY_CARD_IDS），
+    // 所以 getCard 必须查得到——查不到那一屏当场抛错。
+    // 而它们又绝不能进卡池：进了就等于玩家能把还没开放的牌选进牌组。
+    const pool = new Set<string>(CARD_POOL)
+    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(14)
+    for (const cardId of COMING_SOON_SKILL_CARD_IDS) {
+      expect(pool.has(cardId)).toBe(false)
+      expect(getCard(cardId).kind).toBe('skill')
     }
   })
 })

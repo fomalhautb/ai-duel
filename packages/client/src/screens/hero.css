@@ -157,6 +157,23 @@
 }
 
 /* ============================================================
+   底部返回按钮（只有纯查看那一版有）
+   ============================================================ */
+
+/*
+ * 落在设计稿当年给常驻确认按钮留的那块地方：两排卡（.hero__grid--with-foot）之下、
+ * 舞台底边之上，居中一颗。按钮本身的配色和尺寸和详情里那颗「确认英雄」共用一份规则。
+ */
+.hero__foot {
+  position: absolute;
+  right: 0;
+  bottom: 2.2%;
+  left: 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* ============================================================
    标题区
    ============================================================ */
 
@@ -253,7 +270,8 @@
   position: absolute;
   /* 原设计稿里第一排卡顶边在 y=154px（14.26%），那是给底下那颗常驻确认按钮留位置的。
      按钮挪进详情之后底部空出一大块，整组卡看着就靠上了，所以整体下压到 19%，
-     让两排卡在标题和舞台底边之间大致居中。 */
+     让两排卡在标题和舞台底边之间大致居中。
+     纯查看那一版底下又有按钮了，走下面的 --with-foot 退回 14.26%。 */
   top: 19%;
   right: 0;
   left: 0;
@@ -261,6 +279,12 @@
   flex-direction: column;
   align-items: center;
   gap: 2.4cqi;
+}
+
+/* 底下补了返回按钮的那一版：两排卡回到设计稿原来的 14.26%，
+   把舞台底部那块地方让给按钮（没有按钮时才是上面那个 19%）。 */
+.hero__grid--with-foot {
+  top: 14.26%;
 }
 
 .hero__row {
@@ -379,7 +403,7 @@
  * 选择器都多带一级 .hero：不加的话和 styles.css 里的 .plaque-button 特异性相同，
  * 谁赢取决于两份样式表的加载先后，按钮会变回墨蓝。
  */
-.hero .hero__confirm {
+.hero :is(.hero__confirm, .hero__return) {
   --plaque-fill: #e7ddc6;
   --plaque-edge: #8f7c56;
   --plaque-line: rgb(120 100 66 / 55%);
@@ -404,15 +428,15 @@
 
 /* 这两笔在 .plaque-button 里是写死的浅灰，本来是配墨蓝底的；
    换成浅色板面之后要压深一档，否则四角的短线和那两颗星几乎看不见。 */
-.hero .hero__confirm .plaque-button__corner {
+.hero :is(.hero__confirm, .hero__return) .plaque-button__corner {
   stroke: rgb(120 100 66 / 45%);
 }
 
-.hero .hero__confirm .plaque-button__spark {
+.hero :is(.hero__confirm, .hero__return) .plaque-button__spark {
   fill: #a08c68;
 }
 
-.hero .hero__confirm:hover {
+.hero :is(.hero__confirm, .hero__return):hover {
   --plaque-fill: #f2e9d5;
   --plaque-line: rgb(120 100 66 / 75%);
   color: #1f242a;
@@ -425,11 +449,11 @@
  * 焦点等于没有提示。改成给覆盖层 ::before 加一圈内描边，它在裁剪范围之内，跑不掉。
  * ::before 原本那两道内阴影要一起写回来：box-shadow 是整条覆盖不是叠加。
  */
-.hero .hero__confirm:focus-visible {
+.hero :is(.hero__confirm, .hero__return):focus-visible {
   outline: none;
 }
 
-.hero .hero__confirm:focus-visible::before {
+.hero :is(.hero__confirm, .hero__return):focus-visible::before {
   box-shadow:
     inset 0 0 0 0.16cqi var(--hero-gold),
     inset 0 2px 0 rgb(255 255 255 / 8%),
@@ -442,8 +466,8 @@
  * 按钮看起来就没被按下去。这条把两边合起来写一遍。
  * data-pressed 也要认：PlaqueButton 用它撑住最短按压时长，点得再快也要按满 70ms。
  */
-.hero .hero__confirm:focus-visible:active::before,
-.hero .hero__confirm:focus-visible[data-pressed='true']::before {
+.hero :is(.hero__confirm, .hero__return):focus-visible:active::before,
+.hero :is(.hero__confirm, .hero__return):focus-visible[data-pressed='true']::before {
   box-shadow:
     inset 0 0 0 0.16cqi var(--hero-gold),
     inset 0 7px 13px rgb(4 8 15 / 58%),
@@ -644,6 +668,22 @@
    用 visibility 不用 display：留着盒子，飞回时 Flip 量到的落点才是对的。 */
 .hero__card.is-zoomed .hero__card-lift {
   visibility: hidden;
+}
+
+/*
+ * 新手教程里被锁住的那六位（技能都写着「待实装」，见 HeroScreen 的 tutorial prop）。
+ *
+ * 去色 + 压暗到能看清是谁、但一眼看得出"这张不能选"；光标改成默认，不做出可点的样子。
+ * 仍然是真按钮、也不加 disabled：点上去要能弹一句"其余几位还没实装"，
+ * disabled 的按钮连 click 都不会触发（同 DeckScreen 里那些被挡下的操作）。
+ * 悬停上浮由 JS 那侧照 data-locked 跳过——那段位移是 GSAP 写的行内 transform，CSS 压不住。
+ */
+.hero__card[data-locked='true'] {
+  cursor: default;
+}
+
+.hero__card[data-locked='true'] .hero__card-tilt {
+  filter: grayscale(0.85) brightness(0.55);
 }
 
 /* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时。做法同首页（见 styles.css 的同名块）。

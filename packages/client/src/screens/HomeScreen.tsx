@@ -34,7 +34,9 @@
  * 真要清晰只能它也换 2x：按 3344×1882 重新导出、同名覆盖就行，
  * 代码一行都不用改——所有图层都是 width/height: 100%，多大的图都按舞台尺寸铺满。
  *
- * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
+ * "开始游戏"按存档分流：没走完新手教程的进 /tutorial，走完的直接进匹配房。
+ * 分流在点下去那一刻现读存档，不在挂载时读一次——教程和首页之间来回跳时，
+ * 提前读的那份会是过期的。
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -52,6 +54,7 @@ import { cardArtFor } from '../ui/cardArt'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -614,13 +617,26 @@ function HomeStage() {
           </span>
         </p>
 
-        <button type="button" className="home__start" onClick={() => navigate('/room')}>
+        <button
+          type="button"
+          className="home__start"
+          onClick={() => {
+            // 手机上顺手进全屏并锁横屏：这是整个流程里第一次、也是最自然的一次用户点击，
+            // 而全屏和方向锁都只认用户手势。不支持（iPhone）或被拒都只是没生效，
+            // 不影响往下走，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
+            // 只对触屏做：电脑上按个"开始游戏"就把浏览器变全屏太越界了，那边有 F11。
+            if (isCoarsePointer()) void enterLandscapeFullscreen()
+            // 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。
+            navigate(loadSave().tutorialDone ? '/room' : '/tutorial')
+          }}
+        >
           <span className="home__start-label">开始游戏</span>
         </button>
 
         {/*
-          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组还没有对应页面。这两项刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+          「信息」已经有 /info 了，所以只有它是真按钮（样式差别见 .home__nav-item--link）。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
@@ -631,9 +647,13 @@ function HomeStage() {
             牌组
           </span>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button
+            type="button"
+            className="home__nav-item home__nav-item--link"
+            onClick={() => navigate('/info')}
+          >
             信息
-          </span>
+          </button>
         </nav>
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。

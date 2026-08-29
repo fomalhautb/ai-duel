@@ -20,6 +20,9 @@
  *    不再从 `score !== null` 直接推导——推导出来的话三样会在计分事件到达的同一帧全部跳完。
  * 4. **退场**：阶段离开 settle 时整层淡出缩小，`onComplete` 里才通知 MatchStage 收层。
  *
+ * 凡是从这些动画的回调里往外调 props 的（收层、演出节点），一律经 `notifyOutside` 发，
+ * 别直接调——gsap 的 context 会顺着这条路把外面那个组件收养进来，原委见那个函数的注释。
+ *
  * 打字机用 GSAP 的 TextPlugin，它写的是元素的 innerHTML，会和 React 渲染的文本互相覆盖。
  * 解法是**让 React 完全不管这两个节点的文本**：`.settle-card__answer` / `__reasoning`
  * 在 JSX 里渲染成空元素，全文挂在 `data-text` 属性上（属性归 React 管，内容归 GSAP 管），
@@ -32,7 +35,7 @@ import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { TextPlugin } from 'gsap/TextPlugin'
 import { getCard } from '@ai-duel/core'
-import type { CardId, GamePhase, InstanceId, Question } from '@ai-duel/core'
+import type { CardId, GamePhase, InstanceId, Question, RoundVerdict } from '@ai-duel/core'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { HandCardFace } from './HandFan'
@@ -138,16 +141,28 @@ export interface SettleAiResult {
   safePassed?: true
 }
 
+/** 我方 / 对方各算不算答对。团队口径：己方至少一个 AI 答对就算答对（见 core 的 submitAnswers）。 */
+export interface SettleCorrect {
+  mine: boolean
+  theirs: boolean
+}
+
 /** 本轮计分。`ROUND_SCORED` 到了才有，在那之前整层按"还在作答"的样子画。 */
 export interface SettleScore {
-  /** 各自答对的 AI 数。 */
-  correct: SettleSides
-  /** 各自本轮花掉的 Token，答对数相同时靠它分胜负。 */
+  /**
+   * 各自算不算答对。注意是**布尔**不是个数：这一版规则先看"这一方有没有答对"，
+   * 答对几个不影响判定（场上没 AI 的一方视为没答对）。
+   * 面板上那行「正确 N / M」只是给玩家看的战况统计，不是判据，由结果卡自己数出来。
+   */
+  correct: SettleCorrect
+  /** 各自本轮花掉的 Token，双方同对或同错时靠它分胜负。 */
   spent: SettleSides
   /** 本轮各自拿到的分，只可能是 0 或 1；打平是双方各 1。 */
   gains: SettleSides
   /** 加完之后的总分。 */
   totals: SettleSides
+  /** 这一分是按哪条规则分出来的，底栏那句结论直接照它写（见 core 的 RoundVerdict）。 */
+  verdict: RoundVerdict
 }
 
 /** 一次结算要显示的全部内容。 */
@@ -164,6 +179,20 @@ export interface RoundSettle {
   score: SettleScore | null
 }
 
+/**
+ * 主线演到的两个节点，只有新手教程听：它要等这一层演到某一步才说下一句话。
+ *
+ * 这两个名字说的是**这一层自己的演出结构**，不是教程的步骤名——
+ * 教程那边把它们翻译成自己的舞台信号（见 MatchStage 里接这个回调的地方）。
+ * 另外两个节点各有现成的出口：整层立起来是 MatchStage 收到 QUESTION_REVEALED 那一刻，
+ * 整层退场完毕走 onExited。
+ */
+export type SettleStageName =
+  /** 全部结果卡的判定章都盖完了，也就是"逐张揭晓"这段演完。 */
+  | 'results-done'
+  /** 顶栏比分已经跳到本轮加完之后的总分（那下脉冲也做完了）。 */
+  | 'score-shown'
+
 export interface RoundSettleLayerProps {
   settle: RoundSettle
   /** 本局总轮数。最后一轮的确认按钮换成「查看终局结算」。 */
@@ -174,6 +203,13 @@ export interface RoundSettleLayerProps {
   onConfirm: () => void
   /** 该收层了。退场动画播完才调，调完 MatchStage 会把整层卸掉。 */
   onExited: () => void
+  /**
+   * 主线演到关键节点时报一声，正式对局不传。
+   *
+   * 挂在主线时间线上的 `.call` 里，所以它和屏幕上看到的是同一个时刻——
+   * 教程据此决定"这句话什么时候说"，早一拍会压在还在打字的卡片上。
+   */
+  onStage?: (name: SettleStageName) => void
 }
 
 /** 顶栏步骤条的三步，顺序固定。 */
@@ -187,6 +223,7 @@ export function RoundSettleLayer({
   foeConfirmed,
   onConfirm,
   onExited,
+  onStage,
 }: RoundSettleLayerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -229,7 +266,7 @@ export function RoundSettleLayer({
 
   // 阶段 A：入场。依赖 settle.key，而这个 key 同时也是 React key，所以整段只在挂载时跑一次。
   useGSAP(
-    (_context, contextSafe) => {
+    (ctx, contextSafe) => {
       const root = rootRef.current
       if (root === null) return
       mountedAtRef.current = performance.now()
@@ -246,7 +283,10 @@ export function RoundSettleLayer({
           duration: dur(EXIT_DUR),
           ease: 'power2.in',
           overwrite: 'auto',
-          onComplete: () => onExitedRef.current(),
+          // 收层这一下必须走 notifyOutside：MatchStage 的 onExited 里会调它自己的
+          // contextSafe 函数，不隔开的话它整个 context 会被本层收养，跟着本层一起被 revert
+          // （横幅永久卡死就是这么来的，原委见 notifyOutside 的注释）。
+          onComplete: () => notifyOutside(ctx, () => onExitedRef.current()),
         })
       }
       playExitRef.current = contextSafe ? contextSafe(playExit) : playExit
@@ -366,7 +406,7 @@ export function RoundSettleLayer({
 
   // 阶段 B：主线。计分事件到了才起跑，整条线的节拍全写在这里。
   useGSAP(
-    () => {
+    (ctx) => {
       const root = rootRef.current
       if (root === null || score === null) return
       const reduced = prefersReducedMotion()
@@ -499,6 +539,9 @@ export function RoundSettleLayer({
         }
       })
       at = stampStart + Math.max(0, cards.length - 1) * gap(STAMP_STAGGER) + dur(STAMP_DUR)
+      // 逐张揭晓到此为止。教程等的就是这一拍——再早说话会压在还在打字的卡上。
+      // 同退场那处，往外发信号一律隔开本层的 context（见 notifyOutside）。
+      tl.call(() => notifyOutside(ctx, () => onStageRef.current?.('results-done')), undefined, at)
 
       // ④ 两侧标头的「正确 x / N」淡入，「本轮领先」徽章弹一下。
       const counts = all(root, '.settle__squad-sep, .settle__squad-correct')
@@ -554,6 +597,8 @@ export function RoundSettleLayer({
         at += 0.35
       }
       tl.call(() => setStep(3), undefined, at)
+      // 比分已经跳完（含那下脉冲），教程可以指着顶栏讲这一分为什么归谁了。
+      tl.call(() => notifyOutside(ctx, () => onStageRef.current?.('score-shown')), undefined, at)
 
       // ⑥ 按钮淡入，落地那一刻才解锁。
       const slot = all(root, '.settle__confirm-slot')
@@ -582,6 +627,12 @@ export function RoundSettleLayer({
    */
   const onExitedRef = useRef(onExited)
   onExitedRef.current = onExited
+  /**
+   * 同 onExitedRef：主线时间线是在 useGSAP 里一次性排好的，闭包会把当时那个回调锁住。
+   * 存进 ref 每次渲染刷新，时间线跑到那一拍时调到的才是现在这个。
+   */
+  const onStageRef = useRef(onStage)
+  onStageRef.current = onStage
   const exitedRef = useRef(false)
   useEffect(() => {
     if (phase === 'quiz' || phase === 'settle') return
@@ -682,13 +733,13 @@ export function RoundSettleLayer({
         <SettleSquad
           side="mine"
           results={mine}
-          correct={score === null ? null : score.correct.mine}
+          scored={score !== null}
           lead={lead === null ? null : lead.mine}
         />
         <SettleSquad
           side="foe"
           results={theirs}
-          correct={score === null ? null : score.correct.theirs}
+          scored={score !== null}
           lead={lead === null ? null : lead.theirs}
         />
       </div>
@@ -730,22 +781,26 @@ export function RoundSettleLayer({
 /**
  * 一侧的结果面板：一条竖页签 + 标头 + 一行结果卡。
  *
- * correct / lead 为 null 表示还没计分，那两样先不显示——
+ * scored 为 false（还没计分）时正确数和 lead 都不显示——
  * 在结果出来之前把「正确 0 / 3」摆出来，看着像所有 AI 都答错了。
  * 计分之后它们才被渲染出来，但仍然是隐着的：由主线在盖完章那一拍点名淡入。
+ *
+ * 正确数是从这一侧的结果卡现数的，不看 SettleScore：那边的 correct 是团队口径的布尔值
+ *（这一方有没有答对），而标头这行要的是"几个里对了几个"的战况，两者不是一回事。
  */
 function SettleSquad({
   side,
   results,
-  correct,
+  scored,
   lead,
 }: {
   side: 'mine' | 'foe'
   results: SettleAiResult[]
-  correct: number | null
+  scored: boolean
   lead: string | null
 }) {
   const label = side === 'mine' ? '我方' : '对方'
+  const correct = scored ? results.filter((item) => item.correct).length : null
   return (
     <section className={`settle__squad settle__squad--${side}`}>
       <span className="settle__squad-tab" aria-hidden="true" />
@@ -828,6 +883,30 @@ function SettleCard({ result }: { result: SettleAiResult }) {
       {result.safePassed === true ? <span className="settle-card__safe">保送留场</span> : null}
     </article>
   )
+}
+
+/**
+ * 从本层的 gsap 动画回调里往外通知（调 props 传进来的回调）时，必须裹这一层。
+ *
+ * gsap 有个"context 收养"的坑，两条机制凑在一起才发作：
+ * - 动画回调（onComplete / onStart / 时间线的 .call 等）执行期间，gsap 会把全局的
+ *   "当前 context" 设成这条动画所属的 context（gsap-core 的 `_callback`）。
+ * - useGSAP 的 `contextSafe` 包出来的函数一进来就检查全局有没有别的 context 活着，
+ *   有的话就把**自己这个 context 挂成对方的子节点**（gsap-core 的 `Context.add`）。
+ *
+ * 于是：本层的退场动画在 onComplete 里调 MatchStage 的 onExited，而 onExited 里随手调了
+ * 一个 MatchStage 的 contextSafe 函数（pumpBanner），MatchStage 那**整个** context 就被
+ * 挂到了本层的 context 底下；同一个 onExited 又把本层卸掉，useGSAP 清理时 revert 会级联
+ * revert 子 context，把 MatchStage 里正在飞的回合横幅、发牌兜底之类全部连坐杀掉。
+ * 表现是横幅淡入到一半被 revert、内联样式还原成不透明，就那么钉在全屏上再也不退场。
+ *
+ * `ctx.ignore` 就是给这种边界准备的：它在执行期间把全局 context 清空，跑完再恢复，
+ * 外部代码于是落不到本层名下。凡是从本层动画回调里发出去的外部回调都要走这里。
+ *
+ * 注意这不是教程专属的问题：正式对局同样会踩（onExited 那条路两边都走）。
+ */
+function notifyOutside(ctx: gsap.Context, notify: () => void): void {
+  ctx.ignore(() => notify())
 }
 
 /**
@@ -915,40 +994,42 @@ function leadOf(gains: SettleSides): { mine: string | null; theirs: string | nul
 /**
  * 底栏正中那句结果文案：把"凭什么这一分给了谁"讲清楚。
  *
- * 判据的顺序和引擎里的计分一模一样（见 core 的 submitAnswers）：
- * 先比本轮答对的 AI 数，一样多再比谁花的 Token 少，还一样就双方各拿 1 分。
+ * 三档判定和引擎里的计分一一对应（见 core 的 RoundVerdict）：
+ * 只有一方答对就那方拿分；双方同对或同错就比本轮消耗，少的一方拿分；消耗也一样就各拿 1 分。
  * 只有我方赢的那两句带「+1 分」——对方赢的时候写「+1 分」，玩家会以为加的是自己的分。
  *
- * 返回的是节点不是字符串：比分那两个数要分别染成我方绿和对方红。
+ * 比 Token 那两档要把双方的消耗数字摆出来：玩家得看见数字，才明白"省 Token"是真能赢分的。
+ * 返回的是节点不是字符串：消耗那两个数要分别染成我方绿和对方红。
  */
 export function settleResultTextOf(score: SettleScore): ReactNode {
-  const { correct, spent } = score
+  const { correct, spent, verdict } = score
 
-  if (correct.mine !== correct.theirs) {
-    const iWin = correct.mine > correct.theirs
-    // 胜方的答对数排在前面，冒号两边的数跟着各自的阵营染色。
-    const first = iWin ? correct.mine : correct.theirs
-    const second = iWin ? correct.theirs : correct.mine
+  if (verdict === 'sole-correct') {
+    return correct.mine ? '只有我方答对 · 赢得本轮 · +1 分' : '只有对方答对 · 赢得本轮'
+  }
+
+  // 剩下两档双方同对或同错，先把"同对还是同错"说清楚，再摆消耗。
+  const both = correct.mine ? '双方都答对' : '双方都答错'
+  const spendPair = (
+    <>
+      <span className="settle__verdict-num--mine">{spent.mine}</span>
+      <span className="settle__verdict-colon"> : </span>
+      <span className="settle__verdict-num--foe">{spent.theirs}</span>
+    </>
+  )
+
+  if (verdict === 'fewer-tokens') {
     return (
       <>
-        {iWin ? '我方 ' : '对方 '}
-        <span className={iWin ? 'settle__verdict-num--mine' : 'settle__verdict-num--foe'}>
-          {first}
-        </span>
-        <span className="settle__verdict-colon"> : </span>
-        <span className={iWin ? 'settle__verdict-num--foe' : 'settle__verdict-num--mine'}>
-          {second}
-        </span>
-        {iWin ? ' 赢得本轮 · +1 分' : ' 赢得本轮'}
+        {both} · 消耗 {spendPair}
+        {spent.mine < spent.theirs ? ' · 我方更省 · +1 分' : ' · 对方更省'}
       </>
     )
   }
 
-  if (spent.mine !== spent.theirs) {
-    return spent.mine < spent.theirs
-      ? '正确数战平 · 我方消耗更少 · +1 分'
-      : '正确数战平 · 对方消耗更少'
-  }
-
-  return '势均力敌 · 双方各 +1 分'
+  return (
+    <>
+      {both} · 消耗同为 {spendPair} · 势均力敌 · 双方各 +1 分
+    </>
+  )
 }

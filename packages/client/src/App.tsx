@@ -14,9 +14,11 @@ import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
 import { OrientationNotice } from './ui/OrientationNotice'
 import { HomeScreen } from './screens/HomeScreen'
+import { InfoScreen } from './screens/InfoScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { TutorialScreen } from './screens/TutorialScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
 import { GenerationScreen } from './screens/GenerationScreen'
@@ -39,6 +41,8 @@ export function App() {
       <OrientationNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
+        {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}
+        <Route path="/info" component={InfoScreen} />
         {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
         <Route path="/hero" component={HeroRoute} />
         {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，
@@ -46,6 +50,9 @@ export function App() {
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
+        {/* 新手教程的教学对战。自己建 driver、自己收，不进 MatchSession，也不记胜场
+            （教学局是写死结局的剧本）。组牌 / 选英雄 / 完成页是后面接的另一段。 */}
+        <Route path="/tutorial" component={TutorialScreen} />
         {/* 开发页导航，集中收录调试入口。 */}
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}

@@ -674,33 +674,25 @@
 }
 
 /*
- * 卡池卡右上角的问号圆圈（纯展示）。正反两面各一个，都在 __inner 里面，
- * 所以它们跟着卡一起歪、一起转过去。
+ * 卡池卡右上角的问号圆章（纯展示）。正反两面各一个，都在 __inner 里面，
+ * 所以它们跟着卡一起歪、一起转过去。只有技能牌才长这个章（AI 牌不翻面，见 DeckScreen）。
+ *
+ * 长相是公共的 .card-help-mark（手绘线条 + 夜色圆底，见 ui/CardHelpMark.tsx），
+ * 和右下角那颗圆钮 .deck-circle 是一副长相；这里只补落位、尺寸和显隐。
  *
  * 摆在 __face 里、缩放层**外面**：它要按屏幕像素算，跟着 --deck-pool-scale 一起放大就太大了。
- * z-index 是为了盖在卡面之上：所在的 __face 不是 preserve-3d，这里按普通 2D 层叠算。
- * 配色走本页深蓝面板那套（金描边 + 夜色底），不抄手牌那份天蓝。
+ * z-index（在 .card-help-mark 上）是为了盖在卡面之上：所在的 __face 不是 preserve-3d，
+ * 这里按普通 2D 层叠算。
  * 二十几张卡上常驻二十几个问号太吵，只在指到某张卡时淡入。
  *
  * 显隐是纯 CSS（opacity + transition）。要改成 GSAP 的 autoAlpha 驱动的话，
  * 必须先把下面那条 :hover 规则删掉，否则两边抢同一个属性。
  */
 .deck-pool-card__help-mark {
-  position: absolute;
   top: 7px;
   right: 7px;
-  z-index: 3;
-  display: grid;
-  place-items: center;
   width: 26px;
   height: 26px;
-  border: 1px solid rgb(217 164 65 / 70%);
-  border-radius: 50%;
-  background: rgb(18 24 38 / 82%);
-  color: #f0dfb4;
-  font-size: 14px;
-  line-height: 1;
-  pointer-events: none;
   opacity: 0;
   transition: opacity 0.16s ease;
 }
@@ -824,11 +816,65 @@
   outline-offset: -4px;
 }
 
-/* 选满两份：整卡退到背景里，明确「这张不用再看了」。滤镜只压正面卡面（.card-face），
-   问号、圆圈按钮和圆章都在这棵子树外面，仍然保持清晰；背面（.card-back）也不压——
-   翻过去是为了读那段说明，褪色只会让它更难读。 */
-.deck-pool-card[data-picked='2'] .card-face {
+/* 份数选满（MAX_COPIES）：整卡退到背景里，明确「这张不用再看了」。
+   认的是 data-full 而不是 data-picked 的具体数字——那样每调一次 MAX_COPIES 都得记得回来改
+   选择器里的数（属性由 DeckScreen 的 PoolCard 现算）。
+   滤镜只压正面卡面（.card-face），问号、圆圈按钮和圆章都在这棵子树外面，仍然保持清晰；
+   背面（.card-back）也不压——翻过去是为了读那段说明，褪色只会让它更难读。 */
+.deck-pool-card[data-full] .card-face {
   filter: grayscale(0.72) brightness(0.66);
+}
+
+/* ============================================================
+   即将上线的技能牌
+   ------------------------------------------------------------
+   这批牌（core 的 COMING_SOON_SKILL_CARD_IDS）摆在卡池最后，只能看不能选。
+   压得比"选满份数"更狠一档：那种灰是"这张已经拿够了"，这种是"这张还拿不到"，
+   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __soon 牌子。
+   同样只压正面：背面那段说明还是要读的。
+   ============================================================ */
+.deck-pool-card[data-soon] {
+  cursor: not-allowed;
+}
+
+.deck-pool-card[data-soon] .card-face {
+  filter: grayscale(1) brightness(0.48);
+}
+
+/* hover 那圈金光是"这张可以拿"的意思，加不了的牌不该亮它。
+   多带一个属性选择器就压过了上面那条 .deck-pool-card:hover .deck-pool-card__glow，
+   不用 !important。 */
+.deck-pool-card[data-soon]:hover .deck-pool-card__glow {
+  opacity: 0;
+}
+
+/*
+ * 卡面正中那块「即将上线」的牌子。
+ *
+ * 是 .deck-pool-card 的直接子级（同 __glow / __seal），所以不跟着卡面倾斜和翻面，
+ * 也不跟着 --deck-pool-scale 放大——它按屏幕像素排，和问号、圆钮是一档。
+ * 摆正中而不是角上：四个角都被占了（左上 Token 圆章、右上问号、右下「＋」、左下选中圆章），
+ * 而且正中压的是插画留白，盖不掉任何字。
+ * transform 不用 translate 独立属性：这一层虽然现在没有 GSAP 碰，但整页别处有过
+ * "GSAP 内联 transform 压死独立属性"的坑，统一写 transform 省得日后踩。
+ */
+.deck-pool-card__soon {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  padding: 4px 11px;
+  border: 1px solid rgb(255 229 164 / 48%);
+  border-radius: 999px;
+  background: rgb(10 15 26 / 88%);
+  box-shadow: 0 3px 12px rgb(4 9 19 / 55%);
+  color: #ffeec5;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 /* 抓在手上的那张：换光标、加重投影。zIndex 由 hook 写在内联样式上。 */
@@ -840,7 +886,7 @@
 
 /*
  * 选中圆章：金底墨字，钉在卡的左下角，约三分之一探出卡外。
- * 一份显示「✓」，两份（MAX_COPIES）显示「×2」。
+ * 一份显示「✓」，多带几份就显示「×2」「×3」。
  *
  * 四个角是分配好的：左上是卡面自带的 Token 圆章（不能压），右上是问号，
  * 右下是「＋」，只剩左下给它。
@@ -948,7 +994,7 @@
   box-shadow: 0 0 0 2px rgb(217 164 65 / 45%);
 }
 
-/* 加不进去（牌组满了 / 已经两份）。用 data-disabled 而不是真的 disabled：
+/* 加不进去（牌组满了 / 份数选满了 / 这张还没上线）。用 data-disabled 而不是真的 disabled：
    真禁用的按钮连 click 都不发，就没法在点它的时候摇头 + 弹一句原因（见 DeckScreen 的 addFromPool）。
    所以这里只画出禁用的样子，行为归 JS 判。 */
 .deck-circle--add[data-disabled] {
@@ -1039,7 +1085,8 @@
 /* ============================================================
    问号（看背面）
    ------------------------------------------------------------
-   只管交互的透明热区，卡池卡和迷你卡共用这一个类；看得见的圆圈是各自的 __help-mark。
+   只管交互的透明热区，卡池卡和迷你卡共用这一个类；看得见的圆章是各自的 __help-mark。
+   只有技能牌会渲染这块热区：AI 牌的背面是一张通用美术图，翻过去读不到东西，所以不给它翻面。
    视觉和热区必须分开：圆圈要跟着卡翻到背面去，而热区绝对不能跟着翻，
    否则牌一翻过去按钮就转到指针够不着的地方，翻回来又被 hover 到，来回抖个没完
    （原委见 styles.css 的 .hand-fan__help）。所以热区挂在 __tilt 里、__inner 外。
@@ -1713,23 +1760,12 @@
   transform-origin: top left;
 }
 
-/* 迷你卡上的问号圆圈。同 .deck-pool-card__help-mark，只是小一号、贴得更靠边。 */
+/* 迷你卡上的问号圆章。同 .deck-pool-card__help-mark，只是小一号、贴得更靠边。 */
 .deck-mini__help-mark {
-  position: absolute;
   top: 4px;
   right: 4px;
-  z-index: 3;
-  display: grid;
-  place-items: center;
   width: 20px;
   height: 20px;
-  border: 1px solid rgb(217 164 65 / 70%);
-  border-radius: 50%;
-  background: rgb(18 24 38 / 82%);
-  color: #f0dfb4;
-  font-size: 12px;
-  line-height: 1;
-  pointer-events: none;
   opacity: 0;
   transition: opacity 0.16s ease;
 }
@@ -1778,20 +1814,11 @@
 }
 
 /* 不满 20 张时的提示。这一条是「为什么按钮点不了」的答案，所以用生命红，
-   不跟旁边的说明文字同色。 */
+   不跟旁边的说明文字同色。凑满之后这一条整个消失，只剩左边那行操作说明。 */
 .deck-shortfall {
   flex: none;
   margin: 0;
   color: var(--c-life);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-}
-
-/* 凑满 20 张之后顶替上面那条红字。留一句话而不是留空，是为了这一行的高度不跳。 */
-.deck-done {
-  flex: none;
-  margin: 0;
-  color: var(--c-green);
   font-size: 13px;
   letter-spacing: 0.08em;
 }

@@ -13,7 +13,7 @@
 import { getCard } from '@ai-duel/core'
 import type { CardId } from '@ai-duel/core'
 
-export type DeckFaction = 'gpt' | 'claude' | 'kimi' | 'deepseek' | 'cn' | 'other'
+export type DeckFaction = 'gpt' | 'claude' | 'kimi' | 'deepseek' | 'other'
 
 /** 阵营药丸。数组顺序就是界面上从左到右的顺序。 */
 export const FACTIONS: readonly { id: DeckFaction; label: string }[] = [
@@ -21,30 +21,21 @@ export const FACTIONS: readonly { id: DeckFaction; label: string }[] = [
   { id: 'claude', label: 'Claude' },
   { id: 'kimi', label: 'Kimi' },
   { id: 'deepseek', label: 'DeepSeek' },
-  { id: 'cn', label: '国产通用' },
   { id: 'other', label: '其他' },
 ]
 
 /**
+ * 一张 AI 牌属于哪个阵营。技能牌不该走这里（它们没有阵营，见 filterDeckCards）。
+ *
  * 前四个阵营各自成一堆是因为同系列的卡够多（每家 2 张以上），单拎出来筛才有意义。
- * 剩下的国产模型各只有一张，凑成「国产通用」一堆；再剩下的（gemini、grok）进「其他」。
+ * 剩下的模型（qwen、doubao、gemini、grok……）每家都只有一张，再拆药丸只会多一排按钮，
+ * 所以不分国产与否，统一进「其他」。
  */
-const CN_GENERAL_AI: readonly CardId[] = [
-  'qwen',
-  'doubao',
-  'glm-5',
-  'minimax',
-  'yuanbao',
-  'wenxin-yiyan',
-]
-
-/** 一张 AI 牌属于哪个阵营。技能牌不该走这里（它们没有阵营，见 filterDeckCards）。 */
 export function factionForAi(cardId: CardId): DeckFaction {
   if (cardId.startsWith('gpt-') || cardId.startsWith('chatgpt-')) return 'gpt'
   if (cardId.startsWith('claude-')) return 'claude'
   if (cardId.startsWith('kimi-')) return 'kimi'
   if (cardId.startsWith('deepseek-')) return 'deepseek'
-  if (CN_GENERAL_AI.includes(cardId)) return 'cn'
   return 'other'
 }
 
@@ -54,9 +45,10 @@ export type DeckCardKindFilter = 'all' | 'ai' | 'skill'
 /**
  * 卡池筛选：先按种类，再按阵营。
  *
- * **阵营只作用于 AI 牌**。所以在「全部」页签下选了某个阵营时，技能牌照样全部显示——
- * 技能牌没有阵营，把它们一起筛掉等于让玩家选个阵营就再也看不见技能牌，
- * 而他并没有表达过"不想看技能牌"。
+ * **阵营只作用于 AI 牌**：技能牌没有阵营，传了阵营也照样全部显示——
+ * 把它们一起筛掉等于让玩家选个阵营就再也看不见技能牌，而他并没有表达过"不想看技能牌"。
+ * 界面上只有「AI 牌」页签摆阵营药丸，另外两档现在都是 faction=null 进来的（见 DeckScreen），
+ * 这条兜底规则因此只在直接调用这个纯函数时才看得见（测试就是这么用的）。
  */
 export function filterDeckCards(
   cardIds: readonly CardId[],

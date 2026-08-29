@@ -6,7 +6,7 @@ import { SKILL_DESIGN_CARDS } from './skillCards'
  * 全部卡牌定义：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
  * 加上 24 张技能牌（表在 skillCards.ts，同样一张卡对一张原画）。
  *
- * **这不等于卡池**：有两类牌留在这张表里，好让牌组页和图鉴照常画出它们，但不进
+ * **这不等于卡池**：有两类牌留在这张表里，好让牌组页照常画出它们，但不进
  * collection.ts 的 CARD_POOL，选不进牌组也上不了牌桌——
  * 24 张技能牌里没开放的那 14 张（「即将上线」），
  * 以及 18 张 AI 里 OpenRouter 调不到模型的那 2 张（「暂未接入」，见 aiModels.ts）。

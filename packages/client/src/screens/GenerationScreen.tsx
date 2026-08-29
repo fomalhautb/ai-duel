@@ -9,7 +9,7 @@
  * 手改没有意义（下次跑脚本就被覆盖）。correct 来自 scripts/judge-answers.mjs 的 LLM 自动判卷
  * 结果（verdicts-run4.json），不是这一页算的。
  *
- * 和 /card 一样是纯开发页：只求信息全、找得快，不做美化。
+ * 和 /dev 下那几页一样是纯开发页：只求信息全、找得快，不做美化。
  */
 
 import { useState } from 'react'

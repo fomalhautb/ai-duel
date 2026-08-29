@@ -1327,7 +1327,7 @@ html {
    * 羽化带的宽度，写成卡宽的百分比（4.7cqw ≈ 150px 卡面上的 7px）。
    *
    * 必须跟着卡面尺寸走：卡面在不同地方是**两种缩放路子**——手牌、战场小卡靠 transform／zoom
-   * 整体缩（px 会跟着缩），而图鉴、首页那类地方是直接给盒子换宽高（px 不会跟着变）。
+   * 整体缩（px 会跟着缩），而首页橱窗那类地方是直接给盒子换宽高（px 不会跟着变）。
    * 写死 px 的话后一类里羽化带就永远是 7px，大卡上看着像一条细边、小卡上又糊掉半张脸。
    */
   --card-edge-feather: 4.7cqw;
@@ -1465,7 +1465,7 @@ html {
 /*
  * 一张牌翻到背面时的容器：技能牌在星象边框底图上印卡名和说明（见下面的 --skill），
  * AI 牌铺技能详情（ui/AiCardBack.tsx，见下面的 --ai-art），英雄牌是默认的深色底加同一套文字。
- * 手牌里只有技能牌翻得过去，AI 牌那一面只剩卡组页放大查看和 /card 图鉴在画（见 --ai-art）。
+ * 手牌里只有技能牌翻得过去，AI 牌那一面只剩卡组页放大查看在画（见 --ai-art）。
  * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
  * .card-back-hidden。
  */
@@ -1504,7 +1504,7 @@ html {
  * 只把内边距去掉，让 AiCardBack 完整铺满卡框。
  *
  * AI 牌在对局手牌和卡组页都不翻面（问号只长在技能牌上），所以走这一条的只剩
- * 卡组页放大查看时右边那张背面大卡（DeckScreen 的 .deck-zoom-side）和 /card 图鉴。
+ * 卡组页放大查看时右边那张背面大卡（DeckScreen 的 .deck-zoom-side）。
  */
 .card-back--ai-art {
   padding: 0;
@@ -1520,7 +1520,7 @@ html {
  *
  * 底图按 100% 100% 拉满而不是 cover：底图和卡框都是 2:3，拉伸看不出来，还省掉 cover 的裁切
  * ——边框上的花纹一旦被裁掉一圈，四角的罗盘就缺了角。
- * 内边距写成百分比，是因为这张背面在手牌（150×225）、卡池格子和图鉴预览里尺寸各不相同，
+ * 内边距写成百分比，是因为这张背面在手牌（150×225）和卡池格子里尺寸各不相同，
  * 而文字必须始终落在底图中央那圈留白里，不能压到边框的花纹上。
  */
 .card-back--skill {
@@ -5627,252 +5627,6 @@ body:has(.battle) {
  * 所以也不需要为小窗口另开一档内边距。
  */
 
-/* ---------- 卡牌图鉴页（/card） ---------- */
-
-/*
- * 开发用的左右分栏图鉴：左栏挑卡，右栏是选中那张的完整档案。
- *
- * 纸面配色和对局页是同一套，但那几个变量定义在 .battle 自己身上（见 .battle），
- * 这一页取不到，所以照抄一份到 .gallery 上。没有把它们提到 :root，是因为那批变量
- * 现在的名字（--battle-*）就是"对局页的"，提上去等于给全站背一套命名错位的主题变量。
- *
- * 整页占满 #root（html / body / #root 都是 height: 100%）且自己不滚，滚动交给左右两栏各自负责：
- * 挑卡时右边的详情不该跟着一起跑掉，反过来读详情时左边的列表也得留在原处。
- */
-.gallery {
-  --gallery-paper: #eee9dc;
-  --gallery-paper-shade: #e2dbc8;
-  --gallery-ink: #30313b;
-  --gallery-ink-muted: #6d6b61;
-  --gallery-line: #aaa391;
-  /* 左栏卡面的缩放：一屏尽量多列几张，又还认得出卡面上的字。 */
-  --gallery-pick-scale: 0.78;
-  display: flex;
-  height: 100%;
-  color: var(--gallery-ink);
-  background-color: var(--gallery-paper);
-  /* 中间亮、四周退到深一档的纸色，让整页不是一块平色。 */
-  background-image: radial-gradient(
-    ellipse at 50% 0%,
-    var(--gallery-paper) 0%,
-    var(--gallery-paper-shade) 78%
-  );
-}
-
-/* 左栏：宽度取一个稳定放得下每行两张缩略卡、还留一点余量的定值，不随窗口宽度重排。 */
-.gallery__list {
-  flex: none;
-  width: 320px;
-  height: 100%;
-  padding: 24px 20px 48px;
-  border-right: 1px solid var(--gallery-line);
-  overflow-y: auto;
-}
-
-/* 右栏：min-width: 0 是给里面的 <pre> 兜底——不写的话超宽的 JSON 会把这一栏整个撑开，
-   把左栏挤出视口（flex 子项默认 min-width: auto，不肯缩到内容以下）。 */
-.gallery__detail {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 24px 28px 56px;
-  overflow-y: auto;
-}
-
-.gallery__header {
-  margin-bottom: 24px;
-}
-
-.gallery__title {
-  margin: 0 0 6px;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-.gallery__lead {
-  margin: 0 0 12px;
-  color: var(--gallery-ink-muted);
-  font-size: var(--fs-base);
-  line-height: 1.6;
-}
-
-.gallery__back {
-  padding: 5px 14px;
-  border: 1px solid var(--gallery-line);
-  border-radius: 2px;
-  background: transparent;
-  color: var(--gallery-ink);
-  font-size: var(--fs-base);
-  letter-spacing: 0.12em;
-  cursor: pointer;
-}
-
-.gallery__back:hover {
-  background: rgb(48 49 59 / 8%);
-}
-
-.gallery__section {
-  margin-top: 28px;
-}
-
-.gallery__section-title {
-  margin: 0 0 6px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--gallery-line);
-  font-size: var(--fs-xl);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-}
-
-.gallery__section-note {
-  margin: 0 0 12px;
-  color: var(--gallery-ink-muted);
-  font-size: var(--fs-md);
-  line-height: 1.6;
-}
-
-.gallery__picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px 12px;
-  margin-top: 14px;
-}
-
-/*
- * 一张可点的缩略卡。外层按钮只占缩放后的尺寸，卡面本体在里面按原始 150×225 排版再整张缩
- * （和战场小卡同一个套路，见 .battle__foe-card-inner）：卡面的字号、间距全不用改，
- * 这一页看到的排版才和对局里是同一份。
- */
-.gallery__pick {
-  width: calc(var(--card-w) * var(--gallery-pick-scale));
-  height: calc(var(--card-h) * var(--gallery-pick-scale));
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  cursor: pointer;
-}
-
-/*
- * 选中态：卡面自己没有任何选中样式，全靠外面这圈描边指认。
- * 用 outline 而不是 border：outline 不占盒子尺寸，选中时整排卡不会被挤得移位。
- */
-.gallery__pick[aria-pressed='true'] {
-  outline: 3px solid #b23b2e;
-  outline-offset: 3px;
-}
-
-/*
- * 键盘焦点：上面那圈选中描边把浏览器自带的焦点环挤掉了（一个元素只画得出一个 outline），
- * Tab 到当前选中的这张卡就看不出焦点停在哪。焦点因此改用 box-shadow 画一圈墨色细边，
- * 它和 outline 能同时存在——贴着卡是焦点，外面那圈红是选中，两者不会混淆。
- */
-.gallery__pick:focus-visible {
-  box-shadow: 0 0 0 2px var(--gallery-ink);
-}
-
-.gallery__pick-card {
-  display: block;
-  width: var(--card-w);
-  height: var(--card-h);
-  transform: scale(var(--gallery-pick-scale));
-  transform-origin: top left;
-}
-
-/* 占位插画原图那一排：缩略图 + 文件名，只为了协作时指认，不参与卡面排版。 */
-.gallery__arts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.gallery__art {
-  margin: 0;
-  text-align: center;
-}
-
-.gallery__art-img {
-  display: block;
-  width: 60px;
-  border: 1px solid var(--gallery-line);
-  border-radius: 4px;
-}
-
-.gallery__art-name {
-  margin-top: 4px;
-  color: var(--gallery-ink-muted);
-  font-size: var(--fs-xs);
-}
-
-.gallery__detail-title {
-  margin: 0 0 18px;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-/* 正面和背面并排，宽度不够时换行。 */
-.gallery__faces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-}
-
-.gallery__face {
-  margin: 0;
-}
-
-/* 卡面和背面都是宽高 100% 的元素，尺寸得由外面这个盒子给。 */
-.gallery__card {
-  width: var(--card-w);
-  height: var(--card-h);
-}
-
-.gallery__face-name {
-  margin-top: 8px;
-  color: var(--gallery-ink-muted);
-  font-size: var(--fs-md);
-}
-
-.gallery__meta {
-  margin: 24px 0 0;
-  font-size: var(--fs-base);
-  line-height: 1.7;
-}
-
-.gallery__meta-row {
-  display: flex;
-  gap: 10px;
-}
-
-/* 键这一列宽度写死，值才会左对齐成一条线，扫着看得快。 */
-.gallery__meta-key {
-  flex: none;
-  width: 72px;
-  color: var(--gallery-ink-muted);
-}
-
-.gallery__meta-value {
-  margin: 0;
-  color: var(--gallery-ink);
-}
-
-.gallery__json {
-  margin: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--gallery-line);
-  border-radius: 4px;
-  background: rgb(48 49 59 / 6%);
-  color: var(--gallery-ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: var(--fs-md);
-  line-height: 1.55;
-  /* 长行自己横滚，不去撑宽整栏（配合 .gallery__detail 的 min-width: 0）。 */
-  overflow-x: auto;
-}
-
 /* ---------- 卡片加载动画 ---------- */
 
 /*
@@ -6310,7 +6064,7 @@ body:has(.battle) {
 
 /*
  * 配色照抄加载动画演示页（.loader-demo）那套深色：这两页都是纯开发工具，
- * 长得像同一类东西比长得好看重要。跟着视口滚，规则同 .gallery 的说明。
+ * 长得像同一类东西比长得好看重要。整页跟着视口滚，不自己开滚动容器。
  */
 .dev-index {
   min-height: 100%;
@@ -6411,19 +6165,6 @@ body:has(.battle) {
     transition-duration: 1ms;
   }
 }
-
-.gallery__controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.gallery__controls label { display: flex; align-items: center; gap: 6px; }
-.gallery__faces[data-preview-size='large'] .gallery__card { width: 300px; height: 450px; }
-.gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 225px; }
-.gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
-.gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
 
 /* ---------- 竖屏提示（OrientationNotice） ---------- */
 

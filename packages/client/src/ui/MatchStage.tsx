@@ -3805,7 +3805,7 @@ function handCardOfInstance(instance: CardInstance): HandCardData {
 /** 从卡牌定义拼出卡面数据。id 只是给 React 当 key 用，不参与 Flip。 */
 function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
-  // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
+  // backText 走 ui/cardText.ts 那一份：牌组页也显示同一段话，拼法只留一处。
   const base = {
     id: card.id,
     definitionId: card.id,

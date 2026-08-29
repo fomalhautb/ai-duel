@@ -26,7 +26,6 @@ import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
 import { GenerationScreen } from './screens/GenerationScreen'
 import { SettleTestScreen } from './screens/SettleTestScreen'
-import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 import { LoadingBarDemo } from './dev/LoadingBarDemo'
@@ -47,7 +46,7 @@ export function App() {
        *
        * 原来是每个页面各挂一次，因为 CSS 里的 filter: url(#ai-duel-rough-*) 只找得到
        * 同一个文档里的定义，缺了它 Chrome 上整颗按钮都不画。现在右上角那颗静音钮是全局的、
-       * 也用同一套滤镜，各页各挂就漏了没挂的那几页（/loader、/card 等），
+       * 也用同一套滤镜，各页各挂就漏了没挂的那几页（/loader、/dev 等），
        * 干脆提到这里来——id 是文档级的，挂一次全站都能引用，而且不会再出现重复 id。
        * 本身是 0 尺寸的 svg，不占布局。
        */}
@@ -79,9 +78,6 @@ export function App() {
         <Route path="/design" component={DesignScreen} />
         {/* 组建牌组的独立入口，见下面 DeckRoute。 */}
         <Route path="/deck" component={DeckRoute} />
-        {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
-            加卡面之外的字段，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
-        <Route path="/card" component={CardGallery} />
         {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}

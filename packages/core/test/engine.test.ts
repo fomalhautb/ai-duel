@@ -995,8 +995,8 @@ describe('金钟罩', () => {
     const mine = board(base, 0)[0]!
     const hit = playSkill(base, 1, 'fixed-answer', mine.instanceId).state
     const shielded = playSkill(hit, 0, 'golden-bell-shield').state
-    // 12 - 1（AI）- 7（金钟罩）= 4，下面三张都还买得起，被拒的原因只可能是罩子。
-    expect(shielded.players[0].tokens).toBe(SKILL_TEST_TOKENS - 1 - 7)
+    // 12 - 1（AI）- 3（金钟罩）= 8，下面三张都还买得起，被拒的原因只可能是罩子。
+    expect(shielded.players[0].tokens).toBe(SKILL_TEST_TOKENS - 1 - 3)
 
     const blocked = '金钟罩生效中，本轮技能牌也影响不到你自己'
     expect(rejection(playSkill(shielded, 0, 'jade-purification-vase', mine.instanceId))).toBe(
@@ -1084,8 +1084,8 @@ describe('核电站', () => {
 
     expect(second.costReduction).toBe(2)
     expect(effectivePlayCost(second, 0, getCard('gpt-4o'))).toBe(2)
-    // 第二张自己也吃了第一张的减免：4 点的牌先花 4 再花 3。
-    expect(second.players[0].tokens).toBe(SKILL_TEST_TOKENS - 4 - 3)
+    // 第二张自己也吃了第一张的减免：3 点的牌先花 3 再花 2。
+    expect(second.players[0].tokens).toBe(SKILL_TEST_TOKENS - 3 - 2)
   })
 
   it('再怎么减也不会低于 1 点', () => {
@@ -1117,8 +1117,13 @@ describe('模型蒸馏', () => {
     const player = result.state.players[0]
     expect(player.hand.some((c) => c.instanceId === fodder.instanceId)).toBe(false)
     expect(player.discard.some((c) => c.instanceId === fodder.instanceId)).toBe(true)
-    // SKILL_TEST_TOKENS - 1（这张技能牌）+ 7 + 1。换来的按印刷费用算，不吃核电站的减费。
-    expect(player.tokens).toBe(SKILL_TEST_TOKENS - 1 + getCard('chatgpt-5-6-sol').tokenCost + 1)
+    // SKILL_TEST_TOKENS - 2（这张技能牌）+ 5 + 1。换来的按印刷费用算，不吃核电站的减费。
+    expect(player.tokens).toBe(
+      SKILL_TEST_TOKENS -
+        getCard('model-distillation').tokenCost +
+        getCard('chatgpt-5-6-sol').tokenCost +
+        1,
+    )
     // 打向手牌的牌不带 targetInstanceId：客户端拿它去战场上找格子会扑空。
     expect(result.events).toEqual([
       {
@@ -1331,9 +1336,9 @@ describe('Token', () => {
   })
 
   it('剩余 Token 不够时被拒，状态原样返回', () => {
-    // ChatGPT 5.6 Sol 要 7 点，第 1 轮只有 5 点，怎么都打不出。
-    const game = newGame({ deck0: deckOf('chatgpt-5-6-sol') })
-    const card = handCard(game.state, 0, 'chatgpt-5-6-sol')
+    // Claude Fable 5 要 7 点，第 1 轮只有 5 点，怎么都打不出。
+    const game = newGame({ deck0: deckOf('claude-fable-5') })
+    const card = handCard(game.state, 0, 'claude-fable-5')
     const result = execute(game.state, {
       type: 'PLAY_CARD',
       player: 0,

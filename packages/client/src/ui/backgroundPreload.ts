@@ -61,7 +61,7 @@ export const CARD_ART_ASSETS: readonly string[] = CARD_ART_SOURCES.map(midFor)
  * 之后每次绘制还可能撞上"被丢弃后重解"，正好卡在动画帧里。
  *
  * 既然零引用，这批文件留在 public/ 下就只是跟着部署的 15 MB。
- * 真确定不再需要（比如将来也不打算加整屏图鉴大图），应该整批移出 public/ 只留作烤图的源，
+ * 真确定不再需要（比如将来也不打算加整屏卡牌大图），应该整批移出 public/ 只留作烤图的源，
  * 那时 scripts/gen-card-thumbs.sh 的取图目录要跟着改。
  */
 export const CARD_ART_FULL_ASSETS: readonly string[] = CARD_ART_SOURCES

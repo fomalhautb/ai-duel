@@ -203,7 +203,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 
 所以 `HandCard = AiCard | SkillCard` 才是牌组、手牌、弃牌堆里实际会出现的类型，
 `CARDS` / `getCard` 也只收这两类；`Card = HandCard | HeroCard` 只给"泛指一张卡"的展示代码用
-（卡面渲染、图鉴、背面文案）。
+（卡面渲染、牌组页、背面文案）。
 
 **Token。** 进牌组的两类牌都有 `tokenCost`（AI 牌 1~7、技能牌 1~10），
 `PlayerState` 上一对 `tokens` / `tokenMax` 记这一轮的剩余和上限：
@@ -590,7 +590,6 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 /dev      开发页导航：把下面这几个开发页连同测试对局列在一处
 /design   设计参考页：纸面视觉元素的样板间（开发用）
 /deck     组建牌组 demo：假卡池 + 选卡手势（圆圈加减、卡池 ↔ 牌组拖拽、点开放大查看）
-/card     卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的完整档案
 /loader   加载动画的演示和调参页：各档参数连同浅色底一起摆开对比
 ```
 
@@ -977,7 +976,7 @@ q-court、q-bamboo），答题结果也和正式对局同源，查 `script.ts` �
 「这一张打不起」是逐张的另一条线：传 `tokens` 之后按各张的费用判，只压暗买不起的那几张。
 判费用用的是调用方给的 `playCostOf`（对局界面转手交给 core 的 `effectivePlayCost`，见 3.4），
 不是卡面印的 `tokenCost`——「核电站」开着时真正扣的是打折价，按卡面判会把打得起的牌画成灰的。
-不传 `playCostOf` 就按卡面原价判，图鉴这类没有局面可问的地方走的是这一档。
+不传 `playCostOf` 就按卡面原价判，牌组页这类没有局面可问的地方走的是这一档。
 
 **三个"关掉手牌"的开关分工不同，别混**：`disabled` 只管出不了牌（不是我的回合、等回包），
 玩家照样能 hover 抬牌看；`frozen` 是整排彻底冻住（连 hover 和问号翻面都不接），
@@ -987,7 +986,7 @@ q-court、q-bamboo），答题结果也和正式对局同源，查 `script.ts` �
 
 `kind: 'hero'` 的卡永远不会出现在手牌或战场上——英雄不进牌组，只是借这套卡面画出来：
 对局左侧栏每位玩家名字旁边那张小英雄牌（`.battle__hero`，按 `--hero-card-scale` 整体缩小，
-和战场小卡一个路子），以及图鉴页的英雄牌分组。它的卡面数据只有一份拼法，
+和战场小卡一个路子）。它的卡面数据只有一份拼法，
 在 `ui/heroCard.ts`（正面印技能、背面印人物），两处共用。
 Debug 用掉之后那张小卡整块置灰、底下的标签变成「Debug 已用」——技能一局只发动一次，
 玩家得能一眼看出还指不指望得上。
@@ -1187,8 +1186,8 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 （`HandFan` 和 `DeckScreen` 里各有一个 `flippable`）。
 卡池里「即将上线」的技能牌同样不给（那一面只是一段还没生效的效果说明，
 热区留着还会把"点卡面 = 弹一句即将上线"那一下吃掉），这一条只写在 `DeckScreen` 的 `flippable` 里。
-AI 牌那张卡背（`ui/AiCardBack.tsx` 的技能详情）只剩三处还在画：卡组页放大查看时右边那张
-伴随的背面大卡、对局里对手打出的牌飞到屏幕中央途中翻正的那一下，以及 /card 图鉴。
+AI 牌那张卡背（`ui/AiCardBack.tsx` 的技能详情）只剩两处还在画：卡组页放大查看时右边那张
+伴随的背面大卡，以及对局里对手打出的牌飞到屏幕中央途中翻正的那一下。
 看得见的那枚问号圆章是公共组件 `ui/CardHelpMark.tsx`（内联 SVG + 手绘抖动滤镜，
 夜色圆底 + 米色线条，和卡角上另一颗圆钮 `.deck-circle` 同一副长相）：
 用字符「?」画不了，整套界面的线条都挂着位移滤镜，作用在字体轮廓上会糊成一团。
@@ -1412,7 +1411,6 @@ packages/client/
                               每加减一张就写 save/deckStore.ts。三条入口共用这一份
                               （/deck、匹配流程、新手教程的组牌一步——最后一条多传一个 tutorial prop）
     deck.css                  只给组建牌组页用的样式
-    deckDemoCards.ts          早期的假卡池（30 张，和 core 的真卡无关），现在只有 /card 图鉴还引着
   src/match/                  对局驱动层
     driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
     localDriver.ts            本地热座，也被 dev 测试房复用
@@ -1481,19 +1479,19 @@ packages/client/
     PlaqueButton.tsx          墨蓝八角匾额按钮：SVG 轮廓套手绘滤镜，按下有压入反馈
     HandDrawnFilterDefs.tsx   手绘线条滤镜的 SVG 定义，全页渲染一份，组件靠 url(#id) 引用
     labels.ts                 题目类别的中文名（QUESTION_CATEGORY_LABELS）
-    cardText.ts               对局翻面与图鉴共用的卡牌背面文案拼法（实装的 10 张技能牌各写一段真规则，
+    cardText.ts               对局翻面与牌组页共用的卡牌背面文案拼法（实装的 10 张技能牌各写一段真规则，
                               其余仍带 plannedEffect 的走"还没实装"那句占位）
     skillTargets.ts           技能牌四档目标各自"现在能打谁"的纯函数，选目标交互按它点亮；
                               test/skillTargets.test.ts 拿真引擎逐个目标对一遍，两份口径不许分叉
-    heroCard.ts               英雄 → 卡面展示数据，对局侧栏和图鉴共用一份
+    heroCard.ts               英雄 → 卡面展示数据，对局侧栏和首页橱窗共用一份
+    CardCostBadge.tsx         卡面左上那枚「N TOKEN」圆章，数字现取 core 的 tokenCost。两类牌都盖：
+                              AI 牌盖原画角上那枚星章（位置见 ui/aiModelFace.ts），技能牌盖原画自己
+                              烘焙的费用章（位置和盘底色见 ui/skillCardFace.ts）——所以调平衡不用重出原画
     paper/                    纸面组件库（卡牌、卡背、图标、标题、计量条……），index.ts 统一出口
                               （这些组件眼下只有 /design 样板间在引，对局界面没用上）
   src/dev/                    开发页和开发用组件，正式流程里没有入口
     DevIndex.tsx              开发页导航（/dev）：全部开发页加测试对局的入口一览
     DevPanel.tsx              dev 测试面板：发 DEBUG_* 指令摆局面（只在测试房里挂）
-    CardGallery.tsx           卡牌图鉴（/card）：左栏按「英雄牌 / AI 牌 / 技能牌」分组列缩略卡，
-                              右栏是这张卡的正反面、全部数值和原始 JSON；英雄牌只有这里看得到，
-                              对局里还进不去
     LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
   src/save/save.ts            localStorage 存档（收藏 + 胜场 + 英雄 + 教程标记）
   src/save/deckStore.ts       牌组存档（多套牌组、当前是哪套），自己一个 key
@@ -1550,7 +1548,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 - 三个正式界面加三个开发页、路由；首页「开始游戏」按存档分流（没走完教程的先进 `/tutorial`），
   首页本身是照设计稿做的分层场景。
-- 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画，`/card` 图鉴页一眼对照。
+- 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画。
 - **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（AI 牌和技能牌都不限张数，
   只受 Token 约束）→ 全场 AI 答题、答错的罚下 → 每轮 1 分制计分（一方独对得分，
   同对同错比本轮 Token 消耗，消耗也相同各 +1）→ 双方各确认一次才进下一轮 →

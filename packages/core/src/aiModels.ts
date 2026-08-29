@@ -72,7 +72,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'ChatGPT 5.6 Sol',
     model: 'ChatGPT 5.6 Sol',
     openrouter: 'openai/gpt-5.6-sol',
-    tokenCost: 7,
+    tokenCost: 5,
     skillName: '统筹推演',
     skillText: '每局一次，本轮第一张作用于自己的对方技能牌无效',
     text: '它算得比你快，也比你确信。',
@@ -95,7 +95,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'Claude Fable 5',
     model: 'Claude Fable 5',
     openrouter: 'anthropic/claude-fable-5',
-    tokenCost: 6,
+    tokenCost: 7,
     skillName: '深思织文',
     skillText: '每局一次，可无视对方技能牌向题目中新增的文本，只根据原始题目作答',
     text: '想得又深又长，长到你忘了自己问过什么。',
@@ -120,7 +120,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'DeepSeek V4',
     openrouter: 'deepseek/deepseek-v4-pro',
     domestic: true,
-    tokenCost: 5,
+    tokenCost: 4,
     skillName: '深海求索',
     skillText: '若本轮双方答题结果相同，则结算时本 Agent 消耗 -1 Token',
     text: '用别人一半的算力，办完一样的事。',
@@ -132,7 +132,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Gemini',
     // 卡面只写「Gemini」没有版本号，就挑现役最新的那档通用款。
     openrouter: 'google/gemini-3.7-flash',
-    tokenCost: 4,
+    tokenCost: 3,
     skillName: '多模融合',
     skillText: '回答图片题时，第一次回答错误可以重新观察图片并再次回答；每局最多触发一次',
     text: '看图这件事它最有话说。',
@@ -170,7 +170,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Kimi K3',
     openrouter: 'moonshotai/kimi-k3',
     domestic: true,
-    tokenCost: 5,
+    tokenCost: 4,
     skillName: '群星协作',
     skillText: '使对方回答额外消耗 1 Token，每局最多触发一次',
     text: '会自己调工具、自己查资料、自己相信查到的东西。',
@@ -231,7 +231,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'Grok',
     model: 'Grok',
     openrouter: 'x-ai/grok-4.6',
-    tokenCost: 4,
+    tokenCost: 3,
     skillName: '破界直言',
     skillText: '回答问题前先检查一下题目是否有「坑」',
     text: '想说什么说什么，护栏拦得住它一半。',
@@ -254,7 +254,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
 
 /**
  * 十八张 AI 牌的 id，顺序就是它们在牌组页里的顺序（按厂商归堆，不按字母排）。
- * 这份是全的，含调不到模型的那两张——图鉴和卡面调试页要能逐张画出来。
+ * 这份是全的，含调不到模型的那两张——牌组页要能逐张画出来。
  *
  * 从 AI_MODEL_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。
  */

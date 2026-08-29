@@ -7,7 +7,9 @@
 ## 卡面组成
 
 - `CardFaceOverlay.tsx` 和 `cardFaceOverlay.css` 恢复左上 Token 圆章、底部纸面双线铭牌、上排技能简称和下排模型名称。
-- 18 张 AI 的技能名和效果在 core 的 `aiModels.ts` 维护，Token 费用也来自同一张卡牌定义；`aiModelFace.ts` 只保留插画主色。
+- 圆章本身抽在 `CardCostBadge.tsx`：AI 牌由 `CardFaceOverlay` 带着画，技能牌单独画一枚盖在原画烘焙的那枚费用章上——原画那个数字改不动，费用一调就成了旧价，盖一枚现取 `tokenCost` 的就不用重出原画。颜色和位置见 `skillCardFace.ts`。
+- 18 张 AI 的技能名和效果在 core 的 `aiModels.ts` 维护，Token 费用也来自同一张卡牌定义；`aiModelFace.ts` 只保留插画主色和费用圆章的位置。
+- 费用圆章逐张对位：每张原画左上角自己画了一枚星章，圆章要盖住它，而各张星章的位置都不一样，圆心记在 `aiModelFace.ts` 的 `costBadge`（换原画要重量）。直径不逐张配，两类牌统一取卡宽的 20.8%——技能牌原画上烘焙的那枚实测是 16%，取它的 1.3 倍，缩成手牌时费用也一眼看得见。AI 牌里星章贴着画框的那几张（DeepSeek 两张、豆包、GLM-5、Grok、MiniMax）圆心往里收过，否则放大后的圆章会探出卡外。
 - 复用纸张色板和 `.grain` 纸纹，圆章保持正圆，铭牌随卡宽缩放，长名称使用 SVG `textLength` 控制宽度。
 - `HandCardFace` 为具名 AI 叠加图层，英雄牌、技能牌及未配置的演示卡保留现有排版。
 - 对局在替换实例 id 前保留 `definitionId`，使手牌、场上卡和放大展示使用同一原画及铭牌。
@@ -16,7 +18,6 @@
 
 ## 展示入口
 
-- `/card`：卡面图层开关及 150×210、300×420、300×450 三档预览。
 - `/design#card-overlay`：恢复原稿中的四组图层样例。
 - `/deck` 及 `/room` 内嵌组卡页：使用真实卡池，AI 牌点击后翻背查看技能。
 

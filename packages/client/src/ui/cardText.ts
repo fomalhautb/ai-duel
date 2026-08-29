@@ -2,9 +2,8 @@
  * 卡牌上那些 core 里没有、得由客户端现拼的文案。
  *
  * AI 和英雄的技能说明直接存于 core；其他牌翻面要看的补充说明没有统一字段
- * （见 HandCardData.backText）。对局（ui/MatchStage）和图鉴页（dev/CardGallery）
- * 都要显示同一段话，所以拼法只留这一份：图鉴页的用处就是照着对局的真实文案检查排版，
- * 两边各抄一份的话，改了一边图鉴就开始骗人。
+ * （见 HandCardData.backText）。对局（ui/MatchStage）和牌组页（screens/DeckScreen）
+ * 都要显示同一段话，所以拼法只留这一份：两边各抄一份的话，改了一边另一边就开始骗人。
  */
 
 import type { Card, CardId } from '@ai-duel/core'

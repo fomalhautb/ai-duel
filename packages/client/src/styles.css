@@ -6412,6 +6412,163 @@ body:has(.battle) {
   cursor: pointer;
 }
 
+/* ---------- 常驻全屏入口（FullscreenEntry） ---------- */
+
+/*
+ * 画面边上那颗小按钮。什么时候出现、点下去干什么，都在 ui/FullscreenEntry.tsx 里。
+ *
+ * 位置跟着视口的宽高比走，规矩只有一条：**待在舞台外面的留白里，不压画面**。
+ * 全站舞台是 width: min(100vw, 100dvh * 1672 / 941) 的一块 16:9（见 .battle-stage），
+ * 视口比它高就上下留白、比它宽就左右留白，按钮分别贴到底边和右边。
+ *
+ * 底色是半透明的深色而不是纸面：它落在留边上（留边色见 .battle-frame），
+ * 做成一张小纸片会像是画面漏出来的一角，反倒比现在扎眼。
+ *
+ * z-index 排在竖屏提示（9000）和全屏提示（8900）之下：那两层都是盖住整页的对话，
+ * 它们在的时候这颗按钮本来就不该露头。
+ */
+.fs-corner {
+  position: fixed;
+  z-index: 8850;
+  /* 默认档：视口比 16:9 高，留白在上下，按钮落在底边右角。 */
+  right: max(6px, env(safe-area-inset-right));
+  bottom: max(6px, env(safe-area-inset-bottom));
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgb(226 213 184 / 32%);
+  border-radius: 6px;
+  background-color: rgb(12 16 26 / 62%);
+  color: #ddcab7;
+  cursor: pointer;
+}
+
+.fs-corner svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fs-corner:active {
+  /* 触屏没有 hover，按下去这一下就是唯一的反馈。 */
+  opacity: 0.7;
+}
+
+@media (min-aspect-ratio: 16 / 9) {
+  /* 视口比 16:9 宽：留白改在左右，按钮挪进右侧那条，纵向居中。 */
+  .fs-corner {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+  }
+}
+
+@media (aspect-ratio: 16 / 9) {
+  /* 正好 16:9：舞台铺满视口，一点留白都没有，没地方放就不放。
+     必须排在上面那条 min-aspect-ratio 之后，同分时靠后的赢。 */
+  .fs-corner {
+    display: none;
+  }
+}
+
+/*
+ * iOS 的「添加到主屏幕」引导。纸面和排版整套照着上面的全屏提示（.fs-prompt）来：
+ * 它们是同一类东西（盖住全页的一段话加一颗按钮），长得不一样反而像两个系统的零件。
+ * z-index 再低一档，理由同 .fs-prompt 那条注释。
+ */
+.fs-guide {
+  position: fixed;
+  z-index: 8880;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* 刘海屏的耳朵照着让开，同上面两层提示。 */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background-color: rgb(12 16 26 / 82%);
+}
+
+.fs-guide__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  /* 比另外两层宽一点：这里装的是三条步骤，窄了会条条折行。 */
+  width: min(460px, 100%);
+  /* 竖屏手机上引导可能比屏幕高（三步加正文），允许自己滚。 */
+  max-height: 100%;
+  padding: 30px 30px 22px;
+  overflow-y: auto;
+  border: 1px solid var(--line-dark, #8a8270);
+  color: var(--ink, #2e2e38);
+  background-color: var(--paper, #f0ecdf);
+  box-shadow: 0 18px 48px rgb(6 10 20 / 45%);
+  text-align: center;
+}
+
+.fs-guide__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.3em;
+}
+
+.fs-guide__text {
+  margin: 0;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+/* 三条步骤。左对齐而不是跟着面板居中：带序号的步骤居中会让每行的起点对不齐，读起来费劲。 */
+.fs-guide__steps {
+  margin: 0;
+  padding-left: 1.4em;
+  color: var(--ink, #2e2e38);
+  font-size: 17px;
+  line-height: 1.9;
+  text-align: left;
+}
+
+/* 行内的分享图标：和文字同高、底对齐，读起来才像句子的一部分而不是插图。 */
+.fs-guide__share {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 唯一的出口，做成实心按钮，同 .fs-prompt__go。高度按触屏的 44px 起步。 */
+.fs-guide__close {
+  min-height: 44px;
+  padding: 12px 28px;
+  border: 1px solid var(--ink, #2e2e38);
+  background-color: var(--ink, #2e2e38);
+  color: var(--paper, #f0ecdf);
+  font: inherit;
+  font-size: 17px;
+  letter-spacing: 0.25em;
+  text-indent: 0.25em;
+  cursor: pointer;
+}
+
+.fs-guide__close:active {
+  opacity: 0.82;
+}
+
 /* ---------- 结算界面调试页（/result） ---------- */
 
 /*

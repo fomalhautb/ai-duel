@@ -50,8 +50,10 @@ import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
 import { midFor } from './cardArtThumb'
 import { CardHelpMark } from './CardHelpMark'
+import { SKILL_CARD_FACE } from './skillCardFace'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
+import { CardCostBadge } from './CardCostBadge'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { PlaqueButton } from './PlaqueButton'
 import { attachCardTilt } from './cardTilt'
@@ -93,7 +95,7 @@ export interface HandCardData {
   definitionId?: string
   name: string
   /**
-   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和首页橱窗里当一张小卡画出来，
    * 借的是同一份卡面排版（见 ui/heroCard.ts）。
    */
   kind: 'ai' | 'skill' | 'hero'
@@ -216,7 +218,7 @@ export interface HandFanProps {
    * 和 lockReason 那种"整排一起锁"是两回事，两者可以同时成立：轮到自己出牌时整排是亮的，
    * 但最贵的那一两张仍可能打不出。判断逐张做，其余的牌照常能拖。
    *
-   * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，图鉴也没有额度可言）。
+   * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，牌组页也没有额度可言）。
    */
   tokens?: number | null
   /**
@@ -226,7 +228,7 @@ export interface HandFanProps {
    * 两者能差好几点。变灰的判据必须和引擎扣费用同一个口径，否则玩家会看到
    * "明明还剩 3 点、卡面写 4 点的牌却是灰的"，而那张牌其实打得出去。
    *
-   * 不传就按卡面原价判：对局之外的地方（图鉴、演示页）没有局面可问。
+   * 不传就按卡面原价判：对局之外的地方（牌组页、演示页）没有局面可问。
    */
   playCostOf?: (card: HandCardData) => number
   /**
@@ -571,7 +573,7 @@ export function HandFan({
       if (extra !== undefined) {
         tips.set(card.id, extra)
       } else if (tokens !== null && card.tokenCost !== undefined) {
-        // 没给 playCostOf 就按卡面印的原价判（图鉴、演示页这类没有减费概念的地方）。
+        // 没给 playCostOf 就按卡面印的原价判（牌组页、演示页这类没有减费概念的地方）。
         const cost = playCostOf === undefined ? card.tokenCost : playCostOf(card)
         if (cost > tokens) tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
       }
@@ -1799,7 +1801,7 @@ export function HandFan({
 /**
  * 一张牌翻到背面时那层容器该带哪些 class。
  *
- * 三处（对局手牌、卡池 / 牌组格子、图鉴页）画的是同一面背面，class 各写一份的话，
+ * 两处（对局手牌、卡池 / 牌组格子）画的是同一面背面，class 各写一份的话，
  * 加了新卡种的样式总会漏掉其中一处，玩家就会看到同一张牌在两个页面长得不一样。
  * AI 牌铺满整张美术卡背，技能牌铺星象边框底图再压文字，英雄牌沿用默认的深色底。
  */
@@ -1819,7 +1821,12 @@ export function HandCardFace({ card }: { card: HandCardData }) {
     <div
       className={`card-face card-face--${card.kind}`}
       role={illustratedSkill ? 'img' : undefined}
-      aria-label={illustratedSkill ? `${card.name}。${card.text}` : undefined}
+      /* 原画里那枚费用章是画上去的旧价，朗读时报的是现在真扣的那个数（下面盖上去的那枚同源）。 */
+      aria-label={
+        illustratedSkill
+          ? `${card.name}。${cost === undefined ? '' : `消耗 ${cost} Token。`}${card.text}`
+          : undefined
+      }
     >
       {/* 普通插画的信息由文字层提供；完整技能牌的烘焙文字通过外层 aria-label 朗读。
           draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。
@@ -1841,8 +1848,22 @@ export function HandCardFace({ card }: { card: HandCardData }) {
           skillName={card.skillName ?? '技能待定'}
           name={card.name}
           accent={face.accent}
+          costBadge={face.costBadge}
         />
-      ) : illustratedSkill ? null : (
+      ) : illustratedSkill ? (
+        /*
+         * 技能牌的原画连费用圆章一起烘焙在图里，费用一调数字就成了旧价，
+         * 所以照原样再画一枚盖上去（颜色和位置见 ui/skillCardFace.ts）。
+         * 卡名和效果仍然用原画印的那份，只有这个数字是现取的。
+         */
+        cost === undefined ? null : (
+          <CardCostBadge
+            cost={cost}
+            center={SKILL_CARD_FACE[definitionId]?.center}
+            fill={SKILL_CARD_FACE[definitionId]?.fill}
+          />
+        )
+      ) : (
         <div className="card-face__body">
           <div className="card-face__name">{card.name}</div>
           <p className="card-face__text">{card.text}</p>

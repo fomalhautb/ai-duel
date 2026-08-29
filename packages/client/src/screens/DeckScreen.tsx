@@ -265,7 +265,7 @@ const FLIP_LAYER_SELECTOR = '.deck-pool-card__inner, .deck-mini__inner'
  * 两边要一起改的触发条件只有一个——HandCardData 加了卡面必须显示的新字段。
  */
 function handCardOfDefinition(card: HandCard): HandCardData {
-  // backText 走 ui/cardText.ts 那一份：对局和图鉴显示的是同一段话，拼法只留一处。
+  // backText 走 ui/cardText.ts 那一份：对局和这里显示的是同一段话，拼法只留一处。
   const base = {
     id: card.id,
     definitionId: card.id,

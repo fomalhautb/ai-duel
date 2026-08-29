@@ -26,10 +26,11 @@ import type { CardId, SkillCard } from './types'
  * 放大查看和图鉴背面显示的都是这一份（见 client 的 ui/cardText.ts）。边界条件
  * ——选谁当目标、只活本轮、会不会误伤自己——都得写进它，玩家出牌前只读得到这一段。
  *
- * `tokenCost` 是逐张照原画转录的，不是随手定的平衡数值：每张原画左上角都印着一枚
- * 「N TOKEN」圆章，而 tokenCost 又是引擎真正扣费的那个数（见 CardBase）。两者一旦对不上，
- * 玩家会看到"卡面写 4 点，却提示 Token 不够"。所以改这里的数字之前先去看
- * public/cards/skills/<id>.webp 上印的是多少——要改就得连原画一起重出。
+ * `tokenCost` 起初是逐张照原画转录的：每张原画左上角都印着一枚「N TOKEN」圆章。
+ * 现在改这里的数字不必再动原画了——客户端会照原样再画一枚圆章盖在那枚上面，数字现取
+ * 这里的 tokenCost（见 client 的 ui/CardCostBadge.tsx 和 ui/skillCardFace.ts）。
+ * 原画上印的那个数因此只是底图，玉净瓶、金钟罩、核电站、内存紧缺、模型蒸馏这 5 张
+ * 底下印的都已经是旧价，玩家看到的是盖上去的新价。
  * 核电站的减费只影响"打出去实际扣多少"，不改这里的印刷数字。
  */
 export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
@@ -121,7 +122,7 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     // 复读机/黑白颠倒两种，将来的限制类效果也归它管，卡面不必跟着一起改。
     // 这类效果都只持续本轮（进下一轮自动清），所以文案里不写时限也不会有歧义。
     target: 'own-affected-ai',
-    tokenCost: 4,
+    tokenCost: 3,
     text: '移除己方1个 Agent 身上的效果，它本轮照常答题，之后还能再被干扰。',
   },
   boomerang: {
@@ -138,7 +139,7 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     name: '金钟罩',
     // 按卡面字面全挡：连对己方有利的效果、连自己后面打出的技能牌也一起挡在外面
     // （完整口径见 types.ts 的 `PlayerState.shielded`）。无目标，打出即生效。
-    tokenCost: 7,
+    tokenCost: 3,
     text: '本轮你和己方 Agent 不受任何技能牌影响，己方的玉净瓶、保送也一样打不进来。',
   },
   'safe-pass': {
@@ -169,10 +170,9 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
   'model-distillation': {
     kind: 'skill',
     id: 'model-distillation',
-    // 全场唯一一张原画上没印数字的：那枚圆章写的是「待定」（见 public/cards/skills/
-    // model-distillation.webp）。没有数字可转录，就先按最便宜的 1 放着——卡面既然没许诺
-    // 具体费用，填 1 至少不会和画面矛盾。等原画补上数字，这里跟着改成那个数。
-    tokenCost: 1,
+    // 原画上那枚圆章写的是「待定」（见 public/cards/skills/model-distillation.webp），
+    // 全场唯一一张没印数字的。卡面盖的那枚章现取这里的 2，底图不用再补。
+    tokenCost: 2,
     name: '模型蒸馏',
     // 全卡池唯一一张选手牌的：targetInstanceId 指的是自己手牌里那张 AI 牌的实例。
     // 换来的 Token 按被弃那张的**印刷费用** +1 算，可以把 tokens 顶到 tokenMax 之上
@@ -194,7 +194,7 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     name: '核电站',
     // 减的是双方的费用，也包括打出方自己后面的牌，可叠加（打两张就 -2）。
     // 计数记在 `GameState.costReduction`，进下一轮清零。
-    tokenCost: 4,
+    tokenCost: 3,
     text: '本轮双方后续每张牌减1费，最低1，可叠加，下一轮清零。',
   },
   'far-ahead': {
@@ -254,13 +254,13 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'memory-shortage',
     name: '内存紧缺',
-    tokenCost: 2,
+    tokenCost: 6,
     text: '双方场上各随机留下一半 Agent（单数向上取整），其余下场，你自己的场面照清。',
   },
 }
 
 /**
- * 这 24 张的 id，顺序就是它们在卡池和图鉴里的顺序（按设计稿的分组排：干扰、限制、防御、
+ * 这 24 张的 id，顺序就是它们在卡池里的顺序（按设计稿的分组排：干扰、限制、防御、
  * 资源、环境、策略），不按字母。
  *
  * 从 SKILL_DESIGN_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。

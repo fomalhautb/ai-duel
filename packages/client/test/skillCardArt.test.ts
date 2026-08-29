@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SKILL_DESIGN_CARDS, SKILL_DESIGN_CARD_IDS } from '@ai-duel/core'
-import { GALLERY_SKILL_CARDS } from '../src/dev/cardGalleryCatalog'
 import { SKILL_CARD_ART, isIllustratedSkillCard } from '../src/ui/skillCardArt'
+import { SKILL_CARD_FACE } from '../src/ui/skillCardFace'
 import { cardArtFor } from '../src/ui/cardArt'
 
 /**
@@ -20,22 +20,20 @@ describe('技能牌正面原画', () => {
     }
   })
 
-  it('把同一批 24 张技能牌收录到 /card 图鉴', () => {
-    // 图鉴直接读 core 的 CARDS，而卡表里的技能牌就是这 24 张——没有原画的占位卡已经删光，
-    // 所以图鉴里每一张技能牌都摆得出自己的原画。
-    const galleryIds = GALLERY_SKILL_CARDS.map((card) => card.id)
-    expect(galleryIds).toHaveLength(24)
+  it('每张技能牌都配了盖在原画那枚费用章上的圆章', () => {
+    // 少一张就会露出原画上印的旧价（比如金钟罩画的是 7、实际扣 3）。
     for (const cardId of SKILL_DESIGN_CARD_IDS) {
-      expect(galleryIds).toContain(cardId)
+      expect(SKILL_CARD_FACE[cardId], `${cardId} 缺卡面配置`).toBeDefined()
+      expect(SKILL_CARD_FACE[cardId]?.fill, `${cardId} 盘底色不是十六进制颜色`).toMatch(/^#[0-9a-f]{6}$/)
     }
   })
 
   it('模型蒸馏使用保留“待定”费用的专属原画', () => {
     // 24 张里唯一一张原画上没印数字的（圆章写的是「待定」），
-    // 所以 core 那边的 tokenCost 是先按最便宜的 1 放着，等原画补上数字再改。
+    // 费用已经定成 2，原画那枚圆章还没补上数字，等重出时印这个数。
     const card = SKILL_DESIGN_CARDS['model-distillation']
     expect(card?.name).toBe('模型蒸馏')
-    expect(card?.tokenCost).toBe(1)
+    expect(card?.tokenCost).toBe(2)
     expect(SKILL_CARD_ART['model-distillation']).toBe('/cards/skills/model-distillation.webp')
   })
 })

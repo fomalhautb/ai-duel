@@ -6,7 +6,7 @@ import { SKILL_DESIGN_CARDS } from './skillCards'
  * 全部卡牌定义：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
  * 加上 24 张技能牌（表在 skillCards.ts，同样一张卡对一张原画）。
  *
- * **这不等于卡池**：有两类牌留在这张表里，好让牌组页和图鉴照常画出它们，但不进
+ * **这不等于卡池**：有两类牌留在这张表里，好让牌组页照常画出它们，但不进
  * collection.ts 的 CARD_POOL，选不进牌组也上不了牌桌——
  * 24 张技能牌里没开放的那 14 张（「即将上线」），
  * 以及 18 张 AI 里 OpenRouter 调不到模型的那 2 张（「暂未接入」，见 aiModels.ts）。
@@ -59,7 +59,7 @@ export const DECK_SIZE = 20
  */
 
 /**
- * 默认牌组（平衡）：14 张 AI + 6 张技能，国产和国外 AI 各 7 张，费用 2~6 铺开。
+ * 默认牌组（平衡）：14 张 AI + 6 张技能，国产和国外 AI 各 7 张，费用 2~7 铺开。
  *
  * 定位是"什么都摸得到"的入门牌组：低费（2 点）4 张保证开局出得起，中费（3~4 点）8 张是主力，
  * 高费只留 Claude Fable 5 一张当上限。技能位一张一种，把开放技能的几类都放进来——
@@ -100,11 +100,11 @@ export const BALANCED_DECK: CardId[] = [
  *
  * 这副的核心是「鸡犬升天」（带满 3 张）：它顺着 `AiCard.evolvesTo` 把双方场上可进化的
  * Agent 各升一级，所以 AI 位优先塞进化链的链头——GPT-3.5、DeepSeek R1、Kimi K2.6 各 3 张，
- * 一共 9 张能被它升级，等于用 2 点的价钱把 2~3 点的单位换成 4~5 点的。
+ * 一共 9 张能被它升级，等于用 2 点的价钱把 2~3 点的单位换成 4 点的。
  * 注意它升的是**双方**的场，对面也铺着可进化单位时会白喂对面，这是这副牌自带的风险。
  *
  * 另外两种技能都在给铺场让路：「核电站」让本轮后续所有牌各减 1 费，一轮多铺一两个单位；
- * 「模型蒸馏」花 1 点弃掉手里多余的便宜 AI 换回费用 +1 的 Token，把重复的手牌变成额度。
+ * 「模型蒸馏」花 2 点弃掉手里多余的便宜 AI 换回费用 +1 的 Token，把重复的手牌变成额度。
  */
 export const LOW_COST_DECK: CardId[] = [
   // 可进化的链头 9 张：全是「鸡犬升天」的升级目标
@@ -140,8 +140,8 @@ export const LOW_COST_DECK: CardId[] = [
  *（本轮整个己方不受技能牌影响；它按字面全挡，连自己后面打出的技能牌也一起挡掉，所以只带 1 张）。
  *
  * 「模型蒸馏」2 张是这副牌唯一的起手解：第 1 轮上限只有 5 点（见 engine.ts 的
- * INITIAL_TOKEN_MAX），而这里最便宜的 AI 也要 4 点。花 1 点弃掉手里一张 7 点的
- * ChatGPT 5.6 Sol 能换回 8 点 Token，正好把前两轮的额度垫起来。
+ * INITIAL_TOKEN_MAX），而这里最便宜的 AI 也要 4 点。花 2 点弃掉手里一张 7 点的
+ * Claude Fable 5 能换回 8 点 Token，正好把前两轮的额度垫起来。
  */
 export const HIGH_COST_DECK: CardId[] = [
   // 高费 AI 12 张
@@ -152,11 +152,11 @@ export const HIGH_COST_DECK: CardId[] = [
   'deepseek-v4',
   'deepseek-v4',
   'kimi-k3',
+  'kimi-k3',
   'gpt-4o',
   'gpt-4o',
   'claude-5-sonnet',
-  'grok',
-  'gemini',
+  'glm-5',
   // 保护 6 张
   'safe-pass',
   'safe-pass',

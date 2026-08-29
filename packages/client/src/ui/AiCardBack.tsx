@@ -16,7 +16,7 @@ export interface AiCardBackData {
  * 玩家主动翻开 AI 牌时看到的详情背面。
  *
  * 对手手牌和牌堆仍使用 CardBackHidden：那是用来隐藏牌面身份的卡背，不能把名称和技能泄露出去。
- * 这里保留同一张星图底图，只在中央叠一块纸面详情，让对局、组卡页和图鉴共用同一份排版。
+ * 这里保留同一张星图底图，只在中央叠一块纸面详情，让对局和组卡页共用同一份排版。
  */
 export function AiCardBack({ card }: { card: AiCardBackData }) {
   const definitionId = card.definitionId ?? card.id
@@ -31,7 +31,7 @@ export function AiCardBack({ card }: { card: AiCardBackData }) {
       role="img"
       aria-label={`${card.name}。${skillName}：${skillText}`}
     >
-      {/* 和 HandCardFace 一样过 midFor：这张卡背在手牌、卡池、图鉴里都只有 150×225 上下，
+      {/* 和 HandCardFace 一样过 midFor：这张卡背在手牌和卡池里都只有 150×225 上下，
           原画 1024×1536 铺上去是白解码。常量本身仍指原画，降档统一在显示处做
           （预载清单也照同一个函数换算，见 ui/backgroundPreload.ts）。 */}
       <img className="ai-card-back__art" src={midFor(AI_CARD_BACK_ART)} alt="" draggable={false} />

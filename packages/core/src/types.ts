@@ -195,7 +195,7 @@ export interface HeroCard {
 export type HandCard = AiCard | SkillCard
 
 /**
- * 全部三类牌。只有需要"任意一张牌"的展示代码才用它（卡面渲染、图鉴、背面文案）；
+ * 全部三类牌。只有需要"任意一张牌"的展示代码才用它（卡面渲染、牌组页、背面文案）；
  * 一切和牌组沾边的地方一律用 HandCard，英雄牌进不去。
  */
 export type Card = HandCard | HeroCard

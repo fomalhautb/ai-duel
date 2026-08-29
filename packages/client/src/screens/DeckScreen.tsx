@@ -741,19 +741,6 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     showAddTip(cardEl, reason)
   })
 
-  /**
-   * 立刻收掉浮字。
-   *
-   * 只有 hover「即将上线」那种卡才用得上：那句提示是跟着指针走的，指针一离开就该没，
-   * 不能等 showAddTip 那个 1.2 秒的计时——指针早去了别处，话还挂在原来那张卡头上。
-   */
-  const hideAddTip = contextSafe(() => {
-    clearAddTipTimer()
-    const tip = addTipRef.current
-    if (tip === null) return
-    gsap.to(tip, { autoAlpha: 0, duration: 0.18, overwrite: true })
-  })
-
   // 组件卸载时把还排着的淡出计时撤掉：回调里会去碰一个已经卸载的节点。
   useEffect(() => clearAddTipTimer, [])
 
@@ -1084,7 +1071,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (id, drag) => {
       // 「即将上线」的牌不放大：点它就是在问"这张怎么选不了"，那就当场回这一句。
-      // 想看它写了什么仍然有路——右上角的问号照常翻背面。
+      // 这也是这类卡唯一会说话的地方——它们不给问号、也不给 hover 提示（见 PoolCard）。
       if (COMING_SOON_IDS.has(id)) {
         refuseAdd(drag.element, COMING_SOON_TIP)
         return
@@ -1149,16 +1136,6 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     settleCard(cardEl, poolTiltsRef.current.get(cardId))
     addCard(cardId, cardEl)
   })
-
-  /**
-   * 鼠标移到「即将上线」的卡上就说一句，移开就收掉。
-   *
-   * 只有这类卡挂这两个回调（见 PoolCard）：能选的卡 hover 是要去点它的，弹句话只会挡路。
-   * 触屏不走这条——那边 pointerenter / pointerleave 是按下和抬手那一刻发的，
-   * 抬手立刻把刚弹出来的提示收走，等于什么都没看见；触屏靠 onTap 那条路说话。
-   */
-  const hintComingSoon = useStable((cardEl: HTMLElement) => showAddTip(cardEl, COMING_SOON_TIP))
-  const clearComingSoonHint = useStable(() => hideAddTip())
 
   /** 问号热区的进出。两种卡共用，翻面层由 flipHelp 自己从热区往上找。 */
   const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
@@ -1566,8 +1543,6 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         comingSoon={comingSoon}
                         bind={bindPoolCard(cardId)}
                         onAdd={addFromPool}
-                        onSoonEnter={hintComingSoon}
-                        onSoonLeave={clearComingSoonHint}
                         onHelpEnter={handleHelpEnter}
                         onHelpLeave={handleHelpLeave}
                         onHelpToggle={handleHelpToggle}
@@ -1879,7 +1854,9 @@ interface PoolCardProps {
   canAdd: boolean
   /**
    * 这张牌还没开放（core 的 COMING_SOON_SKILL_CARD_IDS）。
-   * 卡面灰掉、常驻一枚「即将上线」的小牌子，鼠标移上去再说一遍。
+   *
+   * 卡面灰掉、常驻一枚「即将上线」的小牌子，另外**不给问号**：翻过去也只是一段还没生效的
+   * 效果说明，不如让这类卡安静地待在卡池末尾，一眼就知道是占位。
    * 拦下"加不进去"这件事的不是它，而是 blockReasonNow：三个入口都走那一条判定。
    */
   comingSoon: boolean
@@ -1890,12 +1867,7 @@ interface PoolCardProps {
    * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
    */
   onAdd: (cardId: CardId, cardEl: HTMLElement) => void
-  /**
-   * 鼠标进出这张卡（只有 comingSoon 时才挂）。参数是这张卡的外层元素，浮字定位到它。
-   */
-  onSoonEnter: (cardEl: HTMLElement) => void
-  onSoonLeave: () => void
-  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。 */
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。comingSoon 的卡不挂问号。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
   onHelpToggle: (help: HTMLElement) => void
@@ -1910,8 +1882,6 @@ const PoolCard = memo(function PoolCard({
   comingSoon,
   bind,
   onAdd,
-  onSoonEnter,
-  onSoonLeave,
   onHelpEnter,
   onHelpLeave,
   onHelpToggle,
@@ -1933,24 +1903,6 @@ const PoolCard = memo(function PoolCard({
         data-soon={comingSoon ? 'true' : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
-        /* 只有还没开放的牌才响应 hover，理由见 DeckScreen 的 hintComingSoon。
-           触屏上 pointerenter / pointerleave 是按下和抬手，那条路交给 onTap。 */
-        onPointerEnter={
-          comingSoon
-            ? (event) => {
-                if (event.pointerType !== 'mouse') return
-                onSoonEnter(event.currentTarget)
-              }
-            : undefined
-        }
-        onPointerLeave={
-          comingSoon
-            ? (event) => {
-                if (event.pointerType !== 'mouse') return
-                onSoonLeave()
-              }
-            : undefined
-        }
       >
         {/*
           三层分工照抄手牌（ui/HandFan.tsx 的 slot / __tilt / __inner）：
@@ -1967,19 +1919,24 @@ const PoolCard = memo(function PoolCard({
               <div className="deck-pool-card__scale">
                 <HandCardFace card={card} />
               </div>
-              {/* 看得见的问号圆圈。正面这一份不用另加 .card-glare：HandCardFace 自带一层。 */}
-              <span className="deck-pool-card__help-mark" aria-hidden="true">
-                ?
-              </span>
+              {/* 看得见的问号圆圈。正面这一份不用另加 .card-glare：HandCardFace 自带一层。
+                  没开放的牌不给：翻不过去了，摆个问号只会让人一直去点。 */}
+              {comingSoon ? null : (
+                <span className="deck-pool-card__help-mark" aria-hidden="true">
+                  ?
+                </span>
+              )}
             </div>
             <div className="deck-pool-card__face deck-pool-card__face--back" data-flip-face="back">
               <div className="deck-pool-card__scale">
                 <CardBackFace card={card} />
               </div>
               {/* 背面同一个角上也放一个：翻过去之后指针底下仍然压着一个问号。 */}
-              <span className="deck-pool-card__help-mark" aria-hidden="true">
-                ?
-              </span>
+              {comingSoon ? null : (
+                <span className="deck-pool-card__help-mark" aria-hidden="true">
+                  ?
+                </span>
+              )}
             </div>
           </div>
           {/*
@@ -1987,26 +1944,31 @@ const PoolCard = memo(function PoolCard({
             必须留在 __inner 外面：跟着翻面转的话，牌一翻到背面它就转到指针够不着的地方，
             pointerleave 立刻翻回来、又被 hover 到，来回抖个没完（原委见 styles.css 的 .hand-fan__help）。
             靠 ignoreSelector 让「按在问号上」不等于抓牌（见两个 useCardDrag 的 ignoreSelector）。
+
+            「即将上线」的牌整个不挂它：这类卡不翻面，热区留着就是一块盖在卡右上角、
+            按下去什么都不发生的死区，还会把「点卡面 = 弹一句即将上线」那一下吃掉。
           */}
-          <button
-            type="button"
-            className="deck-help"
-            aria-label={`查看「${card.name}」的背面`}
-            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
-               理由见 handleHelpToggle。 */
-            onPointerEnter={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpEnter(event.currentTarget)
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpLeave(event.currentTarget)
-            }}
-            onPointerUp={(event) => {
-              if (event.pointerType === 'mouse') return
-              onHelpToggle(event.currentTarget)
-            }}
-          />
+          {comingSoon ? null : (
+            <button
+              type="button"
+              className="deck-help"
+              aria-label={`查看「${card.name}」的背面`}
+              /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+                 理由见 handleHelpToggle。 */
+              onPointerEnter={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpEnter(event.currentTarget)
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpLeave(event.currentTarget)
+              }}
+              onPointerUp={(event) => {
+                if (event.pointerType === 'mouse') return
+                onHelpToggle(event.currentTarget)
+              }}
+            />
+          )}
         </div>
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
             排在卡面之后、按钮之前：卡面不透明会盖住它，而按钮和圆章不该被它罩上一层白。

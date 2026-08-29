@@ -1626,49 +1626,54 @@ body:has(.battle) {
 }
 
 /*
- * 一块玩家面板：最左边一张小英雄牌，中间名字和牌数，右边那个大数字是累计得分。
+ * 一块玩家面板：一张尽量大的英雄牌，玩家名压在卡底，卡堆叠在卡的右下角。
  *
- * 英雄那一列跨两行，没有英雄时（hero 为 null）整个格子不渲染，
- * grid 会让后面两列自己顶上去，不用为这种情况另写一套模板。
+ * 面板自己只负责"给英雄牌划一块地方"，尺寸完全由上面那张 1fr / 1fr 的网格定死，
+ * 和里面画了什么无关——MatchStage 的 useHeroCardScale 量的就是这块，
+ * 量完把缩放系数写成 --hero-card-scale，所以这里不能让内容反过来撑大面板
+ *（min-width / min-height 归零就是为了这个），否则 ResizeObserver 会来回震荡。
+ *
+ * 刻意不画边框和底色：这一块本来就整个被一张卡占满，再套一层框只会把卡挤小。
  */
 .battle__player-panel {
+  /*
+   * 英雄牌的缩放系数，由 MatchStage 的 useHeroCardScale 量出来后写成同名的内联样式盖掉。
+   * 必须声明在**这个**元素上：内联样式只压得住同一个元素上的规则，
+   * 写到下面 .battle__hero 上的话反倒会把继承下来的那份挡住（自己身上的声明优先于继承）。
+   * 这里的值只是第一帧还没量到时的兜底，别拿它当准数。
+   */
+  --hero-card-scale: 0.5;
+
+  position: relative;
   display: grid;
-  grid-template-areas:
-    'hero name score'
-    'hero piles score';
-  grid-template-columns: auto 1fr auto;
-  align-content: center;
-  gap: 2px 12px;
-  padding: 14px 16px;
-  border: 1px solid rgb(119 116 101 / 45%);
-  border-radius: 4px;
-  background: rgb(255 255 255 / 26%);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
 }
 
 /*
- * 侧栏里的小英雄牌。
+ * 英雄牌那一块：宽高就是 150×225 按 --hero-card-scale 缩下来的尺寸，2:3 恒定。
  *
- * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面这个盒子按缩小后的尺寸占位，
  * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ * --hero-card-scale 从 .battle__player-panel 继承下来（见那里），这一层不许再声明一遍。
  */
 .battle__hero {
-  --hero-card-w: 62px;
-  --hero-card-h: 93px;
-  /* 62 / 150 = 0.413333，卡面高 225 × 0.413333 ≈ 93，和上面那对宽高对得上。 */
-  --hero-card-scale: 0.413333;
+  --hero-card-w: calc(var(--card-w) * var(--hero-card-scale));
+  --hero-card-h: calc(var(--card-h) * var(--hero-card-scale));
 
-  grid-area: hero;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  align-self: center;
+  position: relative;
+  width: var(--hero-card-w);
+  height: var(--hero-card-h);
 }
 
 .battle__hero-card {
-  width: var(--hero-card-w);
-  height: var(--hero-card-h);
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(20 24 34 / 26%);
+  cursor: pointer;
 }
 
 /* 里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。 */
@@ -1679,42 +1684,158 @@ body:has(.battle) {
   transform-origin: top left;
 }
 
-/* 卡下面那行技能名。技能用掉之后变成「Debug 已用」，配合整块置灰。 */
-.battle__hero-tag {
-  max-width: calc(var(--hero-card-w) + 16px);
-  color: var(--battle-ink-muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-align: center;
-}
-
-/* 技能已经用掉：整块褪色，一眼看出这一局指望不上它了。 */
-.battle__hero--used {
-  opacity: 0.55;
+/* 技能已经用掉：卡面褪色，一眼看出这一局指望不上它了。原因由下面那枚角标点明。 */
+.battle__hero-card--used {
+  opacity: 0.62;
   filter: grayscale(85%);
 }
 
-.battle__player-name {
-  grid-area: name;
-  color: var(--battle-ink);
-  font-size: 17px;
+/*
+ * 「技能已用」角标。放在卡面盒子外边，所以不跟着一起褪色——
+ * 它正是用来解释褪色的，自己也灰掉就白写了。
+ */
+.battle__hero-used {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 6px;
+  border-radius: 6px 0 6px 0;
+  background: color-mix(in srgb, var(--battle-navy) 82%, transparent);
+  color: #f2ece0;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.11));
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/*
+ * 玩家名：压在卡底的一条小字。
+ *
+ * 底色用从下往上淡出的渐变而不是一整条实色：卡面最下面本来就是名字铭牌那一档深色，
+ * 渐变搭上去看着是同一块，而上面的技能说明只被最下沿蹭到一点。
+ * 字号跟着卡一起缩，但给了下限——侧栏收窄到 170px 那一档（见文件末尾的媒体查询）
+ * 卡只有六十来像素宽，按比例算出来的字号已经读不出来了。
+ *
+ * 右边那块内边距是给卡堆让的：卡堆压住卡面右下角约 0.24 个卡宽（推导见 .battle__deck），
+ * 名字在剩下的那块里居中，长名字也不会钻到牌背底下去。
+ */
+.battle__hero-name {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: calc(var(--hero-card-h) * 0.06) calc(var(--hero-card-w) * 0.24)
+    calc(var(--hero-card-h) * 0.025) 6px;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(to top, rgb(18 21 29 / 82%), rgb(18 21 29 / 0%));
+  color: #f4efe2;
+  font-size: max(10px, calc(var(--hero-card-w) * 0.13));
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+  /* 名字长了就截断，不能把整条撑成两行把技能文字盖掉。 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
-.battle__player-score {
-  grid-area: score;
-  align-self: center;
+/*
+ * 这张英雄牌此刻由展示层代管（玩家正放大查看它）：卡和名字一起让出来，
+ * 免得屏幕中央和侧栏同时出现两张一模一样的卡。同战场小卡的 .battle__tile--held。
+ * 卡堆不藏——它跟这次查看没关系，藏了反而像侧栏缺了一块。
+ */
+.battle__hero--held .battle__hero-card,
+.battle__hero--held .battle__hero-used,
+.battle__hero--held .battle__hero-name {
+  visibility: hidden;
+}
+
+/*
+ * 卡堆：几张错位叠着的牌背，压在英雄牌右下角外沿。
+ *
+ * 宽度按英雄牌折算，整块跟着卡一起大小；给了下限，免得侧栏收窄那一档小到看不出是一摞牌。
+ * 位置刻意往外探出一点（负的 right / bottom），"叠在卡上面"这件事才看得出来。
+ */
+.battle__deck {
+  --deck-w: max(24px, calc(var(--hero-card-w) * 0.34));
+  --deck-h: calc(var(--deck-w) * 1.5);
+
+  position: absolute;
+  right: calc(var(--deck-w) * -0.3);
+  bottom: calc(var(--deck-h) * -0.12);
+  width: var(--deck-w);
+  height: var(--deck-h);
+  /* 压在英雄牌之上。同层里的兄弟节点，给个正数就够，不用建新的层叠上下文。 */
+  z-index: 1;
+}
+
+/* 底下两张只画厚度，不带任何牌面信息；越靠后越往左上错开，看着像一摞没码齐的牌。 */
+.battle__deck-stack {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 45%, transparent);
+  border-radius: 3px;
+  background: var(--battle-paper-shade);
+  box-shadow: 0 2px 5px rgb(10 14 24 / 32%);
+}
+
+.battle__deck-stack--far {
+  transform: translate(-5px, -5px) rotate(-4deg);
+}
+
+.battle__deck-stack--near {
+  transform: translate(-2.5px, -2.5px) rotate(-1.8deg);
+}
+
+/*
+ * 最上面那张，也是发牌飞行的起点：两排扇形量的就是这个盒子的位置和宽度
+ *（见 MatchStage 的 dealOriginOf）。所以它必须是真实尺寸、不带任何变换的一块。
+ * 里面是和对手手牌同一张隐藏牌背（CardBackHidden），只是圆角和投影按这个尺寸收了一档——
+ * 那张牌背的默认 8px 圆角摆在二三十像素宽的牌上会圆得没有边。
+ */
+.battle__deck-top {
+  position: absolute;
+  inset: 0;
+}
+
+.battle__deck-top .card-back-hidden {
+  border-radius: 3px;
+  box-shadow: 0 3px 8px rgb(6 10 20 / 40%);
+}
+
+.battle__deck-top .card-back-hidden__rim {
+  inset: 3px;
+  border-radius: 2px;
+}
+
+/*
+ * 剩余张数徽章。等宽数字，张数从两位跳到一位时这枚圆片不会跟着抖。
+ * 张数为 0 时数字变红：牌堆空了之后每轮补牌都是白抽一次（引擎的 drawCards 直接返回），
+ * 这件事画面上没有别的地方说得出来。
+ */
+.battle__deck-count {
+  position: absolute;
+  right: calc(var(--deck-w) * -0.22);
+  bottom: calc(var(--deck-h) * -0.1);
+  min-width: 17px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 55%, transparent);
+  border-radius: 999px;
+  background: var(--battle-paper);
   color: var(--battle-navy);
-  font-size: 38px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgb(10 14 24 / 40%);
 }
 
-.battle__player-piles {
-  grid-area: piles;
-  color: var(--battle-ink-muted);
-  font-size: 12px;
+.battle__deck-count--empty {
+  border-color: rgb(176 58 46 / 70%);
+  color: #b03a2e;
 }
 
 /* 右侧栏上半块：下一题类别、状态行，自上而下一列。
@@ -3351,6 +3472,13 @@ body:has(.battle) {
     padding-right: 12px;
     padding-left: 12px;
   }
+
+  /* 左侧栏收到 170px：左右内边距跟着收一档，英雄牌才不至于被挤成一条。
+     卡的大小是量出来的（见 useHeroCardScale），这里只要把地方腾出来。 */
+  .battle__sidebar-frame--players .ornate-frame__content {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
 }
 
 /*
@@ -3389,6 +3517,13 @@ body:has(.battle) {
 
   .battle__sidebar-frame--actions .ornate-frame__content {
     padding-bottom: 42px;
+  }
+
+  /* 矮窗口下侧栏总高只剩六百来像素，上下内边距和两块之间的间隔各收一档，
+     两张英雄牌才不会被压成小得看不清字的一条。 */
+  .battle__sidebar-frame--players .ornate-frame__content {
+    gap: 10px;
+    padding: 16px 16px;
   }
 }
 

@@ -1305,10 +1305,11 @@ body,
 /* ---------- 对局界面 ---------- */
 
 /*
- * .battle 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
- * .hand-fan 是 position: fixed 钉在视口上的，而 fixed 元素本来就不受任何祖先的
- * overflow 裁剪。手牌 hover 放大、拖拽出牌这些动作只要让它在某一帧比视口高一丁点，
- * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且对局页压根不需要滚动）。
+ * .battle 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级。
+ * 对局页里 .hand-fan 这类 position: fixed 的浮层虽然已经被 .battle-scaler 的 transform
+ * 收成"以舞台为包含块"（见下），但它们仍然不受任何祖先的 overflow 裁剪，
+ * 手牌 hover 放大、拖拽出牌只要有一帧比舞台高一丁点就会溢到页面上，
+ * body 就被判定成"可以滚"，触发系统的橡皮筋回弹（且对局页压根不需要滚动）。
  * 用 :has() 只在对局界面挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
  */
 html:has(.battle),
@@ -1316,6 +1317,54 @@ body:has(.battle) {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+/*
+ * 对局界面的 16:9 舞台。
+ *
+ * 和首页 / hero / room 一样，画面锁死在 1672×941 的比例里，视口太宽就左右留边、
+ * 太窄就上下留边。不同的是缩放方式：那几页的内部尺寸全写成 cqi，跟着舞台宽度算；
+ * 对局页做不到——卡面 150×225、小卡、顶栏、扇形手牌的几何都是写死的像素，
+ * 而且 ui/fanMath.ts、HandFan 的防抖动下限等 JS 常量和这批像素是绑死的一套。
+ * 所以这里换成"按设计尺寸排版 + 整体 transform 缩放"：.battle-scaler 永远是
+ * 1672×941 的盒子，内部一个像素都不用改，只把整块画面等比缩到舞台大小。
+ *
+ * 这个 transform 还顺手办了第二件事：它让 .battle-scaler 成为内部所有 position: fixed
+ * 元素（手牌扇形、对手扇形、亮相层、结算层…）的包含块，于是那些"钉在视口上"的浮层
+ * 自动改成钉在舞台上，留边区域不会再被它们盖住。JS 那边把光标坐标换算回舞台内坐标的
+ * 口径统一在 ui/battleStage.ts。
+ *
+ * --battle-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
+ * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
+ * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ */
+.battle-frame {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  /* 留边色取比战场底（#26334c）更暗的一档深蓝：这样留边像是画面外的框，
+     而不是战场自己漏出来的一块；纸色侧栏压在深底上也才有"一块屏幕"的边界感。 */
+  background-color: #161e2c;
+}
+
+.battle-stage {
+  container-type: inline-size;
+  position: relative;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+  overflow: hidden;
+}
+
+.battle-scaler {
+  --battle-scale: tan(atan2(100cqi, 1672px));
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1672px;
+  height: 941px;
+  transform: scale(var(--battle-scale));
+  transform-origin: top left;
 }
 
 .battle {
@@ -1328,7 +1377,7 @@ body:has(.battle) {
   --battle-navy: #253149;
   --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
   /* 顶栏高度。写成变量是因为不止排版要用：展示卡的裁剪层（.reveal-clip）也拿它当
-     "顶栏下沿"那条线，两处必须是同一个数，矮窗口那一档改的也只是这一个变量。 */
+     "顶栏下沿"那条线，两处必须是同一个数。 */
   --battle-topbar-h: 72px;
   display: grid;
   grid-template-rows: var(--battle-topbar-h) minmax(0, 1fr);
@@ -1404,7 +1453,9 @@ body:has(.battle) {
   align-content: center;
   align-items: baseline;
   justify-content: center;
-  gap: clamp(14px, 1.8vw, 28px);
+  /* 原来是 clamp(14px, 1.8vw, 28px)。现在整块画面固定按 1672 宽排版再整体缩放，
+     1.8vw 恒定落在上限之外，直接写死上限值，下同（本节其余几处 vw / vh 同理）。 */
+  gap: 28px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -1562,7 +1613,9 @@ body:has(.battle) {
 
 .battle__layout {
   display: grid;
-  grid-template-columns: clamp(210px, 18.3vw, 306px) minmax(420px, 1fr) clamp(225px, 18.6vw, 316px);
+  /* 原来是 clamp(210px, 18.3vw, 306px) / clamp(225px, 18.6vw, 316px)：
+     按设计宽 1672 算出来分别是 306 和 311，中栏剩 1055，远超它 420 的下限。 */
+  grid-template-columns: 306px minmax(420px, 1fr) 311px;
   min-width: 0;
   min-height: 0;
 }
@@ -1753,7 +1806,8 @@ body:has(.battle) {
    存成 WebP 而不是 PNG：画面是纸纹噪点加暗部渐变的照片类内容，PNG 无损压不动它，
    原来那张 PNG 有 2.18MB，同一张图 WebP q90 只要 188KB，噪点和渐变都看不出损失。 */
 .battle__battlefield {
-  --battle-hand-zone-h: clamp(210px, 27vh, 250px);
+  /* 原来是 clamp(210px, 27vh, 250px)：设计高 941 的 27% 是 254，恒被压到上限。 */
+  --battle-hand-zone-h: 250px;
   /*
    * 战场顶上给对方手牌留出的高度（下面 .battle__board 的 top inset 用它）。
    *
@@ -1844,17 +1898,18 @@ body:has(.battle) {
  */
 .battle__board {
   position: absolute;
-  inset: var(--battle-foe-hand-h) clamp(16px, 2vw, 28px) var(--battle-hand-zone-h);
+  /* 左右那 28px 原来是 clamp(16px, 2vw, 28px)，设计宽下恒在上限。 */
+  inset: var(--battle-foe-hand-h) 28px var(--battle-hand-zone-h);
   display: flex;
   flex-direction: column;
   /* 不设 gap：两行之间的距离全交给中线自己的上下 margin（见 .battle__midline）。
      两处都留一份的话，行距就是"中线高 + margin + gap"三个数拼出来的，
-     矮窗口那档的高度预算再算一遍时最容易漏掉其中一个。 */
+     算高度预算时最容易漏掉其中一个。 */
   gap: 0;
   min-height: 0;
-  /* 上下留白比单行时紧了一圈：同一块高度要塞两排 165px 的小卡外加中间那条中线，
-     1440×900 这类常见窗口下多留 20px 就会让两排挤到互相压边。
-     顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。 */
+  /* 顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。
+     设计高度下这块内容区有 465px（战场 535 − 上下留白 70），
+     两排 165px 的小卡加 30px 的中线用掉 360px，富余都摊给两行的行内居中。 */
   padding: 52px 24px 18px;
   border: 1px dashed transparent;
   border-radius: 18px;
@@ -1975,7 +2030,7 @@ body:has(.battle) {
  * 回合数从个位涨到两位、后半句在"你出牌 / 对方出牌 / 答题中"之间换，线都不会被推歪。
  *
  * 高度是算过的：内容 20px + 上下各 5px 外边距 = 30px，两行小卡能分的高度就少这么多。
- * 这三个数改任何一个，都要跟着重解矮窗口那档的阈值（见 @media (max-height: 805px) 上面的算式）。
+ * 这三个数改任何一个，都要跟着核对 .battle__board 那笔高度预算（见它 padding 上的注释）。
  *
  * 不吃指针事件：战场落点是按 .battle__board 的矩形几何判的，中线挡不着它，
  * 但"点空白处取消选目标"是真的点击，这条线横在战场正中间，不让开就会吃掉一整条的取消。
@@ -2157,7 +2212,7 @@ body:has(.battle) {
 .battle__drop-cue--return {
   --battle-cue-x: 0;
   top: 18px;
-  right: clamp(18px, 3vw, 42px);
+  right: 42px;
   left: auto;
   color: rgb(198 220 248 / 88%);
 }
@@ -2205,7 +2260,7 @@ body:has(.battle) {
   background-blend-mode: screen;
   clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
   color: #e7e1d4;
-  font-size: clamp(18px, 1.5vw, 24px);
+  font-size: 24px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.25em;
@@ -2635,7 +2690,7 @@ body:has(.battle) {
   position: absolute;
   top: 24%;
   left: 50%;
-  width: min(860px, 90vw);
+  width: 860px;
   translate: -50% 0;
 }
 
@@ -3236,7 +3291,7 @@ body:has(.battle) {
 }
 
 .skill-cancel__text {
-  max-width: min(720px, 88vw);
+  max-width: 720px;
   margin: 0;
   color: rgb(255 238 197 / 88%);
   font-size: 20px;
@@ -3309,8 +3364,9 @@ body:has(.battle) {
   flex-direction: column;
   gap: 14px;
   align-items: center;
-  width: min(720px, 88vw);
-  max-height: 82vh;
+  width: 720px;
+  /* 原来是 82vh；设计高 941 的 82% 是 771。 */
+  max-height: 771px;
   padding: 30px 34px;
   overflow-y: auto;
   border: 1px solid var(--battle-line-dark, #777465);
@@ -3464,86 +3520,13 @@ body:has(.battle) {
   text-indent: 0.14em;
 }
 
-@media (max-width: 1080px) {
-  .battle__layout {
-    grid-template-columns: 170px minmax(360px, 1fr) 190px;
-  }
-
-  .battle-topbar__status {
-    gap: 12px;
-  }
-
-  .battle-topbar__score-num {
-    margin: 0 5px;
-    font-size: 26px;
-  }
-
-  .battle__sidebar-frame--actions .ornate-frame__content {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-}
-
 /*
- * 805px 这个阈值是算出来的，不是拍的：战场两行各要 165px 才放得下一张小卡，
- * 中间那条分界中线另外吃掉 30px（20px 高的匾 + 上下各 5px 外边距，见 .battle__midline）。
- * 战场高度 = 视口高 − 顶栏 72 − 对方手牌条 84 − 手牌区 27vh − 内边距 52/18 − 边框 2 − 中线 30，
- * 剩下的两行平分，于是 0.73 × 视口高 ≥ 330 + 72 + 84 + 52 + 18 + 2 + 30 = 588，
- * 解出来要 805.5px 高才够（行间距已经归零，行距全在中线的 margin 里）。
- * 手牌区这一项必须按 27vh 算、不能按它的下限 210px 算：clamp 咬到 210 是 777.8px 以下的事，
- * 阈值抬到八百以上之后，这个高度段的手牌区已经跟着视口一起长了。
- * 差一点点的话小卡不会自己变矮（.battle__tile 高度写死），
- * 而是整条 flex line 溢出行盒：对方行往上顶进拖拽提示药丸，
- * 我方行往下戳破战场的虚线框，一直捅到手牌区里。
- * 所以 1366×768 这类笔记本（视口高约 690~720）必须走这一档。
- * 缩一号之后的下限是 697px（顶栏 62 + 对方手牌条 84 + 手牌区 210 + 内边距 48/12 + 边框 2
- * + 中线 24 + 两行各 127.5），再矮连 127.5px 的小卡也放不下——
- * 窗口小到那个程度这页本来就没法看了。
+ * 这里原来有两档响应式断点（max-width: 1080px 的窄窗口档、max-height: 777px 的矮窗口档），
+ * 用来在小窗口下收窄侧栏、缩小顶栏和场上小卡。现在整块画面固定按 1672×941 排版、
+ * 再由 .battle-scaler 整体等比缩放（见"对局界面的 16:9 舞台"那段），
+ * 内部尺寸永远是设计稿上那一套，窗口再小也只是缩得更小，断点已经没有意义，故删除。
+ * 需要为极小窗口单独调版式的话，条件要写成对舞台的容器查询，而不是对视口的媒体查询。
  */
-@media (max-height: 805px) {
-  .battle {
-    --battle-topbar-h: 62px;
-    /* 矮窗口下战场那块只剩三百来像素，两排 165px 的小卡放不下，整体缩一号。
-       比例必须仍是 85 / 150 = 0.566667（225 × 0.566667 = 127.5），
-       比例一变，打出时的飞行就会把卡面拉变形。 */
-    --tile-w: 85px;
-    --tile-h: 127.5px;
-    --tile-scale: 0.566667;
-  }
-
-  .battle__board {
-    padding-top: 48px;
-    padding-bottom: 12px;
-  }
-
-  /* 中线也跟着缩一号：匾矮 2px、上下各少留 2px，一共给两行小卡多让出 6px。 */
-  .battle__midline {
-    margin: 3px 0;
-  }
-
-  .battle__midline-badge {
-    height: 18px;
-    padding: 0 10px;
-    font-size: 11px;
-    line-height: 16px;
-  }
-
-  .battle__midline-num {
-    font-size: 12px;
-  }
-
-  .battle-topbar__round-num {
-    font-size: 21px;
-  }
-
-  .battle-topbar__score-num {
-    font-size: 26px;
-  }
-
-  .battle__sidebar-frame--actions .ornate-frame__content {
-    padding-bottom: 42px;
-  }
-}
 
 /* ---------- 卡牌图鉴页（/card） ---------- */
 
@@ -4205,3 +4188,59 @@ body:has(.battle) {
 .gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 225px; }
 .gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
 .gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+
+/* ---------- 触屏设备提示（TouchDeviceNotice） ---------- */
+
+/*
+ * 挂在应用最外层、盖住整页的一层提示：这游戏还没为触屏做过适配。
+ * 判据和"为什么不记住"见 ui/TouchDeviceNotice.tsx。
+ *
+ * z-index 取一个比对局界面里所有浮层（最高是展示遮罩那档 1100~1200）都大的数：
+ * 提示可能出现在任何一页，包括正在对局的那一页，被压在牌底下就白提示了。
+ */
+.touch-notice {
+  position: fixed;
+  z-index: 9000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background-color: rgb(12 16 26 / 62%);
+}
+
+.touch-notice__panel {
+  /* .plaque-button（见上面那一节）的 background-image 里引用了 --battle-grain，
+     而它只定义在 .battle 上。这一层不在 .battle 里，取不到值整条声明就作废，
+     连同一条里的高光渐变一起没了，「确认」会变成一块死板的纯色。
+     同样的作用域补丁 deck.css 和 design.css 里各有一份，改的时候三处一起改。 */
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: min(420px, 100%);
+  padding: 34px 30px 30px;
+  border: 1px solid var(--line-dark, #8a8270);
+  color: var(--ink, #2e2e38);
+  /* 一张纸：底色 + .grain 的两层纸纹，和全站其它纸面同一套（见 ui/paper/paper.css）。 */
+  background-color: var(--paper, #f0ecdf);
+  box-shadow: 0 18px 48px rgb(6 10 20 / 45%);
+  text-align: center;
+}
+
+.touch-notice__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.3em;
+}
+
+.touch-notice__text {
+  margin: 0;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 17px;
+  line-height: 1.75;
+}

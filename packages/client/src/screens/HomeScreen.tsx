@@ -34,7 +34,9 @@
  * 真要清晰只能它也换 2x：按 3344×1882 重新导出、同名覆盖就行，
  * 代码一行都不用改——所有图层都是 width/height: 100%，多大的图都按舞台尺寸铺满。
  *
- * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
+ * "开始游戏"按存档分流：没走完新手教程的进 /tutorial，走完的直接进匹配房。
+ * 分流在点下去那一刻现读存档，不在挂载时读一次——教程和首页之间来回跳时，
+ * 提前读的那份会是过期的。
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -592,7 +594,12 @@ function HomeStage() {
           </span>
         </p>
 
-        <button type="button" className="home__start" onClick={() => navigate('/room')}>
+        {/* 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。 */}
+        <button
+          type="button"
+          className="home__start"
+          onClick={() => navigate(loadSave().tutorialDone ? '/room' : '/tutorial')}
+        >
           <span className="home__start-label">开始游戏</span>
         </button>
 

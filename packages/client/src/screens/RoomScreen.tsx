@@ -533,13 +533,13 @@ function RoomStage({
           返回
         </button>
 
-        {/* 新手教程页已经删掉还没重做（见 HomeScreen.tsx 文件头），所以这里只是块看得见、
-            按不动的文字：做成 span 而不是 disabled 的 button，读屏不会念出「按钮不可用」，
-            光标也保持默认，不做出可点的样子。title 说明为什么点不动。 */}
-        <span className="room__tutorial" title="敬请期待">
+        {/* 重玩新手教程的入口（规格 §14：重玩入口放在匹配房，不占完成页的主视觉）。
+            不看存档里的 tutorialDone——那个字段只管首页「开始游戏」往哪分流，
+            从这里进去永远能重来一遍。 */}
+        <button type="button" className="room__tutorial" onClick={() => navigate('/tutorial')}>
           <img className="room__book" src="/room/book.webp" alt="" draggable={false} />
           新手教程
-        </span>
+        </button>
 
         <div className="room__head">
           <h1 className="room__title">匹配房</h1>

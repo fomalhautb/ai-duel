@@ -54,3 +54,196 @@
   text-align: center;
   box-shadow: 0 10px 26px rgba(6, 10, 18, 0.45);
 }
+
+/*
+ * 「这一步不许点这个」的一句话提示（TutorialBlockTip）。
+ *
+ * 和上面那个提示气泡分开：那句说"现在该做什么"，一直挂着；这句说"刚才那一下不行"，
+ * 说完就消失。摆在舞台顶部居中，不跟着任何元素走——被拒的操作可能发生在页面任何角落，
+ * 提示固定在同一个位置反而更容易被看到。
+ * 层级比引导层再高一档：它偶尔要压在引导层的气泡上面。
+ */
+.tutorial-block-tip {
+  position: fixed;
+  top: 26px;
+  left: 50%;
+  z-index: 1010;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 20px;
+  border: 2px solid #c8a35a;
+  border-radius: 999px;
+  background: rgb(24 18 12 / 92%);
+  color: #f6e7c4;
+  font-size: 17px;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgb(6 10 18 / 45%);
+  /* 整条不吃指针事件：它只是一句话，不该挡住底下刚被点到的那个元素。 */
+  pointer-events: none;
+}
+
+/* ============================================================
+   过渡提示页 / 教程完成页（TutorialOutro）
+   ============================================================ */
+
+/*
+ * 两块纯文字页面共用的纸面板。
+ *
+ * 不套 16:9 舞台：这两屏只有几行字加一颗按钮，锁进设计稿比例只会在大屏上凭空留一圈边。
+ * 尺寸用 min() 夹一下，窄窗口时跟着缩，宽窗口时不至于把一行字拉成一整屏宽。
+ */
+.tutorial-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+
+.tutorial-page__inner {
+  width: min(640px, 84vw);
+}
+
+.tutorial-panel {
+  padding: 46px 40px 40px;
+  text-align: center;
+}
+
+/* 过渡提示的第一句，比正文重一档：它是这一屏真正要说的话。 */
+.tutorial-panel__lead {
+  margin: 0 0 14px;
+  color: var(--navy);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.tutorial-panel__text {
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+/* 匾额按钮默认宽 224px，「开始真正的对战」六个字加上 0.25em 字距塞不下会折成两行。
+   选择器多带一级 .tutorial-page 是为了压过 styles.css 里 .plaque-button 那条同名属性
+   （同 deck.css 里 .deck-page .deck-confirm 的做法）。 */
+.tutorial-page .tutorial-panel__cta {
+  width: min(320px, 100%);
+  margin-top: 34px;
+  white-space: nowrap;
+}
+
+/* 完成页的比分。整屏最大的一块，规格 §14 要求突出的就是它。 */
+.tutorial-score {
+  margin-top: 26px;
+}
+
+.tutorial-score__label {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  letter-spacing: 0.16em;
+}
+
+.tutorial-score__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  margin: 6px 0 0;
+  color: var(--navy);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* 中间那个冒号比数字小一号、颜色也淡一档，读起来才是「3 比 0」而不是三个并排的字符。 */
+.tutorial-score__value i {
+  color: var(--ink-2);
+  font-size: 34px;
+  font-style: normal;
+}
+
+/* ============================================================
+   跳过教程（TutorialSkip）
+   ============================================================ */
+
+/*
+ * 右上角那颗不显眼的出口。
+ *
+ * position: fixed 写的是**视口坐标**，不跟任何舞台走：教学对战、组牌、选英雄三屏各有各的
+ * 缩放层，跟着谁都会在别的屏上跑偏。层级压过对局界面的全屏过场（1100），
+ * 否则抛硬币、答题揭晓演着的时候它会被盖掉，而这颗按钮任何时候都该点得到。
+ */
+.tutorial-skip {
+  position: fixed;
+  top: 18px;
+  right: 22px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid rgb(226 205 155 / 32%);
+  border-radius: 999px;
+  background: rgb(14 18 26 / 62%);
+  color: rgb(232 220 195 / 72%);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.tutorial-skip:hover {
+  border-color: rgb(226 205 155 / 60%);
+  color: #f2e6cc;
+}
+
+/* 展开成确认条之后整块不再是按钮，光标和 hover 变色都交给里面那两颗小按钮。 */
+.tutorial-skip--confirm {
+  cursor: default;
+  color: rgb(232 220 195 / 82%);
+}
+
+.tutorial-skip--confirm:hover {
+  border-color: rgb(226 205 155 / 32%);
+  color: rgb(232 220 195 / 82%);
+}
+
+.tutorial-skip__ask {
+  letter-spacing: 0.08em;
+}
+
+.tutorial-skip__btn {
+  padding: 4px 10px;
+  border: 1px solid rgb(226 205 155 / 45%);
+  border-radius: 999px;
+  background: rgb(226 205 155 / 16%);
+  color: #f2e6cc;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.18s ease;
+}
+
+.tutorial-skip__btn:hover {
+  background: rgb(226 205 155 / 30%);
+}
+
+/* 「取消」是次要选项，只留一圈线，不填底色。 */
+.tutorial-skip__btn--ghost {
+  border-color: rgb(226 205 155 / 26%);
+  background: none;
+  color: rgb(232 220 195 / 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-skip,
+  .tutorial-skip__btn {
+    transition-duration: 1ms;
+  }
+}

@@ -70,10 +70,21 @@ export interface AiCard extends CardBase {
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
   /**
+   * 答题时去 OpenRouter 调的那个模型 id，`null` 表示 OpenRouter 上根本没有这个模型。
+   *
+   * 写成必填的 `string | null` 而不是可选字段：漏填会被静默当成"调不到"，
+   * 而"调不到"是要把整张牌挡在卡池外的（见 aiModels.ts 的 PLAYABLE_AI_CARD_IDS），
+   * 代价太大，宁可让类型检查在漏填的那一刻就报错。
+   */
+  openrouter: string | null
+  /**
    * 国产模型。「国产替代」按它决定谁留在场上（没标的一律罚下）。
    *
    * 只标 true、不写 false：没这一项就是非国产，JSON 里少一份冗余，
    * 也免得以后有人误以为 `domestic: false` 和不写是两种状态。
+   *
+   * 和 openrouter 各管各的：标签说的是"这张卡算不算国产"，openrouter 说的是"调不调得到"。
+   * 文心一言调不到模型、进不了卡池，但它照样是国产牌——真被调试指令摆上场就吃这条规则。
    */
   domestic?: true
   /**
@@ -81,6 +92,9 @@ export interface AiCard extends CardBase {
    *
    * 不填 = 这张卡不可进化：链尾（如 ChatGPT 5.6 Sol）和没有前后代的单张都不填。
    * 进化链写在卡牌定义上而不是引擎里，再补一条链只要改这里。
+   *
+   * 链头 GPT-2 调不到模型、进不了卡池，链条本身照样成立：牌组里带不了它，
+   * 但它经调试指令上场后仍然能进化成 GPT-3.5，所以这条链不要跟着删。
    */
   evolvesTo?: CardId
 }

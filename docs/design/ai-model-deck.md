@@ -2,9 +2,11 @@
 
 ## 接入范围
 
-18 张原画各对应一张 AI 牌，卡池 = 这 18 张 + 10 张已开放的技能牌
-（技能牌共 24 张，另外 14 张是「即将上线」，只在 `/deck` 页灰着展示、选不进牌组）；
-默认牌组（`STARTER_DECK`）是 18 张 AI 各一张加两张技能牌（「复读机」和「鸡犬升天」），
+18 张原画各对应一张 AI 牌，但卡池 = **16 张** AI + 10 张已开放的技能牌：
+AI 里 GPT-2 和文心一言 OpenRouter 上调不到模型（见下一节），技能牌 24 张里有 14 张
+是「即将上线」——这两类都只在 `/deck` 页灰着展示、选不进牌组。
+默认牌组（`STARTER_DECK`）是能上场的 16 张 AI 各一张、最便宜的两张（GPT-3.5 和豆包）
+各再来一份，加上两张技能牌（「复读机」和「鸡犬升天」），
 正好 20 张，和 `/deck` 页的牌组容量一致。
 早期那四张占位 AI（`ai-gpt` / `ai-claude` / `ai-gemini` / `ai-deepseek`）已从卡池、收藏和牌组删除。
 
@@ -21,31 +23,47 @@
 谁擅长看图、谁容易掉进语言陷阱，都是刻意排的，玩家才有「这轮该派谁上」的选择。
 卡名和文案是玩梗，不代表这些模型的真实表现。
 
-| 卡牌 ID | 卡名 | 卡面模型名 | 原画 |
-|---|---|---|---|
-| gpt-2 | GPT-2 | GPT-2 | gpt-2.webp |
-| gpt-3-5 | GPT-3.5 | GPT-3.5 | gpt-3-5.webp |
-| gpt-4o | GPT-4o | GPT-4o | gpt-4o.webp |
-| chatgpt-5-6-sol | ChatGPT 5.6 Sol | ChatGPT 5.6 Sol | chatgpt-5-6-sol.webp |
-| claude-5-sonnet | Claude 5 Sonnet | Claude 5 Sonnet | claude-5-sonnet.webp |
-| claude-fable-5 | Claude Fable 5 | Claude Fable 5 | claude-fable-5.webp |
-| deepseek-r1 | DeepSeek R1 | DeepSeek R1 | deepseek-r1.webp |
-| deepseek-v4 | DeepSeek V4 | DeepSeek V4 | deepseek-v4.webp |
-| gemini | Gemini | Gemini | gemini.webp |
-| qwen | 通义千问 | Qwen | qwen.webp |
-| kimi-k2-6 | Kimi K2.6 | Kimi K2.6 | kimi-k2-6.webp |
-| kimi-k3 | Kimi K3 | Kimi K3 | kimi-k3.webp |
-| doubao | 豆包 | Doubao | doubao.webp |
-| glm-5 | GLM-5 | GLM-5 | glm-5.webp |
-| minimax | MiniMax | MiniMax | minimax.webp |
-| yuanbao | 腾讯元宝 | Yuanbao | yuanbao.webp |
-| grok | Grok | Grok | grok.webp |
-| wenxin-yiyan | 文心一言 | ERNIE | wenxin-yiyan.webp |
+## 两张调不到模型的 AI 牌
+
+答题时每张 AI 牌都要去 OpenRouter 调对应的模型（`AiCard.openrouter`），有两张没有对得上的：
+
+- **GPT-2**：OpenRouter 最老的 OpenAI 模型只到 `gpt-3.5-turbo`，补全时代的 davinci / babbage 都没上架。
+- **文心一言**：百度只上架了 `baidu/ernie-4.5-vl-424b-a47b` 这一个旧的开源视觉版，不是文心现役的模型，
+  拿它顶替等于卡面写一套、答题的是另一套。
+
+另有两张卡名是 App、实际调底座模型的：**豆包**调字节的 Seed，**腾讯元宝**调腾讯的混元（hy3）。
+
+这两张的处理和「即将上线」的技能牌完全一样，走的也是同一套代码：原画都画好了，
+从界面上删掉可惜，所以牌组页照常把它们摆出来——灰着、排在所有卡的最后、正中一块
+「暂未接入」的牌子，碰一下只说这一句（判定在 `DeckScreen` 的 `BLOCKED_CARD_LABELS`，
+两类牌只有牌子上那句话不同）。它们不进 `CARD_POOL`，所以选不进牌组也上不了牌桌；
+老存档里带着它们的牌组，读档时会把这两张剔掉。
+
+| 卡牌 ID | 卡名 | 卡面模型名 | OpenRouter 模型 | 原画 |
+|---|---|---|---|---|
+| gpt-2 | GPT-2 | GPT-2 | —（调不到，暂未接入） | gpt-2.webp |
+| gpt-3-5 | GPT-3.5 | GPT-3.5 | `openai/gpt-3.5-turbo` | gpt-3-5.webp |
+| gpt-4o | GPT-4o | GPT-4o | `openai/gpt-4o` | gpt-4o.webp |
+| chatgpt-5-6-sol | ChatGPT 5.6 Sol | ChatGPT 5.6 Sol | `openai/gpt-5.6-sol` | chatgpt-5-6-sol.webp |
+| claude-5-sonnet | Claude 5 Sonnet | Claude 5 Sonnet | `anthropic/claude-sonnet-5` | claude-5-sonnet.webp |
+| claude-fable-5 | Claude Fable 5 | Claude Fable 5 | `anthropic/claude-fable-5` | claude-fable-5.webp |
+| deepseek-r1 | DeepSeek R1 | DeepSeek R1 | `deepseek/deepseek-r1` | deepseek-r1.webp |
+| deepseek-v4 | DeepSeek V4 | DeepSeek V4 | `deepseek/deepseek-v4-pro` | deepseek-v4.webp |
+| gemini | Gemini | Gemini | `google/gemini-3.7-flash` | gemini.webp |
+| qwen | 通义千问 | Qwen | `qwen/qwen3.8-max` | qwen.webp |
+| kimi-k2-6 | Kimi K2.6 | Kimi K2.6 | `moonshotai/kimi-k2.6` | kimi-k2-6.webp |
+| kimi-k3 | Kimi K3 | Kimi K3 | `moonshotai/kimi-k3` | kimi-k3.webp |
+| doubao | 豆包 | Doubao | `bytedance-seed/seed-2-1-turbo` | doubao.webp |
+| glm-5 | GLM-5 | GLM-5 | `z-ai/glm-5` | glm-5.webp |
+| minimax | MiniMax | MiniMax | `minimax/minimax-m3` | minimax.webp |
+| yuanbao | 腾讯元宝 | Yuanbao | `tencent/hy3` | yuanbao.webp |
+| grok | Grok | Grok | `x-ai/grok-4.6` | grok.webp |
+| wenxin-yiyan | 文心一言 | ERNIE | —（调不到，暂未接入） | wenxin-yiyan.webp |
 
 ## 修改入口
 
-- `packages/core/src/aiModels.ts`：18 张 AI 牌的定义。
-- `packages/core/src/cards.ts`：卡池与默认牌组。
+- `packages/core/src/aiModels.ts`：18 张 AI 牌的定义，含各自的 OpenRouter 模型 id。
+- `packages/core/src/cards.ts`：全部卡牌定义与默认牌组。
 - `packages/core/src/collection.ts`：基础收藏与抽卡池。
 - `packages/core/src/script.ts`：题目 × 卡牌的答题剧本（加卡就要补这张表，有测试守着）。
 - `packages/client/src/ui/aiModelArt.ts`：卡牌 id → 原画路径；查不到才退回占位图（`ui/cardArt.ts`）。

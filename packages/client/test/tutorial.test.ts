@@ -129,8 +129,8 @@ describe('教学对战剧本', () => {
     expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
       'claude-fable-5',
     ])
+    // 这一轮只打技能牌：教程不放行增派 AI（见 TUTORIAL_CARDS.optionalAi）。
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
-    play(run.driver, 'gpt-2')
     endPlay(run.driver)
     flush()
     confirmRound(run.driver)
@@ -164,6 +164,7 @@ describe('教学对战剧本', () => {
 
   // 第 2 轮那一课的全部内容：复读机命中之后，对手那张 AI 真的只会答「香蕉」并判错。
   // 这条断言直接盯着揭晓出来的那句话，卡面写的和玩家看到的对不上时会当场红。
+  // 玩家这一轮只有这一条路可走：教程不放行增派 AI（见 TUTORIAL_CARDS.optionalAi）。
   it('第 2 轮：被复读机干扰的对手 AI 只答「香蕉」，判错后被罚下', () => {
     const run = start()
     playThroughRoundOne(run)
@@ -185,21 +186,6 @@ describe('教学对战剧本', () => {
     expect(round2?.correct).toEqual([true, false])
     // 只花了复读机那 4 点，对手 6 点——这一分和消耗无关，但数字仍旧记在事件里。
     expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 6])
-    expect(round2?.scores).toEqual([2, 0])
-  })
-
-  it('第 2 轮增派 GPT-2：消耗 5 点，这一分照样是玩家的', () => {
-    const run = start()
-    playThroughRoundOne(run)
-    play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
-    play(run.driver, 'gpt-2')
-    endPlay(run.driver)
-    flush()
-
-    // 增派那一张不改变这一轮的结论：判据是"只有玩家答对"，和双方各花多少无关。
-    const round2 = scoredEvents(run.events)[1]
-    expect(round2?.verdict).toBe('sole-correct')
-    expect(round2?.spent).toEqual([5, 6])
     expect(round2?.scores).toEqual([2, 0])
   })
 
@@ -270,8 +256,10 @@ describe('教学内容自检', () => {
     }
   })
 
-  // 「即将上线」的技能牌不进 CARD_POOL。教学牌组混进一张的话，第 3 轮玩家可以自由出牌
-  // （步骤表那一步 playableCards 是 null），还没开放的牌就被打上了牌桌。
+  // 教学牌组必须整副都在 CARD_POOL 里，没有例外：第 3 轮玩家可以自由出牌
+  // （步骤表那一步 playableCards 是 null），混进一张卡池外的牌——「即将上线」的技能牌，
+  // 或者 GPT-2、文心一言那种调不到模型的 AI——玩家就能把它打上牌桌，
+  // 学完回到牌组页却发现那张是灰的、自己拼不出这副牌。
   // core 不校验牌组内容，教学 driver 也直接把这两副牌塞给引擎，所以只有这条测试守着。
   it('教学双方牌组里的每张牌都在已开放的卡池里', () => {
     for (const deck of [TUTORIAL_PLAYER_DECK, TUTORIAL_FOE_DECK]) {
@@ -303,11 +291,12 @@ describe('教学内容自检', () => {
     })
   })
 
-  it('第 2 轮玩家最贵的那条路也买得起', () => {
-    // 教学第 2 轮强制打复读机，之后还能再增派一张。两张加起来必须在当轮额度内，
-    // 否则玩家照着引导点下去会被引擎回一句「Token 不够」，教程当场卡住。
+  it('第 2 轮双方最贵的那条路都买得起', () => {
+    // 教学第 2 轮强制打复读机，之后按 optionalAi 还可能再增派一张（现在是空的）。
+    // 加起来必须在当轮额度内，否则玩家照着引导点下去会被引擎回一句「Token 不够」，教程当场卡住。
+    // Math.max 补一个 0 兜底：名单空着时展开成 Math.max() 会得到 -Infinity。
     const optionalCosts = TUTORIAL_CARDS.optionalAi.map(tutorialCardCost)
-    const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(...optionalCosts)
+    const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(0, ...optionalCosts)
     expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
     // 对手那一轮也得付得起（它固定花光 6 点）。
     const foeSpend = (TUTORIAL_FOE_PLAYS[1] ?? []).reduce(
@@ -317,10 +306,12 @@ describe('教学内容自检', () => {
     expect(foeSpend).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
   })
 
-  it('第 2 轮可选增派的只有 GPT-2 这一张低费 AI', () => {
-    // 收窄到一张是教学节奏上的选择（见 TUTORIAL_CARDS.optionalAi），不再是 Token 对账逼出来的。
-    // 但"打得起"这条还得守：复读机 4 点之后只剩 2 点，放行的牌不能比这更贵。
-    expect(TUTORIAL_CARDS.optionalAi).toEqual(['gpt-2'])
+  it('第 2 轮一张增派的 AI 都不放行', () => {
+    // 空名单的理由见 TUTORIAL_CARDS.optionalAi：原来放这里的 1 费 GPT-2 调不到模型、
+    // 已经不在卡池里，而这一步要教的是"技能真的会改结果"，不该再塞一个可选动作分散注意力。
+    // 它**不是** Token 对账逼出来的——第 2 轮那一分靠"只有玩家答对"拿到，和消耗无关。
+    expect(TUTORIAL_CARDS.optionalAi).toEqual([])
+    // 哪天想把这个可选动作加回来，唯一那条硬约束在这里守着：打完复读机剩下的额度得买得起它。
     const left = INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH - tutorialCardCost(TUTORIAL_CARDS.skill)
     for (const cardId of TUTORIAL_CARDS.optionalAi) {
       const card = getCard(cardId)

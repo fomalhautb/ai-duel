@@ -294,13 +294,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'TUTORIAL_R2_PLAY',
-    // 这一步开始降低强制程度：那张低费 AI 放行，也允许一张都不派直接结束出牌。
-    // 放行的只有 GPT-2 一张，是第 2 轮 Token 对账的硬要求（见 TUTORIAL_CARDS.optionalAi）。
-    instruction: '场上的 AI 会继续作答。你也可以再派一张新的 AI。',
+    // 这一轮不放行任何增派的 AI（optionalAi 是空的），所以这一步只剩"结束出牌"一个动作。
+    // 不是付不起：打完 4 费的复读机还剩 2 点，卡池里最便宜的 AI 正好 2 费。
+    // 是这一课要教的是"技能真的会改结果"，同一步里再塞一个可选动作会把注意力引开
+    //（原委见 TUTORIAL_CARDS.optionalAi）。
+    // optionalAi 将来填回牌时，这里的文案和 highlight 要一起改回"你也可以再派一张"。
+    instruction: '场上的 AI 会继续作答，这一轮不用再派新的。',
     highlight: [...TUTORIAL_CARDS.optionalAi.map(card), anchor('endTurnButton')],
     allow: {
       playableCards: [...TUTORIAL_CARDS.optionalAi],
-      blockTip: '这一轮只能再派高亮的那张低费 AI，或者直接结束出牌',
+      blockTip: '这一轮的牌已经打完了，直接结束出牌',
       endPlay: true,
     },
     advance: cue('quiz-open'),

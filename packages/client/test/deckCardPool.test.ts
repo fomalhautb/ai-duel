@@ -4,7 +4,9 @@ import {
   CARD_POOL,
   COMING_SOON_SKILL_CARD_IDS,
   OPEN_SKILL_CARD_IDS,
+  PLAYABLE_AI_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
+  UNAVAILABLE_AI_CARD_IDS,
   getCard,
 } from '@ai-duel/core'
 import type { CardId, SkillCard } from '@ai-duel/core'
@@ -45,12 +47,25 @@ describe('牌组页卡池', () => {
     expect(counted).toBe(CARD_POOL.length)
   })
 
-  it('卡池 = 18 张 AI + 已开放的 10 张技能牌', () => {
+  it('卡池 = 调得到模型的 16 张 AI + 已开放的 10 张技能牌', () => {
     // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、示例牌组和抽卡全都按它走，
-    // 名单一改（开放 / 收回某张技能牌）就该在这里当场红。
-    expect(CARD_POOL).toEqual([...AI_MODEL_CARD_IDS, ...OPEN_SKILL_CARD_IDS])
+    // 名单一改（开放 / 收回某张技能牌、某张 AI 接上或掉了模型）就该在这里当场红。
+    expect(CARD_POOL).toEqual([...PLAYABLE_AI_CARD_IDS, ...OPEN_SKILL_CARD_IDS])
     expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
     expect(OPEN_SKILL_CARD_IDS).toHaveLength(10)
+  })
+
+  it('牌组页要摆的灰卡有两批：调不到模型的 2 张 AI + 「即将上线」的 14 张技能牌', () => {
+    // 两批灰卡在这一页是同一种待遇（灰着排在卡池后面、碰一下只说一句为什么），
+    // 但来源是两回事：一批是模型调不到，一批是产品还没开放。数字对不上就说明有牌凭空消失了。
+    expect(UNAVAILABLE_AI_CARD_IDS).toEqual(['gpt-2', 'wenxin-yiyan'])
+    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(14)
+    for (const cardId of [...UNAVAILABLE_AI_CARD_IDS, ...COMING_SOON_SKILL_CARD_IDS]) {
+      // 卡面数据必须查得到（这一页要画它们），但绝不能进卡池。
+      expect(getCard(cardId)).toBeDefined()
+      expect(CARD_POOL).not.toContain(cardId)
+    }
   })
 
   it('开放的 10 张技能卡都在卡池里，要选目标的正好是其中那 5 张', () => {

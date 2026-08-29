@@ -244,7 +244,7 @@
 .deck-top__sub {
   margin: 0;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
 }
 
@@ -357,7 +357,7 @@
   background: rgb(255 255 255 / 5%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
   text-indent: 0.1em;
   /* 「AI 牌 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
@@ -451,7 +451,7 @@
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13.5px;
+  font-size: var(--fs-base-plus);
   letter-spacing: 0.1em;
   text-indent: 0.1em;
   cursor: pointer;
@@ -826,30 +826,31 @@
 }
 
 /* ============================================================
-   即将上线的技能牌
+   选不进牌组的牌
    ------------------------------------------------------------
-   这批牌（core 的 COMING_SOON_SKILL_CARD_IDS）摆在卡池最后，只能看不能选。
+   两类：还没开放的技能牌（core 的 COMING_SOON_SKILL_CARD_IDS）和调不到模型的 AI 牌
+   （UNAVAILABLE_AI_CARD_IDS）。都摆在卡池最后，只能看不能选。
    压得比"选满份数"更狠一档：那种灰是"这张已经拿够了"，这种是"这张还拿不到"，
-   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __soon 牌子。
+   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __blocked 牌子。
    同样只压正面：背面那段说明还是要读的。
    ============================================================ */
-.deck-pool-card[data-soon] {
+.deck-pool-card[data-blocked] {
   cursor: not-allowed;
 }
 
-.deck-pool-card[data-soon] .card-face {
+.deck-pool-card[data-blocked] .card-face {
   filter: grayscale(1) brightness(0.48);
 }
 
 /* hover 那圈金光是"这张可以拿"的意思，加不了的牌不该亮它。
    多带一个属性选择器就压过了上面那条 .deck-pool-card:hover .deck-pool-card__glow，
    不用 !important。 */
-.deck-pool-card[data-soon]:hover .deck-pool-card__glow {
+.deck-pool-card[data-blocked]:hover .deck-pool-card__glow {
   opacity: 0;
 }
 
 /*
- * 卡面正中那块「即将上线」的牌子。
+ * 卡面正中那块写着「这张为什么选不了」的牌子（「即将上线」或「暂未接入」）。
  *
  * 是 .deck-pool-card 的直接子级（同 __glow / __seal），所以不跟着卡面倾斜和翻面，
  * 也不跟着 --deck-pool-scale 放大——它按屏幕像素排，和问号、圆钮是一档。
@@ -858,7 +859,7 @@
  * transform 不用 translate 独立属性：这一层虽然现在没有 GSAP 碰，但整页别处有过
  * "GSAP 内联 transform 压死独立属性"的坑，统一写 transform 省得日后踩。
  */
-.deck-pool-card__soon {
+.deck-pool-card__blocked {
   position: absolute;
   z-index: 4;
   top: 50%;
@@ -885,28 +886,28 @@
 }
 
 /*
- * 选中圆章：金底墨字，钉在卡的左下角，约三分之一探出卡外。
- * 一份显示「✓」，多带几份就显示「×2」「×3」。
+ * 选中圆章：金底墨字，钉在卡的左下角，位置和右下角那颗「＋」左右对称（同样内缩 7px、同样 52px）。
+ * 显示带了几份：「×1」「×2」「×3」。
  *
  * 四个角是分配好的：左上是卡面自带的 Token 圆章（不能压），右上是问号，
  * 右下是「＋」，只剩左下给它。
  *
  * 圆底和描边画在 ::before 上、只给这一层套手绘滤镜，章上的字留在元素本体：
- * 位移滤镜作用在文字上会把「✓」和「×2」扯糊。
+ * 位移滤镜作用在文字上会把「×2」这类数字扯糊。
  * isolation: isolate 是为了把下面那句 z-index: -1 关在圆章内部——
  * 不隔离的话它会一路落到 .paper-page__inner 的负层，整个跑到卡面后面去。
  */
 .deck-pool-card__seal {
   position: absolute;
-  bottom: -9px;
-  left: -9px;
+  bottom: 7px;
+  left: 7px;
   display: grid;
   place-items: center;
   isolation: isolate;
-  width: 26px;
-  height: 26px;
+  width: 52px;
+  height: 52px;
   color: #241d10;
-  font-size: 12.5px;
+  font-size: 25px;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -918,7 +919,7 @@
   position: absolute;
   z-index: -1;
   inset: 0;
-  border: 1.5px solid #8b6a24;
+  border: 3px solid #8b6a24;
   border-radius: 50%;
   background: var(--c-gold);
   filter: url('#ai-duel-rough-icon');
@@ -935,7 +936,7 @@
   border-radius: 0 0 3px 3px;
   background-color: var(--night);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   text-align: center;
 }
@@ -980,12 +981,12 @@
 }
 
 /* 右下角。四个角的分配见 .deck-pool-card__seal 的注释；右下正好是卡面插画的底部留白，
-   圆圈压上去不会盖到任何文字。卡放大之后按钮也跟着大一号，不然点起来偏小。 */
+   圆圈压上去不会盖到任何文字。尺寸和左下角那枚份数圆章一致（52px），两个角看起来才是一对。 */
 .deck-circle--add {
   right: 7px;
   bottom: 7px;
-  width: 30px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
 }
 
 .deck-circle--add:hover:not([data-disabled]) {
@@ -1008,8 +1009,8 @@
 .deck-circle--remove {
   right: -6px;
   bottom: -6px;
-  width: 26px;
-  height: 26px;
+  width: 40px;
+  height: 40px;
   opacity: 0;
 }
 
@@ -1294,7 +1295,7 @@
   background: rgb(255 255 255 / 30%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1329,7 +1330,7 @@
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1;
   cursor: pointer;
   transition:
@@ -1382,7 +1383,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1398,7 +1399,7 @@
   background: var(--paper);
   color: var(--ink);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.06em;
 }
 
@@ -1417,7 +1418,7 @@
   background: rgb(255 255 255 / 30%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   cursor: pointer;
   transition:
@@ -1458,7 +1459,7 @@
 
 .deck-manage__confirm-text {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.06em;
 }
 
@@ -1469,7 +1470,7 @@
   background: rgb(255 255 255 / 40%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   cursor: pointer;
   transition:
     border-color 0.16s ease,
@@ -1509,7 +1510,7 @@
   gap: 6px;
   margin: 0;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.06em;
 }
 
@@ -1530,7 +1531,7 @@
 .deck-tally__mix {
   margin: 0;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.06em;
 }
 
@@ -1595,7 +1596,7 @@
   flex: none;
   min-width: 38px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.04em;
   text-align: right;
 }
@@ -1819,7 +1820,7 @@
   flex: none;
   margin: 0;
   color: var(--c-life);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
 }
 
@@ -1834,7 +1835,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1859,7 +1860,7 @@
   background: rgb(14 21 36 / 92%);
   box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
   color: #ffeec5;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.08em;
   white-space: nowrap;
   pointer-events: none;
@@ -2023,7 +2024,7 @@
   background: none;
   color: rgb(239 233 216 / 78%);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.12em;
   cursor: pointer;
   transition: color 0.16s ease;
@@ -2045,6 +2046,6 @@
 .deck-zoom-side__why {
   flex: none;
   color: #e79c92;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
 }

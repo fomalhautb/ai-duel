@@ -80,32 +80,36 @@ export const TUTORIAL_CARDS = {
    */
   skill: 'fixed-answer' as CardId,
   /**
-   * 第 2 轮"可以再派一张"时高亮的 AI，只留 GPT-2（1 费）这一张。
+   * 第 2 轮打完技能牌之后还放行哪些 AI——**空的，一张都不放行**。
    *
-   * 收窄到一张是教学节奏上的选择：第 2 轮还处在"部分限制"（规格 §17），
-   * 一步只放行一张高亮的牌，玩家不用在这一步做取舍。豆包（2 费）明明买得起却压着不放行，
-   * 正好让"这一轮只放行这一张"看得见对照。
+   * 这里原本放的是 1 费的 GPT-2，它在 OpenRouter 上调不到、根本不在卡池里
+   *（见 core 的 UNAVAILABLE_AI_CARD_IDS），玩家学完回到牌组页会发现刚用过的那张是灰的、
+   * 自己拼不出这副牌。宁可让第 2 轮少一个可选动作，也不留这处对不上。
    *
-   * 它**不再是 Token 对账的硬要求**：第 2 轮的那一分现在靠"复读机让对手答错、只有玩家答对"
-   * 拿到（见下面 tutorialAnswers），和双方各花多少 Token 无关。真要放宽到两张也不会翻车，
-   * 唯一要守的是每张都得在这一轮的额度内（6 点减去复读机的 4 点，也就是 2 费以内）。
+   * 换成卡池里最便宜的 2 费 AI（GPT-3.5 或豆包）在算术上是可行的——第 2 轮上限 6 点，
+   * 打完 4 费的复读机还剩 2 点，买得起；这一轮的胜负也不再看 Token
+   *（那一分靠"复读机让对手答错、只有玩家答对"拿到，见下面 tutorialAnswers）。
+   * 留空是教学上的选择：第 2 轮要教的是"技能真的会改结果"，
+   * 同一步里再塞一个可选动作只会把注意力从那一下技能上引开。
+   *
+   * 留成数组而不是删掉这个字段：想把这个可选动作加回来，往里填一张 2 费以内的可用 AI、
+   * 再把 steps.ts 里 TUTORIAL_R2_PLAY 的文案改回"你也可以再派一张"就行。
    */
-  optionalAi: ['gpt-2'] as CardId[],
+  optionalAi: [] as CardId[],
 }
 
 /**
  * 玩家的抽牌顺序：前 5 张是起手，之后每轮补 2 张。
  *
- * 起手必须凑齐教学要用的全部牌：第 1 轮指定的 AI（gpt-3-5）、第 2 轮的技能牌（复读机）、
- * 第 2 轮可选增派的那张 GPT-2。豆包和 deepseek-r1 只是把起手补满，教程不点名用它们
- * ——尤其豆包（2 费）：它现在**不在** optionalAi 里，第 2 轮是压暗打不出的，
- * 留在手上正好让"这一轮只放行这一张"看得见对照。
+ * 起手必须凑齐教学点名要用的牌：第 1 轮指定的 AI（gpt-3-5）和第 2 轮的技能牌（复读机）。
+ * 另外三张只是把起手补满，教程不点名用它们——第 2 轮一张 AI 都不放行（见 TUTORIAL_CARDS
+ * 的 optionalAi），它们全程压暗打不出，正好让"这一轮只用打技能牌"看得见对照。
  */
 const PLAYER_DRAW_ORDER: CardId[] = [
   // 起手 5 张
   'gpt-3-5',
   'fixed-answer',
-  'gpt-2',
+  'gpt-4o',
   'doubao',
   'deepseek-r1',
   // 第 2 轮补 2 张
@@ -113,7 +117,7 @@ const PLAYER_DRAW_ORDER: CardId[] = [
   // 一是它在已开放的 10 张技能牌里——第 3 轮玩家可以自由出牌，手上要是留着一张
   //「即将上线」的牌，玩家就能把还没开放的牌打上牌桌；
   // 二是它就算真被打出来也翻不了第 3 轮的剧本：无目标（不会卡在选目标上）、
-  // 只把双方可进化的 AI 各升一级，而预设答题结果只看"谁的 AI、第几轮"，不看是哪张卡。
+  // 只把双方可进化的 AI 各升一级，而预设答题结果只看"这是谁的 AI"，不看是哪张卡。
   // 换牌时这两条都要重新过一遍：比如「国产替代」会把玩家自己的非国产 AI 一起清空，
   // 第 3 轮就可能变成双方都没答对、改比 Token，那一分当场翻给对手。
   'rising-tide',
@@ -123,7 +127,13 @@ const PLAYER_DRAW_ORDER: CardId[] = [
   'minimax',
 ]
 
-/** 玩家牌组里摸不到的那部分，只为把 20 张凑满。每张一份，不会和上面的关键牌重号。 */
+/**
+ * 玩家牌组里摸不到的那部分，只为把 20 张凑满。
+ * gpt-4o 和起手那张凑成两份（上限 3 份，还有余量），其余每张一份。
+ *
+ * 挑的全是卡池里的牌（GPT-2、文心一言那种"调不到模型"的不放）：第 3 轮玩家可以自由出牌，
+ * 填充牌虽然摸不到，但这条约束和技能牌那边一个道理，统一守着省得日后改抽牌顺序时翻车。
+ */
 const PLAYER_FILLER: CardId[] = [
   'gpt-4o',
   'chatgpt-5-6-sol',
@@ -135,7 +145,7 @@ const PLAYER_FILLER: CardId[] = [
   'glm-5',
   'yuanbao',
   'grok',
-  'wenxin-yiyan',
+  'deepseek-r1',
 ]
 
 /**
@@ -145,9 +155,11 @@ const PLAYER_FILLER: CardId[] = [
  */
 const FOE_DRAW_ORDER: CardId[] = ['minimax', 'claude-fable-5', 'grok', 'gpt-4o', 'qwen']
 
-/** 对手牌组的填充部分。gpt-2 和豆包各两份，凑够 15 张；对手不出技能牌，所以一张技能牌都不放。 */
+/**
+ * 对手牌组的填充部分。gpt-3-5 和豆包各两份，凑够 15 张；对手不出技能牌，所以一张技能牌都不放。
+ * 同 PLAYER_FILLER：只放卡池里的牌，GPT-2 和文心一言那两张调不到模型的不进这里。
+ */
 const FOE_FILLER: CardId[] = [
-  'gpt-2',
   'gpt-3-5',
   'chatgpt-5-6-sol',
   'claude-5-sonnet',
@@ -159,8 +171,9 @@ const FOE_FILLER: CardId[] = [
   'doubao',
   'glm-5',
   'yuanbao',
-  'wenxin-yiyan',
-  'gpt-2',
+  'minimax',
+  'grok',
+  'gpt-3-5',
   'doubao',
 ]
 
@@ -267,7 +280,6 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
           answer: '无法判断',
           reasoning: '题目里没写性别，我不敢替它补一个。',
         },
-        'gpt-2': { correct: true, answer: '没说', reasoning: '真没说。一个字都没说。' },
         doubao: { correct: true, answer: '判断不了', reasoning: '题目没有提到性别哦～不能乱猜的。' },
       },
     },
@@ -278,7 +290,6 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
       ],
       lines: {
         'gpt-3-5': { correct: true, answer: '不变', reasoning: '浮力那条定律刚好把它抵掉。' },
-        'gpt-2': { correct: true, answer: '不变', reasoning: '不变。不变。真的不变。' },
         doubao: { correct: true, answer: '不会变', reasoning: '水面高度保持原样哒～' },
         grok: { correct: false, answer: '会升高', reasoning: '当然升高，冰总不能凭空消失吧。' },
       },

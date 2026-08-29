@@ -187,7 +187,7 @@
 .tutorial-score__label {
   margin: 0;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.16em;
 }
 
@@ -234,7 +234,7 @@
   border-radius: 999px;
   background: rgb(14 18 26 / 62%);
   color: rgb(232 220 195 / 72%);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
   line-height: 1;
   cursor: pointer;
@@ -269,7 +269,7 @@
   border-radius: 999px;
   background: rgb(226 205 155 / 16%);
   color: #f2e6cc;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
   line-height: 1;
   cursor: pointer;

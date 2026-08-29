@@ -8,6 +8,7 @@
 
 import { CARDS } from './cards'
 import { AI_MODEL_CARD_IDS } from './aiModels'
+import { SKILL_DESIGN_CARD_IDS } from './skillCards'
 import type { CardId } from './types'
 
 /**
@@ -18,7 +19,11 @@ import type { CardId } from './types'
 export const CARD_POOL: CardId[] = Object.keys(CARDS)
 
 /**
- * 新玩家开局就拥有的卡：十八张 AI 加那两张技能牌。
+ * 新玩家开局就拥有的卡：十八张 AI + 有结算路径的那两张技能牌 + 24 张设计稿占位技能卡，
+ * 也就是整个卡池。
+ *
+ * 那 24 张也全解锁是有意的：牌组页的卡池画的就是这份收藏，把它们关起来的话，
+ * 一批已经出好原画的牌谁都看不见，而解锁它们又没有任何玩法上的意义（效果都还没实装）。
  *
  * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
  * 现在卡池里的牌全在这份收藏里，所以 `drawNewCard` 抽不到新卡（返回 null）——
@@ -28,6 +33,7 @@ export const INITIAL_COLLECTION: CardId[] = [
   ...AI_MODEL_CARD_IDS,
   'placeholder-skill',
   'skill-must-answer',
+  ...SKILL_DESIGN_CARD_IDS,
 ]
 
 /**

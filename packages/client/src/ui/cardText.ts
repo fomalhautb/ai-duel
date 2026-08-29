@@ -30,5 +30,11 @@ export function cardBackText(card: Card): string {
   if (card.target === 'foe-ai') {
     return '技能牌：打出时要点对方场上一个还没被干扰过的 AI。命中后它会被标成「已干扰」，本迭代还不影响它怎么答题。'
   }
+  // 设计稿占位卡（core 的 SKILL_DESIGN_CARDS）。把设计效果原文摆出来是为了让玩家看清这张牌
+  // 将来是干什么的，但必须紧跟一句"还没实装"——它现在走的是和占位技能一样的路，
+  // 光印效果会让人以为打出去真会发生什么。
+  if (card.plannedEffect !== undefined) {
+    return `技能牌（设计稿）：${card.plannedEffect}这个效果还没接进规则引擎，本迭代打出后只是亮个相就进弃牌堆。`
+  }
   return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
 }

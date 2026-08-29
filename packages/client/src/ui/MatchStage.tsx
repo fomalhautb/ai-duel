@@ -282,12 +282,15 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
  * .battle-frame 铺留边并把舞台居中，.battle-stage 定下 16:9 的那块地方，
  * .battle-scaler 永远是 1672×941 的盒子、再整体缩到舞台大小。
  * 等待页和正式对局都要套上：它们共用同一套写死像素的排版，也共用 .battle 的顶栏。
+ *
+ * 缩放层上那个 stage-scaler 是给 JS 认的：ui/battleStage.ts 照它查当前舞台，
+ * 卡组页的 .deck-scaler 也带同一个类，两页共用同一套坐标换算。样式仍写在 .battle-scaler 上。
  */
 function BattleFrame({ children }: { children: ReactNode }) {
   return (
     <div className="battle-frame">
       <div className="battle-stage">
-        <div className="battle-scaler">{children}</div>
+        <div className="battle-scaler stage-scaler">{children}</div>
       </div>
     </div>
   )

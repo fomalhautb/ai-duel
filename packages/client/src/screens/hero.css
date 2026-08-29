@@ -648,9 +648,11 @@
 .hero__detail-en {
   margin: 0.4cqi 0 0;
   color: var(--hero-ink);
-  font-size: var(--fs-cqi-md);
+  font-size: var(--fs-cqi-sm);
   font-weight: 300;
   letter-spacing: 0.08em;
+  /* 英文名只是中文名的注脚，压暗一档避免和上面的名字抢视线 */
+  opacity: 0.65;
 }
 
 /* 名字和技能列表之间的分隔线，和标题两侧的细线同一档亮度。 */

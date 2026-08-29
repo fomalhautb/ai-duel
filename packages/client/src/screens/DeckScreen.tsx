@@ -347,10 +347,10 @@ export interface DeckScreenProps {
 export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   /**
-   * 选中的阵营，null = 不按阵营筛。
+   * 选中的阵营，null = 不按阵营筛。只在「AI 牌」页签下生效（见 shown）。
    *
-   * 切到「技能牌」页签时刻意**不重置**：技能牌那一页压根不显示阵营药丸（技能牌没有阵营），
-   * 玩家去技能页看一眼再切回来，多半是想接着挑刚才那家的 AI。
+   * 切去别的页签时刻意**不重置**：那两页压根不显示阵营药丸（「技能牌」没有阵营，
+   * 「全部」是一屏铺开的总览），玩家去别处看一眼再切回来，多半是想接着挑刚才那家的 AI。
    */
   const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
@@ -1205,11 +1205,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   // ---------- 筛选 ----------
 
-  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里（阵营只作用于 AI 牌）。
+  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里。
+  // 阵营只在「AI 牌」页签下参与筛选：另外两页不摆药丸，界面上看不见的筛选条件不该偷偷生效。
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
+  const factionFilter = kindFilter === 'ai' ? faction : null
   const shown = useMemo(
-    () => filterDeckCards(pool, kindFilter, faction),
-    [pool, kindFilter, faction],
+    () => filterDeckCards(pool, kindFilter, factionFilter),
+    [pool, kindFilter, factionFilter],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -1444,15 +1446,15 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                       <i className="deck-kinds__dia" />
                     </i>
                   </div>
-                  {/* 阵营药丸。技能牌和阵营无关，所以「技能牌」页签下不摆那六颗，
-                      只留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
+                  {/* 阵营药丸只摆在「AI 牌」页签下：技能牌和阵营无关，「全部」是不加筛的总览。
+                      另外两页各留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
                       切页签时下面的卡池网格会跟着上下跳一截。 */}
                   <div
                     className="deck-factions"
                     role="group"
-                    aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}
+                    aria-label={kindFilter === 'ai' ? '按阵营筛选' : '卡池范围'}
                   >
-                    {kindFilter === 'skill' ? (
+                    {kindFilter !== 'ai' ? (
                       <button type="button" className="deck-faction" data-active>
                         全部卡牌
                       </button>

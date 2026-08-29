@@ -2112,7 +2112,8 @@ function BattleField({
 
       <div className="battle__layout">
         {/* 左侧栏上下两块：上=对方、下=我方。每块一张大英雄牌加一摞卡堆，
-            卡堆同时是发牌飞行的起点（两排扇形靠 data-deck-side 找它）。 */}
+            卡堆同时是发牌飞行的起点（两排扇形靠 data-deck-side 找它）。
+            中间那条分界线是第三行网格，把"这是两个人"分清楚（见 .battle__player-divider）。 */}
         <aside className="battle__sidebar battle__sidebar--left" aria-label="双方状态">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--players">
             <PlayerPanel
@@ -2122,6 +2123,10 @@ function BattleField({
               heroHeld={inspecting?.flipId === heroFlipId(foe.id)}
               onInspectHero={handleInspectHero}
             />
+            <div className="battle__player-divider" aria-hidden="true">
+              <span className="battle__player-divider-line" />
+              <span className="battle__player-divider-gem" />
+            </div>
             <PlayerPanel
               player={me}
               side="mine"
@@ -2614,11 +2619,12 @@ function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): str
 }
 
 /**
- * 侧栏里的一块玩家面板：一张占满整块的英雄牌，玩家名压在卡底，卡堆压在卡面一角
+ * 侧栏里的一块玩家面板：一张占满整块的英雄牌，卡堆压在卡面一角
  *（我方在右下、对方在右上，上下镜像，见 styles.css 的 .battle__deck）。
  *
- * 刻意不显示得分和手牌张数：比分顶栏正中已经有一份，手牌张数看两排扇形本身就够，
- * 在这块巴掌大的地方再写一遍只会把英雄牌挤小。
+ * 面板上只有这两样东西。得分和手牌张数不画：比分顶栏正中已经有一份，手牌张数看两排扇形就够。
+ * 玩家名也不画：上下两块本来就是"上面是对方、下面是我"的固定分工，
+ * 再压一条名字在原画上只会挡住脸。谁是谁由中间那条分界线和位置说清楚。
  */
 function PlayerPanel({
   player,
@@ -2641,8 +2647,7 @@ function PlayerPanel({
   const hero = player.hero === null ? null : getHero(player.hero)
   const art = hero === null ? null : heroArtSrc(hero.id)
   return (
-    // data-side 只给 CSS 用：卡堆和名字条要按"这块是上面还是下面"上下镜像。
-    <div className="battle__player-panel" data-player={player.id} data-side={side} ref={panelRef}>
+    <div className="battle__player-panel" data-player={player.id} ref={panelRef}>
       <div className={heroHeld ? 'battle__hero battle__hero--held' : 'battle__hero'}>
         {hero === null ? null : (
           <>
@@ -2683,7 +2688,6 @@ function PlayerPanel({
             {/* 技能用掉之后卡面压灰，再加这枚角标点明原因——只压灰的话会被当成"这张卡没启用"。
                 英雄技能一局只发动一次，玩家得能一眼看出还能不能指望上它。 */}
             {player.heroSkillUsed ? <span className="battle__hero-used">技能已用</span> : null}
-            <span className="battle__hero-name">{player.name}</span>
           </>
         )}
         <DeckPile side={side} count={deckCount} />
@@ -2734,10 +2738,11 @@ function useHeroCardScale(ref: RefObject<HTMLElement | null>): void {
  *
  * 最上面那张不是装饰，它同时是发牌飞行的起点：两排扇形靠 data-deck-side 找到这块，
  * 量它的位置当新牌的起飞点（见 BattleField 的 dealOriginOf）。所以它必须是一个真实尺寸的盒子。
- * 牌背复用对手手牌那张隐藏牌背（CardBackHidden），两处看着是同一副牌。
+ * 它是素面的（样式全在 .battle__deck-top），刻意不用对手手牌那张带纹章的隐藏牌背
+ *（CardBackHidden）：那套花纹和压在上面的大数字抢眼，读数要费一下劲。
  *
  * 数字放中间而不是做成角上的小徽章：卡堆整个压在英雄牌上，边上没地方挂徽章，
- * 而"还剩几张"是对局里要一眼扫到的数（字号和描边见 .battle__deck-count）。
+ * 而"还剩几张"是对局里要一眼扫到的数（字号和配色见 .battle__deck-count）。
  * 张数为 0 时变红：牌堆空了之后每轮补牌都会白抽一次（引擎里 drawCards 直接返回），
  * 这件事画面上没有别的地方说得出来。
  */
@@ -2747,9 +2752,7 @@ function DeckPile({ side, count }: { side: DealSide; count: number }) {
       {/* 底下两张只画出"这摞有厚度"，位置和圆角全在 CSS 里，不带任何牌面信息。 */}
       <span className="battle__deck-stack battle__deck-stack--far" aria-hidden="true" />
       <span className="battle__deck-stack battle__deck-stack--near" aria-hidden="true" />
-      <div className="battle__deck-top" aria-hidden="true">
-        <CardBackHidden />
-      </div>
+      <div className="battle__deck-top" aria-hidden="true" />
       <span
         className={
           count === 0 ? 'battle__deck-count battle__deck-count--empty' : 'battle__deck-count'

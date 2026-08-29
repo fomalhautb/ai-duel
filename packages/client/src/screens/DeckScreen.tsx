@@ -32,7 +32,9 @@
  *
  * 加牌不是"瞬间填进格子"：拖拽松手、点加号、放大层里点「加入牌组」三个入口都先量一份
  * Flip 起点存进 pendingInsertRef，等新格子挂载之后，再把那张迷你卡从起点飞进格子。
- * 加不进去（牌组满了 / 已经两份）时不是静默失败，而是摇头 + 在卡上方弹一句原因（见 refuseAdd）。
+ * 加不进去（牌组满了 / 份数选满了 / 这张还没上线）时不是静默失败，而是摇头 + 在卡上方
+ * 弹一句原因（见 refuseAdd）。三种原因由 blockReasonNow 一处判完，拖拽、「＋」、
+ * 放大层那颗按钮说的是同一句话。
  *
  * 性能上有三处刻意的安排，改这一页时别顺手拆掉：
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
@@ -62,7 +64,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { CARD_POOL, getCard } from '@ai-duel/core'
+import { CARD_POOL, COMING_SOON_SKILL_CARD_IDS, getCard } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
@@ -152,6 +154,22 @@ const ADD_TIP_GAP = 10
  */
 const DECK_FULL_TIP = `牌组已满 ${DECK_SIZE} 张`
 const MAX_COPIES_TIP = `同一张牌最多带 ${MAX_COPIES} 份`
+/**
+ * 还没开放的那些技能牌（core 的 COMING_SOON_SKILL_CARD_IDS）点上去说的话。
+ * 和上面两句一样走 blockReasonNow，所以拖拽、「＋」、放大层那颗按钮都说同一句。
+ */
+const COMING_SOON_TIP = '即将上线'
+
+/**
+ * 卡池里能摆出来的全部 id：已开放的（CARD_POOL）在前，「即将上线」的在后。
+ *
+ * 「排序永远在最后」这条就落在这一行——不是靠排序函数，而是靠拼接顺序，
+ * 后面的筛选（filterDeckCards）只做过滤、不重排，所以这个先后关系一路保持到网格上。
+ */
+const DISPLAY_CARD_IDS: CardId[] = [...CARD_POOL, ...COMING_SOON_SKILL_CARD_IDS]
+
+/** 查一张卡是不是「即将上线」。渲染期每张卡都要问一次，所以用 Set 而不是 includes。 */
+const COMING_SOON_IDS = new Set<CardId>(COMING_SOON_SKILL_CARD_IDS)
 
 /**
  * 一张卡里那两层的选择器。卡池卡和迷你卡的类名不一样，但要找的层是同一个角色，
@@ -201,12 +219,13 @@ type KindTabId = (typeof KIND_TABS)[number]['id']
 /**
  * id → 卡（原画版）。放大查看和统计口径都读它。
  *
- * 建的是**整个卡池**而不是玩家已拥有的那部分：卡池是编译期就定死的常量（core 的 CARDS），
- * 建成模块级常量才能保证对象身份稳定——它是传给下面两个 React.memo 卡片组件的 props，
- * 每次渲染现拼的话 memo 就永远命不中。玩家拥有哪些卡是渲染时再筛的（见 pool）。
+ * 建的是**这一页画得出的全部卡**（DISPLAY_CARD_IDS，含「即将上线」那批）而不是玩家已拥有的
+ * 那部分：这批 id 是编译期就定死的常量（core 的 CARDS），建成模块级常量才能保证对象身份稳定
+ * ——它是传给下面两个 React.memo 卡片组件的 props，每次渲染现拼的话 memo 就永远命不中。
+ * 玩家拥有哪些卡是渲染时再筛的（见 pool）。
  */
 const CARD_BY_ID = new Map<CardId, HandCardData>(
-  CARD_POOL.map((cardId) => [cardId, handCardOfDefinition(getCard(cardId))]),
+  DISPLAY_CARD_IDS.map((cardId) => [cardId, handCardOfDefinition(getCard(cardId))]),
 )
 
 /**
@@ -222,7 +241,7 @@ const CARD_BY_ID = new Map<CardId, HandCardData>(
  * **放大查看必须继续走 CARD_BY_ID 那份原画**：屏幕中央那张占到大半个屏幕，300 宽拉上去一眼就糊。
  */
 const THUMB_CARD_BY_ID = new Map<CardId, HandCardData>(
-  CARD_POOL.map((cardId) => {
+  DISPLAY_CARD_IDS.map((cardId) => {
     const card = handCardOfDefinition(getCard(cardId))
     return [cardId, { ...card, art: thumbFor(cardArtFor(cardId)) }]
   }),
@@ -239,7 +258,7 @@ const HIDDEN_IN_PLACE: CSSProperties = { visibility: 'hidden' }
 /**
  * 牌组里的一份牌。
  *
- * 存 key 而不是直接用下标当身份：同一张卡可以带两份，而删掉中间一份会让后面所有份的下标平移，
+ * 存 key 而不是直接用下标当身份：同一张卡可以带好几份，而删掉中间一份会让后面所有份的下标平移，
  * React 的 key、拖拽的 id、Flip 的配对键就全跟着换了一遍，正在拖 / 正在放大的那份会被认成另一份。
  * key 只在这次会话里有效，不落盘——存档里存的是纯 id 数组，进页面时现发一轮新 key。
  */
@@ -466,15 +485,25 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
   // ---------- 卡池 ----------
 
   /**
-   * 卡池 = 存档里已拥有的卡，挂载时读一次。
+   * 卡池 = 存档里已拥有的卡 + 「即将上线」那批，挂载时读一次。
+   *
+   * 后面那批是灰着摆出来给人看的（选不进牌组，见 blockReasonNow），拼在末尾就是
+   * 「排序永远在最后」那条要求；它们不在存档的已拥有列表里，所以要在这儿另接上。
+   *
    * 这一页不会解锁新卡（收藏只在对局结束后变，见 save/save.ts 的 recordWin），
    * 所以中途不用重读，读一次还能保证卡池顺序稳定、网格不会莫名重排。
    */
-  const pool = useMemo<readonly CardId[]>(() => loadSave().ownedCards, [])
+  const pool = useMemo<readonly CardId[]>(
+    () => [...loadSave().ownedCards, ...COMING_SOON_SKILL_CARD_IDS],
+    [],
+  )
 
   /**
    * 页签上的数字。按整个卡池实算，既不跟着当前页签变，也不跟着阵营筛选变：
    * 它说的是"这一类我一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
+   *
+   * 「即将上线」那批也算在里面：它们就摆在这个页签底下的网格里，数字对不上网格里的张数
+   * 才更让人犯嘀咕。数字是"这一类一共有几张卡"，不是"我能选几张"。
    */
   const kindCounts = useMemo<Record<KindTabId, number>>(() => {
     const cards = pool.map((cardId) => CARD_BY_ID.get(cardId))
@@ -569,8 +598,13 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
    *
    * 返回原因而不是布尔，是因为"加不了"现在要说话（浮字提示、放大层里的小字），
    * 让判定和话术留在同一处，免得两边各写一次 if 又对不上。
+   *
+   * 「即将上线」排在最前面判：它和牌组的状态无关（牌组空着也一样加不了），
+   * 而且这一句要盖过"牌组已满"——牌组正好满着的时候说"先移除才能再加"是在骗人，
+   * 移空了它照样加不进来。
    */
   const blockReasonNow = useCallback((cardId: CardId): string | null => {
+    if (COMING_SOON_IDS.has(cardId)) return COMING_SOON_TIP
     const current = deckRef.current
     if (current.length >= DECK_SIZE) return DECK_FULL_TIP
     let owned = 0
@@ -1071,7 +1105,8 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
   /**
    * 卡池 → 牌组。落点是整个右面板。
    *
-   * 加不进去的牌（牌组满了、或这张已经两份）不靠 canDrag 挡：canDrag 在 pointerdown 就返回，
+   * 加不进去的牌（牌组满了、份数选满了、或这张还没上线）不靠 canDrag 挡：canDrag 在
+   * pointerdown 就返回，
    * 连"原地点一下放大看看"都会被一起挡掉。改成过了阈值再在 onDragStart 里掐掉这次拖拽——
    * 这是 hook 明确支持的用法，此时姿态和落点高亮都还没建起来，牌一动不动，而点击照常。
    */
@@ -1117,9 +1152,20 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
        *
        * 走的是「＋」那条路（addFromPool），于是加牌飞行动画和 onCardAdded 都照常，
        * 点错卡则由它里面的教程闸门挡下并让教程说话。
+       *
+       * 这一关排在「即将上线」前面，和 onDragStart、addFromPool 里的顺序一致：
+       * 教学里点错卡的理由永远是"这一步先点高亮那张"，不该冒出"即将上线"这种
+       * 和当前教学对不上的话。要加的那三张教学卡本来就都是已开放的，
+       * 所以「即将上线」的牌在教学里只会走上面这道教程闸门，加不进牌组。
        */
       if (tutorialRef.current !== undefined) {
         addFromPool(id, drag.element)
+        return
+      }
+      // 「即将上线」的牌不放大：点它就是在问"这张怎么选不了"，那就当场回这一句。
+      // 这也是这类卡唯一会说话的地方——它们不给问号、也不给 hover 提示（见 PoolCard）。
+      if (COMING_SOON_IDS.has(id)) {
+        refuseAdd(drag.element, COMING_SOON_TIP)
         return
       }
       const card = CARD_BY_ID.get(id)
@@ -1610,12 +1656,14 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                     if (thumb === undefined) return null
                     const flipId = poolFlipId(cardId)
                     const picked = copies.get(cardId) ?? 0
+                    const comingSoon = COMING_SOON_IDS.has(cardId)
                     return (
                       <PoolCard
                         key={cardId}
                         card={thumb}
                         picked={picked}
-                        canAdd={!deckFull && picked < MAX_COPIES}
+                        canAdd={!comingSoon && !deckFull && picked < MAX_COPIES}
+                        comingSoon={comingSoon}
                         bind={bindPoolCard(cardId)}
                         onAdd={addFromPool}
                         onHelpEnter={handleHelpEnter}
@@ -1952,6 +2000,14 @@ interface PoolCardProps {
   /** 这张卡已经选了几份。 */
   picked: number
   canAdd: boolean
+  /**
+   * 这张牌还没开放（core 的 COMING_SOON_SKILL_CARD_IDS）。
+   *
+   * 卡面灰掉、常驻一枚「即将上线」的小牌子，另外**不给问号**：翻过去也只是一段还没生效的
+   * 效果说明，不如让这类卡安静地待在卡池末尾，一眼就知道是占位。
+   * 拦下"加不进去"这件事的不是它，而是 blockReasonNow：三个入口都走那一条判定。
+   */
+  comingSoon: boolean
   bind: CardDragBindings
   /**
    * 点了「＋」。第二个参数是这张卡的外层元素（.deck-pool-card）：
@@ -1959,7 +2015,7 @@ interface PoolCardProps {
    * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
    */
   onAdd: (cardId: CardId, cardEl: HTMLElement) => void
-  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。 */
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。comingSoon 的卡不挂问号。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
   onHelpToggle: (help: HTMLElement) => void
@@ -1971,6 +2027,7 @@ const PoolCard = memo(function PoolCard({
   card,
   picked,
   canAdd,
+  comingSoon,
   bind,
   onAdd,
   onHelpEnter,
@@ -1988,6 +2045,10 @@ const PoolCard = memo(function PoolCard({
         // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
         data-flip-id={poolFlipId(card.id)}
         data-picked={picked > 0 ? picked : undefined}
+        // 「选满了」交给这个布尔属性，而不是让 CSS 去对 data-picked 的具体数字：
+        // 那样每次调 MAX_COPIES 都得记得回去改选择器里的那个数（见 deck.css）。
+        data-full={picked >= MAX_COPIES ? 'true' : undefined}
+        data-soon={comingSoon ? 'true' : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
       >
@@ -2006,19 +2067,24 @@ const PoolCard = memo(function PoolCard({
               <div className="deck-pool-card__scale">
                 <HandCardFace card={card} />
               </div>
-              {/* 看得见的问号圆圈。正面这一份不用另加 .card-glare：HandCardFace 自带一层。 */}
-              <span className="deck-pool-card__help-mark" aria-hidden="true">
-                ?
-              </span>
+              {/* 看得见的问号圆圈。正面这一份不用另加 .card-glare：HandCardFace 自带一层。
+                  没开放的牌不给：翻不过去了，摆个问号只会让人一直去点。 */}
+              {comingSoon ? null : (
+                <span className="deck-pool-card__help-mark" aria-hidden="true">
+                  ?
+                </span>
+              )}
             </div>
             <div className="deck-pool-card__face deck-pool-card__face--back" data-flip-face="back">
               <div className="deck-pool-card__scale">
                 <CardBackFace card={card} />
               </div>
               {/* 背面同一个角上也放一个：翻过去之后指针底下仍然压着一个问号。 */}
-              <span className="deck-pool-card__help-mark" aria-hidden="true">
-                ?
-              </span>
+              {comingSoon ? null : (
+                <span className="deck-pool-card__help-mark" aria-hidden="true">
+                  ?
+                </span>
+              )}
             </div>
           </div>
           {/*
@@ -2026,26 +2092,31 @@ const PoolCard = memo(function PoolCard({
             必须留在 __inner 外面：跟着翻面转的话，牌一翻到背面它就转到指针够不着的地方，
             pointerleave 立刻翻回来、又被 hover 到，来回抖个没完（原委见 styles.css 的 .hand-fan__help）。
             靠 ignoreSelector 让「按在问号上」不等于抓牌（见两个 useCardDrag 的 ignoreSelector）。
+
+            「即将上线」的牌整个不挂它：这类卡不翻面，热区留着就是一块盖在卡右上角、
+            按下去什么都不发生的死区，还会把「点卡面 = 弹一句即将上线」那一下吃掉。
           */}
-          <button
-            type="button"
-            className="deck-help"
-            aria-label={`查看「${card.name}」的背面`}
-            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
-               理由见 handleHelpToggle。 */
-            onPointerEnter={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpEnter(event.currentTarget)
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpLeave(event.currentTarget)
-            }}
-            onPointerUp={(event) => {
-              if (event.pointerType === 'mouse') return
-              onHelpToggle(event.currentTarget)
-            }}
-          />
+          {comingSoon ? null : (
+            <button
+              type="button"
+              className="deck-help"
+              aria-label={`查看「${card.name}」的背面`}
+              /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+                 理由见 handleHelpToggle。 */
+              onPointerEnter={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpEnter(event.currentTarget)
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpLeave(event.currentTarget)
+              }}
+              onPointerUp={(event) => {
+                if (event.pointerType === 'mouse') return
+                onHelpToggle(event.currentTarget)
+              }}
+            />
+          )}
         </div>
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
             排在卡面之后、按钮之前：卡面不透明会盖住它，而按钮和圆章不该被它罩上一层白。
@@ -2070,9 +2141,15 @@ const PoolCard = memo(function PoolCard({
         >
           <CircleGlyph kind="add" />
         </button>
+        {/*
+          常驻的「即将上线」小牌子。光把卡面刷灰不够：选满份数的卡也是灰的（见 deck.css），
+          两种灰摆在同一屏里分不出来，得有一行字说明这张是哪一种。
+          和下面那枚圆章一样是 .deck-pool-card 的直接子级，不跟着卡面倾斜、翻面。
+        */}
+        {comingSoon ? <span className="deck-pool-card__soon">即将上线</span> : null}
         {picked > 0 ? (
           <span className="deck-pool-card__seal" aria-hidden="true">
-            {picked >= MAX_COPIES ? '×2' : '✓'}
+            {picked > 1 ? `×${picked}` : '✓'}
           </span>
         ) : null}
       </div>

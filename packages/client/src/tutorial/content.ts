@@ -105,7 +105,10 @@ const PLAYER_DRAW_ORDER: CardId[] = [
   'doubao',
   'deepseek-r1',
   // 第 2 轮补 2 张
-  'one-sentence-answer',
+  // 「防沉迷」（1 费）只是把补牌填满，教程不点名用它。选它是因为它在已开放的 9 张技能牌里
+  // ——第 3 轮玩家可以自由出牌，手上要是留着一张「即将上线」的牌，玩家就能把还没开放的牌
+  // 打上牌桌。同理它也不能挑贵的：第 3 轮胜负不看 Token，但牌组里只放开放的牌这条要一直成立。
+  'anti-addiction',
   'qwen',
   // 第 3 轮补 2 张
   'gemini',

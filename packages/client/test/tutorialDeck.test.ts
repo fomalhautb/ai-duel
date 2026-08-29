@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { CARD_POOL, DECK_SIZE, getCard } from '@ai-duel/core'
+import { CARD_POOL, COMING_SOON_SKILL_CARD_IDS, DECK_SIZE, getCard } from '@ai-duel/core'
 import { MAX_COPIES } from '../src/save/deckStore'
 import {
   DECK_FIRST_STEP,
@@ -27,9 +27,13 @@ describe('组牌教学的预填', () => {
     expect(prefill.length + TUTORIAL_DECK_PICKS.length).toBe(DECK_SIZE)
   })
 
-  it('预填里的卡都在当前卡池里', () => {
+  // CARD_POOL 里没有「即将上线」的那 15 张技能牌，所以这一条同时也守住了
+  // "预填不会替玩家塞一张选不进牌组的牌"——真塞进去会被 sanitizeCards 悄悄丢掉，
+  // 教学的 17/20 当场对不上。
+  it('预填里的卡都在当前卡池里，不含「即将上线」的牌', () => {
     for (const cardId of tutorialDeckPrefill()) {
       expect(CARD_POOL).toContain(cardId)
+      expect(COMING_SOON_SKILL_CARD_IDS).not.toContain(cardId)
     }
   })
 
@@ -38,7 +42,7 @@ describe('组牌教学的预填', () => {
     expect(CARD_POOL.length).toBeGreaterThanOrEqual(DECK_SIZE)
   })
 
-  // 三张待加的牌一份都还没占，玩家逐张点下去时不可能撞上"每张最多 2 份"的规则。
+  // 三张待加的牌一份都还没占，玩家逐张点下去时不可能撞上"每张最多 MAX_COPIES 份"的规则。
   it('三张待加的牌不在预填里', () => {
     const prefill = tutorialDeckPrefill()
     for (const cardId of TUTORIAL_DECK_PICKS) {

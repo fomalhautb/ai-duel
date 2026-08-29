@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { INITIAL_TOKEN_MAX, TOKEN_MAX_GROWTH, getCard } from '@ai-duel/core'
+import { CARD_POOL, INITIAL_TOKEN_MAX, TOKEN_MAX_GROWTH, getCard } from '@ai-duel/core'
 import type { CardId, GameEvent, GameState, InstanceId } from '@ai-duel/core'
 import { createTutorialDriver } from '../src/match/tutorialDriver'
 import type { TutorialDriver } from '../src/match/tutorialDriver'
@@ -252,6 +252,17 @@ describe('教学内容自检', () => {
       for (const cardId of deck) counts.set(cardId, (counts.get(cardId) ?? 0) + 1)
       for (const [cardId, count] of counts) {
         expect(count, `${cardId} 放了 ${count} 份`).toBeLessThanOrEqual(2)
+      }
+    }
+  })
+
+  // 「即将上线」的技能牌不进 CARD_POOL。教学牌组混进一张的话，第 3 轮玩家可以自由出牌
+  // （步骤表那一步 playableCards 是 null），还没开放的牌就被打上了牌桌。
+  // core 不校验牌组内容，教学 driver 也直接把这两副牌塞给引擎，所以只有这条测试守着。
+  it('教学双方牌组里的每张牌都在已开放的卡池里', () => {
+    for (const deck of [TUTORIAL_PLAYER_DECK, TUTORIAL_FOE_DECK]) {
+      for (const cardId of deck) {
+        expect(CARD_POOL, `${cardId} 不在卡池里`).toContain(cardId)
       }
     }
   })

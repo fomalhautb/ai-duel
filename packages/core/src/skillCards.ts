@@ -4,6 +4,9 @@ import type { CardId, SkillCard } from './types'
  * 24 张技能牌，一批设计稿出来的牌。除「复读机」外效果都还只停在设计稿上，
  * 常量名里的 DESIGN 就是这个来历。
  *
+ * 这 24 张里眼下只开放 9 张（见文件末尾的 OPEN_SKILL_CARD_IDS），其余 15 张是
+ * 「即将上线」：卡面数据和原画都留着、牌组页照常摆出来，但进不了卡池也进不了牌组。
+ *
  * 组织方式对齐 aiModels.ts：一张卡对一张原画，客户端按同一份 id 查图
  * （ui/skillCardArt.ts 的 SKILL_CARD_ART），所以 id 是资源名的一部分，
  * 改 id 等于换掉那张卡的插画，必须两边一起改。
@@ -230,3 +233,44 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
  * 从 SKILL_DESIGN_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。
  */
 export const SKILL_DESIGN_CARD_IDS: CardId[] = Object.keys(SKILL_DESIGN_CARDS)
+
+/**
+ * 眼下开放的 9 张技能牌：只有它们进卡池（collection.ts 的 CARD_POOL），
+ * 也只有它们能被选进牌组、能在对局里出现。
+ *
+ * 名单是产品定的，和"效果实装了没有"无关——这 9 张里同样只有「复读机」接进了引擎。
+ * 剩下 15 张不是删掉，而是转成「即将上线」：牌组页照常把它们摆出来，只是灰着、
+ * 排在所有卡的最后，碰一下只提示「即将上线」（见 client 的 DeckScreen）。
+ * 要开放某一张，把它的 id 挪进下面这个集合即可，卡面和原画都不用动。
+ */
+const OPEN_SKILL_IDS = new Set<CardId>([
+  'black-white-reversal',
+  'fixed-answer',
+  'clean-sweep',
+  'golden-bell-shield',
+  'anti-addiction',
+  'nuclear-power-station',
+  'domestic-substitution',
+  'rising-tide',
+  'memory-shortage',
+])
+
+/**
+ * 开放的那几张，顺序仍是设计稿的分组顺序。
+ *
+ * 用集合去筛 SKILL_DESIGN_CARD_IDS 而不是直接写成数组：这样两份名单的顺序都由
+ * SKILL_DESIGN_CARDS 的键序决定，卡池里的位置不会因为上面那个集合怎么排而跟着跳。
+ */
+export const OPEN_SKILL_CARD_IDS: CardId[] = SKILL_DESIGN_CARD_IDS.filter((id) =>
+  OPEN_SKILL_IDS.has(id),
+)
+
+/**
+ * 还没开放的那 15 张，顺序同上。
+ *
+ * 「排序永远在最后」这条不靠排序函数，而靠用法：牌组页把这份列表整个拼在卡池后面，
+ * 于是它们天然排在所有能选的卡之后（见 DeckScreen 的 shown）。
+ */
+export const COMING_SOON_SKILL_CARD_IDS: CardId[] = SKILL_DESIGN_CARD_IDS.filter(
+  (id) => !OPEN_SKILL_IDS.has(id),
+)

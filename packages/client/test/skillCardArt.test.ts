@@ -7,7 +7,7 @@ import { cardArtFor } from '../src/ui/cardArt'
 describe('技能牌正面原画', () => {
   const skills = DECK_DEMO_CARDS.filter((card) => card.kind === 'skill')
 
-  it('为牌组页的 24 张技能牌各绑定一张独立原画', () => {
+  it('为 24 张技能展示卡各绑定一张独立原画', () => {
     expect(skills).toHaveLength(24)
     expect(Object.keys(SKILL_CARD_ART)).toHaveLength(24)
     expect(new Set(skills.map((card) => card.id)).size).toBe(24)

@@ -3,9 +3,11 @@ import {
   AI_MODEL_CARD_IDS,
   CARD_POOL,
   CARDS,
+  COMING_SOON_SKILL_CARD_IDS,
   drawNewCard,
   HEROES,
   INITIAL_COLLECTION,
+  OPEN_SKILL_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
   STARTER_DECK,
 } from '../src/index'
@@ -36,18 +38,52 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('24 张技能卡开局全解锁，默认牌组只带其中两张', () => {
-    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「一句话回答」打出即完事。
-    // 其余 22 张和「一句话回答」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
-    // 让新玩家开局就摸到一手什么都不会发生的卡。
+  it('24 张技能卡分成开放的 9 张和「即将上线」的 15 张', () => {
+    // 名单是产品定的，所以这里逐个写死：改动它意味着开放 / 收回了某张牌，
+    // 而那件事牵着卡池、初始收藏、示例牌组一整串，应该在这一行当场红。
+    // 顺序跟着 SKILL_DESIGN_CARDS 的键序走（卡池和图鉴按它摆），所以用对顺序敏感的 toEqual。
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
-    const inDeck = ['fixed-answer', 'one-sentence-answer']
-    for (const id of SKILL_DESIGN_CARD_IDS) {
+    expect(OPEN_SKILL_CARD_IDS).toEqual([
+      'black-white-reversal',
+      'fixed-answer',
+      'clean-sweep',
+      'golden-bell-shield',
+      'anti-addiction',
+      'nuclear-power-station',
+      'domestic-substitution',
+      'rising-tide',
+      'memory-shortage',
+    ])
+    // 两份名单不重不漏地把 24 张分完：漏一张就会有牌既进不了卡池、又不在牌组页摆出来，
+    // 等于凭空消失。
+    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(15)
+    expect(new Set([...OPEN_SKILL_CARD_IDS, ...COMING_SOON_SKILL_CARD_IDS])).toEqual(
+      new Set(SKILL_DESIGN_CARD_IDS),
+    )
+  })
+
+  it('开放的技能卡开局全解锁，默认牌组只带其中两张', () => {
+    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「防沉迷」打出即完事。
+    // 开放的其余几张和「防沉迷」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
+    // 让新玩家开局就摸到一手什么都不会发生的卡。
+    const inDeck = ['fixed-answer', 'anti-addiction']
+    for (const id of OPEN_SKILL_CARD_IDS) {
       expect(CARD_POOL).toContain(id)
       expect(INITIAL_COLLECTION).toContain(id)
       expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
         inDeck.includes(id) ? 1 : 0,
       )
+    }
+  })
+
+  it('「即将上线」的技能卡查得到卡面，但进不了卡池、收藏和牌组', () => {
+    // 卡面数据必须留在 CARDS 里：牌组页和图鉴要照常把它们画出来（灰着、排在最后）。
+    // 而卡池那三条一旦漏了，玩家就能把还没开放的牌选进牌组、带上牌桌。
+    for (const id of COMING_SOON_SKILL_CARD_IDS) {
+      expect(CARDS[id]).toBeDefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
     }
   })
 
@@ -67,9 +103,11 @@ describe('卡池与初始收藏', () => {
     ])
   })
 
-  it('卡池覆盖全部卡牌定义', () => {
-    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
+  it('卡池 = 全部卡牌定义减去「即将上线」的那批', () => {
+    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length - COMING_SOON_SKILL_CARD_IDS.length)
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
+    // 反过来也要成立：卡池里不许有 CARDS 查不到的 id，否则开局 getCard 会抛错。
+    for (const id of CARD_POOL) expect(CARDS[id]).toBeDefined()
   })
 
   it('初始收藏就是整个卡池：新玩家一进来卡池页就摆得满满的', () => {

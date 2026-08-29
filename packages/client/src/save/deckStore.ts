@@ -7,7 +7,8 @@
  * 比 save.ts 多一份内存缓存（cachedDecks）：这里的每次修改都要先读回上一份数据，
  * 读不了就得靠它把一次会话里的连续编辑接起来。
  *
- * 存的是 core 的真卡 id（CARD_POOL 里那批），所以这里读出来的牌组可以直接开局；
+ * 存的是 core 的真卡 id（CARD_POOL 里那批，不含「即将上线」的技能牌），
+ * 所以这里读出来的牌组可以直接开局；
  * 存档只保证卡 id 在卡池里，**不保证张数够开局**——玩家可以把牌组编到一半就走人，
  * 所以拿它去开局的地方（match/testMatch.ts、RoomScreen 的选卡组一步）都要自己查 DECK_SIZE。
  */
@@ -19,7 +20,7 @@ import type { CardId } from '@ai-duel/core'
 const DECKS_KEY = 'ai-duel-decks-v2'
 
 /**
- * 一套牌组 20 张、同名卡最多 2 份、最多 12 套。
+ * 一套牌组 20 张、同名卡最多 3 份、最多 12 套。
  *
  * DECK_SIZE 是 core 那份（牌组容量是规则的一部分，引擎和存档校验都读它），这里只是转出来，
  * 让选牌页的三条选卡规则从同一个文件导入，不用为一个常量再引一次 core。
@@ -27,20 +28,24 @@ const DECKS_KEY = 'ai-duel-decks-v2'
  * 12 套是纯粹的界面约束：牌组列表再长就没法一眼扫完，顺带给 localStorage 封了顶。
  */
 export { DECK_SIZE }
-export const MAX_COPIES = 2
+export const MAX_COPIES = 3
 export const MAX_DECKS = 12
 /** 牌组名最多 10 个字符：再长选牌页的标签就排不下。 */
 export const DECK_NAME_MAX = 10
 /** 新建牌组的默认名，重名时后面接序号。 */
 const DEFAULT_DECK_NAME = '新牌组'
 
-/** 卡池白名单：存档里凡是不在这个集合里的 id 都要丢掉，否则卡面渲染时 getCard 会抛错。 */
+/**
+ * 卡池白名单：存档里凡是不在这个集合里的 id 都要丢掉。
+ * 挡的是两种脏数据：改坏的存档里那种压根不存在的 id（渲染时 getCard 会抛错），
+ * 以及「即将上线」的技能牌——它们在 CARDS 里查得到、画得出，但不该被带上牌桌。
+ */
 const POOL_CARD_IDS = new Set<CardId>(CARD_POOL)
 
 export interface SavedDeck {
   id: string
   name: string
-  /** 卡 id，逐份存：同一张卡带两份就在数组里出现两次。顺序即选牌顺序。 */
+  /** 卡 id，逐份存：同一张卡带三份就在数组里出现三次。顺序即选牌顺序。 */
   cards: CardId[]
 }
 
@@ -59,7 +64,7 @@ function clampName(raw: unknown, fallback: string): string {
   return [...trimmed].slice(0, DECK_NAME_MAX).join('')
 }
 
-/** 卡表规整：丢掉卡池里没有的卡、超出 2 份的重复卡，并把长度收进 20 张以内。 */
+/** 卡表规整：丢掉卡池里没有的卡、超出 MAX_COPIES 份的重复卡，并把长度收进 20 张以内。 */
 function sanitizeCards(raw: unknown): CardId[] {
   if (!Array.isArray(raw)) return []
   const copies = new Map<CardId, number>()
@@ -105,7 +110,7 @@ function parseDecks(raw: string): DecksData | null {
 /**
  * 首次进入时播种的那一套预设：core 的示例牌组。
  *
- * 只播一套，不再自造几套「流派」：卡池里 24 张技能牌只有「复读机」接进了规则引擎，其余全是
+ * 只播一套，不再自造几套「流派」：卡池里已开放的技能牌只有「复读机」接进了规则引擎，其余全是
  * 打出即进弃牌堆的设计稿卡（见 core 的 CARDS），眼下真正拉得开差距的只有那 18 张 AI，
  * 「流派」无从谈起，多播几套等于把同一副牌换个名字摆三遍。等技能效果实装之后再考虑加。
  *

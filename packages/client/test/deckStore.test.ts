@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, isDeckable, STARTER_DECK } from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -81,12 +81,23 @@ function countCopies(cards: readonly string[], cardId: string): number {
 
 const KNOWN_CARD_IDS = new Set(CARD_POOL)
 
+/** 卡池里能进牌组的那批（灰牌除外，见 core 的 isDeckable）。 */
+const DECKABLE_CARD_IDS = CARD_POOL.filter(isDeckable)
+
 /**
  * 测试里当素材用的三张真卡。
  * 从卡池头上取，不写死 id：卡池改名时这份测试跟着走，不用一处处改字符串。
- * `!` 是给 noUncheckedIndexedAccess 让路——卡池至少 20 张，前三张一定在。
+ * 必须跳过灰牌——存档会把它们当脏数据剔掉，拿它当素材写进去就取不回来。
+ * `!` 是给 noUncheckedIndexedAccess 让路——能进牌组的至少 20 张，前三张一定在。
  */
-const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
+const [CARD_A, CARD_B, CARD_C] = [
+  DECKABLE_CARD_IDS[0]!,
+  DECKABLE_CARD_IDS[1]!,
+  DECKABLE_CARD_IDS[2]!,
+]
+
+/** 进不了牌组的那种卡，用来验存档会把它剔掉。卡池里眼下一定有（GPT-2、文心一言）。 */
+const UNDECKABLE_CARD = CARD_POOL.find((id) => !isDeckable(id))!
 
 describe('牌组存档', () => {
   beforeEach(() => {
@@ -333,6 +344,14 @@ describe('牌组存档', () => {
     it('过滤掉卡池里没有的卡 id', () => {
       seedEmptyDeck()
       const data = updateDeckCards('a', [CARD_A, '并不存在的卡', CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
+    })
+
+    it('丢掉进不了牌组的灰牌', () => {
+      // 灰牌在卡池里（卡池要摆出来给人看），但构筑页不让加，存档里也不该留下——
+      // 老存档里那两张就是这么被清掉的。
+      seedEmptyDeck()
+      const data = updateDeckCards('a', [CARD_A, UNDECKABLE_CARD, CARD_B])
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 

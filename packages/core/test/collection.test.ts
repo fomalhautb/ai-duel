@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   AI_MODEL_CARD_IDS,
+  AI_MODEL_CARDS,
   CARD_POOL,
   CARDS,
   drawNewCard,
   HEROES,
   INITIAL_COLLECTION,
+  isDeckable,
+  PLAYABLE_AI_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
   STARTER_DECK,
 } from '../src/index'
@@ -28,11 +31,23 @@ describe('卡池与初始收藏', () => {
     ).toEqual(AI_MODEL_CARD_IDS)
   })
 
-  it('18 张 AI 都已解锁，且在默认的 20 张牌组里各有一张', () => {
+  it('18 张 AI 都已解锁，能上场的那 16 张各带一张（最便宜的两张各两张）', () => {
     expect(STARTER_DECK).toHaveLength(20)
+    // 补第二份的这两张：全场最便宜的 AI（各 2 点），顶掉两张灰牌空出来的位置。
+    const doubled = ['gpt-3-5', 'doubao']
     for (const id of AI_MODEL_CARD_IDS) {
+      // 灰牌也在收藏里：卡池要把它们摆出来（见 collection.ts）。
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
+      const want = isDeckable(id) ? (doubled.includes(id) ? 2 : 1) : 0
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(want)
+    }
+  })
+
+  it('默认牌组里没有一张是选不进牌组的灰牌', () => {
+    // 起始牌组会被直接播成玩家的第一套牌组（见 client 的 deckStore），
+    // 混进一张加不进牌组的牌，玩家一进构筑页就会看到一副自己拼不出来的牌。
+    for (const id of STARTER_DECK) {
+      expect(isDeckable(id)).toBe(true)
     }
   })
 
@@ -99,6 +114,40 @@ describe('卡池与初始收藏', () => {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
+    }
+  })
+})
+
+describe('调不到模型的 AI 牌', () => {
+  // 这两张牌在 OpenRouter 上没有对得上的模型（原委见 aiModels.ts 里各自的注释）：
+  // 留在卡池里陈列，但选不进牌组。改这份名单等于改玩家能用哪些牌，所以写死在这里守着。
+  const unavailable = ['gpt-2', 'wenxin-yiyan']
+
+  it('只有 GPT-2 和文心一言的 openrouter 是 null', () => {
+    const nulls = AI_MODEL_CARD_IDS.filter((id) => AI_MODEL_CARDS[id]?.openrouter === null)
+    expect(nulls).toEqual(unavailable)
+  })
+
+  it('其余 16 张都填了看得出厂商的 OpenRouter id', () => {
+    expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
+    for (const id of PLAYABLE_AI_CARD_IDS) {
+      // OpenRouter 的 id 一律是「厂商/模型」两段，写漏斜杠调用时会 404。
+      expect(AI_MODEL_CARDS[id]?.openrouter).toMatch(/^[a-z0-9-]+\/\S+$/)
+    }
+  })
+
+  it('isDeckable：灰牌选不进，其余 AI 和全部技能牌都能选', () => {
+    for (const id of unavailable) expect(isDeckable(id)).toBe(false)
+    for (const id of PLAYABLE_AI_CARD_IDS) expect(isDeckable(id)).toBe(true)
+    for (const id of SKILL_DESIGN_CARD_IDS) expect(isDeckable(id)).toBe(true)
+    // 卡池里没有的 id 也算选不进，存档筛脏数据时要靠这一条。
+    expect(isDeckable('nope')).toBe(false)
+  })
+
+  it('灰牌仍然留在卡池和初始收藏里', () => {
+    for (const id of unavailable) {
+      expect(CARD_POOL).toContain(id)
+      expect(INITIAL_COLLECTION).toContain(id)
     }
   })
 })

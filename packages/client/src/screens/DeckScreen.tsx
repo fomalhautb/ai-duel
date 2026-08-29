@@ -56,7 +56,7 @@ import type { CSSProperties } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { CARD_POOL, getCard } from '@ai-duel/core'
+import { CARD_POOL, getCard, isDeckable } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
@@ -146,6 +146,11 @@ const ADD_TIP_GAP = 10
  */
 const DECK_FULL_TIP = `牌组已满 ${DECK_SIZE} 张`
 const MAX_COPIES_TIP = `同一张牌最多带 ${MAX_COPIES} 份`
+/**
+ * 这张牌背后的模型调不到（见 core 的 isDeckable）。
+ * 不提 OpenRouter：玩家不关心我们从哪家调模型，只需要知道这张牌现在上不了场。
+ */
+const UNAVAILABLE_TIP = '这张牌还没接上模型'
 
 /**
  * 一张卡里那两层的选择器。卡池卡和迷你卡的类名不一样，但要找的层是同一个角色，
@@ -516,6 +521,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    * 让判定和话术留在同一处，免得两边各写一次 if 又对不上。
    */
   const blockReasonNow = useCallback((cardId: CardId): string | null => {
+    // 排在最前面：牌本身用不了是这张卡的固有属性，比"牌组满了"更根本，
+    // 牌组腾出位置也不会变得能加，说"牌组已满"只会让玩家白删一张牌再试一次。
+    if (!isDeckable(cardId)) return UNAVAILABLE_TIP
     const current = deckRef.current
     if (current.length >= DECK_SIZE) return DECK_FULL_TIP
     let owned = 0
@@ -1492,12 +1500,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                     if (thumb === undefined) return null
                     const flipId = poolFlipId(cardId)
                     const picked = copies.get(cardId) ?? 0
+                    const deckable = isDeckable(cardId)
                     return (
                       <PoolCard
                         key={cardId}
                         card={thumb}
                         picked={picked}
-                        canAdd={!deckFull && picked < MAX_COPIES}
+                        unavailable={!deckable}
+                        canAdd={deckable && !deckFull && picked < MAX_COPIES}
                         bind={bindPoolCard(cardId)}
                         onAdd={addFromPool}
                         onHelpEnter={handleHelpEnter}
@@ -1808,6 +1818,12 @@ interface PoolCardProps {
   card: HandCardData
   /** 这张卡已经选了几份。 */
   picked: number
+  /**
+   * 这张牌背后的模型调不到，永远加不进牌组（见 core 的 isDeckable）。
+   * 和 canAdd 分开传：canAdd 会随牌组的增减来回变，这个是这张牌的固有属性，
+   * 卡面压灰只认它——否则牌组一满，整片卡池就跟着一起灰了。
+   */
+  unavailable: boolean
   canAdd: boolean
   bind: CardDragBindings
   /**
@@ -1827,6 +1843,7 @@ interface PoolCardProps {
 const PoolCard = memo(function PoolCard({
   card,
   picked,
+  unavailable,
   canAdd,
   bind,
   onAdd,
@@ -1845,6 +1862,7 @@ const PoolCard = memo(function PoolCard({
         // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
         data-flip-id={poolFlipId(card.id)}
         data-picked={picked > 0 ? picked : undefined}
+        data-unavailable={unavailable ? 'true' : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
       >
@@ -1920,6 +1938,9 @@ const PoolCard = memo(function PoolCard({
           aria-disabled={!canAdd}
           data-disabled={canAdd ? undefined : 'true'}
           aria-label={`把「${card.name}」加入牌组`}
+          /* 灰牌不点也该知道为什么灰：卡面上四个角都占满了，塞不下再一枚角标，
+             就把原因挂成这颗按钮的原生 tooltip。点下去仍然会摇头 + 弹同一句浮字。 */
+          title={unavailable ? UNAVAILABLE_TIP : undefined}
           onClick={(event) => {
             const cardEl = event.currentTarget.closest<HTMLElement>('.deck-pool-card')
             if (cardEl !== null) onAdd(card.id, cardEl)

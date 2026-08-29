@@ -1028,7 +1028,8 @@ packages/core/
   src/index.ts                包的唯一出口，把下面几个模块整个转出去
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
   src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
-  src/aiModels.ts             18 张具名 AI 牌的定义，被 cards.ts 并进 CARDS；默认牌组 = 这 18 张 + 2 张技能牌
+  src/aiModels.ts             18 张具名 AI 牌的定义（含各自的 OpenRouter 模型 id），被 cards.ts 并进 CARDS；
+                              其中 2 张 OpenRouter 调不到，卡池里压灰、进不了牌组（见 cards.ts 的 isDeckable）
   src/skillCards.ts           24 张技能牌的定义，同样被 cards.ts 并进 CARDS；一张卡对一张原画
   src/heroes.ts               英雄牌数据 + 查表（不进牌组，和卡牌是两张表）；
                               名单已定 7 位，技能设计好一位才进表，眼下只有格蕾丝·霍珀

@@ -12,7 +12,7 @@
  * 所以拿它去开局的地方（match/testMatch.ts、RoomScreen 的选卡组一步）都要自己查 DECK_SIZE。
  */
 
-import { CARD_POOL, DECK_SIZE, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, DECK_SIZE, isDeckable, STARTER_DECK } from '@ai-duel/core'
 import type { CardId } from '@ai-duel/core'
 
 /** 换存档结构时直接改版本号：旧数据解析不出来就回落成播种预设。 */
@@ -34,8 +34,14 @@ export const DECK_NAME_MAX = 10
 /** 新建牌组的默认名，重名时后面接序号。 */
 const DEFAULT_DECK_NAME = '新牌组'
 
-/** 卡池白名单：存档里凡是不在这个集合里的 id 都要丢掉，否则卡面渲染时 getCard 会抛错。 */
-const POOL_CARD_IDS = new Set<CardId>(CARD_POOL)
+/**
+ * 牌组白名单：存档里凡是不在这个集合里的 id 都要丢掉，否则卡面渲染时 getCard 会抛错。
+ *
+ * 比卡池少了两张：GPT-2 和文心一言背后的模型 OpenRouter 上调不到，构筑页也不让加
+ *（见 core 的 isDeckable）。老存档里带着它们的话在这里一并剔除——牌组会因此少几张，
+ * 和存档里混进别的坏 id 是同一种处理，玩家回构筑页补满即可。
+ */
+const POOL_CARD_IDS = new Set<CardId>(CARD_POOL.filter(isDeckable))
 
 export interface SavedDeck {
   id: string
@@ -59,7 +65,7 @@ function clampName(raw: unknown, fallback: string): string {
   return [...trimmed].slice(0, DECK_NAME_MAX).join('')
 }
 
-/** 卡表规整：丢掉卡池里没有的卡、超出 2 份的重复卡，并把长度收进 20 张以内。 */
+/** 卡表规整：丢掉进不了牌组的卡（见 POOL_CARD_IDS）、超出 2 份的重复卡，并把长度收进 20 张以内。 */
 function sanitizeCards(raw: unknown): CardId[] {
   if (!Array.isArray(raw)) return []
   const copies = new Map<CardId, number>()

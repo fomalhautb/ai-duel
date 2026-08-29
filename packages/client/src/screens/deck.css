@@ -831,6 +831,18 @@
   filter: grayscale(0.72) brightness(0.66);
 }
 
+/*
+ * 背后的模型调不到、永远加不进牌组的那几张（见 core 的 isDeckable）。
+ * 压得比「选满两份」更狠：那边是"这张不用再看了"，这边是"这张根本用不了"。
+ *
+ * 和上面那条一样只压正面卡面（.card-face）：背面是解释这张牌是什么的，压灰只会更难读；
+ * 问号和「＋」也留在滤镜外面——「＋」正是用来点出那句"还没接上模型"的，自己糊掉就白设了。
+ * 放大层里那张大卡同样不压灰：放大就是为了看清画面。
+ */
+.deck-pool-card[data-unavailable] .card-face {
+  filter: grayscale(1) brightness(0.58);
+}
+
 /* 抓在手上的那张：换光标、加重投影。zIndex 由 hook 写在内联样式上。 */
 .deck-pool-card[data-dragging='true'],
 .deck-mini[data-dragging='true'] {

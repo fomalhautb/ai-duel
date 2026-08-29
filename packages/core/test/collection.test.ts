@@ -4,6 +4,7 @@ import {
   CARD_POOL,
   CARDS,
   drawNewCard,
+  getCard,
   HEROES,
   INITIAL_COLLECTION,
   STARTER_DECK,
@@ -35,11 +36,41 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('两张正式技能牌已解锁并进入默认牌组，占位技能只供调试', () => {
-    for (const id of ['fixed-answer', 'black-white-reversal']) {
+  it('二十四张正式技能牌已解锁，默认牌组仍保持 20 张', () => {
+    const playableSkills = [
+      'fixed-answer',
+      'black-white-reversal',
+      'one-sentence-answer',
+      'character-lock',
+      'context-flood',
+      'topic-drift',
+      'repetition-bombardment',
+      'clean-sweep',
+      'jade-purification-vase',
+      'boomerang',
+      'golden-bell-shield',
+      'safe-pass',
+      'anti-addiction',
+      'compute-compression',
+      'model-distillation',
+      'open-source-reproduction',
+      'nuclear-power-station',
+      'far-ahead',
+      'domestic-substitution',
+      'version-rollback',
+      'version-upgrade',
+      'kids-mode',
+      'rising-tide',
+      'memory-shortage',
+    ]
+    // 卡池里的技能牌一张不落全在初始收藏里：漏了哪张，新玩家就会拿着锁死的功能牌。
+    expect(CARD_POOL.filter((id) => getCard(id).kind === 'skill')).toEqual(playableSkills)
+    for (const id of playableSkills) {
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
     }
+    expect(STARTER_DECK.filter((id) => id === 'fixed-answer')).toHaveLength(1)
+    expect(STARTER_DECK.filter((id) => id === 'black-white-reversal')).toHaveLength(1)
+    for (const id of playableSkills.slice(2)) expect(STARTER_DECK).not.toContain(id)
     expect(CARDS['placeholder-skill']).toBeDefined()
     expect(CARD_POOL).not.toContain('placeholder-skill')
     expect(INITIAL_COLLECTION).not.toContain('placeholder-skill')
@@ -65,7 +96,15 @@ describe('卡池与初始收藏', () => {
 
   it('英雄牌不进卡表、不进卡池、也不进牌组', () => {
     // 英雄牌是开局前单独选的，一旦漏进这三张表就会被当成能抽、能进牌组的普通牌。
-    expect(Object.keys(HEROES)).toEqual(['grace-hopper'])
+    expect(Object.keys(HEROES)).toEqual([
+      'fei-fei-li',
+      'danqi-chen',
+      'melanie-perkins',
+      'grace-hopper',
+      'mira-murati',
+      'ada-lovelace',
+      'margaret-hamilton',
+    ])
     for (const id of Object.keys(HEROES)) {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)

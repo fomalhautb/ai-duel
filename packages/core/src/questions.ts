@@ -22,12 +22,14 @@ export const QUESTION_POOL: Question[] = [
   {
     id: 'q-triangles',
     category: 'vision',
+    includesImage: true,
     text: '（占位图）看图数一数：图里一共能数出几个三角形？',
     answer: '五个：三个小三角形，加上它们拼成的两个大三角形',
   },
   {
     id: 'q-husky',
     category: 'vision',
+    includesImage: true,
     text: '（占位图）图里这只动物是狗还是狼？',
     answer: '狗——是一只哈士奇',
   },

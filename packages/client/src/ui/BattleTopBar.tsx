@@ -16,6 +16,8 @@ export interface BattleTopBarProps {
     round: number
     myScore: number
     foeScore: number
+    myTokens: number
+    foeTokens: number
   }
 }
 
@@ -37,6 +39,14 @@ export function BattleTopBar({ status }: BattleTopBarProps) {
             <span className="battle-topbar__score-colon">:</span>
             <span className="battle-topbar__score-num">{status.foeScore}</span>
             <span className="battle-topbar__score-side">对方</span>
+          </span>
+          <DiamondMark />
+          <span className="battle-topbar__tokens">
+            Token
+            <span className="battle-topbar__tokens-num">{status.myTokens}</span>
+            <span className="battle-topbar__tokens-separator">/</span>
+            <span className="battle-topbar__tokens-num">{status.foeTokens}</span>
+            <span className="battle-topbar__tokens-side">我 / 对</span>
           </span>
         </div>
       )}

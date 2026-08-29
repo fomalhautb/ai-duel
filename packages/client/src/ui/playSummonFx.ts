@@ -77,7 +77,7 @@ export function playSummonFx(tile: HTMLElement) {
  * 往上面写位移会被它当场覆盖。tile 自己的 transform 只有 Flip 飞行会用，
  * 而命中发生时目标格早就落定了，两者碰不上。
  *
- * 同一个 tile 不会被连播两次：被干扰过的 AI 不能再当干扰技能的目标（见 core 的 playCard）。
+ * 一次出牌只命中一个 tile；目标是否合法由 core 的 playCard 统一判断。
  *
  * 和 playSummonFx 一样必须在 useGSAP 的 context 里调用（延迟回调要 contextSafe 包一层）。
  */

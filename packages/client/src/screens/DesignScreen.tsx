@@ -322,7 +322,8 @@ export function DesignScreen() {
             上排是 4～6 字技能简称，下排是卡名；<code>cost / skillName / name / accent</code> 都可单独传入。
             费用章保持正圆，铭牌按卡宽缩放，手牌和原图同为 2:3，使用同一套布局。
             配色沿用本页色板，纸面复用 <code>.grain</code>，文字不套滤镜以保留小尺寸可读性。
-            Token 数值仅作原设计展示，不改变当前答题制规则。<a href="/card">打开卡牌图鉴</a>
+            此处展示的是 AI 牌图层，其 Token 数值暂不参与规则；已实现技能牌的费用已经接入对局。
+            <a href="/card">打开卡牌图鉴</a>
           </p>
         </section>
 

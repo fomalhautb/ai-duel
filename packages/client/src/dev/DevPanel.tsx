@@ -17,6 +17,7 @@ import type { MatchDriver } from '../match/driver'
 const PHASE_LABELS: Record<GamePhase, string> = {
   play: '出牌',
   quiz: '答题',
+  rescue: '容错补位',
   finished: '已结束',
 }
 

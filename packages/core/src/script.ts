@@ -23,6 +23,21 @@ interface ScriptedAnswer {
 }
 
 /**
+ * 「字数封锁」下仍能表达正确判断的最短答案。
+ *
+ * 题库里的 `Question.answer` 是揭晓时展示的完整解释，不等于模型必须逐字复述的答案；
+ * 例如三角形题的完整答案很长，但「五个」已经足以答对。离线剧本本来就是逐题写死的，
+ * 因此把同一层的最短正确表达也显式列出来，避免靠截字符串猜语义。
+ */
+const CONCISE_CORRECT_ANSWERS: Record<string, string> = {
+  'q-nurse': '未知',
+  'q-surgeon': '母亲',
+  'q-triangles': '五个',
+  'q-husky': '哈士奇',
+  'q-carwash': '开车',
+}
+
+/**
  * 题目 id → 卡牌 id → 这张卡对这道题的回答。
  *
  * 表要覆盖「全部题 × 全部 AI 牌」，缺一格就会在对局中途抛错，
@@ -149,8 +164,9 @@ export function scriptedAnswers(
   const byCard = SCRIPT[question.id]
   if (!byCard) throw new Error(`题目没有剧本：${question.id}`)
   return aiUnits.map((ai) => {
-    const scripted = byCard[ai.cardId]
-    if (!scripted) throw new Error(`剧本缺少 ${question.id} × ${ai.cardId} 的回答`)
+    const effectiveCardId = ai.roundModelOverride ?? ai.cardId
+    const scripted = byCard[effectiveCardId]
+    if (!scripted) throw new Error(`剧本缺少 ${question.id} × ${effectiveCardId} 的回答`)
     const answer = applyPromptEffect(question, byCard, scripted, ai.promptEffect)
     return {
       instanceId: ai.instanceId,
@@ -165,7 +181,8 @@ export function scriptedAnswers(
  *
  * 真模型接入后会把 `effect.instruction` 追加到实际 Prompt；这里不能联网，只能用确定性变换
  * 表现相同的胜负含义。反转一个正确判断时，从本题剧本里取第一条错误回答；反转错误判断时，
- * 直接改答题库里的正确答案。对象表的插入顺序固定，所以联机两端得到的文本也完全一致。
+ * 直接改答题库里的正确答案。一句话回答只收紧表达形式，不改变原剧本的对错。
+ * 对象表的插入顺序固定，所以联机两端得到的文本也完全一致。
  */
 function applyPromptEffect(
   question: Question,
@@ -183,6 +200,43 @@ function applyPromptEffect(
     }
   }
 
+  if (effect.answerMode.kind === 'single-sentence') {
+    return {
+      correct: scripted.correct,
+      answerText: toSingleSentence(scripted.answerText),
+    }
+  }
+
+  // 上下文洪水 / 话题漂移 / 重复轰炸：往提示词里塞无关信息。
+  // 离线剧本读不了这段文字，按拍板口径不改原对错，只加一个前缀让玩家看出被干扰了；
+  // instruction 已随 promptEffect 保留，将来接真模型时会拼进真实 Prompt。
+  if (effect.answerMode.kind === 'irrelevant-context') {
+    return {
+      correct: scripted.correct,
+      answerText: `（受干扰）${scripted.answerText}`,
+    }
+  }
+
+  if (effect.answerMode.kind === 'character-limit') {
+    const max = effect.answerMode.maxCharacters
+    if (scripted.correct) {
+      const conciseCorrectAnswer = CONCISE_CORRECT_ANSWERS[question.id]
+      if (conciseCorrectAnswer === undefined) {
+        throw new Error(`题目没有字数封锁下的短答案：${question.id}`)
+      }
+      if (Array.from(conciseCorrectAnswer).length > max) {
+        throw new Error(`题目 ${question.id} 的短答案超过 ${max} 个字符`)
+      }
+      return { correct: true, answerText: conciseCorrectAnswer }
+    }
+    return {
+      correct: false,
+      // Array.from 按 Unicode 码点截，不会把一个非 BMP 字符拆成两个乱码代理项。
+      // 标点没有特别排除，自然和普通字符一样占限额。
+      answerText: Array.from(scripted.answerText.trim()).slice(0, max).join(''),
+    }
+  }
+
   if (!scripted.correct) {
     return {
       correct: true,
@@ -196,4 +250,10 @@ function applyPromptEffect(
     correct: false,
     answerText: `（黑白颠倒）${wrong.answerText}`,
   }
+}
+
+/** 把离线剧本的多句回答收紧成一句，保留全部内容和原有对错。 */
+function toSingleSentence(answerText: string): string {
+  const body = answerText.trim().replace(/[。！？!?；;]+/g, '，').replace(/，+$/, '')
+  return `${body}。`
 }

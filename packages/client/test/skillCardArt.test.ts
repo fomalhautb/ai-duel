@@ -24,7 +24,16 @@ describe('技能牌正面原画', () => {
   })
 
   it('已实现的技能牌通过同名 id 读取正式规则定义', () => {
-    for (const id of ['fixed-answer', 'black-white-reversal']) {
+    for (const id of [
+      'fixed-answer',
+      'black-white-reversal',
+      'one-sentence-answer',
+      'character-lock',
+      'clean-sweep',
+      'jade-purification-vase',
+      'boomerang',
+      'golden-bell-shield',
+    ]) {
       expect(GALLERY_SKILL_CARDS.find((card) => card.id === id)).toBe(CARDS[id])
     }
   })

@@ -39,7 +39,7 @@ import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
 import { isIllustratedSkillCard } from './skillCardArt'
-import { AI_MODEL_FACE } from './aiModelFace'
+import { AI_MODEL_FACE, aiModelTokenCost } from './aiModelFace'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
@@ -1339,7 +1339,7 @@ export function HandFan({
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
  * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌；完整技能牌原画直接展示；
  * 没有专属原画的卡继续使用渐变信息层。
- * Token 沿用原稿的展示数值，不改变当前答题制的出牌与胜负规则。
+ * AI 牌的 Token 沿用原稿、仍只展示；已实现技能牌原画上的费用已经接入规则引擎。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
@@ -1360,7 +1360,7 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         draggable={false}
       />
       {face ? (
-        <CardFaceOverlay cost={face.tokenCost} skillName={face.skillName} name={card.name} accent={face.accent} />
+        <CardFaceOverlay cost={aiModelTokenCost(definitionId)} skillName={face.skillName} name={card.name} accent={face.accent} />
       ) : illustratedSkill ? null : (
         <div className="card-face__body">
           <div className="card-face__name">{card.name}</div>

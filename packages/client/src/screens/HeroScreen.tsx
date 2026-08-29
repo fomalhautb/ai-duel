@@ -1,9 +1,8 @@
 /**
  * 选择英雄页（/hero）。
  *
- * 纯 UI demo：照着一张 1920×1080 的设计稿复原出选人界面，选中态、hover、确认脉冲都做全了，
- * 但一步也不往外走——不导航、不写存档、不碰 MatchSession。真要接对局时改的是
- * 下面 handleConfirm 里那一处，别的地方都不用动。
+ * 照着一张 1920×1080 的设计稿复原出选人界面；确认已实现英雄后会保存选择并进入房间页。
+ * 尚未进入 core 英雄表的展示卡保留在画面上，但按钮禁用，避免把没有规则的 id 带进对局。
  *
  * 做法和首页同源（见 HomeScreen.tsx 文件头）：一个 1672:941 的固定宽高比舞台塞进视口居中，
  * 舞台内所有尺寸写成 cqi（1cqi = 舞台宽的 1%），窗口怎么变都只是整体等比缩放，不写断点。
@@ -25,6 +24,9 @@ import { useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { HEROES as PLAYABLE_HEROES } from '@ai-duel/core'
+import type { HeroId as PlayableHeroId } from '@ai-duel/core'
+import { loadSelectedHero, saveSelectedHero } from '../match/selectedHero'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
@@ -35,8 +37,8 @@ gsap.registerPlugin(useGSAP)
 /**
  * 七位英雄，顺序就是设计稿上从左到右、从上到下的摆放顺序。
  *
- * 这份数据**不是**从 core 读的：packages/core/src/heroes.ts 里眼下只有格蕾丝·霍珀一位，
- * 而这一页是照设计稿先行的 UI demo，要把七张卡都摆出来。
+ * 这份数据不是从 core 读的：这一页要照设计稿把七张原画都摆出来，
+ * 其中只有已经进入 core `HEROES` 的英雄可以选择。
  * 名字和英文名已经画在卡面图里了，所以这两个字段在页面上并不显示，
  * 只用来给 <img> 写 alt，以及将来接线时按 id 对上 core 的英雄表。
  * core 补齐七位之后，这个数组就该整个换成 Object.values(HEROES)。
@@ -44,7 +46,7 @@ gsap.registerPlugin(useGSAP)
  * as const 是为了让 HEROES[0] 有确定类型（tsconfig 开了 noUncheckedIndexedAccess，
  * 普通数组下标取出来会带 undefined），下面默认选中第一位时就不用再写一次兜底。
  */
-const HEROES = [
+const HERO_OPTIONS = [
   { id: 'fei-fei-li', name: '李飞飞', enName: 'Fei-Fei Li' },
   { id: 'danqi-chen', name: '陈丹琦', enName: 'Danqi Chen' },
   { id: 'melanie-perkins', name: '梅拉妮·珀金斯', enName: 'Melanie Perkins' },
@@ -54,13 +56,10 @@ const HEROES = [
   { id: 'grace-hopper', name: '格蕾丝·霍珀', enName: 'Grace Hopper' },
 ] as const
 
-type HeroId = (typeof HEROES)[number]['id']
+type HeroOptionId = (typeof HERO_OPTIONS)[number]['id']
 
 /** 第一排 4 张、第二排 3 张，切分点写成常量免得两处魔数对不上。 */
 const FIRST_ROW_COUNT = 4
-
-/** 默认就选中第一位：选中态是这一页的主要看点，不该等玩家点一下才出现。 */
-const DEFAULT_HERO_ID: HeroId = HEROES[0].id
 
 /**
  * 这一页要用到的全部图片：背景 + 七张人物卡。加载完之前不上场（见下面的 HeroScreen）。
@@ -74,7 +73,7 @@ const DEFAULT_HERO_ID: HeroId = HEROES[0].id
  */
 export const HERO_ASSETS = [
   '/hero/hero-bg.webp',
-  ...HEROES.map((hero) => `/hero/card-${hero.id}.webp`),
+  ...HERO_OPTIONS.map((hero) => `/hero/card-${hero.id}.webp`),
 ]
 
 /** hover 时卡牌上浮的距离，写成卡自身高度的百分比——GSAP 的 y 不认 cqi，用百分比才和缩放无关。 */
@@ -100,10 +99,10 @@ export function HeroScreen() {
 
 function HeroStage() {
   const [, navigate] = useLocation()
-  const [selectedId, setSelectedId] = useState<HeroId>(DEFAULT_HERO_ID)
+  const [selectedId, setSelectedId] = useState<HeroOptionId>(() => loadSelectedHero())
   const rootRef = useRef<HTMLDivElement>(null)
   /** 每张卡的按钮节点，确认时要拿选中那张来播脉冲。存 ref 不存 state：它只被事件回调读。 */
-  const cardsRef = useRef(new Map<HeroId, HTMLButtonElement>())
+  const cardsRef = useRef(new Map<HeroOptionId, HTMLButtonElement>())
   /**
    * 指针当前停在哪张卡上。
    * 选中 pop 结束后卡要落回「静止大小」，而静止大小取决于指针还在不在卡上——
@@ -204,7 +203,7 @@ function HeroStage() {
    * keyframes 的最后一帧收在 restScaleOf 上而不是写死 1，理由见 hoveredRef 的注释。
    * contextSafe 包一层：这个 tween 是在 useGSAP 回调之外创建的，包了才会被同一个 context 回收。
    */
-  const selectHero = contextSafe((hero: HeroId, card: HTMLButtonElement) => {
+  const selectHero = contextSafe((hero: HeroOptionId, card: HTMLButtonElement) => {
     if (hero === selectedId) return
     setSelectedId(hero)
     const lift = card.querySelector<HTMLElement>('.hero__card-lift')
@@ -219,11 +218,11 @@ function HeroStage() {
   })
 
   /*
-   * 确认。眼下只播一段金光脉冲，不导航也不落任何状态——这一页是纯 UI demo。
-   * TODO：将来「带着英雄进房间」接在这里，大致是把 selectedId 塞进 MatchSession
-   * 或存档，再 navigate('/room')。动画照播，把跳转排在 onComplete 上即可。
+   * 确认已实现英雄：先保存本机选择，金光脉冲播完再进入房间页。
    */
   const handleConfirm = contextSafe(() => {
+    if (!Object.hasOwn(PLAYABLE_HEROES, selectedId)) return
+    saveSelectedHero(selectedId as PlayableHeroId)
     const card = cardsRef.current.get(selectedId)
     if (card === undefined) return
     const lift = card.querySelector<HTMLElement>('.hero__card-lift')
@@ -233,7 +232,7 @@ function HeroStage() {
     // autoAlpha 而不是 opacity：光晕平时是 visibility: hidden 的，
     // autoAlpha 会连 visibility 一起管，不用自己配一套延迟切换（见 hero.css 的说明）。
     gsap
-      .timeline()
+      .timeline({ onComplete: () => navigate('/room') })
       .to(
         lift,
         {
@@ -282,13 +281,15 @@ function HeroStage() {
 
         {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
         <div className="hero__grid">
-          {[HEROES.slice(0, FIRST_ROW_COUNT), HEROES.slice(FIRST_ROW_COUNT)].map((row, rowIndex) => (
+          {[HERO_OPTIONS.slice(0, FIRST_ROW_COUNT), HERO_OPTIONS.slice(FIRST_ROW_COUNT)].map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => (
                 <button
                   key={hero.id}
                   type="button"
                   className={`hero__card${hero.id === selectedId ? ' is-selected' : ''}`}
+                  disabled={!Object.hasOwn(PLAYABLE_HEROES, hero.id)}
+                  title={Object.hasOwn(PLAYABLE_HEROES, hero.id) ? undefined : '技能尚未开放'}
                   // aria-pressed 而不是 aria-checked：这是一组「按下去就保持按下」的按钮，
                   // 读屏会念成「已按下 / 未按下」，正好是选中与否。
                   aria-pressed={hero.id === selectedId}

@@ -54,6 +54,9 @@ export function createGuestDriver({ room }: GuestDriverOptions): MatchDriver {
       case 'match:command':
         // 客人不该收到指令，收到就是哪里接错线了，忽略即可。
         break
+      case 'match:ready':
+        // 这是客人发给房主的准备消息，不该回到客人；收到也无需处理。
+        break
     }
   })
 

@@ -28,6 +28,7 @@ import type { RoomHandle } from '../net/socket'
 import { createHostDriver } from '../match/hostDriver'
 import { createGuestDriver } from '../match/guestDriver'
 import { createTestMatchDriver } from '../match/testMatch'
+import { loadSelectedHero } from '../match/selectedHero'
 import { useMatchSession } from '../match/MatchSession'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
@@ -122,8 +123,9 @@ export function RoomScreen() {
         }
         handle = connected
         setRoom(connected)
-        connected.onPeerJoined(() => {
-          // 有人进了我的房 = 我是房主，由我来跑规则、发开局数据。
+        connected.onRelay((message) => {
+          if (message.type !== 'match:ready' || handedOff.current) return
+          // 客人报出自己的英雄后，房主才拥有创建完整开局所需的双方配置。
           handedOff.current = true
           session.start(
             createHostDriver({
@@ -132,8 +134,8 @@ export function RoomScreen() {
               setup: {
                 seed: Date.now(),
                 players: [
-                  { name: '房主', deck: [...STARTER_DECK] },
-                  { name: '挑战者', deck: [...STARTER_DECK] },
+                  { name: '房主', deck: [...STARTER_DECK], hero: loadSelectedHero() },
+                  { name: '挑战者', deck: [...STARTER_DECK], hero: message.hero },
                 ],
               },
             }),
@@ -172,6 +174,7 @@ export function RoomScreen() {
     }
     // 进别人的房 = 我是客人，本地不跑规则，只发指令。
     handedOff.current = true
+    room.relay({ type: 'match:ready', hero: loadSelectedHero() })
     session.start(createGuestDriver({ room }))
     navigate('/match')
   }
@@ -440,8 +443,8 @@ function RoomStage({
 
         {/*
          * 两个入口都会离开本页，于是当前这间房的连接被 cleanup 关掉；回来时重新开一间新房，
-         * 码也会换一个。眼下两页都还是纯 UI demo（选卡不落盘、选英雄不进对局），
-         * 换个码没有任何代价，所以先不为「保住房间」加状态。真接上对局时再说。
+         * 码也会换一个。选英雄已经落到本机设置，不受房间连接影响；组牌页仍是纯 UI demo，
+         * 换个码没有额外对局状态需要保留，所以暂不为「保住房间」加状态。
          *
          * .room__banner-lift 是专给 GSAP 入场用的一层：位移只写在它身上，
          * 按钮自己那份 transform 留给 :active 的下压（理由见上面入场时间线的注释）。

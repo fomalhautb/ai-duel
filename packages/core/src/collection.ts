@@ -18,7 +18,7 @@ import type { CardId } from './types'
 export const CARD_POOL: CardId[] = Object.keys(CARDS).filter((id) => id !== 'placeholder-skill')
 
 /**
- * 新玩家开局就拥有的卡：十八张 AI 加两张正式技能牌。
+ * 新玩家开局就拥有的卡：十八张 AI 加二十张已实现技能牌。
  *
  * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
  * 现在卡池里的牌全在这份收藏里，所以 `drawNewCard` 抽不到新卡（返回 null）——
@@ -28,6 +28,28 @@ export const INITIAL_COLLECTION: CardId[] = [
   ...AI_MODEL_CARD_IDS,
   'fixed-answer',
   'black-white-reversal',
+  'one-sentence-answer',
+  'character-lock',
+  'clean-sweep',
+  'jade-purification-vase',
+  'boomerang',
+  'golden-bell-shield',
+  'safe-pass',
+  'anti-addiction',
+  'compute-compression',
+  'model-distillation',
+  'open-source-reproduction',
+  'nuclear-power-station',
+  'far-ahead',
+  'domestic-substitution',
+  'version-rollback',
+  'version-upgrade',
+  'kids-mode',
+  'rising-tide',
+  'memory-shortage',
+  'context-flood',
+  'topic-drift',
+  'repetition-bombardment',
 ]
 
 /**

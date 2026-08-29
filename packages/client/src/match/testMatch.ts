@@ -13,6 +13,7 @@
 import { STARTER_DECK } from '@ai-duel/core'
 import { createLocalDriver } from './localDriver'
 import type { MatchDriver } from './driver'
+import { loadSelectedHero } from './selectedHero'
 
 export function createTestMatchDriver(): MatchDriver {
   return createLocalDriver({
@@ -20,7 +21,7 @@ export function createTestMatchDriver(): MatchDriver {
     setup: {
       seed: Date.now(),
       players: [
-        { name: '我', deck: [...STARTER_DECK] },
+        { name: '我', deck: [...STARTER_DECK], hero: loadSelectedHero() },
         { name: '测试对手', deck: [...STARTER_DECK] },
       ],
     },

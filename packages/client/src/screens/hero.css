@@ -287,6 +287,16 @@
   cursor: pointer;
 }
 
+/* 原画先展示、规则尚未接入的英雄不能带进对局；褪色和禁用光标一起说明当前不可选。 */
+.hero__card:disabled {
+  cursor: not-allowed;
+}
+
+.hero__card:disabled .hero__card-img {
+  opacity: 0.48;
+  filter: grayscale(75%);
+}
+
 /* 描边落在金框外面一点，选中和聚焦同时出现时两圈线不会叠在一起。 */
 .hero__card:focus-visible {
   outline: 0.12cqi solid var(--hero-ink-lit);

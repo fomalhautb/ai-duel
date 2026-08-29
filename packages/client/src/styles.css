@@ -1547,6 +1547,33 @@ body:has(.battle) {
   letter-spacing: normal;
 }
 
+.battle-topbar__tokens {
+  color: #53525a;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.battle-topbar__tokens-num {
+  margin-left: 8px;
+  color: #9a4f31;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+}
+
+.battle-topbar__tokens-separator {
+  margin-left: 8px;
+  color: var(--battle-ink-muted);
+  letter-spacing: normal;
+}
+
+.battle-topbar__tokens-side {
+  margin-left: 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
 /* ---------- 可复用纸面雕花框 ---------- */
 
 .ornate-frame {
@@ -1860,6 +1887,52 @@ body:has(.battle) {
   color: #f2ece0;
   font-size: max(9px, calc(var(--hero-card-w) * 0.085));
   letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 主动英雄技能入口。放在卡面左下角，右侧仍留给压在卡面上的牌堆。 */
+.battle__hero-use {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  z-index: 5;
+  padding: 4px 8px;
+  border: 1px solid rgb(248 215 128 / 78%);
+  border-radius: 6px;
+  background: rgb(29 55 56 / 92%);
+  color: #fff1b8;
+  font: inherit;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.072));
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.battle__hero-use:hover:not(:disabled),
+.battle__hero-use:focus-visible {
+  background: rgb(53 83 72 / 96%);
+  box-shadow: 0 0 10px rgb(248 215 128 / 42%);
+}
+
+.battle__hero-use:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 「金钟罩」是整个玩家的本轮状态，角标挂在侧栏而不是某一张 AI 上。 */
+.battle__hero-shield {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  padding: 3px 7px;
+  border: 1px solid rgb(248 215 128 / 70%);
+  border-radius: 0 7px 0 7px;
+  background: rgb(29 55 56 / 90%);
+  color: #fff1b8;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.075));
+  letter-spacing: 0.05em;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -3149,7 +3222,7 @@ body:has(.battle) {
   mask-composite: exclude;
 }
 
-/* ---------- 选目标（干扰类技能） ---------- */
+/* ---------- 选目标（有目标的技能） ---------- */
 
 /*
  * 点一下「复读机」这类要选目标的技能牌之后的全屏压暗：整个画面只剩"能打谁"这一件事。
@@ -3295,7 +3368,7 @@ body:has(.battle) {
 }
 
 /*
- * 「已干扰」角标：被干扰技能命中过的 AI 常驻挂着它，说明这张卡不能再被选中。
+ * 本轮技能状态角标：按效果显示「已干扰」「受限制」或「金钟罩」。
  * 不吃指针事件，免得挡住小卡自己的点击热区；同样放在裁剪层外面，不跟着卡一起倾斜。
  */
 .battle__tile-mark {
@@ -3547,6 +3620,96 @@ body:has(.battle) {
  */
 .skill-cancel {
   gap: 14px;
+}
+
+/*
+ * 容错系统选牌层：盖在揭晓层（1100）之上，让玩家挑一个 Agent 补位或放弃。
+ * 不走 autoAlpha 那套 GSAP 淡入，它是要立刻点的交互面板，直接显示；
+ * z-index 比揭晓层高一档，答题结果还在下面透出来，玩家能对着结果决定救谁。
+ */
+.rescue-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 1102;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 40%);
+  backdrop-filter: blur(3px);
+}
+
+.rescue-prompt__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  width: min(720px, 88vw);
+  max-height: 82vh;
+  padding: 28px 32px;
+  overflow-y: auto;
+  border: 1px solid var(--battle-line-dark, #777465);
+  border-radius: 4px;
+  background-color: var(--battle-paper, #eee9dc);
+  background-image: var(--battle-grain);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 55%);
+  color: var(--battle-ink, #30313b);
+}
+
+.rescue-prompt__title {
+  margin: 0;
+  padding: 3px 14px;
+  border: 1px solid color-mix(in srgb, var(--battle-navy, #253149) 45%, transparent);
+  border-radius: 2px;
+  color: var(--battle-navy, #253149);
+  font-size: 16px;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+}
+
+.rescue-prompt__text {
+  margin: 0;
+  font-size: 18px;
+  text-align: center;
+}
+
+/* 手牌里的 Agent 横排铺开，太多就换行；每张卡是一个按钮，点一下就补位。 */
+.rescue-prompt__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.rescue-prompt__card {
+  padding: 0;
+  border: none;
+  background: none;
+  /* 卡面本身是 150×225，这里整体缩到能一次摆下几张。 */
+  transform: scale(0.7);
+  transform-origin: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.rescue-prompt__card:hover,
+.rescue-prompt__card:focus-visible {
+  transform: scale(0.74);
+}
+
+.rescue-prompt__decline {
+  padding: 8px 22px;
+  border: 1px solid var(--battle-line-dark, #777465);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--battle-navy, #253149) 10%, transparent);
+  color: var(--battle-ink, #30313b);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.rescue-prompt__decline:hover {
+  background: color-mix(in srgb, var(--battle-navy, #253149) 20%, transparent);
 }
 
 .skill-cancel__title {

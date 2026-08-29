@@ -35,8 +35,7 @@ export function App() {
       <TouchDeviceNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
-        {/* 选择英雄界面：照设计稿复原的纯 UI demo，选中态和动画都在，但没接对局——
-            点「确认英雄」只播一段光效，不跳转也不落任何状态。首页的「英雄」导航项仍是敬请期待。 */}
+        {/* 选择英雄界面：七张原画照设计稿展示，已实现的英雄可以确认并带进房间。 */}
         <Route path="/hero" component={HeroScreen} />
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}

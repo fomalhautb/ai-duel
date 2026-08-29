@@ -888,7 +888,8 @@ html {
 }
 
 /*
- * 问号分成两个元素：这里是**只管交互的透明热区**，看得见的圆圈是下面的 .hand-fan__help-mark。
+ * 问号分成两个元素：这里是**只管交互的透明热区**，看得见的圆章是下面的 .hand-fan__help-mark。
+ * 两者都只长在技能牌上——AI 牌的背面是一张统一图案，翻过去什么也读不到，所以不给它翻面。
  *
  * 拆开是因为两者对翻面的要求正好相反：圆圈必须跟着卡翻过去（不然翻到背面它还端端正正
  * 贴在原处），而热区绝对不能翻——热区跟着转的话，牌一翻到背面按钮就转到了指针够不着的
@@ -932,34 +933,24 @@ html {
 }
 
 /*
- * 看得见的那个问号圆圈：纯展示，pointer-events: none，交互全归上面那块透明热区。
+ * 看得见的那个问号圆章：纯展示，交互全归上面那块透明热区。长相是公共的
+ * .card-help-mark（见 ui/CardHelpMark.tsx），这里只补落位、尺寸和显隐。
  * 正反两面各放一个，都在 .hand-fan__inner 里面，所以倾斜和翻面都会带着它一起转。
  *
- * z-index 是为了盖在卡面内容之上：它和卡面（.card-face / .card-back 里的东西）是兄弟或
- * 同层节点，不抬一下会被卡面的背景压住。所在的 .hand-fan__face 本身不是 preserve-3d，
- * 这一层里按普通的 2D 层叠算，不需要 translateZ。
+ * z-index（在 .card-help-mark 上）是为了盖在卡面内容之上：它和卡面（.card-face / .card-back
+ * 里的东西）是兄弟或同层节点，不抬一下会被卡面的背景压住。所在的 .hand-fan__face 本身
+ * 不是 preserve-3d，这一层里按普通的 2D 层叠算，不需要 translateZ。
  *
  * 不用给它写 backface-visibility：翻面时该显示哪一面由 .hand-fan__face 那层的 opacity 决定，
- * 圆圈跟着所在的面一起隐藏。以前这里补过一份，是因为 absolute + z-index 会让浏览器
+ * 圆章跟着所在的面一起隐藏。以前这里补过一份，是因为 absolute + z-index 会让浏览器
  * 把它提成独立图层、逃出 face 的拍扁，翻过去之后正面这个问号会镜像漏在背面左上角；
  * 现在正面整层的 opacity 就是 0，漏不出来，反而是留着那份会和 opacity 打架闪烁。
  */
 .hand-fan__help-mark {
-  position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 3;
-  display: grid;
-  place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid #38bdf8;
-  border-radius: 50%;
-  background: rgb(13 17 23 / 85%);
-  color: #38bdf8;
-  font-size: 13px;
-  line-height: 1;
-  pointer-events: none;
   opacity: 0;
   visibility: hidden;
 }
@@ -1382,7 +1373,13 @@ html {
   line-height: 1.6;
 }
 
-/* AI 牌沿用同一个背面容器，以保留手牌翻转、高光和问号热区，只让图片完整铺满卡框。 */
+/*
+ * AI 牌的背面：沿用同一个背面容器，只让统一美术图完整铺满卡框。
+ *
+ * AI 牌在手牌和卡组页里都不翻面了（背面只有这张统一图案，翻过去什么也读不到，
+ * 见 ui/CardHelpMark.tsx 的使用方），所以这条现在只服务卡组页放大查看时
+ * 右边那张背面大卡（DeckScreen 的 .deck-zoom-side）。
+ */
 .card-back--ai-art {
   padding: 0;
 }
@@ -1431,6 +1428,47 @@ html {
   font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
   font-size: 10px;
   line-height: 1.55;
+}
+
+/*
+ * 「看背面」的问号圆章（组件是 ui/CardHelpMark.tsx）。
+ *
+ * 对局手牌和卡组页的卡池卡 / 迷你卡共用这一份长相，位置、尺寸和显隐由各自的类名再补
+ * （.hand-fan__help-mark / .deck-pool-card__help-mark / .deck-mini__help-mark）。
+ * 只有技能牌会长出这枚章：AI 牌的背面是一张统一图案，翻过去什么也读不到。
+ *
+ * 配色照抄卡角上另一颗圆钮（卡组页的 .deck-circle）：同一张牌的两个角落上摆着的东西，
+ * 不该一个是夜色米线、一个是天蓝描边。线条挂手绘抖动滤镜，和整套界面的笔触对齐。
+ */
+.card-help-mark {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(20 17 12 / 78%);
+  color: #f3ead6;
+  /* 交互全归各页自己那块透明热区，这枚章不吃指针事件。 */
+  pointer-events: none;
+}
+
+.card-help-mark__ico {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* 和页面上其它线条共用同一份手绘抖动（见 ui/HandDrawnFilterDefs.tsx）；
+     所在页面没渲染那份 defs 的话，Chrome 上整枚章都不画。 */
+  filter: url('#ai-duel-rough-icon');
+}
+
+/* 问号底下那一点：填实，盖掉上面继承下来的 fill: none。 */
+.card-help-mark__dot {
+  fill: currentColor;
+  stroke: none;
 }
 
 /*

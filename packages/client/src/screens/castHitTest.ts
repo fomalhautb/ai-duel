@@ -139,19 +139,46 @@ function emptyAlphaMap(): AlphaMap {
 }
 
 /**
+ * 把一张图取到"能画进画布"的状态；真的取不到（404、格式坏）时返回 null。
+ *
+ * 首选 decode()：它在别的线程上解码，不占主线程，而这段代码正好跑在首页入场动画期间。
+ * 但它会偶发失败——九张 3344×1882 的大图一起解，Chrome 会放弃排不下的那几张，抛 EncodingError。
+ * 开发时撞见过一次真的：七个人里六个没抠出 alpha，那六位既不高亮也没有介绍卡片；
+ * 刻意同时压几批解码可以稳定复现，加上这段兜底之后同样的压力下一张都没丢。
+ * 图本身是好的，只是这一次解码被取消了，所以**不能**把它当加载失败——那种坏法一声不吭，最难查。
+ * 抛了就退回等 load 事件，图片照样画得出来，代价只是 drawImage 那一下要在主线程上现解一次。
+ */
+async function loadImageForSampling(src: string): Promise<HTMLImageElement | null> {
+  const image = new Image()
+  image.src = src
+  try {
+    await image.decode()
+  } catch {
+    // decode 被取消不代表没下载完，先把 load / error 等出结果再判断。
+    if (!image.complete) {
+      await new Promise<void>((resolve) => {
+        image.onload = () => resolve()
+        image.onerror = () => resolve()
+      })
+    }
+  }
+  // 下载失败的图这两个值是 0，能画的图一定大于 0，用它区分"解码被取消"和"图真的坏了"。
+  return image.naturalWidth > 0 && image.naturalHeight > 0 ? image : null
+}
+
+/**
  * 把一张图解码后抽出 alpha 通道。
  *
  * canvas 由调用方传进来，几张图轮流用同一块：解码 await 之后的
  * 「改尺寸 → drawImage → getImageData」是一段同步代码，并发的几张不会插进来抢画布。
  *
- * 单张失败（404、解码错、canvas 上下文拿不到）不抛出，返回空图即可：
+ * 单张失败（404、图坏了、canvas 上下文拿不到）不抛出，返回空图即可：
  * 少一个人不能 hover 是可以接受的降级，整页因此崩掉不行。
  */
 async function loadAlphaMap(src: string, canvas: HTMLCanvasElement): Promise<AlphaMap> {
   try {
-    const image = new Image()
-    image.src = src
-    await image.decode()
+    const image = await loadImageForSampling(src)
+    if (image === null) return emptyAlphaMap()
 
     // 源图比目标还窄时按原宽采样，放大只会凭空多出内存，换不来精度。
     const width = Math.max(1, Math.min(image.naturalWidth, CAST_ALPHA_TARGET_WIDTH))

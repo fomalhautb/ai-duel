@@ -7,6 +7,7 @@ import {
   INITIAL_TOKEN_MAX,
   other,
   QUESTION_POOL,
+  ROUND_DRAW_SIZE,
   scriptedAnswers,
   STARTER_DECK,
   STARTING_HAND_SIZE,
@@ -701,7 +702,7 @@ describe('答题结算', () => {
     expect(second.state.players.map((p) => p.score)).toEqual([4, 2])
   })
 
-  it('结算后交换先后手、各补一张牌、宣告下一轮', () => {
+  it('结算后交换先后手、各补 ROUND_DRAW_SIZE 张牌、宣告下一轮', () => {
     const quiz = twoVsOne()
     const handsBefore = quiz.players.map((p) => p.hand.length)
     const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
@@ -710,10 +711,12 @@ describe('答题结算', () => {
     expect(result.state.firstPlayer).toBe(1)
     expect(result.state.activePlayer).toBe(1)
     expect(result.state.phase).toBe('play')
-    expect(result.state.players.map((p) => p.hand.length)).toEqual(handsBefore.map((n) => n + 1))
-    expect(result.events.slice(-4).map((e) => e.type)).toEqual([
-      'CARD_DRAWN',
-      'CARD_DRAWN',
+    expect(result.state.players.map((p) => p.hand.length)).toEqual(
+      handsBefore.map((n) => n + ROUND_DRAW_SIZE),
+    )
+    // 两位玩家各抽 ROUND_DRAW_SIZE 张，之后才是宣告新一轮的那两条。
+    expect(result.events.slice(-(ROUND_DRAW_SIZE * 2 + 2)).map((e) => e.type)).toEqual([
+      ...Array.from({ length: ROUND_DRAW_SIZE * 2 }, () => 'CARD_DRAWN'),
       'ROUND_STARTED',
       'PLAY_TURN_STARTED',
     ])

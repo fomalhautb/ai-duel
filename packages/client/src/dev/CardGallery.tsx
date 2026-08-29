@@ -1,7 +1,7 @@
 /**
  * 卡牌图鉴 / 卡面调试页（/card）。
  *
- * 左右分栏：左边按 英雄牌 / AI 牌 / 技能牌列出 core 里的全部卡牌，点一张，右边就是这张卡的完整档案
+ * 左右分栏：左边按英雄牌 / AI 牌 / 技能牌列出当前图鉴卡池，点一张，右边就是这张卡的完整档案
  * ——正反两面、卡面之外的字段、绑定的插画，最后附一份卡牌定义的原始 JSON。
  * 这是给开发和卡面调试用的，不是给玩家看的图鉴界面，所以只求信息全、找得快，不做美化。
  *
@@ -13,22 +13,21 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation } from 'wouter'
-import { CARDS, HEROES } from '@ai-duel/core'
-import type { AiCard, Card, CardId, HeroCard, SkillCard } from '@ai-duel/core'
+import type { Card, CardId } from '@ai-duel/core'
 import { HandCardFace } from '../ui/HandFan'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
 import { toHandCardData } from '../ui/handCardData'
+import { isIllustratedSkillCard } from '../ui/skillCardArt'
+import {
+  GALLERY_AI_CARDS,
+  GALLERY_ALL_CARDS,
+  GALLERY_DECK_CARDS,
+  GALLERY_HERO_CARDS,
+  GALLERY_SKILL_CARDS,
+} from './cardGalleryCatalog'
 
-const HERO_CARDS: HeroCard[] = Object.values(HEROES)
-/** 进牌组的那两类牌。英雄牌不在 CARDS 里，所以页头的张数也按这一份算。 */
-const DECK_CARDS = Object.values(CARDS)
-const AI_CARDS = DECK_CARDS.filter((card): card is AiCard => card.kind === 'ai')
-const SKILL_CARDS = DECK_CARDS.filter((card): card is SkillCard => card.kind === 'skill')
-// 英雄牌不进牌组，所以 core 把它和 CARDS 分成两张表；这一页要三类牌都列出来、还要按 id 反查，
-// 在这里合成一张。
-const ALL_CARDS: Card[] = [...HERO_CARDS, ...DECK_CARDS]
-const CARD_BY_ID = new Map<CardId, Card>(ALL_CARDS.map((card) => [card.id, card]))
+const CARD_BY_ID = new Map<CardId, Card>(GALLERY_ALL_CARDS.map((card) => [card.id, card]))
 
 const KIND_LABELS: Record<Card['kind'], string> = {
   hero: '英雄牌',
@@ -39,7 +38,7 @@ const KIND_LABELS: Record<Card['kind'], string> = {
 export function CardGallery() {
   const [, navigate] = useLocation()
   // 默认选中第一张：右栏永远有东西，不用为"还没选"单独做一个空状态。
-  const [selectedId, setSelectedId] = useState<CardId | undefined>(ALL_CARDS[0]?.id)
+  const [selectedId, setSelectedId] = useState<CardId | undefined>(GALLERY_ALL_CARDS[0]?.id)
   const selected = selectedId === undefined ? undefined : CARD_BY_ID.get(selectedId)
 
   return (
@@ -48,7 +47,7 @@ export function CardGallery() {
         <header className="gallery__header">
           <h1 className="gallery__title">卡牌图鉴</h1>
           <p className="gallery__lead">
-            core 里共 {DECK_CARDS.length} 张进牌组的牌，外加 {HERO_CARDS.length} 位英雄。
+            图鉴收录 {GALLERY_DECK_CARDS.length} 张牌，外加 {GALLERY_HERO_CARDS.length} 位英雄。
           </p>
           <button type="button" className="gallery__back" onClick={() => navigate('/')}>
             回首页
@@ -57,20 +56,20 @@ export function CardGallery() {
 
         {/* 英雄牌单独一组：它不在 CARDS 里，也进不了牌组，只是借同一套卡面画出来。 */}
         <CardPicker
-          title={`英雄牌（${HERO_CARDS.length}）`}
-          cards={HERO_CARDS}
+          title={`英雄牌（${GALLERY_HERO_CARDS.length}）`}
+          cards={GALLERY_HERO_CARDS}
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
         <CardPicker
-          title={`AI 牌（${AI_CARDS.length}）`}
-          cards={AI_CARDS}
+          title={`AI 牌（${GALLERY_AI_CARDS.length}）`}
+          cards={GALLERY_AI_CARDS}
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
         <CardPicker
-          title={`技能牌（${SKILL_CARDS.length}）`}
-          cards={SKILL_CARDS}
+          title={`技能牌（${GALLERY_SKILL_CARDS.length}）`}
+          cards={GALLERY_SKILL_CARDS}
           selectedId={selectedId}
           onSelect={setSelectedId}
         />
@@ -78,7 +77,7 @@ export function CardGallery() {
         <section className="gallery__section">
           <h2 className="gallery__section-title">占位插画原图</h2>
           <p className="gallery__section-note">
-            四张图轮流分给所有卡牌，协作时按文件名指认。原图 1024×1536。
+            四张图只轮流分给没有专属原画的卡牌，协作时按文件名指认。原图 1024×1536。
           </p>
           <div className="gallery__arts">
             {CARD_ART_PLACEHOLDERS.map((src) => (
@@ -93,7 +92,7 @@ export function CardGallery() {
 
       <main className="gallery__detail">
         {selected === undefined ? (
-          <p className="gallery__section-note">core 里一张卡都没有。</p>
+          <p className="gallery__section-note">图鉴里一张卡都没有。</p>
         ) : (
           <CardDetail card={selected} />
         )}
@@ -179,7 +178,9 @@ function CardDetail({ card }: { card: Card }) {
           <div className="gallery__card">
             <div className="card-back">
               <span className="card-back__title">{card.name}</span>
-              <p className="card-back__text">{cardBackText(card)}</p>
+              <p className="card-back__text">
+                {isIllustratedSkillCard(card.id) ? card.text : cardBackText(card)}
+              </p>
             </div>
           </div>
           <figcaption className="gallery__face-name">背面（与对局中翻面所见一致）</figcaption>

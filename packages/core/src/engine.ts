@@ -28,6 +28,15 @@ import type {
 export const STARTING_HAND_SIZE = 5
 
 /**
+ * 第 2 轮起每轮开始双方各补几张。
+ *
+ * 一张时手牌只出不进，打到后面双方常常无牌可打、只能干等着答题；两张才够一轮出一两张的消耗。
+ * 一局最多摸 5 + 4 轮 × 2 = 13 张，默认牌组 20 张（见 cards.ts 的 STARTER_DECK）管得住，
+ * 不会中途抽空。改大到摸得空牌堆也不会出错（drawCards 抽不到就算了），只是画面上会一直显示 0。
+ */
+export const ROUND_DRAW_SIZE = 2
+
+/**
  * 第 1 轮的 Token 上限。
  *
  * 4 点刚好买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
@@ -352,12 +361,12 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   next.firstPlayer = other(next.firstPlayer)
   next.activePlayer = next.firstPlayer
   next.phase = 'play'
-  // 第 2 轮起每轮开始双方各补一张，起手 5 张之外的牌都是这么来的。
+  // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
   // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉。
   for (const player of next.players) {
     player.tokenMax += TOKEN_MAX_GROWTH
     player.tokens = player.tokenMax
-    drawCards(player, 1, events)
+    drawCards(player, ROUND_DRAW_SIZE, events)
   }
   announceRound(next, events)
   return { state: next, events }

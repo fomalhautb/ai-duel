@@ -1979,20 +1979,16 @@ function BattleField({
             </div>
 
             <div className="battle__row battle__row--mine">
-              {me.board.length === 0 ? (
-                <span className="battle__board-hint">将手牌拖入战场</span>
-              ) : (
-                me.board.map((ai) => (
-                  <BoardTile
-                    key={ai.instanceId}
-                    ai={ai}
-                    held={inspecting?.instanceId === ai.instanceId}
-                    // 干扰技能只打对面，我方这一行永远不是目标。
-                    target="none"
-                    onActivate={() => handleInspect(ai)}
-                  />
-                ))
-              )}
+              {me.board.map((ai) => (
+                <BoardTile
+                  key={ai.instanceId}
+                  ai={ai}
+                  held={inspecting?.instanceId === ai.instanceId}
+                  // 干扰技能只打对面，我方这一行永远不是目标。
+                  target="none"
+                  onActivate={() => handleInspect(ai)}
+                />
+              ))}
             </div>
           </div>
 

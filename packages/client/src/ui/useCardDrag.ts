@@ -16,6 +16,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import gsap from 'gsap'
+import { battleStageMetrics } from './battleStage'
 
 /**
  * 按下之后指针要走过这么多像素才算拖拽，没走到就只是一次点击。
@@ -111,8 +112,9 @@ export interface UseCardDragOptions {
    * 把光标位置换算成写给元素的 x / y 目标值——也就是"牌中心怎么对准光标"这件事。
    *
    * 换算方式和元素的坐标原点、变换原点、放大倍数全都有关，只有调用方知道，所以必须由它给。
-   * 不传就退化成"起拖那一刻的 x / y 加上指针走过的位移"，
-   * 也就是原地把牌拎起来平移，网格卡池这种按文档流摆位的页面直接用它就行。
+   * 不传就退化成"起拖那一刻的 x / y 加上指针走过的位移"（位移会先换算成舞台内坐标，
+   * 见 defaultFollowTarget），也就是原地把牌拎起来平移，
+   * 网格卡池这种按文档流摆位的页面直接用它就行。
    */
   targetOf?: (clientX: number, clientY: number, drag: CardDragInfo) => { x: number; y: number }
   /**
@@ -176,7 +178,8 @@ export interface UseCardDragOptions {
    *
    * 只认这一条闸，另外两条不给：按在 ignoreSelector 上压根不是"想出这张牌"；
    * 被 canDrag 挡掉的那些同样静默，但那是调用方自己按牌况判的（手牌那边是"已经打出、
-   * 正在等受理"），它想反馈的话在 canDrag 里就能做，不必绕这个钩子。
+   * 正在等受理"和"这一轮的 Token 买不起"），它想反馈的话在 canDrag 里就能做
+   *（手牌那边买不起的那一档就是这么摇头弹提示的），不必绕这个钩子。
    *
    * 只是通知，调不调都不改变这次按下被忽略这个结果。
    */
@@ -237,6 +240,22 @@ interface DragState extends CardDragInfo {
   /** gsap.quickTo 出来的跟随函数，进入拖拽时才建。 */
   moveX: ((value: number) => void) | null
   moveY: ((value: number) => void) | null
+}
+
+/**
+ * 没给 targetOf 时的跟随目标：起拖位置加上指针走过的位移。
+ *
+ * 位移要先除以舞台的 scale。写出去的 x / y 是 GSAP 的 transform，也就是舞台内坐标，
+ * 而 clientX / clientY 是缩放之后的屏幕像素；页面套了缩放舞台（卡组页的 .deck-scaler、
+ * 对局页的 .battle-scaler）时两者差的正好是这一个倍数，不除的话牌走得比光标慢或快，
+ * 追不上光标。没有舞台时 scale 是 1，结果和改造之前一模一样。口径见 ui/battleStage.ts。
+ */
+function defaultFollowTarget(drag: DragState, clientX: number, clientY: number) {
+  const { scale } = battleStageMetrics()
+  return {
+    x: drag.baseX + (clientX - drag.originX) / scale,
+    y: drag.baseY + (clientY - drag.originY) / scale,
+  }
 }
 
 export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
@@ -419,10 +438,7 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     const opts = optionsRef.current
     const target =
       opts.targetOf === undefined
-        ? {
-            x: drag.baseX + (event.clientX - drag.originX),
-            y: drag.baseY + (event.clientY - drag.originY),
-          }
+        ? defaultFollowTarget(drag, event.clientX, event.clientY)
         : opts.targetOf(event.clientX, event.clientY, drag)
     drag.moveX?.(target.x)
     drag.moveY?.(target.y)

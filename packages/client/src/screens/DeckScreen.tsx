@@ -1,7 +1,7 @@
 /**
  * /deck 组建牌组页。
  *
- * 卡池仍是 deckDemoCards.ts 里那 30 张假卡（拿不到 core 的 CardId，进不了对局），
+ * 卡池仍是 deckDemoCards.ts 里那 42 张假卡（拿不到 core 的 CardId，进不了对局），
  * 但玩家拼出来的牌组已经落盘了：整页的存档读写走 save/deckStore.ts，加一张牌、改一次名
  * 都立刻写回 localStorage，所以界面上没有"未保存"这个状态，也没有保存按钮。
  * 「确认牌组」只负责回大厅。
@@ -22,6 +22,12 @@
  * 视觉沿用 /design 那套纸面 token：整页是羊皮纸，左边卡池是嵌在纸上的深蓝星图面板
  * （和对局界面"纸侧栏夹着深色战场"的关系一致），右边牌组面板是纸面雕花框。
  * 桌面鼠标环境 only，不做触屏和窄屏适配，口径和对局页一致。
+ *
+ * 版面锁在 16:9 舞台里，和对局页同一套（见 deck.css 的「16:9 舞台」一节）：排版永远按
+ * 设计稿的 1672×941 走，整块画面交给 .deck-scaler 的 transform: scale() 缩到窗口里。
+ * 对这个文件的直接影响只有一处——那个 transform 让 .deck-scaler 成了内部 position: fixed
+ * 元素的包含块，所以 liftCardOut 写 left/top 之前要先把视口坐标换算成舞台内坐标
+ * （ui/battleStage.ts）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -38,6 +44,7 @@ import { HandCardFace } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
+import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
 import { OrnateTitle, PaperCardBack, PaperIconDefs } from '../ui/paper'
@@ -225,7 +232,7 @@ export function DeckScreen() {
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
   const { contextSafe } = useGSAP(() => {}, { scope: pageRef })
 
-  // 卡池那 30 个 id 是固定的，缓存不会长，所以只有牌组这边要 retain。
+  // 卡池那 42 个 id 是固定的，缓存不会长，所以只有牌组这边要 retain。
   const { bindOf: bindPoolCard, attach: attachPoolBind } = useBindCache()
   const { bindOf: bindDeckCard, attach: attachDeckBind, retain: retainDeckBinds } = useBindCache()
 
@@ -296,7 +303,7 @@ export function DeckScreen() {
 
   // ---------- 牌组状态 ----------
 
-  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池那 30 张各自去查表。 */
+  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池那 42 张各自去查表。 */
   const copies = useMemo(() => {
     const counted = new Map<string, number>()
     for (const entry of deck) counted.set(entry.cardId, (counted.get(entry.cardId) ?? 0) + 1)
@@ -469,7 +476,7 @@ export function DeckScreen() {
   // ---------- 拖拽 ----------
 
   /**
-   * 把卡池里的这张牌从文档流里"拎出来"：切成 position: fixed，钉在它此刻所在的屏幕位置。
+   * 把卡池里的这张牌从文档流里"拎出来"：切成 position: fixed，钉在它此刻所在的位置。
    *
    * 为的是绕开 .deck-grid 的 overflow——卡池网格是整页唯一的滚动容器，会把溢出的子元素裁掉，
    * 而这张牌正要被拖出网格丢进右面板。fixed 元素不受祖先 overflow 裁剪。
@@ -478,8 +485,14 @@ export function DeckScreen() {
    * 牌组那边的迷你卡也要走这一手：格子区（.deck-slots）现在自己滚，同样是 overflow 容器，
    * 而"拖出面板"正是移除的操作方式。它原来占的格子由外层 .deck-slot 撑着，同理不会塌。
    *
+   * 舞台 .deck-scaler 带着 transform，fixed 的包含块因此是舞台而不是视口，
+   * 写进 left/top/width/height 的必须是舞台内坐标；而 getBoundingClientRect 给的是
+   * 缩放之后的视口坐标，所以要过一次换算（口径见 ui/battleStage.ts）。
+   * 不换算的话，窗口一旦不是设计尺寸，起拖那一瞬间牌就会跳到别处、还连带缩错大小。
+   *
    * 要在 hook 接管补间之前调（onDragStart 里）：那正是 hook 留给调用方收拾自己状态的一步，
    * 见 useCardDrag 的 onDragStart。
+
    */
   const liftCardOut = (element: HTMLElement) => {
     // 这张卡可能是"上一次放大查看正在飞回原位"的途中被抓起来的，那就先把排在后面的
@@ -501,6 +514,9 @@ export function DeckScreen() {
      * 所以这里把视觉框换算回"元素没有 transform 时的那个框"再写上去，
      * 于是「新的 left/top/width/height + 留着的那截 transform」正好还是此刻的视觉位置，切换看不出来。
      * 静止起拖时位移是 0、缩放是 1，算出来和直接用 rect 一模一样。
+     *
+     * 两步换算的顺序不能反：rect 是视口坐标，先除掉舞台的 scale 落到舞台内坐标，
+     * 才和 GSAP 的 x / y、scaleX / scaleY 处在同一套单位里，然后才谈得上把它们扣掉。
      */
     const x = Number(gsap.getProperty(element, 'x'))
     const y = Number(gsap.getProperty(element, 'y'))
@@ -509,13 +525,16 @@ export function DeckScreen() {
     const scaleX = Number(gsap.getProperty(element, 'scaleX')) || 1
     const scaleY = Number(gsap.getProperty(element, 'scaleY')) || 1
     const rect = element.getBoundingClientRect()
-    const width = rect.width / scaleX
-    const height = rect.height / scaleY
+    const metrics = battleStageMetrics()
+    // 视觉中心，换到舞台内坐标。
+    const center = toStagePoint(rect.left + rect.width / 2, rect.top + rect.height / 2, metrics)
+    const width = rect.width / metrics.scale / scaleX
+    const height = rect.height / metrics.scale / scaleY
     // 被拖的这两种元素（.deck-pool-card / .deck-mini）都没改 transform-origin，缩放是绕盒子中心
     // 往四周撑开的，所以按中心反推左上角：视觉中心减掉位移就是原中心，再退回半个原尺寸。
     element.style.position = 'fixed'
-    element.style.left = `${rect.left + rect.width / 2 - x - width / 2}px`
-    element.style.top = `${rect.top + rect.height / 2 - y - height / 2}px`
+    element.style.left = `${center.x - x - width / 2}px`
+    element.style.top = `${center.y - y - height / 2}px`
     element.style.width = `${width}px`
     element.style.height = `${height}px`
   }
@@ -724,308 +743,320 @@ export function DeckScreen() {
   const percent = Math.round((deck.length / DECK_SIZE) * 100)
 
   return (
-    <div className="deck-page paper-page grain" ref={pageRef}>
+    // 纸面（底色 + 两层纸纹 + 暗角）铺在最外层，16:9 舞台之外的留边也就是同一张纸，
+    // 接缝看不出来；舞台只负责把版面锁进设计稿的比例里（见 deck.css 的 .deck-frame）。
+    //
+    // pageRef（既是 useGSAP 的 scope，也是「把牌拖出面板 = 移除」那块落点）挂在最外层
+    // 而不是舞台上：挂舞台上的话，往右一甩正好落进右边那条留边，判不出落点、牌会飞回去。
+    <div className="deck-frame paper-page grain" ref={pageRef}>
       {/* 全页共用的 SVG 定义，各挂一次：少了 <use> 找不到 symbol、CSS 里的 url(#…) 找不到滤镜。
           两者都是 0 尺寸，不占布局。 */}
       <HandDrawnFilterDefs />
       <PaperIconDefs />
 
-      {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
-      <div className="paper-page__inner">
-        {/* 整行左对齐，五件东西排在同一条基线上：返回 — 花饰 — 大标题 — 竖线 — 副标题。 */}
-        <header className="deck-top">
-          {/* 定位、字号、配色留在 .deck-back（deck.css），箭头和排版由公共的 .ui-back 负责。 */}
-          <BackButton className="deck-back" onClick={() => navigate('/')} />
-          <Sparkle className="deck-top__spark" />
-          <h1 className="deck-top__title">组建牌组</h1>
-          <i className="deck-top__rule" aria-hidden="true" />
-          <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
-        </header>
+      <div className="deck-page">
+        {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
+            它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
+            因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
+        <div className="deck-scaler stage-scaler">
+          {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
+          <div className="paper-page__inner">
+            {/* 整行左对齐，五件东西排在同一条基线上：返回 — 花饰 — 大标题 — 竖线 — 副标题。 */}
+            <header className="deck-top">
+              {/* 定位、字号、配色留在 .deck-back（deck.css），箭头和排版由公共的 .ui-back 负责。 */}
+              <BackButton className="deck-back" onClick={() => navigate('/')} />
+              <Sparkle className="deck-top__spark" />
+              <h1 className="deck-top__title">组建牌组</h1>
+              <i className="deck-top__rule" aria-hidden="true" />
+              <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
+            </header>
 
-        <main className="deck-body">
-          {/* ---------- 左：卡池 ---------- */}
-          <section className="deck-pool">
-            <div className="deck-pool__head">
-              <div className="deck-kinds" role="tablist" aria-label="按种类筛选">
-                {KIND_TABS.map((tab, index) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={index === kindTab}
-                    className="deck-kind"
-                    data-active={index === kindTab}
-                    onClick={() => setKindTab(index)}
-                  >
-                    {tab.label} {KIND_COUNTS[tab.id]}
-                  </button>
-                ))}
-                {/* 三块牌匾坐着的那条基线。线和两端菱形都装在这一个盒子里，
-                    手绘滤镜才只算一遍，也才有一个够高的计算盒不把菱形裁掉（见 deck.css）。 */}
-                <i className="deck-kinds__rule" aria-hidden="true">
-                  <i className="deck-kinds__dia" />
-                  <i className="deck-kinds__dia" />
-                </i>
-              </div>
-              <div className="deck-factions" role="group" aria-label="按阵营筛选">
-                <button
-                  type="button"
-                  className="deck-faction"
-                  data-active={faction === null}
-                  onClick={() => setFaction(null)}
-                >
-                  全部阵营
-                </button>
-                {FACTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className="deck-faction"
-                    data-active={faction === option.id}
-                    onClick={() => setFaction(option.id)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="deck-grid" ref={gridRef}>
-              {shown.map((card) => {
-                const thumb = THUMB_CARD_BY_ID.get(card.id)
-                if (thumb === undefined) return null
-                const flipId = poolFlipId(card.id)
-                const picked = copies.get(card.id) ?? 0
-                return (
-                  <PoolCard
-                    key={card.id}
-                    card={thumb}
-                    picked={picked}
-                    canAdd={!deckFull && picked < MAX_COPIES}
-                    bind={bindPoolCard(card.id)}
-                    onAdd={addCard}
-                    hidden={zoomed?.flipId === flipId}
-                  />
-                )
-              })}
-            </div>
-
-            <p className="deck-pool__hint">
-              {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
-            </p>
-          </section>
-
-          {/* ---------- 右：我的牌组 ---------- */}
-          <aside className="deck-side" ref={sideRef} aria-label="我的牌组">
-            <div className="deck-side__inner" ref={sideInnerRef}>
-              <OrnateFrame>
-                <div className="deck-side__body">
-                  {/* OrnateTitle 自带「菱形—线—文字—线—菱形」，两侧再各挂一枚花饰收尾。 */}
-                  <div className="deck-side__title">
-                    <Sparkle />
-                    <OrnateTitle>我的牌组</OrnateTitle>
-                    <Sparkle />
+            <main className="deck-body">
+              {/* ---------- 左：卡池 ---------- */}
+              <section className="deck-pool">
+                <div className="deck-pool__head">
+                  <div className="deck-kinds" role="tablist" aria-label="按种类筛选">
+                    {KIND_TABS.map((tab, index) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={index === kindTab}
+                        className="deck-kind"
+                        data-active={index === kindTab}
+                        onClick={() => setKindTab(index)}
+                      >
+                        {tab.label} {KIND_COUNTS[tab.id]}
+                      </button>
+                    ))}
+                    {/* 三块牌匾坐着的那条基线。线和两端菱形都装在这一个盒子里，
+                        手绘滤镜才只算一遍，也才有一个够高的计算盒不把菱形裁掉（见 deck.css）。 */}
+                    <i className="deck-kinds__rule" aria-hidden="true">
+                      <i className="deck-kinds__dia" />
+                      <i className="deck-kinds__dia" />
+                    </i>
                   </div>
-
-                  <div className="deck-manage" ref={manageRef}>
-                    <div className="deck-manage__row">
-                      {renaming ? (
-                        <input
-                          className="deck-manage__input"
-                          value={nameDraft}
-                          maxLength={DECK_NAME_MAX}
-                          aria-label="牌组名"
-                          // 点「改名」的下一拍输入框才出现，光标得自己送进去。
-                          // 不用回调 ref 抢焦点：内联回调 ref 每次渲染都会重跑一遍，
-                          // 打字打到一半光标会被拽回去。
-                          autoFocus
-                          onChange={(event) => setNameDraft(event.target.value)}
-                          onBlur={finishRename}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') finishRename()
-                            else if (event.key === 'Escape') cancelRename()
-                          }}
-                        />
-                      ) : (
-                        <span className="deck-manage__name" title={currentName}>
-                          {currentName}
-                        </span>
-                      )}
-
-                      <div className="deck-manage__actions">
-                        <button
-                          type="button"
-                          className="deck-manage__btn"
-                          aria-expanded={menuOpen}
-                          onClick={() => {
-                            setDeleting(false)
-                            setMenuOpen((open) => !open)
-                          }}
-                        >
-                          切换
-                        </button>
-                        <button type="button" className="deck-manage__btn" onClick={startRename}>
-                          改名
-                        </button>
-                        <button
-                          type="button"
-                          className="deck-manage__btn"
-                          onClick={() => {
-                            setMenuOpen(false)
-                            setDeleting((open) => !open)
-                          }}
-                        >
-                          删除
-                        </button>
-                        <button
-                          type="button"
-                          className="deck-manage__btn"
-                          disabled={decksFull}
-                          onClick={createNewDeck}
-                        >
-                          新建
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 下拉和删除确认都绝对定位，不占文档流：整页锁在一屏内，
-                        管理条一旦能撑高，右面板就会顶出屏幕底部。 */}
-                    {menuOpen ? (
-                      <div className="deck-manage__menu">
-                        <ul className="deck-manage__list">
-                          {saved.decks.map((item) => (
-                            <li key={item.id}>
-                              <button
-                                type="button"
-                                className="deck-manage__item"
-                                data-current={item.id === saved.currentId}
-                                onClick={() => selectDeck(item.id)}
-                              >
-                                <span className="deck-manage__item-name">{item.name}</span>
-                                <span className="deck-manage__item-count">
-                                  {item.cards.length}/{DECK_SIZE}
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                        <button
-                          type="button"
-                          className="deck-manage__new"
-                          disabled={decksFull}
-                          onClick={createNewDeck}
-                        >
-                          {decksFull ? `最多 ${MAX_DECKS} 套牌组` : '＋ 新建牌组'}
-                        </button>
-                      </div>
-                    ) : null}
-
-                    {deleting ? (
-                      <div className="deck-manage__confirm">
-                        <span className="deck-manage__confirm-text">确认删除？</span>
-                        <button
-                          type="button"
-                          className="deck-manage__mini deck-manage__mini--yes"
-                          onClick={confirmDelete}
-                        >
-                          确定
-                        </button>
-                        <button
-                          type="button"
-                          className="deck-manage__mini"
-                          onClick={() => setDeleting(false)}
-                        >
-                          取消
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="deck-tally">
-                    <p className="deck-tally__count">
-                      已选 <b>{deck.length}</b>
-                      <span className="deck-tally__total">/ {DECK_SIZE}</span>
-                    </p>
-                    <p className="deck-tally__mix">
-                      AI 卡 {mix.ai} · 技能卡 {mix.skill}
-                    </p>
-                  </div>
-
-                  <div className="deck-progress">
-                    {/* 细线、右端菱形、墨绿填充块三层都在 __track 里，手绘滤镜挂在它身上算一次。
-                        百分比数字留在外面：滤镜会把字扯糊。 */}
-                    <div className="deck-progress__track">
-                      <i className="deck-progress__fill" style={{ width: `${percent}%` }} />
-                    </div>
-                    <span className="deck-progress__num">{percent}%</span>
-                  </div>
-
-                  {/* 外层只为了给滚动条两端的菱形装饰一个不跟着内容滚的定位参照，
-                      滚的是里面那个 <ul>。 */}
-                  <div className="deck-slots-wrap">
-                    <ul className="deck-slots" ref={slotsRef}>
-                      {Array.from({ length: DECK_SIZE }, (_, index) => {
-                        const entry = deck[index]
-                        if (entry === undefined) return <EmptyDeckSlot key={`empty-${index}`} />
-                        const card = THUMB_CARD_BY_ID.get(entry.cardId)
-                        if (card === undefined) return null
-                        return (
-                          <DeckSlotItem
-                            key={entry.key}
-                            card={card}
-                            entryKey={entry.key}
-                            bind={bindDeckCard(entry.key)}
-                            onRemove={removeEntry}
-                            hidden={zoomed?.flipId === deckFlipId(entry.key)}
-                          />
-                        )
-                      })}
-                    </ul>
-                  </div>
-
-                  <div className="deck-side__foot">
-                    <div className="deck-side__notes">
-                      {/* 文案照实写：这一页是"点一下放大"，移除走圆圈或者把牌拖出面板，
-                          没有悬停放大这回事。 */}
-                      <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
-                      {shortfall > 0 ? (
-                        <p className="deck-shortfall">还需选择 {shortfall} 张</p>
-                      ) : (
-                        <p className="deck-done">牌组已满 · 可以出发</p>
-                      )}
-                    </div>
-                    {/* 存档是实时写的，这里不用"保存"，只负责满 20 张之后放人回大厅。 */}
-                    <PlaqueButton
-                      className="deck-confirm"
-                      disabled={shortfall > 0}
-                      onClick={() => navigate('/')}
+                  <div className="deck-factions" role="group" aria-label="按阵营筛选">
+                    <button
+                      type="button"
+                      className="deck-faction"
+                      data-active={faction === null}
+                      onClick={() => setFaction(null)}
                     >
-                      确认牌组
-                    </PlaqueButton>
+                      全部阵营
+                    </button>
+                    {FACTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className="deck-faction"
+                        data-active={faction === option.id}
+                        onClick={() => setFaction(option.id)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </OrnateFrame>
-            </div>
-          </aside>
-        </main>
 
-        {/* 无条件渲染：遮罩要常驻才演得出淡出，handle 也要一直在。
-            必须挂在 .paper-page__inner 里面：这一层是 z-index: 1 的层叠上下文，遮罩留在它外面的话，
-            飞回原位时写给卡池卡的 zIndex 1200 出不来，整段飞行会被正在淡出的遮罩压暗 + 模糊
-            （见 CardZoomOverlay 里 ZOOM_FLIGHT_Z 的注释）。牌组侧还被 .deck-side 那个
-            层叠上下文（relative + z-index: 3）关着，靠 liftSideForFlight 处理。 */}
-        <CardZoomOverlay
-          ref={zoomRef}
-          target={zoomTarget}
-          onClose={() => {
-            if (zoomed !== null) {
-              liftCardForFlight(zoomed.side, zoomed.flipId)
-              if (zoomed.side === 'deck') liftSideForFlight()
-            }
-            setZoomed(null)
-          }}
-          closeOnEscape
-        />
+                <div className="deck-grid" ref={gridRef}>
+                  {shown.map((card) => {
+                    const thumb = THUMB_CARD_BY_ID.get(card.id)
+                    if (thumb === undefined) return null
+                    const flipId = poolFlipId(card.id)
+                    const picked = copies.get(card.id) ?? 0
+                    return (
+                      <PoolCard
+                        key={card.id}
+                        card={thumb}
+                        picked={picked}
+                        canAdd={!deckFull && picked < MAX_COPIES}
+                        bind={bindPoolCard(card.id)}
+                        onAdd={addCard}
+                        hidden={zoomed?.flipId === flipId}
+                      />
+                    )
+                  })}
+                </div>
+
+                <p className="deck-pool__hint">
+                  {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
+                </p>
+              </section>
+
+              {/* ---------- 右：我的牌组 ---------- */}
+              <aside className="deck-side" ref={sideRef} aria-label="我的牌组">
+                <div className="deck-side__inner" ref={sideInnerRef}>
+                  <OrnateFrame>
+                    <div className="deck-side__body">
+                      {/* OrnateTitle 自带「菱形—线—文字—线—菱形」，两侧再各挂一枚花饰收尾。 */}
+                      <div className="deck-side__title">
+                        <Sparkle />
+                        <OrnateTitle>我的牌组</OrnateTitle>
+                        <Sparkle />
+                      </div>
+
+                      <div className="deck-manage" ref={manageRef}>
+                        <div className="deck-manage__row">
+                          {renaming ? (
+                            <input
+                              className="deck-manage__input"
+                              value={nameDraft}
+                              maxLength={DECK_NAME_MAX}
+                              aria-label="牌组名"
+                              // 点「改名」的下一拍输入框才出现，光标得自己送进去。
+                              // 不用回调 ref 抢焦点：内联回调 ref 每次渲染都会重跑一遍，
+                              // 打字打到一半光标会被拽回去。
+                              autoFocus
+                              onChange={(event) => setNameDraft(event.target.value)}
+                              onBlur={finishRename}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') finishRename()
+                                else if (event.key === 'Escape') cancelRename()
+                              }}
+                            />
+                          ) : (
+                            <span className="deck-manage__name" title={currentName}>
+                              {currentName}
+                            </span>
+                          )}
+
+                          <div className="deck-manage__actions">
+                            <button
+                              type="button"
+                              className="deck-manage__btn"
+                              aria-expanded={menuOpen}
+                              onClick={() => {
+                                setDeleting(false)
+                                setMenuOpen((open) => !open)
+                              }}
+                            >
+                              切换
+                            </button>
+                            <button type="button" className="deck-manage__btn" onClick={startRename}>
+                              改名
+                            </button>
+                            <button
+                              type="button"
+                              className="deck-manage__btn"
+                              onClick={() => {
+                                setMenuOpen(false)
+                                setDeleting((open) => !open)
+                              }}
+                            >
+                              删除
+                            </button>
+                            <button
+                              type="button"
+                              className="deck-manage__btn"
+                              disabled={decksFull}
+                              onClick={createNewDeck}
+                            >
+                              新建
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 下拉和删除确认都绝对定位，不占文档流：整页锁在一屏内，
+                            管理条一旦能撑高，右面板就会顶出屏幕底部。 */}
+                        {menuOpen ? (
+                          <div className="deck-manage__menu">
+                            <ul className="deck-manage__list">
+                              {saved.decks.map((item) => (
+                                <li key={item.id}>
+                                  <button
+                                    type="button"
+                                    className="deck-manage__item"
+                                    data-current={item.id === saved.currentId}
+                                    onClick={() => selectDeck(item.id)}
+                                  >
+                                    <span className="deck-manage__item-name">{item.name}</span>
+                                    <span className="deck-manage__item-count">
+                                      {item.cards.length}/{DECK_SIZE}
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              type="button"
+                              className="deck-manage__new"
+                              disabled={decksFull}
+                              onClick={createNewDeck}
+                            >
+                              {decksFull ? `最多 ${MAX_DECKS} 套牌组` : '＋ 新建牌组'}
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {deleting ? (
+                          <div className="deck-manage__confirm">
+                            <span className="deck-manage__confirm-text">确认删除？</span>
+                            <button
+                              type="button"
+                              className="deck-manage__mini deck-manage__mini--yes"
+                              onClick={confirmDelete}
+                            >
+                              确定
+                            </button>
+                            <button
+                              type="button"
+                              className="deck-manage__mini"
+                              onClick={() => setDeleting(false)}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="deck-tally">
+                        <p className="deck-tally__count">
+                          已选 <b>{deck.length}</b>
+                          <span className="deck-tally__total">/ {DECK_SIZE}</span>
+                        </p>
+                        <p className="deck-tally__mix">
+                          AI 卡 {mix.ai} · 技能卡 {mix.skill}
+                        </p>
+                      </div>
+
+                      <div className="deck-progress">
+                        {/* 细线、右端菱形、墨绿填充块三层都在 __track 里，手绘滤镜挂在它身上算一次。
+                            百分比数字留在外面：滤镜会把字扯糊。 */}
+                        <div className="deck-progress__track">
+                          <i className="deck-progress__fill" style={{ width: `${percent}%` }} />
+                        </div>
+                        <span className="deck-progress__num">{percent}%</span>
+                      </div>
+
+                      {/* 外层只为了给滚动条两端的菱形装饰一个不跟着内容滚的定位参照，
+                          滚的是里面那个 <ul>。 */}
+                      <div className="deck-slots-wrap">
+                        <ul className="deck-slots" ref={slotsRef}>
+                          {Array.from({ length: DECK_SIZE }, (_, index) => {
+                            const entry = deck[index]
+                            if (entry === undefined) return <EmptyDeckSlot key={`empty-${index}`} />
+                            const card = THUMB_CARD_BY_ID.get(entry.cardId)
+                            if (card === undefined) return null
+                            return (
+                              <DeckSlotItem
+                                key={entry.key}
+                                card={card}
+                                entryKey={entry.key}
+                                bind={bindDeckCard(entry.key)}
+                                onRemove={removeEntry}
+                                hidden={zoomed?.flipId === deckFlipId(entry.key)}
+                              />
+                            )
+                          })}
+                        </ul>
+                      </div>
+
+                      <div className="deck-side__foot">
+                        <div className="deck-side__notes">
+                          {/* 文案照实写：这一页是"点一下放大"，移除走圆圈或者把牌拖出面板，
+                              没有悬停放大这回事。 */}
+                          <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
+                          {shortfall > 0 ? (
+                            <p className="deck-shortfall">还需选择 {shortfall} 张</p>
+                          ) : (
+                            <p className="deck-done">牌组已满 · 可以出发</p>
+                          )}
+                        </div>
+                        {/* 存档是实时写的，这里不用"保存"，只负责满 20 张之后放人回大厅。 */}
+                        <PlaqueButton
+                          className="deck-confirm"
+                          disabled={shortfall > 0}
+                          onClick={() => navigate('/')}
+                        >
+                          确认牌组
+                        </PlaqueButton>
+                      </div>
+                    </div>
+                  </OrnateFrame>
+                </div>
+              </aside>
+            </main>
+
+            {/* 无条件渲染：遮罩要常驻才演得出淡出，handle 也要一直在。
+                必须挂在 .paper-page__inner 里面：这一层是 z-index: 1 的层叠上下文，遮罩留在它外面的话，
+                飞回原位时写给卡池卡的 zIndex 1200 出不来，整段飞行会被正在淡出的遮罩压暗 + 模糊
+                （见 CardZoomOverlay 里 ZOOM_FLIGHT_Z 的注释）。牌组侧还被 .deck-side 那个
+                层叠上下文（relative + z-index: 3）关着，靠 liftSideForFlight 处理。 */}
+            <CardZoomOverlay
+              ref={zoomRef}
+              target={zoomTarget}
+              onClose={() => {
+                if (zoomed !== null) {
+                  liftCardForFlight(zoomed.side, zoomed.flipId)
+                  if (zoomed.side === 'deck') liftSideForFlight()
+                }
+                setZoomed(null)
+              }}
+              closeOnEscape
+            />
+          </div>
+        </div>
       </div>
     </div>
   )

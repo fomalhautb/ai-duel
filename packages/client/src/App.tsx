@@ -12,6 +12,7 @@ import { useEffect } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
+import { TouchDeviceNotice } from './ui/TouchDeviceNotice'
 import { HomeScreen } from './screens/HomeScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
@@ -30,6 +31,8 @@ export function App() {
 
   return (
     <MatchSessionProvider>
+      {/* 触屏设备的一次性提示，盖在所有页面之上（自己判定要不要显示）。 */}
+      <TouchDeviceNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
         {/* 选择英雄界面：照设计稿复原的纯 UI demo，选中态和动画都在，但没接对局——

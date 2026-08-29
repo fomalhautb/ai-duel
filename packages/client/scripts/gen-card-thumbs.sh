@@ -8,9 +8,11 @@
 # 所以预先离线烤一份 300 宽（2 倍 DPR 下正好够用）的小图，列表场景直接加载它。
 #
 # 什么时候要重跑：
-#   - public/cards/ 下新增、替换或删除了原画（新 AI 卡、换插画、加占位图）；
+#   - public/cards/ 下新增、替换或删除了原画（新 AI 卡、新技能卡、换插画、加占位图）；
 #   - 改了下面的 THUMB_W / THUMB_H / QUALITY（比如列表卡尺寸变大，300 宽不够清晰了）。
-# 脚本是幂等的，每次全量重烤覆盖，不做增量判断——22 张图总共几秒，不值得为此引入时间戳比对。
+# 烤的是 public/cards/ 下**全部** webp（thumbs/ 自己除外），子目录有多少烤多少，
+# 新开一层目录（models/、skills/…）不用改脚本。
+# 脚本是幂等的，每次全量重烤覆盖，不做增量判断——几十张图总共几秒，不值得为此引入时间戳比对。
 #
 # 用法（在仓库任意目录下都能跑）：
 #   packages/client/scripts/gen-card-thumbs.sh
@@ -41,7 +43,7 @@ fi
 # 整个 thumbs/ 目录先删再建：原画删掉后，对应的旧缩略图必须跟着消失，
 # 否则会留下永远没人引用、还要跟着部署的僵尸文件。
 rm -rf "$THUMBS_DIR"
-mkdir -p "$THUMBS_DIR/models"
+mkdir -p "$THUMBS_DIR"
 
 total_bytes=0
 count=0
@@ -51,6 +53,10 @@ count=0
 while IFS= read -r src; do
   rel="${src#"$CARDS_DIR"/}"
   dst="$THUMBS_DIR/$rel"
+  # 逐张按需建目录，而不是在循环外把已知的几个子目录写死：
+  # 原画目录会随着卡种增加（models/、skills/…），写死的话新目录下第一张就会因为
+  # 目标目录不存在而让 ffmpeg 报错，加卡的人未必想得到要回来改脚本。
+  mkdir -p "$(dirname "$dst")"
 
   # -nostdin 不能省：循环体的标准输入就是下面那条 find 的输出，
   # 而 ffmpeg 默认会去读标准输入找交互按键，一读就把还没轮到的文件名吃掉，

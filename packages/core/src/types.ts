@@ -39,6 +39,14 @@ interface CardBase {
   name: string
   /** 卡面描述文案。 */
   text: string
+  /**
+   * 打出这张牌要花的 Token（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 5 节）。
+   *
+   * 这是费用的唯一出处：卡面上那枚费用章、手牌"打不起就变灰"的判断、引擎的扣费校验
+   * 读的都是它。客户端曾经在 ui/aiModelFace.ts 里另存过一份展示用数值，
+   * 那份已经删掉——两份数字一旦对不上，玩家会看到"卡面写 4 点，却提示 Token 不够"。
+   */
+  tokenCost: number
 }
 
 /** AI 牌：打出后作为单位留在场上，每轮答题阶段跟着答题，答错才罚下。 */
@@ -146,6 +154,18 @@ export interface PlayerState {
   name: string
   /** 累计得分，每轮结算时加上「己方场上存活 AI 数」。 */
   score: number
+  /**
+   * 本轮还剩多少 Token。出牌时按卡面 tokenCost 扣，扣光了就打不出更贵的牌。
+   *
+   * 每轮答题结算完补满到 tokenMax，不跨轮攒：省下来的 Token 不会带到下一轮，
+   * 所以"这一轮的额度尽量用掉"本身就是一条策略。
+   */
+  tokens: number
+  /**
+   * 本轮的 Token 上限。开局 INITIAL_TOKEN_MAX，之后每答完一题涨 TOKEN_MAX_GROWTH。
+   * 右侧栏那排四芒星画的就是它：亮着的是 tokens，灰的是这一轮已经花掉的。
+   */
+  tokenMax: number
   hand: CardInstance[]
   /** 牌堆，数组末尾是牌堆顶（抽牌用 pop）。 */
   deck: CardInstance[]
@@ -196,7 +216,8 @@ export interface GameState {
 /** 玩家能对引擎发出的全部指令。 */
 export type Command =
   /**
-   * 打出一张手牌。本迭代没有费用，一轮内想打几张打几张。
+   * 打出一张手牌。一轮内能打几张由剩余 Token 决定（每张按卡面 tokenCost 扣，
+   * 剩的不够就整条被拒）。
    *
    * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
    * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；

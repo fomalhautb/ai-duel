@@ -7,7 +7,7 @@
  * 比 save.ts 多一份内存缓存（cachedDecks）：这里的每次修改都要先读回上一份数据，
  * 读不了就得靠它把一次会话里的连续编辑接起来。
  *
- * 存的是 deckDemoCards 里那 30 张 demo 卡的 id——那批卡进不了对局，所以这份存档
+ * 存的是 deckDemoCards 里那 42 张 demo 卡的 id——那批卡进不了对局，所以这份存档
  * 目前只服务选牌页的编辑体验。真卡池落地后 cardId 的取值范围会整个换掉，
  * 到时候直接升 key 版本号作废旧档。
  */
@@ -114,7 +114,14 @@ function repeat(cardIds: readonly string[], copies: number): string[] {
  * 对不上的位置按"同一类角色"就近换成卡池里实际有的卡：
  * Gemini → Mistral Grand 3、Grok → Llama 5 Scout（都是国外大厂的另一张旗舰/开放权重牌）；
  * 国产四张缺卡换成卡池里剩下的国产 AI 牌（Step-3.5、K1.5、V3.2），
- * 最后一个空位没有国产 AI 牌可用了，补一张国产阵营的技能牌「单位换算连环」。
+ * 最后一个空位没有国产 AI 牌可用了，补一张 cn 阵营的技能牌「复读机」。
+ *
+ * 技能牌那 12 张老卡（小费贿赂、系统提示词套取……）在卡池换成设计稿的 24 张正式技能牌
+ * 之后整批消失了，这里按「同阵营 + 同角色（干扰 / 增益 / 防守）」就近顶上：
+ * 系统提示词套取 → 上下文洪水（gpt·干扰）、立场翻转测试 → 金钟罩（cn）、
+ * 单位换算连环 → 复读机（cn·干扰）。
+ * 「技能流」原本要带齐全部技能牌，现在 24 张一套装不下（一套只有 20 格），
+ * 改成取卡池里的前 12 张——正好每个阵营各 2 张，配 8 张 AI 牌凑满 20。
  */
 function presetDecks(): SavedDeck[] {
   return [
@@ -136,8 +143,8 @@ function presetDecks(): SavedDeck[] {
           ],
           2,
         ),
-        'system-prompt-leak',
-        'stance-flip',
+        'context-flood',
+        'golden-bell-shield',
       ],
     },
     {
@@ -154,7 +161,7 @@ function presetDecks(): SavedDeck[] {
           'step-3-5',
           'kimi-k1-5',
           'deepseek-v3-2',
-          'unit-conversion-chain',
+          'fixed-answer',
         ],
         2,
       ),
@@ -163,18 +170,19 @@ function presetDecks(): SavedDeck[] {
       id: 'preset-skill',
       name: '技能流',
       cards: [
-        'tip-bribery',
-        'system-prompt-leak',
-        'infinite-nesting',
-        'roleplay-shell',
-        'fake-consensus',
-        'polite-loop',
-        'stance-flip',
-        'unit-conversion-chain',
-        'phantom-citation',
-        'resume-bias-probe',
-        'self-doubt-cascade',
-        'language-smuggling',
+        // 卡池里的前 12 张技能牌，每个阵营各 2 张（顺序就是卡池顺序）。
+        'context-flood',
+        'topic-drift',
+        'repetition-bombardment',
+        'black-white-reversal',
+        'fixed-answer',
+        'one-sentence-answer',
+        'character-lock',
+        'clean-sweep',
+        'jade-purification-vase',
+        'boomerang',
+        'golden-bell-shield',
+        'safe-pass',
         'gpt-4o',
         'claude-fable-5',
         'deepseek-v4',

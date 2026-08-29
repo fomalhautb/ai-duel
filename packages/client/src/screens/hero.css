@@ -144,7 +144,7 @@
 
 /* 公共样式那条焦点圈用的是 currentColor，这一页要的是亮起来那档墨色。 */
 .hero__back:focus-visible {
-  outline: 2px solid var(--hero-ink-lit);
+  outline: 0.12cqi solid var(--hero-ink-lit);
   outline-offset: 0.2cqi;
 }
 
@@ -203,7 +203,7 @@
    等于米金 rgb(216,201,163) 约 28% 的不透明度。 */
 .hero__flourish-line {
   width: 5.4cqi;
-  height: 2px;
+  height: 0.12cqi;
   background: linear-gradient(to right, rgb(216 201 163 / 0%), rgb(216 201 163 / 30%));
 }
 
@@ -275,7 +275,7 @@
 
 /* 描边落在金框外面一点，选中和聚焦同时出现时两圈线不会叠在一起。 */
 .hero__card:focus-visible {
-  outline: 2px solid var(--hero-ink-lit);
+  outline: 0.12cqi solid var(--hero-ink-lit);
   outline-offset: 0.95cqi;
 }
 

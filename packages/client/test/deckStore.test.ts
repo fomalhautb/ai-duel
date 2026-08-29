@@ -110,15 +110,16 @@ describe('牌组存档', () => {
       }
     })
 
-    it('技能流带齐了全部 12 张技能牌', () => {
-      const skillIds = DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').map(
-        (card) => card.id,
+    // 卡池的技能牌有 24 张，一套牌组只有 20 格，装不下全部，所以只查"技能牌占了 12 张且各不相同"。
+    it('技能流带了 12 张互不重复的技能牌', () => {
+      const skillIds = new Set(
+        DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').map((card) => card.id),
       )
       const skillDeck = loadDecks().decks.find((deck) => deck.id === 'preset-skill')
       expect(skillDeck).toBeDefined()
-      for (const cardId of skillIds) {
-        expect(skillDeck?.cards).toContain(cardId)
-      }
+      const picked = skillDeck?.cards.filter((cardId) => skillIds.has(cardId)) ?? []
+      expect(picked).toHaveLength(12)
+      expect(new Set(picked).size).toBe(12)
     })
 
     it('播种结果立刻写回 localStorage，再读一次拿到的是同一份', () => {

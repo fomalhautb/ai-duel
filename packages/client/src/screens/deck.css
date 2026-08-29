@@ -13,7 +13,7 @@
    ------------------------------------------------------------
    整页锁死在一屏内，两块网格各自滚
    ------------------------------------------------------------
-   页面高度就是视口高度、不出现整页滚动条：顶栏和右侧牌组面板永远在原位，
+   页面高度就是 16:9 舞台的高度、不出现整页滚动条：顶栏和右侧牌组面板永远在原位，
    要滚的只有左边那格卡池网格（.deck-grid）和右边那格牌组格子区（.deck-slots）。
 
    代价是这两块都成了 overflow 容器，会把溢出的子元素裁掉，而两边的牌恰恰都要被拖出去
@@ -21,9 +21,50 @@
    liftCardOut：起拖那一刻把这张牌切成 position: fixed（fixed 不受祖先 overflow 裁剪），
    松手回位后再切回来；它原来占的格子由外层的 .deck-pool-slot / .deck-slot 撑着，
    所以邻牌不会塌陷补位。两边的 onDragStart 都调它。
+   注意舞台带 transform（见下），fixed 的包含块是 .deck-scaler 而不是视口，
+   写进 left/top 的必须是舞台内坐标（liftCardOut 里会换算）。
    ============================================================ */
 
+/* ============================================================
+   16:9 舞台
+   ------------------------------------------------------------
+   外层把画面居中并铺满留边，中层是一块 1672:941 的舞台，视口太宽留左右边、太窄留上下边。
+   纸面（底色 + 两层纸纹 + 暗角）铺在外层 .deck-frame 上，留边和舞台因此是同一张纸，
+   接缝看不出来，舞台自己不用再画背景。
+
+   缩放方式和对局页一样（见 styles.css 里"对局界面的 16:9 舞台"）：内层 .deck-scaler
+   永远是 1672×941 的盒子，排版一个像素都不用改，只把整块画面 transform: scale() 缩到舞台大小。
+   首页 / hero / room 走的是另一条路（内部尺寸全写 cqi），这一页做不到——卡面 150×225、
+   迷你卡缩放、格子网格的几何都是写死的像素。
+
+   这个 transform 顺带让 .deck-scaler 成为内部所有 position: fixed 元素的包含块：
+   拖拽时被拎出网格的那张牌（见文件开头 liftCardOut）、放大查看的遮罩和裁剪层
+   （.reveal-overlay / .reveal-clip）都改成钉在舞台上，留边区域不会再被它们盖住。
+   代价是这些元素的坐标基准从视口换成了舞台，凡是"拿视口坐标算完写回 CSS / GSAP"的地方
+   都要过一次 ui/battleStage.ts 的换算（liftCardOut、useCardDrag 的默认跟随都已经处理）。
+   「把牌拖出面板 = 移除」那块落点登记的是最外层的 .deck-frame 而不是舞台，
+   所以拖到留边区域松手照样算移除。登记在舞台上的话，往右一甩正好落进右边那条留边，
+   zoneAt 找不到落点、按取消处理，牌会莫名其妙飞回去。
+   ============================================================ */
+
+.deck-frame {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+}
+
 .deck-page {
+  /* --deck-scale 要按舞台宽算，所以这里必须是尺寸容器。
+     inline-size 就够：舞台是定死的 16:9，宽度一定，高度也就定了。 */
+  container-type: inline-size;
+  /* 纸纹是宿主 .deck-frame 的 ::before / ::after，其中 ::after 排在所有子元素之后、
+     默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
+  position: relative;
+  z-index: 1;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+
   /* --battle-grain 的作用域补丁，同 design.css 里那段。
      .plaque-button（styles.css）的 background-image 里引用了这个变量，而它只定义在
      .battle 那个对局界面根类上。本页不在 .battle 里，变量取不到；CSS 的规则是 var()
@@ -37,8 +78,11 @@
   --battle-paper: var(--paper);
 
   /* 右栏宽度。格子网格的列宽是照它反算的（见 --deck-mini-scale），所以提成变量，
-     免得 .deck-body 的 grid-template-columns 和那条公式各写一份、改一处漏一处。 */
-  --deck-side-w: clamp(444px, 30vw, 496px);
+     免得 .deck-body 的 grid-template-columns 和那条公式各写一份、改一处漏一处。
+     原先写成 clamp(444px, 30vw, 496px)，跟着视口宽走；现在排版永远按设计宽 1672 排
+     （整块画面交给 .deck-scaler 等比缩），30vw ≈ 501.6px 恒被上限截住，于是直接写上限值。
+     444 那条下限是「一行三张牌还认得出字」的底线，改这个值时别跌破它。 */
+  --deck-side-w: 496px;
 
   /* 牌组格子之间的间距。也进 --deck-mini-scale 的公式，所以是变量不是字面量。 */
   --deck-slot-gap: 10px;
@@ -54,6 +98,8 @@
      那 16px 余量是给两样东西的：格子右上角的「×」按钮探出 6px（见 .deck-circle--remove），
      以及滚动条两端的菱形装饰。剩下的宽度减掉两道 gap，除以 3 就是一张牌的宽，
      再除以卡面原宽 150px 得到缩放比。
+     两个自变量现在都是定值，算出来恒等于 0.8933；仍然写成公式而不是直接写死这个数，
+     是为了改右栏宽或格子间距时不用手算——舞台是定死的，公式只在编译期算这一次。
      末尾的 “/ 1px” 是把算出来的长度除成无单位数：scale 和用它的那几个乘法都只吃纯数字。
      改 .deck-side__body 的左右内边距、滚动条宽度或格子列数，都要回来重算这条。
    */
@@ -65,10 +111,29 @@
      那个绿是水彩淡色，铺成 9px 的实心块会糊在米纸底上分不出来。本页私有，不进 paper.css。 */
   --deck-progress-green: #35604d;
 
-  /* 整页锁在一屏内。dvh 是给移动端浏览器地址栏伸缩用的，桌面端和 vh 等价。 */
-  height: 100dvh;
   /* 兜底：正常情况下内部各块都定了高，不该有东西溢出到这里。 */
   overflow: hidden;
+}
+
+/*
+ * 缩放层：永远是设计稿那么大的一块盒子，整体缩到舞台里。
+ *
+ * --deck-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
+ * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
+ * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ *
+ * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
+ * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
+ */
+.deck-scaler {
+  --deck-scale: tan(atan2(100cqi, 1672px));
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1672px;
+  height: 941px;
+  transform: scale(var(--deck-scale));
+  transform-origin: top left;
 }
 
 /* 纸纹容器（styles.css 的 .paper-page__inner）默认按内容高，这里要它撑满并成为纵向弹性容器，
@@ -174,8 +239,7 @@
    ============================================================ */
 .deck-body {
   display: grid;
-  /* 右栏定宽，迷你卡的大小反过来由它决定（见 --deck-mini-scale）。
-     下限 444px 是「一行三张牌还认得出字」的底线，上限 496px 是再宽就抢卡池的地方。 */
+  /* 右栏定宽，迷你卡的大小反过来由它决定（见 .deck-page 里的 --deck-mini-scale）。 */
   grid-template-columns: minmax(0, 1fr) var(--deck-side-w);
   /* 两栏都要吃掉顶栏之外的全部高度，各自内部再滚。 */
   align-items: stretch;
@@ -404,8 +468,8 @@
 
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
-  /* 整页唯一的滚动区。它是 overflow 容器，所以卡被拖出去时要先切成 fixed，
-     否则会被裁掉（见文件头的说明和 DeckScreen 的 liftCardOut）。 */
+  /* 整页两块滚动区之一（另一块是 .deck-slots）。它是 overflow 容器，
+     所以卡被拖出去时要先切成 fixed，否则会被裁掉（见文件头的说明和 DeckScreen 的 liftCardOut）。 */
   flex: 1;
   min-height: 0;
   overflow-y: auto;

@@ -14,7 +14,8 @@
  * 和首页不同的是这里加了 .on-dark：留边是近黑的深蓝（跟着背景图边缘色走），
  * 纸纹在深色上要换成「反相 + screen」那一档，否则会糊出一块块黑斑。
  *
- * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 → 技能详情层。
+ * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 →
+ * 底部返回按钮（只有纯查看时才有）→ 技能详情层。
  * 顺序基本由 JSX 的先后决定；只有技能详情那一层用了 z-index 把自己抬到卡牌之上
  * （它内部的遮罩和内容也各写了一档，见 hero.css）。舞台自己那个 z-index 是用来压住
  * 外层纸纹的，和内部层叠无关。
@@ -131,6 +132,12 @@ export function HeroScreen(props: HeroScreenProps) {
 }
 
 function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
+  /*
+   * 纯查看：大厅横幅点进来看看英雄，选中不会被记下（RoomScreen 那边不传 onConfirm）。
+   * 这一屏的标题、副标题和底部按钮都按它换一套说法——照搬「选择你的英雄」会承诺一件做不到的事。
+   */
+  const viewOnly = onConfirm === undefined
+  const showFoot = viewOnly && onBack !== undefined
   const [selectedId, setSelectedId] = useState<HeroId>(initialHeroId ?? DEFAULT_HERO_ID)
   const rootRef = useRef<HTMLDivElement>(null)
   /**
@@ -200,6 +207,9 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
             { opacity: 0, yPercent: 3, scale: 0.96, duration: 0.55, stagger: 0.05 },
             0.1,
           )
+          // 底部那颗返回按钮从下往上浮，和上面几件从上往下正好对开。
+          // 它只在纯查看时存在，选择器匹配不到元素时 GSAP 整条跳过。
+          .from('.hero__foot', { opacity: 0, yPercent: 30, duration: 0.5 }, 0.25)
       }
 
       cards.forEach((card, index) => {
@@ -512,17 +522,23 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
               <i className="hero__flourish-line" />
               <Sparkle className="hero__flourish-star" />
             </span>
-            选择你的英雄
+            {viewOnly ? '英雄' : '选择你的英雄'}
             <span className="hero__flourish hero__flourish--right" aria-hidden="true">
               <i className="hero__flourish-line" />
               <Sparkle className="hero__flourish-star" />
             </span>
           </h1>
-          <p className="hero__subtitle">选择一位英雄，开启你的对战</p>
+          <p className="hero__subtitle">
+            {viewOnly ? '点开任意一位，查看她的简介与技能' : '选择一位英雄，开启你的对战'}
+          </p>
         </div>
 
-        {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
-        <div className="hero__grid" inert={detailId !== null}>
+        {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。
+            底下那颗返回按钮一出现，两排卡就得整体上移给它让位（见 hero.css）。 */}
+        <div
+          className={`hero__grid${showFoot ? ' hero__grid--with-foot' : ''}`}
+          inert={detailId !== null}
+        >
           {HERO_ROWS.map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => (
@@ -563,6 +579,16 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
             </div>
           ))}
         </div>
+
+        {/* 纯查看时舞台底部那颗大按钮：这一屏没有「确认英雄」，退出的路只有左上角那颗小返回，
+            所以在设计稿原本给常驻确认按钮留的位置上补一颗，走的是同一个 onBack。 */}
+        {showFoot && onBack !== undefined ? (
+          <div className="hero__foot" inert={detailId !== null}>
+            <PlaqueButton className="hero__return" onClick={onBack}>
+              返回匹配
+            </PlaqueButton>
+          </div>
+        ) : null}
 
         {/* 技能详情。遮罩是常驻节点（GSAP 用 autoAlpha 开关它），
             大卡只有开着的时候才渲染——Flip 每次都要一个新挂载的落点。 */}

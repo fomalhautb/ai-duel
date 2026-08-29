@@ -1667,7 +1667,7 @@ export function HandFan({
                   </span>
                 </div>
                 <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                  <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+                  <div className={cardBackClassName(card.kind)}>
                     {card.kind === 'ai' ? (
                       <img
                         className="card-back__art"
@@ -1773,6 +1773,19 @@ export function HandFan({
  * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
  * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
  */
+/**
+ * 一张牌翻到背面时那层容器该带哪些 class。
+ *
+ * 三处（对局手牌、卡池 / 牌组格子、图鉴页）画的是同一面背面，class 各写一份的话，
+ * 加了新卡种的样式总会漏掉其中一处，玩家就会看到同一张牌在两个页面长得不一样。
+ * AI 牌铺满整张美术卡背，技能牌铺星象边框底图再压文字，英雄牌沿用默认的深色底。
+ */
+export function cardBackClassName(kind: HandCardData['kind']): string {
+  if (kind === 'ai') return 'card-back card-back--ai-art'
+  if (kind === 'skill') return 'card-back card-back--skill'
+  return 'card-back'
+}
+
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
   // 两样缺一不可：非具名 AI 查不到装饰配置，英雄牌没有费用，任缺一样都退回下面的渐变信息层。

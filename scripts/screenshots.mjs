@@ -10,10 +10,11 @@
  * 所以改名之前先看一眼 README。图是要提交进仓库的（GitHub 上的 README 只能引仓库里的文件）。
  *
  * 用 Playwright 而不是手动截屏：这几页以后还要跟着改版重拍，手动截的尺寸和时机每次都不一样，
- * README 里三张图会渐渐对不上。脚本至少保证分辨率一致、都等到动画停了再按快门。
+ * README 里几张图会渐渐对不上。脚本至少保证分辨率一致、都等到动画停了再按快门。
  *
- * 三张图的取景思路：
+ * 四张图的取景思路：
  * - home  首页，游戏的门面；
+ * - room  匹配房，联机是怎么开始的看这一张；
  * - battle 对局界面，走首页的「测试对局」入口——它就地造一局本地对局，不用真凑两台机器；
  * - deck  组建牌组页，卡牌长什么样看这一张。
  *
@@ -40,6 +41,9 @@ const VIEWPORT = { width: 1600, height: 900 }
 /** 自己起 dev server 时用的端口。刻意不用默认的 5173：那个端口经常被别的 worktree 占着。 */
 const DEV_PORT = 5273
 
+/** 自己起转发器时用的端口。同样避开默认的 8787，免得撞上手边已经开着的 `pnpm dev:server`。 */
+const RELAY_PORT = 8887
+
 /**
  * 每张图：进哪个页面、等什么出现、再多等多久。
  *
@@ -54,6 +58,18 @@ const SHOTS = [
     // 首页把素材全部加载完才一次性亮出来，在那之前只有加载动画（见 HomeScreen）。
     waitFor: '.home__stage',
     settleMs: 2500,
+  },
+  {
+    name: 'room',
+    title: '匹配房',
+    path: '/room',
+    // 这一页一进来就先找转发器要一个 4 位房间码，要不到就整个左半边变成「连接失败」，
+    // 所以它是唯一一张要连转发器的图（needsRelay）。
+    // 等 .room__code-value：这个节点只有码真的拿到手之后才出现，等到它就等到了正常的样子。
+    needsRelay: true,
+    prepare: prepareRoom,
+    waitFor: '.room__code-value',
+    settleMs: 1500,
   },
   {
     name: 'battle',
@@ -90,6 +106,9 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true })
 
   // 给了 --url 就直接拍那个地址（线上版、或者自己已经起好的 dev server），不再另起进程。
+  // 转发器只有拍 room 那张时才需要，别的图不用为它多等一次启动。
+  const needsRelay = shots.some((shot) => shot.needsRelay)
+  const relay = args.url || !needsRelay ? null : await startRelay()
   const server = args.url ? null : await startDevServer()
   const baseUrl = args.url ?? `http://localhost:${DEV_PORT}`
 
@@ -118,7 +137,16 @@ async function main() {
   } finally {
     await browser.close()
     server?.stop()
+    relay?.stop()
   }
+}
+
+/**
+ * 匹配房这一页本身不用操作，只把左下角的「测试房」入口藏掉——
+ * 那是个只在开发时用的本地对局入口，正式玩不到，留在图里会让人以为游戏里有这个功能。
+ */
+async function prepareRoom(page) {
+  await page.addStyleTag({ content: '.room__dev { display: none !important; }' })
 }
 
 /**
@@ -216,16 +244,50 @@ async function dragToBoard(page, slot) {
 /**
  * 起一个只给截图用的 dev server，返回一个能关掉它的把手。
  *
- * detached + kill 整个进程组：pnpm 会再 fork 出 vite，只杀 pnpm 的话 vite 会活下来占着端口，
- * 下次跑脚本就撞上 --strictPort 直接失败。
+ * 顺手把 VITE_SERVER_URL 指到本地转发器：/room 那张图要靠它拿房间码。
+ * 环境变量里的 VITE_ 变量优先级高于 .env.local，所以开发者本机怎么配都盖不掉这一条。
  */
 async function startDevServer() {
-  console.log(`起 dev server（端口 ${DEV_PORT}）…`)
-  const child = spawn('pnpm', ['exec', 'vite', '--port', String(DEV_PORT), '--strictPort'], {
+  return startProcess({
+    label: 'dev server',
+    port: DEV_PORT,
     cwd: path.join(REPO_ROOT, 'packages', 'client'),
-    stdio: 'ignore',
-    detached: true,
+    argv: ['exec', 'vite', '--port', String(DEV_PORT), '--strictPort'],
+    env: { ...process.env, VITE_SERVER_URL: `http://127.0.0.1:${RELAY_PORT}` },
+    probePath: '/',
   })
+}
+
+/**
+ * 起一个只给截图用的转发器（`wrangler dev`），返回一个能关掉它的把手。
+ *
+ * 探活打的是 `/api/room`——它就是页面进来要码时打的那个接口，能返回码才算真的能用。
+ * 每探一次会多摇一个房间码出来，摇出来没人用也不占什么，房间是空的自己就没了。
+ */
+async function startRelay() {
+  // wrangler 启动时会校验静态资源目录存不存在，客户端没 build 过它就直接报错退出。
+  // 截图的页面是 vite 提供的，走不到这个目录，所以空目录就够它过这一关。
+  await mkdir(path.join(REPO_ROOT, 'packages', 'client', 'dist'), { recursive: true })
+
+  return startProcess({
+    label: '转发器',
+    port: RELAY_PORT,
+    cwd: path.join(REPO_ROOT, 'packages', 'server'),
+    argv: ['exec', 'wrangler', 'dev', '--port', String(RELAY_PORT)],
+    env: process.env,
+    probePath: '/api/room',
+  })
+}
+
+/**
+ * 起一个后台进程，等它在自己的端口上应答，返回一个能关掉它的把手。
+ *
+ * detached + kill 整个进程组：pnpm 会再 fork 出真正的进程（vite / wrangler），只杀 pnpm 的话
+ * 子进程会活下来占着端口，下次跑脚本就撞上端口冲突直接失败。
+ */
+async function startProcess({ label, port, cwd, argv, env, probePath }) {
+  console.log(`起${label}（端口 ${port}）…`)
+  const child = spawn('pnpm', argv, { cwd, env, stdio: 'ignore', detached: true })
 
   const stop = () => {
     try {
@@ -234,10 +296,10 @@ async function startDevServer() {
       // 已经自己退了就没什么可杀的。
     }
   }
-  // 脚本中途崩了也要把 server 带走，否则端口一直被占着。
+  // 脚本中途崩了也要把进程带走，否则端口一直被占着。
   process.on('exit', stop)
 
-  const url = `http://localhost:${DEV_PORT}/`
+  const url = `http://localhost:${port}${probePath}`
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     try {
@@ -250,7 +312,7 @@ async function startDevServer() {
   }
 
   stop()
-  throw new Error(`dev server 60 秒还没起来（${url}）`)
+  throw new Error(`${label} 60 秒还没起来（${url}）`)
 }
 
 /** 只认 `--key value` 和 `--key=value` 两种写法，够这个脚本用了。 */

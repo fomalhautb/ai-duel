@@ -259,7 +259,7 @@ export interface AiInstance {
   /**
    * 被「保送」选中过：本轮结算答错也不罚下（改发 `AI_SAFE_PASSED`）。
    *
-   * 它只免掉罚下，**不改计分**：保送留场的那个 AI 在 `ROUND_SCORED.correct` 里仍然算答错。
+   * 它只免掉罚下，**不改计分**：保送留场的那个 AI 不计入 `ROUND_SCORED.correctCounts`。
    */
   safePassed?: true
   /**
@@ -303,19 +303,19 @@ export type GamePhase = 'play' | 'quiz' | 'settle' | 'finished'
 /**
  * 本轮那 1 分是怎么分出来的。三档按判定顺序排，客户端照它选结算文案。
  *
- * - `'sole-correct'`：只有一方答对，那一方 +1。
- * - `'fewer-tokens'`：双方同对或同错，本轮 Token 消耗**严格**较少的一方 +1。
- * - `'equal-tokens'`：双方同对或同错，消耗也一样，各 +1（这一档会把两边分数一起推高，
+ * - `'more-correct'`：答对 AI 数量更多的一方 +1。
+ * - `'fewer-tokens'`：答对数量相同，本轮 Token 消耗**严格**较少的一方 +1。
+ * - `'equal-tokens'`：答对数量和消耗都相同，各 +1（这一档会把两边分数一起推高，
  *   所以才会有"双方同时到 3 分"这种要加赛的局面）。
  */
-export type RoundVerdict = 'sole-correct' | 'fewer-tokens' | 'equal-tokens'
+export type RoundVerdict = 'more-correct' | 'fewer-tokens' | 'equal-tokens'
 
 export interface PlayerState {
   id: PlayerId
   name: string
   /**
-   * 累计得分。每轮 1 分制：只有一方答对就那方 +1，双方同对或同错就比本轮 Token 消耗，
-   * 少的一方 +1、相同则各 +1（判定见 engine 的 submitAnswers）。先到 WIN_TARGET 分且
+   * 累计得分。每轮 1 分制：答对 AI 更多的一方 +1；数量相同才比本轮 Token 消耗，
+   * 少的一方 +1、消耗也相同则各 +1（判定见 engine 的 submitAnswers）。先到 WIN_TARGET 分且
    * 双方分数不相等即获胜，所以它最高可能停在 3 分以上（加赛时双方一起涨）。
    */
   score: number
@@ -646,18 +646,17 @@ export type GameEvent =
    *
    * 除了得分本身还带上判定的全部依据（谁答对了、各花了多少 Token、按哪条规则分的），
    * 客户端的结算演出和教程的提示语都直接读它，不要自己回头再算一遍——
-   * `correct` 是"己方**至少一个** AI 答对"的团队口径，光看 AI_ANSWERED 那几条推不出来
-   * （场上没有 AI 的一方一条事件都没有，却也算没答对）；它也不等于"结算后场上还剩人"：
+   * `correctCounts` 是双方实际答对的 AI 数量，光看结算后场上人数推不出来：
    * 被保送的单位答错也留在场上（见 AI_SAFE_PASSED）。
    */
   | {
       type: 'ROUND_SCORED'
-      /** 本轮各得几分：0 或 1，双方同对同错且消耗相同时是 [1, 1]。 */
+      /** 本轮各得几分：0 或 1，双方答对数和消耗都相同时是 [1, 1]。 */
       gains: [number, number]
       /** 加完这一轮之后的累计总分。 */
       scores: [number, number]
-      /** 本轮各方算不算答对（己方场上至少一个 AI 答对；场上没 AI 视为没答对）。 */
-      correct: [boolean, boolean]
+      /** 本轮双方各有几个 AI 答对；场上没 AI 就是 0。 */
+      correctCounts: [number, number]
       /** 本轮各方为新打出的牌花掉的 Token（见 PlayerState.spentThisRound）。 */
       spent: [number, number]
       /** 这一分是按哪条规则分出来的。 */

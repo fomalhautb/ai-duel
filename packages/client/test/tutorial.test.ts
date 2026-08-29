@@ -156,12 +156,12 @@ describe('教学对战剧本', () => {
 
     // 三轮都是"只有一方答对"：第 1 轮和第 3 轮对手自己答错，第 2 轮是被复读机干扰答错。
     // 这三条对错全部来自那张真实模型回答表，不是教学局自己写死的（见 tutorial/content.ts）。
-    // 「同结果就比 Token」那一档在教学局里刻意不出现（规格 §8），所以三条都该是 sole-correct。
+    // 「答对数相同才比 Token」那一档在教学局里刻意不出现，所以三条都该是 more-correct。
     const scored = scoredEvents(run.events)
     expect(scored.map((event) => event.verdict)).toEqual([
-      'sole-correct',
-      'sole-correct',
-      'sole-correct',
+      'more-correct',
+      'more-correct',
+      'more-correct',
     ])
     expect(scored.map((event) => event.scores)).toEqual([
       [1, 0],
@@ -193,8 +193,8 @@ describe('教学对战剧本', () => {
     expect(run.events).toContainEqual({ type: 'AI_ELIMINATED', instanceId: foeAi, owner: FOE })
 
     const round2 = scoredEvents(run.events)[1]
-    expect(round2?.verdict).toBe('sole-correct')
-    expect(round2?.correct).toEqual([true, false])
+    expect(round2?.verdict).toBe('more-correct')
+    expect(round2?.correctCounts).toEqual([1, 0])
     // 只花了复读机那 4 点，对手 3 点——这一分和消耗无关，但数字仍旧记在事件里。
     expect(round2?.spent).toEqual([
       tutorialCardCost(TUTORIAL_CARDS.skill),
@@ -270,7 +270,7 @@ describe('教学对战剧本', () => {
     flush()
 
     const scored = scoredEvents(run.events)
-    expect(scored[2]?.verdict).toBe('sole-correct')
+    expect(scored[2]?.verdict).toBe('more-correct')
     expect(scored[2]?.scores).toEqual([3, 0])
     expect(stateOf(run.driver).winner).toBe(PLAYER)
   })

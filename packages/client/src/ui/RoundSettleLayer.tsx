@@ -135,27 +135,17 @@ export interface SettleAiResult {
   /**
    * 答错了但被「保送」留在场上（`AI_SAFE_PASSED`），卡上多盖一枚「保送」。
    *
-   * 判定照旧算答错：这张卡仍然画成错的、也不进 `SettleScore.correct` 的计数
+   * 判定照旧算答错：这张卡仍然画成错的、也不进 `SettleScore.correctCounts` 的计数
    *（保送只免罚下，不改计分，见 core 的 submitAnswers）。这枚章说的只是"它没下场"。
    */
   safePassed?: true
 }
 
-/** 我方 / 对方各算不算答对。团队口径：己方至少一个 AI 答对就算答对（见 core 的 submitAnswers）。 */
-export interface SettleCorrect {
-  mine: boolean
-  theirs: boolean
-}
-
 /** 本轮计分。`ROUND_SCORED` 到了才有，在那之前整层按"还在作答"的样子画。 */
 export interface SettleScore {
-  /**
-   * 各自算不算答对。注意是**布尔**不是个数：这一版规则先看"这一方有没有答对"，
-   * 答对几个不影响判定（场上没 AI 的一方视为没答对）。
-   * 面板上那行「正确 N / M」只是给玩家看的战况统计，不是判据，由结果卡自己数出来。
-   */
-  correct: SettleCorrect
-  /** 各自本轮花掉的 Token，双方同对或同错时靠它分胜负。 */
+  /** 各自有几个 AI 答对；这是第一判据，场上没 AI 的一方为 0。 */
+  correctCounts: SettleSides
+  /** 各自本轮花掉的 Token，只有答对数量相同时才靠它分胜负。 */
   spent: SettleSides
   /** 本轮各自拿到的分，只可能是 0 或 1；打平是双方各 1。 */
   gains: SettleSides
@@ -785,8 +775,8 @@ export function RoundSettleLayer({
  * 在结果出来之前把「正确 0 / 3」摆出来，看着像所有 AI 都答错了。
  * 计分之后它们才被渲染出来，但仍然是隐着的：由主线在盖完章那一拍点名淡入。
  *
- * 正确数是从这一侧的结果卡现数的，不看 SettleScore：那边的 correct 是团队口径的布尔值
- *（这一方有没有答对），而标头这行要的是"几个里对了几个"的战况，两者不是一回事。
+ * 正确数从这一侧的结果卡现数，与 SettleScore.correctCounts 使用同一口径；这里独立统计，
+ * 是因为标头还要同时展示这一侧总共有几个 AI。
  */
 function SettleSquad({
   side,
@@ -995,21 +985,24 @@ function leadOf(gains: SettleSides): { mine: string | null; theirs: string | nul
  * 底栏正中那句结果文案：把"凭什么这一分给了谁"讲清楚。
  *
  * 三档判定和引擎里的计分一一对应（见 core 的 RoundVerdict）：
- * 只有一方答对就那方拿分；双方同对或同错就比本轮消耗，少的一方拿分；消耗也一样就各拿 1 分。
+ * 答对 AI 更多的一方拿分；答对数量相同才比本轮消耗，少的一方拿分；消耗也一样就各拿 1 分。
  * 只有我方赢的那两句带「+1 分」——对方赢的时候写「+1 分」，玩家会以为加的是自己的分。
  *
  * 比 Token 那两档要把双方的消耗数字摆出来：玩家得看见数字，才明白"省 Token"是真能赢分的。
  * 返回的是节点不是字符串：消耗那两个数要分别染成我方绿和对方红。
  */
 export function settleResultTextOf(score: SettleScore): ReactNode {
-  const { correct, spent, verdict } = score
+  const { correctCounts, spent, verdict } = score
 
-  if (verdict === 'sole-correct') {
-    return correct.mine ? '只有我方答对 · 赢得本轮 · +1 分' : '只有对方答对 · 赢得本轮'
+  if (verdict === 'more-correct') {
+    return correctCounts.mine > correctCounts.theirs
+      ? `我方答对 ${correctCounts.mine} 个，对方 ${correctCounts.theirs} 个 · 我方更多 · +1 分`
+      : `我方答对 ${correctCounts.mine} 个，对方 ${correctCounts.theirs} 个 · 对方更多`
   }
 
-  // 剩下两档双方同对或同错，先把"同对还是同错"说清楚，再摆消耗。
-  const both = correct.mine ? '双方都答对' : '双方都答错'
+  // 剩下两档答对数相同，先把数量说清楚，再摆消耗。
+  const both =
+    correctCounts.mine === 0 ? '双方都未答对' : `双方各答对 ${correctCounts.mine} 个`
   const spendPair = (
     <>
       <span className="settle__verdict-num--mine">{spent.mine}</span>

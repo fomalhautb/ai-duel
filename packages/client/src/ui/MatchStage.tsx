@@ -1202,7 +1202,10 @@ function BattleField({
           const seat = seatRef.current
           const foe = other(seat)
           const score: SettleScore = {
-            correct: { mine: event.correct[seat], theirs: event.correct[foe] },
+            correctCounts: {
+              mine: event.correctCounts[seat],
+              theirs: event.correctCounts[foe],
+            },
             spent: { mine: event.spent[seat], theirs: event.spent[foe] },
             gains: { mine: event.gains[seat], theirs: event.gains[foe] },
             totals: { mine: event.scores[seat], theirs: event.scores[foe] },

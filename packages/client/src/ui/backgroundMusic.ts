@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { isMuted, subscribeMuted } from './audioMute'
 
 export type BackgroundMusicTrack = 'beginning' | 'room' | 'cardsSelecting' | 'match'
 
@@ -21,7 +22,10 @@ export const TRACK_SOURCE: Record<BackgroundMusicTrack, string> = {
 const BACKGROUND_MUSIC_VOLUME = 0.9
 
 let player: HTMLAudioElement | null = null
+/** 当前界面想听的曲子；没有界面在放时是 null。静音期间也照记，解除静音就从这一首接上。 */
 let currentTrack: BackgroundMusicTrack | null = null
+/** audio 元素的 src 上已经装着的曲子。和 currentTrack 分开记，见 syncPlayback 里的解释。 */
+let loadedTrack: BackgroundMusicTrack | null = null
 let waitingForGesture = false
 
 function getPlayer(): HTMLAudioElement {
@@ -31,6 +35,8 @@ function getPlayer(): HTMLAudioElement {
   player.loop = true
   player.preload = 'auto'
   player.volume = BACKGROUND_MUSIC_VOLUME
+  // 玩家按右上角那颗按钮时，把播放状态跟着改过来。只订阅一次，播放器本身也只建一次。
+  subscribeMuted(syncPlayback)
   return player
 }
 
@@ -61,23 +67,42 @@ function requestPlayback(target: HTMLAudioElement, track: BackgroundMusicTrack):
 }
 
 function resumeAfterGesture(): void {
-  const target = player
-  const track = currentTrack
-  if (!target || !track) return
-  requestPlayback(target, track)
+  syncPlayback()
 }
 
-function playBackgroundMusic(track: BackgroundMusicTrack): void {
-  const target = getPlayer()
+/**
+ * 把播放器调成「当前界面 + 静音开关」应有的样子。进出界面和拨动静音开关都走这一个入口。
+ *
+ * 静音用暂停 + 不装 src 实现，而不是 audio.muted = true：muted 的播放器照样会把整首歌拉下来，
+ * 而 preload='auto' 下每换一页就是又一首（见文件头），关了声音的人不该再为此花流量。
+ * 代价是 loadedTrack 要单独记一份——解除静音时 currentTrack 可能早就换过好几轮了，
+ * 得靠它判断 src 上那首还算不算数。
+ */
+function syncPlayback(): void {
+  const target = player
+  if (!target) return
 
-  if (currentTrack !== track) {
+  const track = currentTrack
+  if (track === null || isMuted()) {
+    removeGestureListeners()
     target.pause()
-    currentTrack = track
+    return
+  }
+
+  if (loadedTrack !== track) {
+    target.pause()
+    loadedTrack = track
     target.src = TRACK_SOURCE[track]
     target.load()
   }
 
   requestPlayback(target, track)
+}
+
+function playBackgroundMusic(track: BackgroundMusicTrack): void {
+  getPlayer()
+  currentTrack = track
+  syncPlayback()
 }
 
 function stopBackgroundMusic(track: BackgroundMusicTrack): void {

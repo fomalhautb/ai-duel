@@ -9,7 +9,6 @@
  * 1. 外面套 BattleFrame（复用 MatchStage 导出的那一个，不另抄一份）。结算层是
  *    position: fixed 铺满舞台的，靠 .battle-scaler 的 transform 当包含块才不会跑到留边上去。
  * 2. 里面那层 .battle 不能省：结算层的纸色、线色全是 --battle-* 变量，从它身上继承。
- * 3. 渲染一次 HandDrawnFilterDefs，不然 filter: url(#ai-duel-rough-*) 全部失效。
  *
  * 数据也全是真的：题目取自题库，回答取自 script.ts 那张「题目 × 卡牌」的剧本表，
  * 消耗按各张卡的 tokenCost 现加。所以只要挑对卡，对错分布和胜负判据就自然自洽，
@@ -25,7 +24,6 @@ import gsap from 'gsap'
 import { QUESTION_POOL, getCard, scriptedAnswers } from '@ai-duel/core'
 import type { AiInstance, CardId, GamePhase, Question, RoundVerdict } from '@ai-duel/core'
 import { BattleFrame } from '../ui/MatchStage'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { RoundSettleLayer } from '../ui/RoundSettleLayer'
 import type {
   RoundSettle,
@@ -238,7 +236,6 @@ export function SettleTestScreen() {
     <div className="settle-test">
       <BattleFrame>
         <div className="battle">
-          <HandDrawnFilterDefs />
           {settle === null || scenario === null ? (
             <p className="settle-test__empty">
               {scenarioId === null ? '选个场景开始' : '已退场，选个场景重播'}

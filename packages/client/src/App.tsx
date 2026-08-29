@@ -13,6 +13,8 @@ import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
 import { OrientationNotice } from './ui/OrientationNotice'
+import { HandDrawnFilterDefs } from './ui/HandDrawnFilterDefs'
+import { MuteButton } from './ui/MuteButton'
 import { HomeScreen } from './screens/HomeScreen'
 import { InfoScreen } from './screens/InfoScreen'
 import { HeroScreen } from './screens/HeroScreen'
@@ -38,8 +40,20 @@ export function App() {
 
   return (
     <MatchSessionProvider>
+      {/*
+       * 全站共用的手绘抖动滤镜定义，整个文档挂这一份。
+       *
+       * 原来是每个页面各挂一次，因为 CSS 里的 filter: url(#ai-duel-rough-*) 只找得到
+       * 同一个文档里的定义，缺了它 Chrome 上整颗按钮都不画。现在右上角那颗静音钮是全局的、
+       * 也用同一套滤镜，各页各挂就漏了没挂的那几页（/loader、/card 等），
+       * 干脆提到这里来——id 是文档级的，挂一次全站都能引用，而且不会再出现重复 id。
+       * 本身是 0 尺寸的 svg，不占布局。
+       */}
+      <HandDrawnFilterDefs />
       {/* 竖屏时盖在所有页面之上的「请横屏」提示，自己判定要不要显示。 */}
       <OrientationNotice />
+      {/* 右上角常驻的静音按钮。放在路由外面，换页时不重挂、也不用每个界面自己画一颗。 */}
+      <MuteButton />
       <Switch>
         <Route path="/" component={HomeScreen} />
         {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}

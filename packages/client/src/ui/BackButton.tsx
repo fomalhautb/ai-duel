@@ -1,8 +1,14 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, Ref } from 'react'
 
 export type BackButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   /** 按钮上的文字。默认「返回」，个别页面想写「返回大厅」之类的再传。 */
   label?: string
+  /**
+   * 拿到按钮节点。React 19 里 ref 就是普通 prop，跟着下面的展开一起传给 <button>，
+   * 但 ButtonHTMLAttributes 不含它，得在这儿补一条类型。
+   * /hero 的技能详情用它把焦点送进弹层。
+   */
+  ref?: Ref<HTMLButtonElement>
 }
 
 /**

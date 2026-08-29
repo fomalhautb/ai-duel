@@ -36,7 +36,7 @@ export const STARTING_HAND_SIZE = 5
  * 第 2 轮起每轮开始双方各补几张。
  *
  * 一张时手牌只出不进，打到后面双方常常无牌可打、只能干等着答题；两张才够一轮出一两张的消耗。
- * 一局最多摸 5 + 4 轮 × 2 = 13 张，默认牌组 20 张（见 cards.ts 的 STARTER_DECK）管得住，
+ * 一局最多摸 5 + 4 轮 × 2 = 13 张，预设牌组各 20 张（见 cards.ts 的 PRESET_DECKS）管得住，
  * 不会中途抽空。改大到摸得空牌堆也不会出错（drawCards 抽不到就算了），只是画面上会一直显示 0。
  */
 export const ROUND_DRAW_SIZE = 2

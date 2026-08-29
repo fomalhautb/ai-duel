@@ -18,7 +18,6 @@ import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
 import { toHandCardData } from '../ui/handCardData'
-import { isIllustratedSkillCard } from '../ui/skillCardArt'
 import {
   GALLERY_AI_CARDS,
   GALLERY_ALL_CARDS,
@@ -181,7 +180,7 @@ function CardDetail({ card }: { card: Card }) {
               <div className={cardBackClassName(card.kind)}>
                 <span className="card-back__title">{card.name}</span>
                 <p className="card-back__text">
-                  {isIllustratedSkillCard(card.id) ? card.text : cardBackText(card)}
+                  {cardBackText(card)}
                 </p>
               </div>
             )}

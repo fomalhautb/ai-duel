@@ -45,10 +45,12 @@
    * 整套小字一起放大，各档之间的相对关系不会走样（移动档见文件末尾的"移动端版式档"）。
    * 名字带 -plus 的是半档（11.5 / 12.5 / 13.5），原样式里确实用到了这些半档。
    *
-   * 只管 10～15px 这一段。再大的字（标题、比分、按钮）本来就看得清，
-   * 跟着放大反而会把定死的容器撑破。卡面和牌背那几条也刻意留着硬编码 px：
-   * 它们的排版钉死在 150×225 / 284×426 的卡尺寸里，字一大就溢出，
-   * 而卡要看清靠的是放大查看那条链路（--reveal-scale），不是把卡面上的字调大。
+   * 阶梯本身只管 10～15px 这一段。16px 往上的中号字（页眉副标题、顶栏的轮次标签、
+   * 匾额按钮的字…）走另一个开关 --fs-mid-scale，见下面那段。
+   *
+   * 卡面和牌背那几条则刻意留着硬编码 px、连挑都不挑：它们的排版钉死在
+   * 150×225 / 284×426 的卡尺寸里，字一大就溢出，而卡要看清靠的是放大查看那条链路
+   *（--reveal-scale），不是把卡面上的字调大。
    */
   --fs-scale: 1;
   --fs-xs: calc(10px * var(--fs-scale));
@@ -71,6 +73,19 @@
   --fs-cqi-md: calc(1.05cqi * var(--fs-scale));
   --fs-cqi-md-plus: calc(1.1cqi * var(--fs-scale));
   --fs-cqi-lg: calc(1.15cqi * var(--fs-scale));
+
+  /*
+   * 中号字（16～25px / 1.2～2cqi）的放大系数，另设一档、不跟 --fs-scale 走。
+   *
+   * 这一段的字多半钉在死高度的匾额、药丸、圆牌里，或者就压在一行显示级大标题下面，
+   * 照小字那 1.6 倍放会先撑破容器、再把它头上的标题比下去。1.35 是逐个对着看定的：
+   * 手机上这一档字落到屏幕上约 10～12px，读得出，容器也都还装得下。
+   *
+   * 用法不是阶梯而是就地写 calc(设计稿的数 * var(--fs-mid-scale))：
+   * 这一段设计稿上有十来个互不相同的数，列成 token 要加十几个变量，得不偿失。
+   * 只给一处处挑出来的地方用——挑的标准和取值理由见上面 --fs-scale 那段。
+   */
+  --fs-mid-scale: 1;
 
   /*
    * 手绘线条滤镜的引用。定义见 ui/HandDrawnFilterDefs.tsx，那边是滤镜本体，这里是"怎么引"。
@@ -1120,7 +1135,7 @@ html {
   height: 46px;
   padding: 0 12px;
   color: var(--battle-navy);
-  font-size: 18px;
+  font-size: calc(18px * var(--fs-mid-scale));
   letter-spacing: 0.22em;
   text-indent: 0.22em;
   /* 同 .battle__end-turn：底纹在纸色上要用 multiply，screen 会把纹理洗成全白。 */
@@ -1904,7 +1919,9 @@ body:has(.battle) {
 
 .battle-topbar__round {
   color: #53525a;
-  font-size: 18px;
+  /* 只放大「第 … 轮」这个标签，旁边的轮次号和比分数字维持原样：
+     那两个数本来就够大，跟着放会顶破 --battle-topbar-h 定死的顶栏高度。 */
+  font-size: calc(18px * var(--fs-mid-scale));
   /* text-indent 抵掉最后一个字后面多出来的那格字距，这块才是真的居中。 */
   letter-spacing: 0.18em;
   text-indent: 0.18em;
@@ -1932,7 +1949,8 @@ body:has(.battle) {
 
 .battle-topbar__score {
   color: #53525a;
-  font-size: 17px;
+  /* 同 .battle-topbar__round：只放大「我方 / 对方」这两个标签，比分数字不动。 */
+  font-size: calc(17px * var(--fs-mid-scale));
   letter-spacing: 0.16em;
   text-indent: 0.16em;
 }
@@ -2285,7 +2303,7 @@ body:has(.battle) {
   width: 184px;
   height: 60px;
   padding: 0 14px;
-  font-size: 20px;
+  font-size: calc(20px * var(--fs-mid-scale));
   letter-spacing: 0.2em;
   text-indent: 0.2em;
 }
@@ -2857,7 +2875,9 @@ body:has(.battle) {
   font-weight: 600;
   /* 最长的「脑筋急转弯」是五个字：20px 字配 0.03em 字距约 103px，而匾内最里面那道框线
      围出来的可用宽度是 138px（见 PLAQUE_INNER），两边各留 17px 才不顶到线上。
-     换更长的类别名（ui/labels.ts）要回来重算这两个数。 */
+     换更长的类别名（ui/labels.ts）要回来重算这两个数。
+     这个数在手机上也不放大：可用宽度只剩 35px 余量，字一放大就顶到框线上。
+     手机要看清靠的是整块牌匾一起放大，见文件末尾"移动端版式档"里的 .battle__next-plaque。 */
   letter-spacing: 0.03em;
   text-indent: 0.03em;
   white-space: nowrap;
@@ -5083,7 +5103,7 @@ body:has(.battle) {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 22px;
+  font-size: calc(22px * var(--fs-mid-scale));
   font-weight: 700;
 }
 
@@ -5095,8 +5115,9 @@ body:has(.battle) {
 .settle__topscore-mine {
   display: inline-grid;
   place-items: center;
-  min-width: 28px;
-  height: 28px;
+  /* 方块跟着字号一起长：数字放大而方块不动的话，两位数会顶到圆角上。 */
+  min-width: calc(28px * var(--fs-mid-scale));
+  height: calc(28px * var(--fs-mid-scale));
   border-radius: 4px;
   background: #2f6b46;
   color: var(--battle-paper);
@@ -5107,7 +5128,8 @@ body:has(.battle) {
 }
 
 .settle__topscore-foe {
-  min-width: 28px;
+  /* 和我方那个方块同宽，跟着字号一起长（理由见上一条）。 */
+  min-width: calc(28px * var(--fs-mid-scale));
   color: var(--c-life);
   text-align: center;
 }
@@ -5305,7 +5327,7 @@ body:has(.battle) {
 }
 
 .settle__squad-title {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs-mid-scale));
   font-weight: 600;
 }
 
@@ -5472,7 +5494,7 @@ body:has(.battle) {
   margin: 0;
   padding-right: 120px;
   color: var(--battle-ink);
-  font-size: 18px;
+  font-size: calc(18px * var(--fs-mid-scale));
 }
 
 .settle-card__answer {
@@ -7182,15 +7204,27 @@ body:has(.battle) {
 
    为什么需要这一档：全站是 1672×941 的死版式再整体等比缩放（见 ui/useStageScale.ts），
    手机横屏下缩放系数只有 0.36～0.41。桌面上刚好的 12、13px 到了手机上是 5 个屏幕像素，
-   根本读不出来。所以这一档做的全是"把要读的东西放大"，排版结构一个字不改。
+   根本读不出来。所以这一档做的全是"把要读的东西放大"：主要是字号（--fs-scale 和
+   --fs-mid-scale 两个开关），字放大之后装不下的那几个盒子跟着放宽放高，
+   排版结构本身一个字不改。
 
    本块必须留在文件末尾：下面几条选择器和它们在上面的原始声明特异性相同，
    同分时靠后的赢，挪到前面去会被原值盖掉。
    ============================================================ */
 @media (pointer: coarse) {
   :root {
-    /* 小字号整档放大两成。阶梯的定义和取舍见文件开头 :root 里的 --fs-scale。 */
-    --fs-scale: 1.2;
+    /*
+     * 全站字号整档放大六成。阶梯的定义和取舍见文件开头 :root 里的 --fs-scale。
+     *
+     * 为什么是 1.6：手机横屏下舞台缩放约 0.42（见本节开头），乘回去
+     * 12px 的辅助字落到屏幕上是 8px、15px 的正文是 10px、19px 的按钮字是 12.7px，
+     * 刚够读。原来的 1.2 只到 6～8px，一眼看过去全是灰糊的一片。
+     * 再往上就顶到容器了：多数匾额、药丸、圆牌的高度是死值，1.6 已经是逐页对着看
+     * 确认没撑破的上限。真要更大只能改版式，不是改这一个数。
+     */
+    --fs-scale: 1.6;
+    /* 中号字放大三成半。为什么另设一档、为什么不是 1.6，见 :root 里 --fs-mid-scale 的说明。 */
+    --fs-mid-scale: 1.35;
   }
 
   /*
@@ -7274,6 +7308,61 @@ body:has(.battle) {
   .leave-match {
     width: 44px;
     height: 44px;
+  }
+
+  /*
+   * 「下一题」牌匾整块放大一半，而不是只把里面的字调大。
+   *
+   * 匾体是一张 168×118 的死画稿，题型那行字和最里面那道框线之间只剩三十来像素余量
+   *（见 .battle__next-plaque-title 那条注释），单独放大字必然顶到线上。整块缩放没有这个问题：
+   * 画稿是 SVG，放大不糊，匾里匾外的比例也原样保留。
+   * transform-origin 取右上角，牌匾还是从战场右上角那条边吊下来，位置一点不挪。
+   *
+   * 匾内那行眉批「下一题」单独按回 15px：外面已经整块放大一半，它再照旧吃移动档的
+   * --fs-md（12 × 1.6 = 19.2px）就是放了两遍，会长到和题型一样大，匾上两行字分不出主次。
+   * 15 : 20 和设计稿的 12 : 20 接近，经这一层 1.5 倍再经舞台缩放，落到手机屏幕上约 9px。
+   * 匾外那排关键词不按回去：它们是每轮真要读的信息，也不受匾体框线约束，
+   * 19.2px 经 1.5 倍之后落到屏幕上约 12px，正是想要的。
+   *
+   * 眉批得写成绝对值，不能在这一层把 --fs-scale 调小了事：--fs-md 那串 calc 是写在
+   * :root 上的，var(--fs-scale) 在**声明它的那个元素**上就代换完了，
+   * 后代再改 --fs-scale 对已经算好的 --fs-md 没有任何作用。
+   *
+   * 放大之后牌匾从 168 宽变成 252，左沿落在 x=1364，对手那排牌背最远只摊到 1229，
+   * 两者不会撞上（那排的宽度见 fanMath 的 OPPONENT_FAN 和 battleStage 的 battleFieldWidth）。
+   */
+  .battle__next-plaque {
+    transform: scale(1.5);
+    transform-origin: top right;
+  }
+
+  .battle__next-plaque-eyebrow {
+    font-size: 15px;
+  }
+
+  /*
+   * 右下角「结束出牌」和手牌上那颗「打出」跟着字一起放宽放高：
+   * 两颗都是 overflow: hidden 的匾额，字放大三成半而盒子不动的话，文案会被直接切掉。
+   *
+   * 放宽「结束出牌」等于把手牌扇形的右界往左推，而这一步是自动的：HandFan 的 fanAreaWidth
+   * 现量这颗按钮的矩形算可用宽度（见那边注释），没有写死 1456 的地方。
+   * 推完之后锚点中线到按钮左沿还剩 439，扇形按窄的一侧翻倍就是 878 可用；
+   * 五张牌按 GAP_PER_CARD 95 只摊 475 宽，还富余一大截。
+   *
+   * 「打出」只在触屏出现（桌面点一下就直接出牌），本来就该按手指的尺寸给。
+   * 54px 高经舞台缩放落到屏幕上约 22px，仍够不着 44px 触摸目标的下限——
+   * 它是贴着一张牌弹出来的，再高就盖住牌本身了，这里只能取到这个折中。
+   */
+  .battle__end-turn .plaque-button {
+    width: 212px;
+    height: 66px;
+  }
+
+  .hand-fan .hand-fan__play {
+    width: 164px;
+    height: 54px;
+    /* 负半个宽度就是居中，跟着宽度一起改（理由见这颗按钮本体那条规则）。 */
+    margin-left: -82px;
   }
 }
 

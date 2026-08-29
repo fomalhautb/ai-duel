@@ -65,7 +65,9 @@
   border-radius: 12px;
   background: #f4eede;
   color: #2b2c35;
-  font-size: 21px;
+  /* 气泡跟着对局舞台一起缩，手机上 21px 落到屏幕上不到 9px，正是最该读清的一句话。
+     宽度由 JS 定死 430（TutorialOverlay 的 TIP_WIDTH），字大了只是多折一行，不会溢出。 */
+  font-size: calc(21px * var(--fs-mid-scale));
   line-height: 1.5;
   text-align: center;
   box-shadow: 0 10px 26px rgba(6, 10, 18, 0.45);
@@ -89,7 +91,7 @@
   background: rgb(185 160 106 / 18%);
   color: #4a3b22;
   font-family: inherit;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs-mid-scale));
   letter-spacing: 0.08em;
   line-height: 1.2;
   cursor: pointer;
@@ -121,7 +123,8 @@
   border-radius: 999px;
   background: rgb(24 18 12 / 92%);
   color: #f6e7c4;
-  font-size: 17px;
+  /* 同上面的提示气泡：这一层也在缩放的对局舞台里。药丸是内容撑开的，放大不会挤破。 */
+  font-size: calc(17px * var(--fs-mid-scale));
   line-height: 1.3;
   white-space: nowrap;
   box-shadow: 0 8px 22px rgb(6 10 18 / 45%);

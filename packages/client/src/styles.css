@@ -3317,32 +3317,12 @@ body:has(.battle) {
   letter-spacing: 0.08em;
 }
 
+/* 按钮本身直接复用「结束回合」那块八角匾额（PlaqueButton），这里只排布，不再另写一套外观。 */
 .battle__result-actions {
   display: flex;
-  gap: 14px;
-}
-
-.battle__result-actions button {
-  padding: 10px 22px;
-  border: 1px solid rgb(226 213 184 / 55%);
-  border-radius: 3px;
-  background: rgb(37 49 73 / 90%);
-  color: #e7e1d4;
-  font: inherit;
-  font-size: 15px;
-  letter-spacing: 0.12em;
-  cursor: pointer;
-}
-
-.battle__result-actions button:hover {
-  border-color: #cb9d7b;
-  background: rgb(48 63 92 / 92%);
-}
-
-/* 结算底板内的两个原有按钮只换外观，不改变 MatchScreen 传入的点击逻辑。 */
-.battle__result .battle__result-actions {
   gap: 32px;
 }
+
 
 .battle__result .battle__result-actions button {
   position: relative;
@@ -4941,4 +4921,72 @@ body:has(.battle) {
   color: var(--ink-2, #6b6a5f);
   font-size: 17px;
   line-height: 1.75;
+}
+
+/* ---------- 结算界面调试页（/result） ---------- */
+
+/*
+ * 结算层自己是 position: fixed 的，页面只需要给它一个深色底当战场的替身，
+ * 再把调参面板浮在最上面。面板 z-index 要压过结算层的 90。
+ */
+.result-demo {
+  position: fixed;
+  inset: 0;
+  background: #0b0f17;
+}
+
+.result-demo__panel {
+  position: fixed;
+  z-index: 100;
+  bottom: 18px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(226 213 184 / 30%);
+  border-radius: 6px;
+  background: rgb(12 17 26 / 92%);
+  color: #e7e1d4;
+}
+
+.result-demo__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+
+.result-demo__pick {
+  padding: 6px 14px;
+  border: 1px solid rgb(226 213 184 / 40%);
+  border-radius: 3px;
+  background: rgb(37 49 73 / 90%);
+  color: #e7e1d4;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.result-demo__pick--on {
+  border-color: #cb9d7b;
+  background: #30456b;
+}
+
+.result-demo__field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.result-demo__field input {
+  width: 64px;
+  padding: 5px 8px;
+  border: 1px solid rgb(226 213 184 / 35%);
+  border-radius: 3px;
+  background: rgb(8 12 20 / 90%);
+  color: #e7e1d4;
+  font: inherit;
 }

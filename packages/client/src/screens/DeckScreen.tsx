@@ -24,7 +24,11 @@
  *
  * 视觉沿用 /design 那套纸面 token：整页是羊皮纸，左边卡池是嵌在纸上的深蓝星图面板
  * （和对局界面"纸侧栏夹着深色战场"的关系一致），右边牌组面板是纸面雕花框。
- * 桌面鼠标环境 only，不做触屏和窄屏适配，口径和对局页一致。
+ * 触屏和鼠标都要能用（口径和对局页一致，见 docs/architecture.md 1.1），但不做窄屏版式：
+ * 版面锁在下面那个 16:9 舞台里，手机横屏是整块等比缩小，竖屏由全局的竖屏提示拦掉。
+ * 触屏上和鼠标不一样的只有三处：卡池/牌组的卡写 touch-action: pan-y
+ * （竖滑滚列表、横拖加牌移牌，见 deck.css），技能牌的悬停预览只给鼠标（触屏点一下就是整张放大），
+ * 以及格子上那颗「×」在粗指针下常驻显示——它原本只在 hover 时露出来，触屏永远等不到。
  *
  * 版面锁在 16:9 舞台里，和对局页同一套（见 deck.css 的「16:9 舞台」一节）：排版永远按
  * 设计稿的 1672×941 走，整块画面交给 .deck-scaler 的 transform: scale() 缩到窗口里。
@@ -1196,10 +1200,17 @@ const PoolCard = memo(function PoolCard({
         data-picked={picked > 0 ? picked : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
-        onPointerEnter={() => {
+        /* 悬停预览只给鼠标。触屏上 pointerenter 是按下那一刻发的、pointerleave 是抬手
+           那一刻发的，照做就成了"按住才看得见"，手一松预览就没了，等于闪一下；
+           而触屏想看清一张牌本来就有更好的路——点一下就是整张放大（见 onTap → openZoom）。 */
+        onPointerEnter={(event) => {
+          if (event.pointerType !== 'mouse') return
           if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
         }}
-        onPointerLeave={() => onPreview(null)}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'mouse') return
+          onPreview(null)
+        }}
         onFocus={() => {
           if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
         }}
@@ -1255,10 +1266,15 @@ const DeckSlotItem = memo(function DeckSlotItem({
         data-flip-id={deckFlipId(entryKey)}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
-        onPointerEnter={() => {
+        /* 同 PoolCard：悬停预览只给鼠标，触屏点一下就是整张放大。 */
+        onPointerEnter={(event) => {
+          if (event.pointerType !== 'mouse') return
           if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
         }}
-        onPointerLeave={() => onPreview(null)}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'mouse') return
+          onPreview(null)
+        }}
         onFocus={() => {
           if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
         }}

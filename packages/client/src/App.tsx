@@ -12,7 +12,7 @@ import { useEffect } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
-import { TouchDeviceNotice } from './ui/TouchDeviceNotice'
+import { OrientationNotice } from './ui/OrientationNotice'
 import { HomeScreen } from './screens/HomeScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
@@ -35,8 +35,8 @@ export function App() {
 
   return (
     <MatchSessionProvider>
-      {/* 触屏设备的一次性提示，盖在所有页面之上（自己判定要不要显示）。 */}
-      <TouchDeviceNotice />
+      {/* 竖屏时盖在所有页面之上的「请横屏」提示，自己判定要不要显示。 */}
+      <OrientationNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
         {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}

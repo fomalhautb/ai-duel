@@ -2,7 +2,16 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 手机上要能玩，所以这一行比默认的多两件事：
+         viewport-fit=cover 让画面铺满刘海屏（安全区靠 CSS 的 env(safe-area-inset-*) 自己让开），
+         user-scalable=no 关掉双指缩放和双击放大——整个游戏靠拖牌和点牌操作，
+         页面自己已经按视口等比缩放过一遍（见 ui/useStageScale.ts），
+         玩家再缩一次只会把舞台推出屏幕，而且拖牌途中很容易被误判成缩放手势。
+         iOS Safari 会忽略 user-scalable，双击放大那一半由 CSS 的 touch-action 兜底（见 styles.css）。 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
     <title>出牌吧，AI！</title>
     <!-- 站点图标。只给一张 SVG：现代浏览器都认，放大不糊，也不用维护多个尺寸的 PNG。
          图形（一颗浅橙黄色四芒星）见 public/favicon.svg。 -->

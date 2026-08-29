@@ -408,7 +408,23 @@ function HomeStage() {
     })
   }
 
-  const handleStagePointerLeave = () => {
+  /**
+   * 触屏上点一下人物也要能亮起来。
+   *
+   * 高亮本来全靠 pointermove，而手指点一下（不划动）压根不会发 pointermove，
+   * 只有 pointerdown。所以触屏这边补一发：按在谁身上就照亮谁，点到空处自然什么都不亮。
+   * 鼠标不走这条——它的 move 已经足够，按下再探一次是白跑一帧。
+   */
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return
+    handleStagePointerMove(event)
+  }
+
+  const handleStagePointerLeave = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // 触屏的 pointerleave 是**手指抬起**那一刻发的，照做的话点谁都只亮一下就灭，
+    // 介绍卡片根本来不及看。所以触屏上不靠它收：高亮一直留着，
+    // 直到下一次点在别人身上或者点到空处（那一下 handleStagePointerDown 会算出 null）。
+    if (event.pointerType !== 'mouse') return
     // 已排队的那帧必须取消：它闭包里存的是离场前的坐标，跑起来会把刚清掉的高亮又设回去，
     // 而指针已经在舞台外，不会再有 pointermove 来纠正——高亮和介绍卡片就一直亮着了。
     cancelCastProbe()
@@ -460,7 +476,11 @@ function HomeStage() {
         const straighten = -seat.rot
         // hover 只做上浮、放大、回正，不动层级：卡与卡的遮挡一律按 DOM 顺序，
         // 抬起来的卡照样被右边的邻居、以及上层的人物和道具压住，这正是设计稿要的效果。
-        const enter = () => {
+        // 上浮只给鼠标：触屏的 pointerenter / pointerleave 是按下和抬手那一刻发的，
+        // 照做就是"按住抬起来、松手掉回去"，一闪而过，除了掉帧什么也没留下。
+        // 和 /hero 选英雄页那排卡是同一个处理。
+        const enter = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: CARD_LIFT_PERCENT,
             scale: 1.06,
@@ -470,7 +490,8 @@ function HomeStage() {
             overwrite: 'auto',
           })
         }
-        const leave = () => {
+        const leave = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: 0,
             scale: 1,
@@ -507,6 +528,7 @@ function HomeStage() {
         className={`home__stage${hoveredCast !== null ? ' is-cast-hover' : ''}`}
         ref={stageRef}
         onPointerMove={handleStagePointerMove}
+        onPointerDown={handleStagePointerDown}
         onPointerLeave={handleStagePointerLeave}
       >
         <img className="home__layer" src="/home/home-bg.webp" alt="" draggable={false} />

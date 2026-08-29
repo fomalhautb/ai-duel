@@ -264,6 +264,15 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
   }
 
   const onMove = (event: PointerEvent) => {
+    // 触屏和触控笔不做倾斜也不做高光：手指本来就压在卡面上，倾斜看不出来、
+    // 高光那一小块基本被指尖挡着，而这两样每次移动都要写一层 transform 和一次渐变，
+    // 在手机上是白烧帧。触屏想看清一张牌走的是放大和翻面，不是倾斜。
+    // 判的是这一次事件的 pointerType 而不是设备类型：带触屏的笔记本用鼠标操作时照样有倾斜。
+    // settle 里自带"没在跟随就直接返回"，所以这里无脑调一次不会有多余补间。
+    if (event.pointerType !== 'mouse') {
+      settle(false)
+      return
+    }
     if (!isEnabled()) {
       settle(false)
       return

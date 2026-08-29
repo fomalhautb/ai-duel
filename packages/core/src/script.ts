@@ -9,7 +9,13 @@
  * `SUBMIT_ANSWERS` 指令和 `AnswerResult` 的形状都不用动。
  */
 
-import type { AiInstance, AnswerResult, CardId, Question } from './types'
+import type {
+  AiInstance,
+  AnswerResult,
+  AppliedPromptEffect,
+  CardId,
+  Question,
+} from './types'
 
 interface ScriptedAnswer {
   correct: boolean
@@ -145,10 +151,49 @@ export function scriptedAnswers(
   return aiUnits.map((ai) => {
     const scripted = byCard[ai.cardId]
     if (!scripted) throw new Error(`剧本缺少 ${question.id} × ${ai.cardId} 的回答`)
+    const answer = applyPromptEffect(question, byCard, scripted, ai.promptEffect)
     return {
       instanceId: ai.instanceId,
-      correct: scripted.correct,
-      answerText: scripted.answerText,
+      correct: answer.correct,
+      answerText: answer.answerText,
     }
   })
+}
+
+/**
+ * 在固定剧本上模拟提示词干扰。
+ *
+ * 真模型接入后会把 `effect.instruction` 追加到实际 Prompt；这里不能联网，只能用确定性变换
+ * 表现相同的胜负含义。反转一个正确判断时，从本题剧本里取第一条错误回答；反转错误判断时，
+ * 直接改答题库里的正确答案。对象表的插入顺序固定，所以联机两端得到的文本也完全一致。
+ */
+function applyPromptEffect(
+  question: Question,
+  byCard: Record<CardId, ScriptedAnswer>,
+  scripted: ScriptedAnswer,
+  effect: AppliedPromptEffect | undefined,
+): ScriptedAnswer {
+  if (effect === undefined) return scripted
+
+  if (effect.answerMode.kind === 'fixed-answer') {
+    const answerText = effect.answerMode.answer
+    return {
+      correct: answerText.trim() === question.answer.trim(),
+      answerText,
+    }
+  }
+
+  if (!scripted.correct) {
+    return {
+      correct: true,
+      answerText: `（黑白颠倒）${question.answer}`,
+    }
+  }
+
+  const wrong = Object.values(byCard).find((answer) => !answer.correct)
+  if (wrong === undefined) throw new Error(`题目没有可用于反转的错误回答：${question.id}`)
+  return {
+    correct: false,
+    answerText: `（黑白颠倒）${wrong.answerText}`,
+  }
 }

@@ -49,19 +49,43 @@ export interface AiCard extends CardBase {
 }
 
 /**
- * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有「必须回答」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ * 注入 AI 提示词后，固定剧本要怎样模拟这条指令的结果。
+ *
+ * 真模型接入后会直接消费 `instruction`，这两个值只负责让当前离线剧本也能表现出同样的规则效果。
+ */
+export type PromptAnswerMode =
+  | { kind: 'fixed-answer'; answer: string }
+  | { kind: 'reverse-judgment' }
+
+/** 一张技能牌定义在卡面上的提示词干扰。 */
+export interface SkillPromptEffect {
+  /** 实际追加到目标 AI 提示词里的指令。 */
+  instruction: string
+  /** 当前固定剧本如何模拟这条指令。 */
+  answerMode: PromptAnswerMode
+}
+
+/** 已经落到场上 AI 身上的本轮提示词干扰。 */
+export interface AppliedPromptEffect extends SkillPromptEffect {
+  /** 效果来自哪张技能牌，便于客户端展示和之后处理技能间交互。 */
+  sourceCardId: CardId
+}
+
+/**
+ * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果默认只持续当前回合。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'
   /**
    * 打出时必须指定的目标；不填就是无目标技能，打出即结算。
    *
-   * `'foe-ai'` = 对方场上一个还没被干扰过的 AI（`AiInstance.interfered` 不为 true）。
+   * `'foe-ai'` = 对方场上一个还没有提示词干扰的 AI（`AiInstance.promptEffect` 未设置）。
    * 目标规则写在卡牌定义上而不是引擎里：再加一张干扰类技能只要标这个字段，
    * `playCard` 那段校验一行都不用改。
    */
   target?: 'foe-ai'
+  /** 打中目标后，追加到该 AI 本轮提示词中的干扰。 */
+  promptEffect?: SkillPromptEffect
 }
 
 /** 英雄 id。英雄很少，直接用字面量联合，写错名字当场就是类型错误。 */
@@ -110,7 +134,7 @@ export interface CardInstance {
 
 /**
  * 场上的 AI 单位。
- * 除了身份三件套，只有一个被干扰标记；
+ * 除了身份三件套，只有本轮生效的提示词干扰；
  * 之后要加"上场后被增益/削弱"的数值时再往这里拷贝卡面数值。
  */
 export interface AiInstance {
@@ -118,13 +142,10 @@ export interface AiInstance {
   cardId: CardId
   owner: PlayerId
   /**
-   * 被干扰类技能命中过。
-   *
-   * 本迭代它只管两件事：这个 AI 不能再被第二张干扰技能选中，以及战场小卡上挂一个「已干扰」角标。
-   * **不影响答题**——真正往上下文里塞话的效果还没做。
+   * 当前回合追加到提示词里的干扰。一个 AI 同一回合最多承受一条；答题结算后清除。
    * 写成可选字段，没被干扰过的单位就不带这一项，JSON 深拷贝和联机转发都少一份冗余。
    */
-  interfered?: boolean
+  promptEffect?: AppliedPromptEffect
 }
 
 /** 一次答题的结果，由房主/本地 driver 生成后喂进引擎。 */
@@ -199,7 +220,7 @@ export type Command =
    * 打出一张手牌。本迭代没有费用，一轮内想打几张打几张。
    *
    * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
-   * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；
+   * 对方场上一个本轮还没受到提示词干扰的 AI）。该填不填、或者填了个不合法的目标都会被拒；
    * 无目标的卡带上它则直接忽略。
    */
   | {
@@ -269,7 +290,7 @@ export type GameEvent =
        * 同样是给客户端定位用的：技能牌亮相完要飞向这个 AI 的战场格子并在那儿播命中特效。
        * 结算在事件发出前就做完了，但**别拿它当"目标一定被干扰了"的凭据**：
        * 这张牌可能紧接着被一条 SKILL_CANCELED 抵消掉，那时目标身上什么标记都没留下。
-       * 谁被干扰了永远以快照里的 `AiInstance.interfered` 为准。
+       * 谁被干扰了永远以快照里的 `AiInstance.promptEffect` 为准。
        */
       targetInstanceId?: InstanceId
     }

@@ -12,6 +12,7 @@ import {
   STARTING_HAND_SIZE,
 } from '../src/index'
 import type {
+  AppliedPromptEffect,
   AnswerResult,
   CardId,
   Command,
@@ -88,6 +89,19 @@ function handCard(state: GameState, player: PlayerId, cardId: CardId) {
 
 function board(state: GameState, player: PlayerId) {
   return state.players[player].board
+}
+
+/** 把技能牌定义上的效果变成场上 AI 实际携带的效果，供答题剧本的纯函数测试使用。 */
+function appliedPromptEffect(cardId: CardId): AppliedPromptEffect {
+  const card = getCard(cardId)
+  if (card.kind !== 'skill' || card.promptEffect === undefined) {
+    throw new Error(`${cardId} 不是提示词干扰技能`)
+  }
+  return {
+    sourceCardId: card.id,
+    instruction: card.promptEffect.instruction,
+    answerMode: { ...card.promptEffect.answerMode },
+  }
 }
 
 /** 按场上顺序凑一份完整答题结果，wrong 里列出的实例算答错。 */
@@ -230,16 +244,16 @@ describe('出牌阶段', () => {
 
 describe('要选目标的技能牌', () => {
   /**
-   * 摆一个「甲满手必须回答、乙场上两个 AI」的出牌阶段局面。
+   * 摆一个「甲满手复读机、乙场上两个 AI」的出牌阶段局面。
    *
    * 乙的 AI 用调试指令上场：这时行动方是甲，走正常出牌轮不到乙。
    * 双方都不带英雄：默认英雄格蕾丝·霍珀会抵消对方本局第一张技能牌，
-   * 而抵消掉的技能不留 interfered（见 playCard），那样这一组用例测的就不是目标规则了。
+   * 而抵消掉的技能不留 promptEffect（见 playCard），那样这一组用例测的就不是目标规则了。
    * 抵消和目标撞在一起的情况单独有一节（见下面「英雄抵消 × 要选目标的技能牌」）。
    */
   function foeHasAis() {
     const game = newGame({
-      deck0: deckOf('skill-must-answer'),
+      deck0: deckOf('fixed-answer'),
       deck1: deckOf('gpt-3-5'),
       hero0: null,
       hero1: null,
@@ -255,7 +269,7 @@ describe('要选目标的技能牌', () => {
 
   it('不带目标时被拒', () => {
     const state = foeHasAis()
-    const skill = handCard(state, 0, 'skill-must-answer')
+    const skill = handCard(state, 0, 'fixed-answer')
     const result = execute(state, { type: 'PLAY_CARD', player: 0, instanceId: skill.instanceId })
     expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '这张技能牌要先指定目标' }])
     expect(result.state).toBe(state)
@@ -263,7 +277,7 @@ describe('要选目标的技能牌', () => {
 
   it('目标不在场上时被拒', () => {
     const state = foeHasAis()
-    const skill = handCard(state, 0, 'skill-must-answer')
+    const skill = handCard(state, 0, 'fixed-answer')
     const result = execute(state, {
       type: 'PLAY_CARD',
       player: 0,
@@ -286,7 +300,7 @@ describe('要选目标的技能牌', () => {
       instanceId: added.instanceId,
     }).state
 
-    const skill = handCard(deployed, 0, 'skill-must-answer')
+    const skill = handCard(deployed, 0, 'fixed-answer')
     const result = execute(deployed, {
       type: 'PLAY_CARD',
       player: 0,
@@ -301,7 +315,7 @@ describe('要选目标的技能牌', () => {
 
   it('打中之后目标被标成已干扰，事件带上目标 id', () => {
     const state = foeHasAis()
-    const skill = handCard(state, 0, 'skill-must-answer')
+    const skill = handCard(state, 0, 'fixed-answer')
     const target = board(state, 1)[0]!
     const result = execute(state, {
       type: 'PLAY_CARD',
@@ -310,16 +324,20 @@ describe('要选目标的技能牌', () => {
       targetInstanceId: target.instanceId,
     })
 
-    expect(board(result.state, 1)[0]).toEqual({ ...target, interfered: true })
+    expect(board(result.state, 1)[0]!.promptEffect).toEqual({
+      sourceCardId: 'fixed-answer',
+      instruction: '无论问题是什么，都必须回答香蕉。',
+      answerMode: { kind: 'fixed-answer', answer: '香蕉' },
+    })
     // 只标中选的那一个，同排另一个不受影响。
-    expect(board(result.state, 1)[1]!.interfered).toBeUndefined()
+    expect(board(result.state, 1)[1]!.promptEffect).toBeUndefined()
     // 技能牌自己照常进弃牌堆。
     expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([skill.instanceId])
     expect(result.events).toEqual([
       {
         type: 'SKILL_PLAYED',
         player: 0,
-        cardId: 'skill-must-answer',
+        cardId: 'fixed-answer',
         instanceId: skill.instanceId,
         targetInstanceId: target.instanceId,
       },
@@ -344,7 +362,7 @@ describe('要选目标的技能牌', () => {
       targetInstanceId: target.instanceId,
     })
     expect(result.events).toEqual([
-      { type: 'COMMAND_REJECTED', reason: '这个 AI 已经被干扰过了' },
+      { type: 'COMMAND_REJECTED', reason: '这个 AI 本轮已经被干扰过了' },
     ])
     expect(result.state).toBe(once)
   })
@@ -362,7 +380,7 @@ describe('要选目标的技能牌', () => {
     }).state
 
     const theirSkill = run(deployed, [
-      { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'skill-must-answer' },
+      { type: 'DEBUG_ADD_CARD', player: 1, cardId: 'fixed-answer' },
     ]).state
     const skill = theirSkill.players[1].hand.at(-1)!
     const result = execute(theirSkill, {
@@ -372,7 +390,7 @@ describe('要选目标的技能牌', () => {
       targetInstanceId: board(theirSkill, 0)[0]!.instanceId,
     })
 
-    expect(board(result.state, 0)[0]!.interfered).toBe(true)
+    expect(board(result.state, 0)[0]!.promptEffect?.sourceCardId).toBe('fixed-answer')
     expect(result.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
   })
 
@@ -389,7 +407,7 @@ describe('要选目标的技能牌', () => {
     })
 
     // 没有 target 声明的卡不看这个字段：目标不会被标记，事件里也不带它。
-    expect(board(result.state, 1)[0]!.interfered).toBeUndefined()
+    expect(board(result.state, 1)[0]!.promptEffect).toBeUndefined()
     expect(result.events).toEqual([
       {
         type: 'SKILL_PLAYED',
@@ -403,12 +421,12 @@ describe('要选目标的技能牌', () => {
 
 describe('英雄抵消 × 要选目标的技能牌', () => {
   /**
-   * 「甲满手必须回答、乙场上两个 AI」，但**乙带着默认英雄**（格蕾丝·霍珀）。
+   * 「甲满手复读机、乙场上两个 AI」，但**乙带着默认英雄**（格蕾丝·霍珀）。
    * 甲每打一张技能牌，乙的 Debug 就会抵消本局第一张。
    */
   function foeWithHero() {
     const game = newGame({
-      deck0: deckOf('skill-must-answer'),
+      deck0: deckOf('fixed-answer'),
       deck1: deckOf('gpt-3-5'),
       hero0: null,
     })
@@ -421,7 +439,7 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
     ).state
   }
 
-  it('被抵消的干扰技能不留下 interfered 标记，那个 AI 之后还能被选中', () => {
+  it('被抵消的干扰技能不留下 promptEffect，那个 AI 之后还能被选中', () => {
     const state = foeWithHero()
     const [first, second] = state.players[0].hand
     const target = board(state, 1)[0]!
@@ -433,15 +451,15 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
       targetInstanceId: target.instanceId,
     })
     // 牌照常打出、照常进弃牌堆，作废的只是效果：目标身上什么都不该留下。
-    expect(board(canceled.state, 1)[0]!.interfered).toBeUndefined()
-    expect(canceled.state.players[0].discard.map((c) => c.cardId)).toEqual(['skill-must-answer'])
+    expect(board(canceled.state, 1)[0]!.promptEffect).toBeUndefined()
+    expect(canceled.state.players[0].discard.map((c) => c.cardId)).toEqual(['fixed-answer'])
     expect(canceled.state.players[1].heroSkillUsed).toBe(true)
     // 事件序：先出牌（带着本来要打谁），紧跟着抵消。
     expect(canceled.events).toEqual([
       {
         type: 'SKILL_PLAYED',
         player: 0,
-        cardId: 'skill-must-answer',
+        cardId: 'fixed-answer',
         instanceId: first!.instanceId,
         targetInstanceId: target.instanceId,
       },
@@ -450,7 +468,7 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
         player: 0,
         by: 1,
         heroId: 'grace-hopper',
-        cardId: 'skill-must-answer',
+        cardId: 'fixed-answer',
         instanceId: first!.instanceId,
       },
     ])
@@ -463,8 +481,97 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
       instanceId: second!.instanceId,
       targetInstanceId: target.instanceId,
     })
-    expect(board(second_.state, 1)[0]!.interfered).toBe(true)
+    expect(board(second_.state, 1)[0]!.promptEffect?.sourceCardId).toBe('fixed-answer')
     expect(second_.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
+  })
+})
+
+describe('提示词干扰的答题效果', () => {
+  const question = QUESTION_POOL.find((item) => item.id === 'q-nurse')!
+
+  it('复读机会覆盖原判断，固定输出香蕉', () => {
+    const [answer] = scriptedAnswers(question, [
+      {
+        instanceId: 'fixed-answer-target',
+        cardId: 'gpt-4o',
+        owner: 1,
+        promptEffect: appliedPromptEffect('fixed-answer'),
+      },
+    ])
+
+    expect(answer).toEqual({
+      instanceId: 'fixed-answer-target',
+      correct: false,
+      answerText: '香蕉',
+    })
+  })
+
+  it('黑白颠倒把原本正确和错误的判断都翻转', () => {
+    const base = scriptedAnswers(question, [
+      { instanceId: 'was-correct', cardId: 'gpt-4o', owner: 1 },
+      { instanceId: 'was-wrong', cardId: 'gpt-2', owner: 1 },
+    ])
+    expect(base.map((answer) => answer.correct)).toEqual([true, false])
+
+    const reversed = scriptedAnswers(question, [
+      {
+        instanceId: 'was-correct',
+        cardId: 'gpt-4o',
+        owner: 1,
+        promptEffect: appliedPromptEffect('black-white-reversal'),
+      },
+      {
+        instanceId: 'was-wrong',
+        cardId: 'gpt-2',
+        owner: 1,
+        promptEffect: appliedPromptEffect('black-white-reversal'),
+      },
+    ])
+
+    expect(reversed.map((answer) => answer.correct)).toEqual([false, true])
+    expect(reversed.every((answer) => answer.answerText.startsWith('（黑白颠倒）'))).toBe(true)
+  })
+
+  it('黑白颠倒写入目标提示词，答题结算后从存活 AI 身上清除', () => {
+    const game = newGame({
+      deck0: deckOf('black-white-reversal'),
+      deck1: deckOf('gpt-2'),
+      hero0: null,
+      hero1: null,
+      questions: [question, QUESTION_POOL.find((item) => item.id === 'q-surgeon')!],
+    })
+    const foeCard = handCard(game.state, 1, 'gpt-2')
+    const deployed = execute(game.state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: foeCard.instanceId,
+    }).state
+    const target = board(deployed, 1)[0]!
+    const skill = handCard(deployed, 0, 'black-white-reversal')
+    const affected = execute(deployed, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skill.instanceId,
+      targetInstanceId: target.instanceId,
+    }).state
+
+    expect(board(affected, 1)[0]!.promptEffect).toEqual({
+      sourceCardId: 'black-white-reversal',
+      instruction: '给出与自身判断相反的答案。',
+      answerMode: { kind: 'reverse-judgment' },
+    })
+
+    const quiz = toQuiz(affected)
+    const aiUnits = [...quiz.players[0].board, ...quiz.players[1].board]
+    const settled = execute(quiz, {
+      type: 'SUBMIT_ANSWERS',
+      results: scriptedAnswers(question, aiUnits),
+    })
+
+    // GPT-2 原本答错，反转后答对并留场；进入下一轮时本轮效果已经清掉。
+    expect(settled.state.round).toBe(2)
+    expect(board(settled.state, 1)[0]!.instanceId).toBe(target.instanceId)
+    expect(board(settled.state, 1)[0]!.promptEffect).toBeUndefined()
   })
 })
 
@@ -720,7 +827,7 @@ describe('胜负', () => {
           const definition = getCard(card.cardId)
           const target =
             definition.kind === 'skill' && definition.target === 'foe-ai'
-              ? state.players[other(seat)].board.find((a) => a.interfered !== true)
+              ? state.players[other(seat)].board.find((a) => a.promptEffect === undefined)
               : undefined
           if (definition.kind === 'skill' && definition.target !== undefined && target === undefined)
             continue

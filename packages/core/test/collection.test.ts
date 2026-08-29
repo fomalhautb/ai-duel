@@ -35,8 +35,19 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('卡池覆盖全部卡牌定义', () => {
-    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
+  it('两张正式技能牌已解锁并进入默认牌组，占位技能只供调试', () => {
+    for (const id of ['fixed-answer', 'black-white-reversal']) {
+      expect(INITIAL_COLLECTION).toContain(id)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
+    }
+    expect(CARDS['placeholder-skill']).toBeDefined()
+    expect(CARD_POOL).not.toContain('placeholder-skill')
+    expect(INITIAL_COLLECTION).not.toContain('placeholder-skill')
+    expect(STARTER_DECK).not.toContain('placeholder-skill')
+  })
+
+  it('正式卡池覆盖除占位技能外的全部卡牌定义', () => {
+    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length - 1)
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
   })
 

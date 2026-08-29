@@ -11,14 +11,14 @@ import { AI_MODEL_CARD_IDS } from './aiModels'
 import type { CardId } from './types'
 
 /**
- * 完整卡池：目前就是全部能进牌组的卡牌定义（CARDS）。
+ * 正式卡池：全部能进牌组的卡牌定义，但排除只给测试房保留的占位技能。
  * 英雄牌是开局前单独选的，既不进卡池也不进牌组，所以 heroes.ts 的 HEROES 不在这里。
  * 将来如果出现"不进抽卡池"的手牌（活动卡、测试卡），把这里改成显式列表即可。
  */
-export const CARD_POOL: CardId[] = Object.keys(CARDS)
+export const CARD_POOL: CardId[] = Object.keys(CARDS).filter((id) => id !== 'placeholder-skill')
 
 /**
- * 新玩家开局就拥有的卡：十八张 AI 加那两张技能牌。
+ * 新玩家开局就拥有的卡：十八张 AI 加两张正式技能牌。
  *
  * 示例牌组用到的卡必须全在这里，否则新玩家会拿到自己还没解锁的卡。
  * 现在卡池里的牌全在这份收藏里，所以 `drawNewCard` 抽不到新卡（返回 null）——
@@ -26,8 +26,8 @@ export const CARD_POOL: CardId[] = Object.keys(CARDS)
  */
 export const INITIAL_COLLECTION: CardId[] = [
   ...AI_MODEL_CARD_IDS,
-  'placeholder-skill',
-  'skill-must-answer',
+  'fixed-answer',
+  'black-white-reversal',
 ]
 
 /**

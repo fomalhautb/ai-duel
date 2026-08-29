@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CARDS } from '@ai-duel/core'
 import { GALLERY_SKILL_CARDS } from '../src/dev/cardGalleryCatalog'
 import { DECK_DEMO_CARDS } from '../src/screens/deckDemoCards'
 import { SKILL_CARD_ART, isIllustratedSkillCard } from '../src/ui/skillCardArt'
@@ -20,6 +21,12 @@ describe('技能牌正面原画', () => {
   it('把同一批 24 张技能牌收录到 /card 图鉴', () => {
     expect(GALLERY_SKILL_CARDS).toHaveLength(24)
     expect(GALLERY_SKILL_CARDS.map((card) => card.id)).toEqual(skills.map((card) => card.id))
+  })
+
+  it('已实现的技能牌通过同名 id 读取正式规则定义', () => {
+    for (const id of ['fixed-answer', 'black-white-reversal']) {
+      expect(GALLERY_SKILL_CARDS.find((card) => card.id === id)).toBe(CARDS[id])
+    }
   })
 
   it('模型蒸馏使用保留“待定”费用的专属原画', () => {

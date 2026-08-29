@@ -11,12 +11,15 @@ export const GALLERY_AI_CARDS: AiCard[] = Object.values(CARDS).filter(
 )
 
 /**
- * 24 张新技能牌目前只有设计定义，还没有接入规则引擎。
- * /card 和 /deck 共用同一份名称、说明与 id，等规则实现后再整体迁入 core。
+ * 技能牌图鉴仍按 24 张设计清单排序；已经进入正式规则引擎的牌优先读取 core 定义，
+ * 其余继续使用 /deck 的展示数据。这样「复读机」「黑白颠倒」的卡面文案不会和真实效果分叉。
  */
 export const GALLERY_SKILL_CARDS: SkillCard[] = DECK_DEMO_CARDS.filter(
   (card) => card.kind === 'skill',
-).map(({ id, name, text }) => ({ kind: 'skill', id, name, text }))
+).map(({ id, name, text }) => {
+  const playable = CARDS[id]
+  return playable?.kind === 'skill' ? playable : { kind: 'skill', id, name, text }
+})
 
 export const GALLERY_DECK_CARDS: Card[] = [...GALLERY_AI_CARDS, ...GALLERY_SKILL_CARDS]
 export const GALLERY_ALL_CARDS: Card[] = [...GALLERY_HERO_CARDS, ...GALLERY_DECK_CARDS]

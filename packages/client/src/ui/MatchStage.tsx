@@ -1208,7 +1208,7 @@ function BattleField({
    * 对方场上还能被干扰的 AI，也就是干扰类技能的全部合法目标。
    * 引擎那边有同一条规则（见 core 的 playCard），这里只是提前把画面和按钮对齐。
    */
-  const foeTargets = foe.board.filter((ai) => ai.interfered !== true)
+  const foeTargets = foe.board.filter((ai) => ai.promptEffect === undefined)
 
   /** 这张手牌是不是"打出时要点对方一个 AI"的干扰技能。 */
   const needsTarget = (instanceId: string): boolean => {
@@ -1358,7 +1358,7 @@ function BattleField({
       )
       if (best === null || distance < best.distance) best = { ai, distance }
     }
-    if (best === null || best.ai.interfered === true) return null
+    if (best === null || best.ai.promptEffect !== undefined) return null
     return best.ai
   }
 
@@ -1438,7 +1438,7 @@ function BattleField({
 
   /** 选目标态下点中了对手一张可选的小卡：带着目标把这张技能牌发出去。 */
   const confirmTarget = (ai: AiInstance) => {
-    if (targeting === null || ai.interfered === true) return
+    if (targeting === null || ai.promptEffect !== undefined) return
     const { instanceId } = targeting
     // 两个 setState 在同一次事件里合成一次重渲染，actionsLocked 中途不会松开，
     // 扇形里那张抬着的牌也就不会先掉回去再飞走。
@@ -1457,7 +1457,7 @@ function BattleField({
     // 正好也能在测试房里试出"没有合法目标"这条分支。
     const target =
       card.kind === 'skill' && card.target === 'foe-ai'
-        ? me.board.find((ai) => ai.interfered !== true)
+        ? me.board.find((ai) => ai.promptEffect === undefined)
         : undefined
     driver.send({
       type: 'DEBUG_PLAY_CARD',
@@ -2179,7 +2179,9 @@ function BattleField({
                     }
                     // 只有还没被干扰的对手小卡是合法目标。点击路（'pick'）还要把它抬到压暗层之上
                     // 才点得动；其余小卡（含我方那一行）留在压暗层底下，点它们等于点空白 = 取消。
-                    target={targetMode === 'none' || ai.interfered === true ? 'none' : targetMode}
+                    target={
+                      targetMode === 'none' || ai.promptEffect !== undefined ? 'none' : targetMode
+                    }
                     onActivate={() => (targeting === null ? handleInspect(ai) : confirmTarget(ai))}
                   />
                 </div>
@@ -2876,9 +2878,9 @@ function BoardTile({
           橙色是"可以打这里"的专用色，和上场追光那圈金色分得开。
           同样放在裁剪层外面，理由和上面那圈追光一样。 */}
       {targetable ? <div className="battle__tile-target-ring" aria-hidden="true" /> : null}
-      {/* 「已干扰」角标常驻显示，跟着 interfered 这个状态走而不是靠动画残留：
-          它既是给玩家看的记号，也解释了这张卡为什么不能再被选中。 */}
-      {ai.interfered === true ? <span className="battle__tile-mark">已干扰</span> : null}
+      {/* 「已干扰」角标跟着本轮 promptEffect 走而不是靠动画残留：
+          它既是给玩家看的记号，也解释了这张卡为什么本轮不能再被选中。 */}
+      {ai.promptEffect !== undefined ? <span className="battle__tile-mark">已干扰</span> : null}
     </div>
   )
 }

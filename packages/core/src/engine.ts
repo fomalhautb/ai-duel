@@ -182,14 +182,14 @@ function playCard(
 
   // 目标先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
   // 而下面这些改动全落在副本 next 上，顺序写反了以后加分支时容易漏掉。
-  // 找到的是 next 里的那个单位，直接给它盖 interfered 就行。
+  // 找到的是 next 里的那个单位，技能没被抵消时直接把提示词干扰写到它身上。
   let target: AiInstance | undefined
   if (card.kind === 'skill' && card.target === 'foe-ai') {
     if (targetInstanceId === undefined) return reject(state, '这张技能牌要先指定目标')
     target = next.players[other(playerId)].board.find((a) => a.instanceId === targetInstanceId)
     // 两条分开报：客户端选错人和选了个已经被干扰的，玩家该看到的提示不一样。
     if (target === undefined) return reject(state, '目标必须是对方场上的 AI')
-    if (target.interfered === true) return reject(state, '这个 AI 已经被干扰过了')
+    if (target.promptEffect !== undefined) return reject(state, '这个 AI 本轮已经被干扰过了')
   }
 
   player.hand.splice(handIndex, 1)
@@ -209,15 +209,21 @@ function playCard(
     player.discard.push(instance)
     // 格蕾丝·霍珀的 Debug：抵消对方本局打出的第一张技能牌。
     // 牌本身照常打出、照常进弃牌堆，作废的只是**效果**，所以要赶在结算之前先问一句
-    // 「这张会不会被抵消」——被抵消的干扰技能不能给目标盖上 interfered，
+    // 「这张会不会被抵消」——被抵消的干扰技能不能给目标留下 promptEffect，
     // 否则玩家会看到"技能被抵消了，那个 AI 却再也不能被干扰"这种自相矛盾的局面。
     // 以后给别的技能牌写效果，同样都要写进下面这个 canceledBy === null 的分支里。
     const foe = next.players[other(playerId)]
     const canceledBy: HeroId | null =
       foe.hero === 'grace-hopper' && !foe.heroSkillUsed ? foe.hero : null
-    // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰，战场小卡上也会挂个角标。
-    // 它不影响答题——真正往 AI 上下文里塞话的效果还没做。
-    if (canceledBy === null && target !== undefined) target.interfered = true
+    // 提示词效果跟着场上实例走：固定剧本会按 answerMode 模拟，未来真模型调用直接消费 instruction。
+    // 每轮答题结算后统一清掉，符合技能默认只影响当前回合的正式规则。
+    if (canceledBy === null && target !== undefined && card.promptEffect !== undefined) {
+      target.promptEffect = {
+        sourceCardId: card.id,
+        instruction: card.promptEffect.instruction,
+        answerMode: { ...card.promptEffect.answerMode },
+      }
+    }
 
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
@@ -311,6 +317,12 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
       })
       events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
     }
+  }
+
+  // 提示词干扰默认只持续当前回合。答题结果已经生成并落进事件，存活 AI 进入下一轮前清掉效果，
+  // 下一轮才能再次成为干扰技能的合法目标；最后一轮也清，保证终局快照没有过期状态。
+  for (const player of next.players) {
+    for (const ai of player.board) delete ai.promptEffect
   }
 
   // 计分：罚下之后各自数一遍还站着几个 AI，就是本轮拿多少分。

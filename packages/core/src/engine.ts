@@ -10,6 +10,7 @@ import { downgradeTargetOf, upgradeTargetOf } from './aiModels'
 import { CARDS, getCard } from './cards'
 import { QUESTION_POOL } from './questions'
 import type {
+  AiCard,
   AiInstance,
   AnswerResult,
   CardId,
@@ -18,12 +19,14 @@ import type {
   ExecuteResult,
   GameEvent,
   GameState,
+  HandCard,
   HeroId,
   InstanceId,
   PlayerId,
   PlayerState,
   Question,
   RoundVerdict,
+  SkillCard,
 } from './types'
 
 /** 开局手牌数。黑客松阶段不做先后手补偿，双方一样。 */
@@ -80,6 +83,28 @@ export const ADA_TOKEN_MAX_BONUS = 2
 /** 没指定英雄时用谁。留一个兜底是为了让「不关心英雄」的调用方（大多是测试）能少写一个字段。 */
 const DEFAULT_HERO: HeroId = 'grace-hopper'
 
+/**
+ * 状态内随机种子的取值上界。
+ *
+ * 取 2^31 - 1 而不是更大的数：种子要跟着 GameState 走 JSON，
+ * 停在 32 位有符号整数范围内最不容易在序列化两端出岔子。
+ */
+const RNG_SEED_MAX = 0x7fffffff
+
+/**
+ * 一张牌对这位玩家的**实际费用**：卡面费用减去本轮的核电站减免，最低 1 点。
+ *
+ * 客户端的"打不起就变灰"和引擎的扣费校验必须用同一个数，所以这个函数导出给 client 用——
+ * 两边各算一遍的话，玩家会遇到"看着能打，点下去说 Token 不够"。
+ *
+ * 金钟罩期间返回卡面原价：那张牌的口径是字面全挡，对自己有利的减费也一样挡在外面
+ * （完整口径见 types.ts 的 `PlayerState.shielded`）。
+ */
+export function effectivePlayCost(state: GameState, playerId: PlayerId, card: HandCard): number {
+  if (state.players[playerId].shielded === true) return card.tokenCost
+  return Math.max(1, card.tokenCost - state.costReduction)
+}
+
 export interface PlayerSetup {
   name: string
   /** 牌组，元素是卡牌定义 id，可以重复。 */
@@ -126,10 +151,13 @@ export interface GameSetup {
 }
 
 /**
- * 开一局：建好双方状态、洗牌、洗题序、抛硬币定先手、发起始手牌。
+ * 开一局：建好双方状态、洗牌、洗题序、抛硬币定先手、发起始手牌，
+ * 最后给状态留一颗随机种子。
  *
- * 随机只出现在这里。牌堆洗完之后抽牌就是从末尾 pop、题目按洗好的顺序逐轮取，
- * 所以 execute 全程没有随机数，GameState 也不需要保存 RNG 状态。
+ * 开局这一串随机（先手、两副牌堆、题序）在这里一次掷完，之后抽牌就是从牌堆末尾 pop、
+ * 题目按洗好的顺序逐轮取，都不再需要随机。
+ * `execute` 里只剩「内存紧缺」一处要掷随机，它用的是状态里的 `rngSeed`
+ * （为什么不能把生成器本身塞进状态见 types.ts 的 `GameState.rngSeed`）。
  */
 export function createGame(setup: GameSetup): ExecuteResult {
   const rng = mersenne(setup.seed)
@@ -196,6 +224,11 @@ export function createGame(setup: GameSetup): ExecuteResult {
     players,
     winner: null,
     settleConfirmed: [false, false],
+    costReduction: 0,
+    // 这颗种子必须排在洗牌、洗题序**之后**取：rng 是就地推进的，往前插一次取值
+    // 会把后面所有随机的结果整体挪位，"哪个 seed 谁先手、牌堆什么顺序"这些既有对应关系
+    // 全部作废（测试里那两个先手种子就是查出来的现成答案）。
+    rngSeed: uniformInt(rng, 0, RNG_SEED_MAX),
     seq,
   }
 
@@ -254,8 +287,9 @@ export function execute(state: GameState, command: Command): ExecuteResult {
 /**
  * 打出一张手牌。
  *
- * 两道闸：**每轮至多派出一张新 AI 牌**，以及每张牌按卡面 tokenCost 扣 Token、扣不起就整条拒绝
- *（技能牌只受后一道限制，一轮想打几张打几张）。
+ * 两道闸：**每轮至多派出一张新 AI 牌**，以及每张牌按 effectivePlayCost 算出来的实际费用
+ * 扣 Token、扣不起就整条拒绝（技能牌只受后一道限制，一轮想打几张打几张）。
+ * 实际费用不一定等于卡面 tokenCost：核电站会给它减价，见 effectivePlayCost。
  * 另外只有卡面标了 `target` 的技能牌要指定目标。
  */
 function playCard(
@@ -266,11 +300,13 @@ function playCard(
 ): ExecuteResult {
   const next = clone(state)
   const player = next.players[playerId]
+  const foe = next.players[other(playerId)]
   const handIndex = player.hand.findIndex((c) => c.instanceId === instanceId)
   if (handIndex < 0) return reject(state, '手牌里没有这张卡')
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
+  const cost = effectivePlayCost(next, playerId, card)
 
   // 每轮至多派出一张新 AI 牌。这道闸排在费用之前：它和 Token 剩多少无关，
   // 玩家该看到的提示是"这一轮不能再派人了"，而不是"钱不够"。
@@ -283,30 +319,35 @@ function playCard(
 
   // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
   // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
-  if (player.tokens < card.tokenCost) {
-    return reject(state, `Token 不够：这张牌要 ${card.tokenCost} 点，只剩 ${player.tokens} 点`)
+  if (player.tokens < cost) {
+    return reject(state, `Token 不够：这张牌要 ${cost} 点，只剩 ${player.tokens} 点`)
   }
 
-  // 目标先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
+  // 目标和前置条件先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
   // 而下面这些改动全落在副本 next 上，顺序写反了以后加分支时容易漏掉。
-  // 找到的是 next 里的那个单位，直接给它盖 interfered 就行。
+  // 找到的目标是 next 里的那一份，后面直接改它就行。
   let target: AiInstance | undefined
-  if (card.kind === 'skill' && card.target === 'foe-ai') {
-    if (targetInstanceId === undefined) return reject(state, '这张技能牌要先指定目标')
-    target = next.players[other(playerId)].board.find((a) => a.instanceId === targetInstanceId)
-    // 两条分开报：客户端选错人和选了个已经被干扰的，玩家该看到的提示不一样。
-    if (target === undefined) return reject(state, '目标必须是对方场上的 AI')
-    if (target.interfered === true) return reject(state, '这个 AI 已经被干扰过了')
+  let handTarget: CardInstance | undefined
+  if (card.kind === 'skill') {
+    const denied = denyReason(next, playerId, card, targetInstanceId)
+    if (denied !== null) return reject(state, denied)
+    if (card.target === 'own-hand-ai') {
+      handTarget = player.hand.find((c) => c.instanceId === targetInstanceId)
+    } else if (card.target !== undefined) {
+      const owner = card.target === 'foe-ai' ? foe : player
+      target = owner.board.find((a) => a.instanceId === targetInstanceId)
+    }
   }
 
   player.hand.splice(handIndex, 1)
   // 扣费和抽走手牌绑在一起：上面所有会拒绝的分支都已经走完，到这里这张牌必定打得出去。
-  player.tokens -= card.tokenCost
+  player.tokens -= cost
   // 同一笔钱记两处：tokens 是"还剩多少"，会在进下一轮时被补满冲掉；
   // spentThisRound 是"这一轮花了多少"，结算要用它比大小，所以得单独攒着。
   // 技能牌待会儿被英雄技能抵消也不退——Token 是真花出去的，作废的只是效果。
-  // 同对同错时比的就是这个数（见 submitAnswers），所以这一笔的口径必须是"付出去了多少"。
-  player.spentThisRound += card.tokenCost
+  // 同对同错时比的就是这个数（见 submitAnswers），所以这一笔记的是实际费用而不是卡面
+  // tokenCost：核电站减了价，真正付出去的就是减价后那个数。
+  player.spentThisRound += cost
 
   const events: GameEvent[] = []
   if (card.kind === 'ai') {
@@ -324,15 +365,11 @@ function playCard(
     player.discard.push(instance)
     // 格蕾丝·霍珀的 Debug：抵消对方本局打出的第一张技能牌。
     // 牌本身照常打出、照常进弃牌堆，作废的只是**效果**，所以要赶在结算之前先问一句
-    // 「这张会不会被抵消」——被抵消的干扰技能不能给目标盖上 interfered，
+    // 「这张会不会被抵消」——被抵消的干扰技能不能给目标盖上 interference，
     // 否则玩家会看到"技能被抵消了，那个 AI 却再也不能被干扰"这种自相矛盾的局面。
-    // 以后给别的技能牌写效果，同样都要写进下面这个 canceledBy === null 的分支里。
-    const foe = next.players[other(playerId)]
+    // 每张技能牌的效果都写在下面 applySkillEffect 里，而它只在 canceledBy === null 时被调用。
     const canceledBy: HeroId | null =
       foe.hero === 'grace-hopper' && !foe.heroSkillUsed ? foe.hero : null
-    // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰，战场小卡上也会挂个角标。
-    // 它不影响答题——真正往 AI 上下文里塞话的效果还没做。
-    if (canceledBy === null && target !== undefined) target.interfered = true
 
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。
@@ -341,7 +378,8 @@ function playCard(
       player: playerId,
       cardId: card.id,
       instanceId: instance.instanceId,
-      // 无目标技能不带这个字段，客户端据此决定亮相完是原地淡出还是飞向目标格。
+      // 无目标技能、以及打向手牌的模型蒸馏都不带这个字段，客户端据此决定亮相完是原地淡出
+      // 还是飞向战场上的某个格子。
       // 被抵消时也照常带：牌确实是冲着那个 AI 打出去的，客户端先演飞过去、再演抵消，
       // 玩家才看得懂"这一下本来要打谁"。
       ...(target === undefined ? {} : { targetInstanceId: target.instanceId }),
@@ -357,9 +395,228 @@ function playCard(
         cardId: card.id,
         instanceId: instance.instanceId,
       })
+    } else {
+      // 效果事件跟在 SKILL_PLAYED 后面：客户端先演牌打出去，再演它造成了什么。
+      applySkillEffect(next, playerId, card, target, handTarget, events)
     }
   }
   return { state: next, events }
+}
+
+/**
+ * 这张技能牌现在打不打得出去：能打返回 null，不能打返回**直接给玩家看的**那句理由。
+ *
+ * 拆成单独一个函数是因为这里全是"看一眼就退回去"的检查，一条都不许改状态；
+ * 和下面真正动局面的 applySkillEffect 分开写，加新牌时不容易把校验混进结算。
+ */
+function denyReason(
+  state: GameState,
+  playerId: PlayerId,
+  card: SkillCard,
+  targetInstanceId: InstanceId | undefined,
+): string | null {
+  const player = state.players[playerId]
+  const foe = state.players[other(playerId)]
+
+  // 金钟罩「字面全挡」的一半在这里：这三档目标的效果全部落在打出方自己身上，
+  // 自己正罩着的时候打出去必定一点作用都没有，与其让玩家白花 Token，不如当场拒掉。
+  // 另一半（群体牌跳过被罩的一方、被罩的一方不吃减费）分别在 applySkillEffect
+  // 和 effectivePlayCost 里。
+  const selfTargeted =
+    card.target === 'own-ai' || card.target === 'own-affected-ai' || card.target === 'own-hand-ai'
+  if (selfTargeted && player.shielded === true) {
+    return '金钟罩生效中，本轮技能牌也影响不到你自己'
+  }
+  // 金钟罩自己是全挡口径唯一的例外（否则第一张就把自己挡住、这张牌永远打不出去），
+  // 所以要单独拦住"再打一张"：第二张什么都不会改变，纯属白扔 7 点。
+  if (card.id === 'golden-bell-shield' && player.shielded === true) {
+    return '本轮已经有金钟罩了'
+  }
+  if (card.target === undefined) return null
+  if (card.target === 'foe-ai' && foe.shielded === true) {
+    return '对方金钟罩生效中，技能牌影响不到他的 Agent'
+  }
+  if (targetInstanceId === undefined) return '这张技能牌要先指定目标'
+
+  if (card.target === 'own-hand-ai') {
+    const inHand = player.hand.find((c) => c.instanceId === targetInstanceId)
+    // 技能牌自己也在手牌里，但它不是 AI 牌，所以这一条顺带挡住了"拿自己当目标"。
+    if (inHand === undefined || getCard(inHand.cardId).kind !== 'ai') {
+      return '目标必须是你手牌里的一张 AI 牌'
+    }
+    return null
+  }
+
+  const owner = card.target === 'foe-ai' ? foe : player
+  const target = owner.board.find((a) => a.instanceId === targetInstanceId)
+  // "选错了人"和"这个人不符合条件"分开报：玩家该看到的提示不一样。
+  if (target === undefined) {
+    return card.target === 'foe-ai' ? '目标必须是对方场上的 AI' : '目标必须是你自己场上的 AI'
+  }
+  switch (card.target) {
+    case 'foe-ai':
+      // 一个 AI 同时只挂一种干扰，已经挂着的不能再被选。
+      return target.interference === undefined ? null : '这个 AI 已经被干扰过了'
+    case 'own-ai':
+      return target.safePassed === true ? '这个 AI 已经被保送了' : null
+    case 'own-affected-ai':
+      // 玉净瓶要有东西可移除才打得出去，空放一张 4 点的牌不合算，也没法给玩家交代。
+      return target.interference === undefined ? '这个 AI 身上没有可以移除的效果' : null
+  }
+}
+
+/**
+ * 一张技能牌打出后真正改局面的那一步，只在"没被英雄技能抵消"时调用。
+ *
+ * 按 `card.id` 分派而不是按 `target`：目标只说明"选谁"，选中之后要干什么是每张牌自己的事。
+ * 24 张里 10 张在这里有分支，其余的落到 default——那些还是占位牌，打出即进弃牌堆。
+ *
+ * `target` / `handTarget` 由 playCard 校验完传进来，用得上它们的分支必定拿得到值，
+ * 所以下面直接用 `!`。
+ */
+function applySkillEffect(
+  state: GameState,
+  playerId: PlayerId,
+  card: SkillCard,
+  target: AiInstance | undefined,
+  handTarget: CardInstance | undefined,
+  events: GameEvent[],
+): void {
+  const player = state.players[playerId]
+  switch (card.id) {
+    // 干扰两张：记下是被哪张打中的，答题时由答案生成层按种类模拟
+    // （见 script.ts；写字面量而不是 card.id 是为了对上 InterferenceCardId 的类型）。
+    case 'fixed-answer':
+      target!.interference = 'fixed-answer'
+      return
+    case 'black-white-reversal':
+      target!.interference = 'black-white-reversal'
+      return
+    case 'jade-purification-vase':
+      // 解掉干扰之后这个 AI 又是"没被干扰过"的了，本轮还可能被对面再打一张。
+      delete target!.interference
+      return
+    case 'safe-pass':
+      target!.safePassed = true
+      return
+    case 'golden-bell-shield':
+      player.shielded = true
+      return
+    case 'nuclear-power-station':
+      state.costReduction += 1
+      return
+    case 'model-distillation': {
+      // 手牌数组在打出这张技能牌时已经变短了，所以要按 id 重新定位那张 AI 牌。
+      const index = player.hand.findIndex((c) => c.instanceId === handTarget!.instanceId)
+      const removed = player.hand.splice(index, 1)[0]!
+      player.discard.push(removed)
+      // 用印刷费用而不是 effectivePlayCost：核电站减的是"打出去要花多少"，
+      // 不该连带把回收价也压下去。
+      // 换来的 Token 可能顶破 tokenMax，这是有意允许的——多出来的部分在下一轮补满时被覆盖。
+      player.tokens += getCard(removed.cardId).tokenCost + 1
+      events.push({ type: 'CARD_REMOVED', player: playerId, instanceId: removed.instanceId })
+      return
+    }
+    case 'memory-shortage':
+      // 一次 withRng 覆盖双方：两边各洗一次也行，但那样每打一张牌种子要推进两次，
+      // 复盘时不好数。
+      withRng(state, (rng) => {
+        for (const side of state.players) {
+          if (side.shielded === true) continue
+          // 空场就什么都不发生：这张牌允许打空（对面也许正好被清干净了）。
+          if (side.board.length === 0) continue
+          const keep = Math.ceil(side.board.length / 2)
+          const survivors = new Set(
+            shuffle(
+              side.board.map((a) => a.instanceId),
+              rng,
+            ).slice(0, keep),
+          )
+          removeFromBoard(side, (ai) => !survivors.has(ai.instanceId), card.id, events)
+        }
+      })
+      return
+    case 'domestic-substitution':
+      for (const side of state.players) {
+        if (side.shielded === true) continue
+        removeFromBoard(side, (ai) => boardCard(ai).domestic !== true, card.id, events)
+      }
+      return
+    case 'rising-tide':
+      for (const side of state.players) {
+        if (side.shielded === true) continue
+        for (const ai of side.board) {
+          const toCardId = boardCard(ai).evolvesTo
+          if (toCardId === undefined) continue
+          const fromCardId = ai.cardId
+          // 只换卡面身份：instanceId 不变，interference / safePassed 也跟着这个单位留下，
+          // 因为它还是刚才那个单位，只是升了一级。
+          ai.cardId = toCardId
+          events.push({
+            type: 'AI_TRANSFORMED',
+            instanceId: ai.instanceId,
+            owner: ai.owner,
+            fromCardId,
+            toCardId,
+          })
+        }
+      }
+      return
+    default:
+      // 其余 14 张还是占位牌：打出即进弃牌堆，什么都不发生（名单见 skillCards.ts）。
+      return
+  }
+}
+
+/**
+ * 把场上符合条件的单位移进弃牌堆，各发一条 AI_REMOVED。
+ *
+ * 留下的按原顺序排好，客户端的战场格子才不会因为清场而整排重新洗位置。
+ * `by` 是干这件事的那张技能牌，客户端靠它给不同的牌配不同的演出。
+ */
+function removeFromBoard(
+  player: PlayerState,
+  doomed: (ai: AiInstance) => boolean,
+  by: CardId,
+  events: GameEvent[],
+): void {
+  const removed = player.board.filter(doomed)
+  player.board = player.board.filter((ai) => !doomed(ai))
+  for (const ai of removed) {
+    player.discard.push({ instanceId: ai.instanceId, cardId: ai.cardId, owner: ai.owner })
+    events.push({
+      type: 'AI_REMOVED',
+      instanceId: ai.instanceId,
+      owner: ai.owner,
+      // 事件发出时这个单位已经不在场上了，界面要画它只剩这里这一份卡面身份。
+      cardId: ai.cardId,
+      by,
+    })
+  }
+}
+
+/**
+ * 场上单位的卡面定义。
+ * board 里只可能站着 AI 牌，查出别的说明有人把技能牌塞进了场上，属于数据错误而不是
+ * 玩家操作能触发的情况，所以和 getCard 一样直接抛错。
+ */
+function boardCard(ai: AiInstance): AiCard {
+  const card = getCard(ai.cardId)
+  if (card.kind !== 'ai') throw new Error(`场上出现了非 AI 牌：${ai.cardId}`)
+  return card
+}
+
+/**
+ * 用状态里的种子跑一次随机，跑完把下一颗种子写回状态。
+ *
+ * 这样引擎既保持"同一份状态 + 同一条指令 = 同一个结果"，又不用把生成器本身
+ * （不可 JSON 序列化）塞进状态。联机时房主广播完快照，客人手上的种子和房主一致。
+ */
+function withRng<T>(state: GameState, use: (rng: RandomGenerator) => T): T {
+  const rng = mersenne(state.rngSeed)
+  const result = use(rng)
+  state.rngSeed = uniformInt(rng, 0, RNG_SEED_MAX)
+  return result
 }
 
 /**
@@ -413,7 +670,9 @@ function useHeroSkill(
   }
 
   // 换掉 cardId 就是这个技能的全部效果：费用、卡面、答题剧本全部跟着新卡走。
-  // interfered 原样留着——被干扰和升降级是两码事，同一个单位身上互不影响。
+  // 身上那两个「本轮」标记（interference / safePassed）原样留着——被干扰、被保送和升降级
+  // 是三码事，同一个单位身上互不影响，升完照样只会答香蕉、也照样答错不罚下。
+  // 金钟罩同理管不着这里：它挡的是技能牌，而英雄技能不是技能牌（见 types.ts 的 shielded）。
   target.cardId = toCardId
   target.levelShift = (target.levelShift ?? 0) + (direction === 'upgrade' ? 1 : -1)
   player.heroSkillUsed = true
@@ -478,8 +737,10 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   }
 
   const events: GameEvent[] = []
-  // 「己方本轮答对」= 己方场上至少一个 AI 答对。
+  // 「己方本轮答对」= 己方场上至少一个 AI 答对，边罚下边记。
   // 初值 false 顺带覆盖了"场上一个 AI 都没有"的一方：它一条结果都没有，自然算没答对。
+  // 只认答题结果、不看罚完之后场上还剩谁：被保送的单位答错也留在场上（见下面那条分支），
+  // 照场上还有没有人来判就会把它算成答对了。
   const correct: [boolean, boolean] = [false, false]
   for (const result of results) {
     // 上面刚校验过 results 和场上一一对应，所以这里必定找得到人。
@@ -499,14 +760,21 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
       answer: result.answer,
       reasoning: result.reasoning,
     })
+    // 答对的原地留场，只有答错的才要处理去留。
     if (!result.correct) {
-      owner.board.splice(index, 1)
-      owner.discard.push({
-        instanceId: ai.instanceId,
-        cardId: ai.cardId,
-        owner: ai.owner,
-      })
-      events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
+      if (ai.safePassed === true) {
+        // 「保送」：答错也不罚下，但这一题仍然算他答错（计分口径不变）。
+        // 这条占的就是本该发 AI_ELIMINATED 的位置，客户端照着改演出。
+        events.push({ type: 'AI_SAFE_PASSED', instanceId: ai.instanceId, owner: ai.owner })
+      } else {
+        owner.board.splice(index, 1)
+        owner.discard.push({
+          instanceId: ai.instanceId,
+          cardId: ai.cardId,
+          owner: ai.owner,
+        })
+        events.push({ type: 'AI_ELIMINATED', instanceId: ai.instanceId, owner: ai.owner })
+      }
     }
   }
 
@@ -574,11 +842,22 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
   next.firstPlayer = other(next.firstPlayer)
   next.activePlayer = next.firstPlayer
   next.phase = 'play'
+  // 技能牌留下的"本轮"效果全部在这里失效：核电站的减费、金钟罩、场上单位身上的干扰和保送。
+  // 清除点定在真的进下一轮这一步（而不是提交答题结果时），是因为结算界面还要照着这些标记
+  // 演一遍"这个被干扰了 / 这个是被保送留下的"。玉净瓶卡面上「本轮作用于你的 Agent 的效果」
+  // 那句口径也是靠这里成立的。
+  next.costReduction = 0
   // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
-  // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉。
+  // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉
+  //（模型蒸馏顶破上限的那部分也是在这里被覆盖的）。
   // 本轮消耗和"派过 AI 了"两个标志一起清零，新一轮从头算。
   // 消耗那一份的读者是结算界面，所以一直留到真的离开结算这一刻才失效。
   for (const player of next.players) {
+    delete player.shielded
+    for (const ai of player.board) {
+      delete ai.interference
+      delete ai.safePassed
+    }
     player.tokenMax += TOKEN_MAX_GROWTH
     player.tokens = player.tokenMax
     player.spentThisRound = 0

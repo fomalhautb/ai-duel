@@ -18,6 +18,14 @@ import type { AiCard, CardId } from './types'
  * 一个待遇。
  * 离线预生成脚本 scripts/pregen-answers.mjs 另有一份自己的模型表：那边除了 id 还要配
  * 思考强度和截断方式，是这份表的一个带调参的子集，加模型时两处都要看一眼。
+ *
+ * 另有两个给技能牌读的标签，改动同样会直接影响平衡。它们和"调不调得到模型"是两回事，
+ * 所以 openrouter 为 null 的那两张照样带着标签（文心一言仍然算国产、GPT-2 仍是进化链链头）：
+ * - `domestic`：国产模型（下面 10 张）。「国产替代」把双方场上没标它的全部罚下。
+ * - `evolvesTo`：进化链的下一级。四条链 gpt-2→gpt-3-5→gpt-4o→chatgpt-5-6-sol、
+ *   claude-5-sonnet→claude-fable-5、deepseek-r1→deepseek-v4、kimi-k2-6→kimi-k3，
+ *   「鸡犬升天」顺着它把场上单位换成下一张。链尾和 Gemini、Grok 这类没有前后代的单张不填，
+ *   也就是"不可进化"。链是按同厂商的代际排的，跨厂商不连，费用也顺着链递增。
  */
 export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
   'gpt-2': {
@@ -29,6 +37,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     // davinci / babbage 都没上架，也没有第三方托管。这张牌因此进不了牌组。
     openrouter: null,
     tokenCost: 1,
+    evolvesTo: 'gpt-3-5',
     text: '它会接话，但不保证接的是人话。',
   },
   'gpt-3-5': {
@@ -38,6 +47,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'GPT-3.5',
     openrouter: 'openai/gpt-3.5-turbo',
     tokenCost: 2,
+    evolvesTo: 'gpt-4o',
     text: '什么都答得上来，答得对不对是另一回事。',
   },
   'gpt-4o': {
@@ -47,6 +57,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'GPT-4o',
     openrouter: 'openai/gpt-4o',
     tokenCost: 4,
+    evolvesTo: 'chatgpt-5-6-sol',
     text: '看得见图、听得见声，就是有点太想夸你。',
   },
   'chatgpt-5-6-sol': {
@@ -65,6 +76,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Claude 5 Sonnet',
     openrouter: 'anthropic/claude-sonnet-5',
     tokenCost: 4,
+    evolvesTo: 'claude-fable-5',
     text: '写代码很稳，就是喜欢先解释一遍它打算怎么写。',
   },
   'claude-fable-5': {
@@ -82,7 +94,9 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'DeepSeek R1',
     model: 'DeepSeek R1',
     openrouter: 'deepseek/deepseek-r1',
+    domestic: true,
     tokenCost: 3,
+    evolvesTo: 'deepseek-v4',
     text: '先自言自语三千字，再回答你那个是非题。',
   },
   'deepseek-v4': {
@@ -91,6 +105,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'DeepSeek V4',
     model: 'DeepSeek V4',
     openrouter: 'deepseek/deepseek-v4-pro',
+    domestic: true,
     tokenCost: 5,
     text: '用别人一半的算力，办完一样的事。',
   },
@@ -111,6 +126,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Qwen',
     // 同上，卡面没有版本号，取千问自家的旗舰档 Max。
     openrouter: 'qwen/qwen3.8-max',
+    domestic: true,
     tokenCost: 3,
     text: '什么尺寸都有，什么活都接。',
   },
@@ -120,7 +136,9 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'Kimi K2.6',
     model: 'Kimi K2.6',
     openrouter: 'moonshotai/kimi-k2.6',
+    domestic: true,
     tokenCost: 3,
+    evolvesTo: 'kimi-k3',
     text: '嘴上说着「这个我不能回答」，手上已经开始写了。',
   },
   'kimi-k3': {
@@ -129,6 +147,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'Kimi K3',
     model: 'Kimi K3',
     openrouter: 'moonshotai/kimi-k3',
+    domestic: true,
     tokenCost: 5,
     text: '会自己调工具、自己查资料、自己相信查到的东西。',
   },
@@ -139,6 +158,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Doubao',
     // 豆包是字节的 App 名，OpenRouter 上架的是它底座的 Seed 系列，所以调 Seed。
     openrouter: 'bytedance-seed/seed-2-1-turbo',
+    domestic: true,
     tokenCost: 2,
     text: '语气永远是好脾气，答案偶尔不是。',
   },
@@ -148,6 +168,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'GLM-5',
     model: 'GLM-5',
     openrouter: 'z-ai/glm-5',
+    domestic: true,
     tokenCost: 4,
     text: '中文说得比谁都顺，顺到你懒得核对。',
   },
@@ -157,6 +178,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'MiniMax',
     model: 'MiniMax',
     openrouter: 'minimax/minimax-m3',
+    domestic: true,
     tokenCost: 3,
     text: '能说会唱，正经答题的时候有点跳。',
   },
@@ -167,6 +189,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     model: 'Yuanbao',
     // 同豆包：元宝是腾讯的 App 名，OpenRouter 上架的是它底座的混元，所以调 hy3。
     openrouter: 'tencent/hy3',
+    domestic: true,
     tokenCost: 3,
     text: '先去搜一圈再回来答，搜到什么信什么。',
   },
@@ -187,6 +210,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     // OpenRouter 上百度只有 ernie-4.5-vl 这一个旧的开源视觉版，不是文心一言现役的那个模型，
     // 拿它冒充等于卡面写一套、答题的是另一套。宁可不接，这张牌因此进不了牌组。
     openrouter: null,
+    domestic: true,
     tokenCost: 3,
     text: '成语接得漂亮，事实核得一般。',
   },
@@ -225,13 +249,19 @@ export const UNAVAILABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
 /**
  * 同系列的升级链，每条按"从老到新"排。
  *
- * 升降级技能（陈丹琦的「精准检索」、梅拉妮·珀金斯的「化繁为简」）就是**把场上那个单位的
- * `cardId` 换成链上相邻的一张**，不另加任何数值修正：
+ * **不是另写一份名单，而是顺着每张卡的 `evolvesTo` 现串出来的**：链头是"没有任何卡指向它、
+ * 自己又指向别人"的那几张，从链头一路跟着 evolvesTo 走到头就是一条链。
+ * 这么做是因为同一份代际关系有两个读者——技能牌「鸡犬升天」直接读 `evolvesTo` 逐个进化，
+ * 英雄技能「精准检索」/「化繁为简」读这份链表升降级。写成两份迟早会对不上，
+ * 那时同一对卡在两条路径上会给出不同的下一代，谁都说不清哪个才算数。
+ *
+ * 升降级技能就是**把场上那个单位的 `cardId` 换成链上相邻的一张**，不另加任何数值修正：
  * 答题表现本来就写在 script.ts 那张「题目 × 卡牌」的静态表里，换了卡自然就换了一整套答题结果，
  * 引擎不必再理解"强了多少"。费用也不用重算——技能是免费换卡，不退不补（见 engine.ts 的 useHeroSkill）。
  *
- * 只有确实存在代际关系的四个系列进表，其余 8 张（Gemini / 通义千问 / 豆包 / GLM-5 /
- * MiniMax / 腾讯元宝 / Grok / 文心一言）在卡池里各自只有一代，指向它们的升降级一律被拒。
+ * 只有确实存在代际关系的四个系列会串出链来（GPT / Claude / DeepSeek / Kimi），
+ * 其余 8 张（Gemini / 通义千问 / 豆包 / GLM-5 / MiniMax / 腾讯元宝 / Grok / 文心一言）
+ * 不带 evolvesTo、也没人指向它们，指向它们的升降级一律被拒。
  * 每张卡最多出现在一条链里、链内不重复，所以查上一代/下一代都是唯一答案。
  *
  * 链条**不避开 UNAVAILABLE_AI_CARD_IDS**：GPT-2 调不到模型、进不了牌组，
@@ -241,12 +271,31 @@ export const UNAVAILABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
  * 只会让"降一代"这件事变得难以预期（对面看到的会是 GPT-3.5 直接掉成……什么？）。
  * 将来真接上模型 API，再决定是给这两张配一个替身模型，还是那时才把它们从链上摘掉。
  */
-export const AI_UPGRADE_CHAINS: readonly (readonly CardId[])[] = [
-  ['gpt-2', 'gpt-3-5', 'gpt-4o', 'chatgpt-5-6-sol'],
-  ['claude-5-sonnet', 'claude-fable-5'],
-  ['deepseek-r1', 'deepseek-v4'],
-  ['kimi-k2-6', 'kimi-k3'],
-]
+export const AI_UPGRADE_CHAINS: readonly (readonly CardId[])[] = buildUpgradeChains()
+
+function buildUpgradeChains(): CardId[][] {
+  // 被别人指着的都不是链头。evolvesTo 里的每个值最多被一张卡指向（由测试守着），
+  // 所以"没被指过"就足以认出链头，不用再判环。
+  const pointedAt = new Set(
+    AI_MODEL_CARD_IDS.map((id) => AI_MODEL_CARDS[id]?.evolvesTo).filter(
+      (id): id is CardId => id !== undefined,
+    ),
+  )
+  const chains: CardId[][] = []
+  for (const head of AI_MODEL_CARD_IDS) {
+    if (pointedAt.has(head) || AI_MODEL_CARDS[head]?.evolvesTo === undefined) continue
+    const chain: CardId[] = [head]
+    // 一路跟着 evolvesTo 走到头。链上不会有环（collection 的测试守着"不指回自己"，
+    // 加上上面那条"每张最多被指一次"，环就无从形成）。
+    let next: CardId | undefined = AI_MODEL_CARDS[head]?.evolvesTo
+    while (next !== undefined) {
+      chain.push(next)
+      next = AI_MODEL_CARDS[next]?.evolvesTo
+    }
+    chains.push(chain)
+  }
+  return chains
+}
 
 /** 在升级链上按 step 找相邻的一张：+1 是下一代，-1 是上一代；不在链上或走出两端都是 null。 */
 function chainNeighbor(cardId: CardId, step: 1 | -1): CardId | null {

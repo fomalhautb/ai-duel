@@ -2329,6 +2329,33 @@ body:has(.battle) {
 }
 
 /*
+ * 「金钟罩」标记：这一方本轮被罩着，任何技能牌都影响不到他和他的 AI。
+ *
+ * 挂在英雄牌的**右上角**，字号跟着卡一起缩。四个角各有主人，谁都别挤谁：
+ * 左上是「技能已用」、左下是发动技能的按钮（见下面的 .battle__hero-skill）、
+ * 右下是卡堆，只剩右上给它。左下那颗按钮和这枚标记确实会同时出现
+ *（自己带着陈丹琦/珀金斯、又打了金钟罩），所以不能跟它抢同一个角。
+ * 圆角按"外角跟着卡、内角收一下"配，和左上那枚镜像对称。
+ *
+ * 挂在这一方的面板上而不是某张小卡上：罩的是整个人，场上没有 AI 时也照样生效。
+ * 配色和角标那圈金色分开——它说的不是"这张卡怎么了"，而是"这一整块是谁的地盘"。
+ */
+.battle__shield-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 6px;
+  border: 1px solid rgb(140 214 255 / 55%);
+  border-radius: 0 6px 0 6px;
+  background: color-mix(in srgb, #123049 86%, transparent);
+  color: #bfe6ff;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.085));
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/*
  * 发动主动英雄技能的按钮，压在我方英雄牌的左下角（只有陈丹琦和梅拉妮·珀金斯有，
  * 见 MatchStage 的 heroSkillButton）。按钮上印的就是技能名。
  *
@@ -2337,7 +2364,7 @@ body:has(.battle) {
  * 卡堆在右下、这颗按钮在左下。左右两边的内缩量抄的是卡堆那份，两个角看起来才是对称的。
  * max-width 收在卡宽的 62%，右边给卡堆（0.28 卡宽）留足余地，技能名再长也顶不到它。
  *
- * 配色是「已干扰」那套角标的放大版（藏青底 + 金字 + 金边）：它压在一张深色原画上，
+ * 配色是干扰角标那套的放大版（藏青底 + 金字 + 金边）：它压在一张深色原画上，
  * 纸白匾额那一套（结束出牌按钮）在这儿会糊成一块白斑。
  * z-index 2 压在卡面（无 z-index）和卡堆（1）之上；三者不重叠，写出来只是把顺序说死。
  *
@@ -2386,6 +2413,7 @@ body:has(.battle) {
  */
 .battle__hero--held .battle__hero-card,
 .battle__hero--held .battle__hero-used,
+.battle__hero--held .battle__shield-mark,
 .battle__hero--held .battle__hero-skill {
   visibility: hidden;
 }
@@ -2793,6 +2821,25 @@ body:has(.battle) {
   fill: #8b8578;
   stroke: #6f6a5e;
   opacity: 0.7;
+  filter: url('#ai-duel-rough-icon');
+}
+
+/*
+ * 超出本轮上限的那几点（只可能来自「模型蒸馏」，见 TokenTrack 的 shown）：换成青色。
+ *
+ * 这几点和上限之内的额度花起来没有任何区别，换色只为说明"它们是白捡的、
+ * 下一轮补满时就没了"。排在 [data-spent] 之后，花掉之后仍旧退成同一道灰印子。
+ */
+.battle__token-star[data-extra] {
+  fill: #6fd3c7;
+  stroke: #2c5f5a;
+  filter: url('#ai-duel-rough-icon') drop-shadow(0 1px 2px rgb(30 70 68 / 45%))
+    drop-shadow(0 0 3px rgb(111 211 199 / 85%)) drop-shadow(0 0 9px rgb(64 176 164 / 55%));
+}
+
+.battle__token-star[data-extra][data-spent] {
+  fill: #8b8578;
+  stroke: #6f6a5e;
   filter: url('#ai-duel-rough-icon');
 }
 
@@ -4058,15 +4105,19 @@ body:has(.battle) {
   mask-composite: exclude;
 }
 
-/* ---------- 选目标（干扰类技能） ---------- */
+/* ---------- 选目标（标了 target 的技能牌） ---------- */
 
 /*
  * 点一下「复读机」这类要选目标的技能牌之后的全屏压暗：整个画面只剩"能打谁"这一件事。
  *
+ * 四档目标（对方的 AI / 己方的 AI / 己方被干扰的 AI / 自己手牌里的 AI 牌，
+ * 口径见 core 的 `SkillCard.target`）共用这一层，区别只在哪一批东西亮着。
+ *
  * 铺满视口、压过顶栏（70）：战场、侧栏（30）、双方手牌（20）一起暗下去。
  * 亮着的只有两样，各自被抬到这一层之上：
  * 可选目标的小卡（76，见 .battle__tile--target-lift）和整个手牌扇形（77，见 .hand-fan[data-casting]，
- * 那一排里只有正在施放的那张不被 GSAP 压暗）。
+ * 那一排里只有正在施放的那张不被 GSAP 压暗）；
+ * 选手牌那一档（模型蒸馏）另铺一排候选卡在这一层里面（见 .battle__hand-pick）。
  * 挂在 .battle 根下而不是塞进战场：战场那几层刻意不建层叠上下文（见 .battle__board 的注释），
  * 而且压暗必须盖到侧栏和顶栏上去。
  *
@@ -4204,11 +4255,12 @@ body:has(.battle) {
 }
 
 /*
- * 常驻角标那一列，从小卡左上角往下排。
+ * 常驻角标那一列，从小卡左上角往下排：干扰（「复读中」/「已颠倒」）、「保送」、
+ * 「已升级 / 已降级」。
  *
- * 排成一列而不是各自绝对定位：「已干扰」和「已升级 / 已降级」会同时挂在一张卡上
- *（被干扰过的单位照样能被英雄技能升降级），摞在同一个角上就糊成一团。
- * 一列最多两枚，两行加起来约 34px，小卡有 165px 高（--tile-h），压不到卡面下半截的名字和费用。
+ * 排成一列而不是各自绝对定位：这三类会同时挂在一张卡上（被干扰的单位照样能被保送、
+ * 也照样能被英雄技能升降级），摞在同一个角上就糊成一团。
+ * 一列最多三枚，三行加起来约 51px，小卡有 165px 高（--tile-h），压不到卡面下半截的名字和费用。
  *
  * 整列不吃指针事件，免得挡住小卡自己的点击热区；和上场追光、目标描边一样放在
  * 裁剪层（overflow: hidden）外面，不跟着卡一起倾斜。
@@ -4225,8 +4277,9 @@ body:has(.battle) {
 }
 
 /*
- * 一枚角标。三种共用同一个药丸底，只换文字和描边的颜色，让"被干扰 / 变强了 / 变弱了"
- * 一眼分得开——三行字都只有三个字，光靠读字要在小卡上眯眼看半天。
+ * 一枚角标。四种共用同一个药丸底，只换文字和描边的颜色，让"被干扰 / 被保送 /
+ * 变强了 / 变弱了"一眼分得开——每行字都只有两三个字，光靠读字要在小卡上眯眼看半天。
+ * 默认这一档是干扰的琥珀色，其余三档各带一个修饰类（--safe / --up / --down）。
  */
 .battle__tile-mark {
   padding: 2px 7px;
@@ -4242,8 +4295,8 @@ body:has(.battle) {
 /*
  * 升降级这两档是整个战场上仅有的冷色，专门留给它们：
  * 橙色（.battle__tile-target-ring）已经是"可以打这里"的专用色，金色则是上场追光和
- * 「已干扰」在用，再拿暖色分这两枚就分不出来了。绿＝变强、灰蓝＝变弱是通用读法。
- * 「已干扰」不写修饰类，它就是上面那份底色。
+ * 干扰那两枚在用，再拿暖色分这两枚就分不出来了。绿＝变强、灰蓝＝变弱是通用读法。
+ * 干扰那一档不写修饰类，它就是上面那份底色。
  */
 .battle__tile-mark--up {
   border-color: rgb(169 220 184 / 55%);
@@ -4253,6 +4306,104 @@ body:has(.battle) {
 .battle__tile-mark--down {
   border-color: rgb(183 195 216 / 45%);
   color: #b7c3d8;
+}
+
+/*
+ * 「保送」那一枚换成青色：它和干扰是相反的两件事（一个是被人整、一个是被人保），
+ * 同色的话摞在一起看着像同一类标记的两行字。
+ */
+.battle__tile-mark--safe {
+  border-color: rgb(140 214 255 / 60%);
+  color: #bfe6ff;
+}
+
+/*
+ * 被技能牌罚下时留在特效层里的那份复制品（见 ui/playSummonFx.ts 的 playRemovalFx）。
+ *
+ * 位置由 JS 逐个写在 style 上（left / top，舞台内像素），尺寸沿用 .battle__tile 自己的宽高。
+ * 绝不吃指针事件：它只是一段正在化掉的画面，玩家点它没有任何意义。
+ */
+.battle__tile--ghost {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* ---------- 「模型蒸馏」的选手牌 ---------- */
+
+/*
+ * 压暗层正中摊开的那一排手牌 AI 牌，点一张就弃掉它换 Token。
+ *
+ * 只有这一档目标不在战场上（见 core 的 `SkillCard.target` 的 'own-hand-ai'），所以单开一排：
+ * 扇形里的原牌在选目标态下整排冻着（父组件的 frozen），点不动也不该点得动。
+ * 挂在压暗层里面，天然被抬到压暗层之上，也天然跟着取消一起消失。
+ * 手牌最多也就十来张，横着摆一排够用；真放不下就换行。
+ */
+.battle__hand-pick {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  max-width: min(90%, 1200px);
+  translate: -50% -50%;
+}
+
+/*
+ * 一张候选卡。盒子按缩小后的尺寸占位，里面那张 150×225 的卡面整体 scale 缩进来
+ *（同战场小卡的三层分工，只是这里不需要倾斜层）。
+ * 悬停时抬起来一点点，点哪张一目了然；触屏没有 hover，按下即选，不靠这一下也认得出。
+ */
+.battle__hand-pick-card {
+  position: relative;
+  width: var(--tile-w);
+  height: var(--tile-h);
+  overflow: hidden;
+  border: 2px solid rgb(255 138 61 / 95%);
+  border-radius: 8px;
+  box-shadow: 0 0 18px rgb(255 122 40 / 55%);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+
+.battle__hand-pick-card:hover,
+.battle__hand-pick-card:focus-visible {
+  box-shadow: 0 0 26px rgb(255 122 40 / 85%);
+  transform: translateY(-6px);
+}
+
+/* 里面那张卡面的布局尺寸仍是 150×225，靠缩放塞进上面那个盒子（同战场小卡的 .battle__tile-inner）。 */
+.battle__hand-pick-inner {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--tile-scale));
+  transform-origin: top left;
+}
+
+/*
+ * 「核电站」的减费提示，本轮常驻。
+ *
+ * 摆在战场左上角（对方手牌那一条下面）：它说的是"接下来出牌便宜多少"，
+ * 玩家的视线在出牌阶段来回扫的正是战场和手牌，摆在这儿顺路看得见，又不压住任何一行小卡。
+ * 不吃指针事件——它只是一句话，底下要是有东西照样点得到。
+ */
+.battle__cost-cut {
+  position: absolute;
+  top: calc(var(--battle-foe-hand-h) + 8px);
+  left: 14px;
+  z-index: 12;
+  padding: 5px 12px;
+  border: 1px solid rgb(255 196 96 / 55%);
+  border-radius: 999px;
+  background: rgb(12 18 30 / 88%);
+  color: #ffd98a;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
+  pointer-events: none;
 }
 
 /* ---------- 屏幕中央的展示层 ---------- */
@@ -5189,6 +5340,27 @@ body:has(.battle) {
 /* 比阵营红再深一档：实底上压米色字，用 --c-life 那个亮度对比不够。 */
 .settle-card[data-correct='false'] .settle-card__verdict {
   background: #9e3a2e;
+}
+
+/*
+ * 「保送留场」：贴在判定章正下方的一条小签。
+ *
+ * 只有答错却没被罚下的卡才有它（「保送」，见 SettleAiResult.safePassed）。
+ * 做得比判定章小一号、也不歪：判定仍然是"错"，这条只是补一句"但它留下了"，
+ * 抢过那枚章的话玩家会以为这张卡答对了。青色和战场上那枚「保送」角标同一档配色。
+ * 顶到 44px 是判定章的高度（8 + 8 + 20 行高那一档）再加一点缝。
+ */
+.settle-card__safe {
+  position: absolute;
+  top: 52px;
+  right: 8px;
+  padding: 3px 10px;
+  border: 1px solid rgb(140 214 255 / 55%);
+  border-radius: 999px;
+  background: rgb(18 48 73 / 92%);
+  color: #bfe6ff;
+  font-size: 12px;
+  letter-spacing: 0.06em;
 }
 
 /*

@@ -53,17 +53,18 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('24 张技能卡分成开放的 9 张和「即将上线」的 15 张', () => {
-    // 名单是产品定的，所以这里逐个写死：改动它意味着开放 / 收回了某张牌，
+  it('24 张技能卡分成开放的 10 张和「即将上线」的 14 张', () => {
+    // 开放名单就是"效果已经接进引擎"的那批，改动它意味着开放 / 收回了某张牌，
     // 而那件事牵着卡池、初始收藏、示例牌组一整串，应该在这一行当场红。
     // 顺序跟着 SKILL_DESIGN_CARDS 的键序走（卡池和图鉴按它摆），所以用对顺序敏感的 toEqual。
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
     expect(OPEN_SKILL_CARD_IDS).toEqual([
       'black-white-reversal',
       'fixed-answer',
-      'clean-sweep',
+      'jade-purification-vase',
       'golden-bell-shield',
-      'anti-addiction',
+      'safe-pass',
+      'model-distillation',
       'nuclear-power-station',
       'domestic-substitution',
       'rising-tide',
@@ -71,17 +72,16 @@ describe('卡池与初始收藏', () => {
     ])
     // 两份名单不重不漏地把 24 张分完：漏一张就会有牌既进不了卡池、又不在牌组页摆出来，
     // 等于凭空消失。
-    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(15)
+    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(14)
     expect(new Set([...OPEN_SKILL_CARD_IDS, ...COMING_SOON_SKILL_CARD_IDS])).toEqual(
       new Set(SKILL_DESIGN_CARD_IDS),
     )
   })
 
   it('开放的技能卡开局全解锁，默认牌组只带其中两张', () => {
-    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「防沉迷」打出即完事。
-    // 开放的其余几张和「防沉迷」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
-    // 让新玩家开局就摸到一手什么都不会发生的卡。
-    const inDeck = ['fixed-answer', 'anti-addiction']
+    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「鸡犬升天」打出即完事。
+    // 开放的其余几张各自落在这两条链路之一，塞进默认牌组只会挤掉 AI 牌，摸不到新东西。
+    const inDeck = ['fixed-answer', 'rising-tide']
     for (const id of OPEN_SKILL_CARD_IDS) {
       expect(CARD_POOL).toContain(id)
       expect(INITIAL_COLLECTION).toContain(id)
@@ -102,7 +102,7 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('技能牌一共 24 张，只有「复读机」要选目标', () => {
+  it('技能牌一共 24 张，其中 5 张要选目标', () => {
     // 早期那两张（placeholder-skill / skill-must-answer）已经删掉：占位技能没有卡面原画，
     // 而「必须回答」的功能整个挪到了同样效果的「复读机」上。守着别有人把旧 id 又捡回来。
     const skills = Object.values(CARDS).filter((card) => card.kind === 'skill')
@@ -113,9 +113,18 @@ describe('卡池与初始收藏', () => {
       expect(INITIAL_COLLECTION).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }
-    expect(skills.filter((card) => card.target !== undefined).map((card) => card.id)).toEqual([
-      'fixed-answer',
-    ])
+    // 客户端的选目标交互按这份名单走，各自选谁由 skillCards.test.ts 那条守着。
+    expect(
+      new Set(skills.filter((card) => card.target !== undefined).map((card) => card.id)),
+    ).toEqual(
+      new Set([
+        'fixed-answer',
+        'black-white-reversal',
+        'jade-purification-vase',
+        'safe-pass',
+        'model-distillation',
+      ]),
+    )
   })
 
   it('卡池 = 全部卡牌定义减去「即将上线」和「调不到模型」的那两批', () => {
@@ -157,6 +166,66 @@ describe('卡池与初始收藏', () => {
       expect(CARD_POOL).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }
+  })
+})
+
+describe('AI 牌身上给技能牌读的两个标签', () => {
+  const aiCards = Object.values(CARDS).filter((card) => card.kind === 'ai')
+
+  it('国产标签正好挂在这 10 张上（「国产替代」按它清场）', () => {
+    expect(new Set(aiCards.filter((card) => card.domestic === true).map((card) => card.id))).toEqual(
+      new Set([
+        'deepseek-r1',
+        'deepseek-v4',
+        'qwen',
+        'kimi-k2-6',
+        'kimi-k3',
+        'doubao',
+        'glm-5',
+        'minimax',
+        'yuanbao',
+        'wenxin-yiyan',
+      ]),
+    )
+    // 只标 true 不标 false：非国产的那 8 张一律不带这个字段。
+    for (const card of aiCards) {
+      expect([true, undefined]).toContain(card.domestic)
+    }
+  })
+
+  it('四条进化链首尾相接，链尾不再往下指', () => {
+    const nextOf = Object.fromEntries(aiCards.map((card) => [card.id, card.evolvesTo]))
+    expect(nextOf).toMatchObject({
+      'gpt-2': 'gpt-3-5',
+      'gpt-3-5': 'gpt-4o',
+      'gpt-4o': 'chatgpt-5-6-sol',
+      'chatgpt-5-6-sol': undefined,
+      'claude-5-sonnet': 'claude-fable-5',
+      'claude-fable-5': undefined,
+      'deepseek-r1': 'deepseek-v4',
+      'deepseek-v4': undefined,
+      'kimi-k2-6': 'kimi-k3',
+      'kimi-k3': undefined,
+    })
+    // 没有前后代的单张一律不可进化，「鸡犬升天」扫到它们时原地不动。
+    for (const id of ['gemini', 'qwen', 'doubao', 'glm-5', 'minimax', 'yuanbao', 'grok', 'wenxin-yiyan']) {
+      expect(nextOf[id]).toBeUndefined()
+    }
+  })
+
+  it('进化链指向的都是真卡，且不会指回自己（否则鸡犬升天会原地打转）', () => {
+    for (const card of aiCards) {
+      if (card.evolvesTo === undefined) continue
+      expect(CARDS[card.evolvesTo]).toBeDefined()
+      expect(card.evolvesTo).not.toBe(card.id)
+    }
+  })
+
+  // 标签和"调不调得到模型"是两回事：调不到只是进不了卡池，卡面定义连同标签都留着。
+  // 调试指令能把这两张摆上场（见 engine 的 DEBUG_ADD_CARD），那时它们照样吃这两条规则。
+  it('调不到模型的那两张照样带着标签：文心一言算国产，GPT-2 仍是进化链链头', () => {
+    expect(CARDS['wenxin-yiyan']).toMatchObject({ openrouter: null, domestic: true })
+    expect(CARDS['gpt-2']).toMatchObject({ openrouter: null, evolvesTo: 'gpt-3-5' })
   })
 })
 

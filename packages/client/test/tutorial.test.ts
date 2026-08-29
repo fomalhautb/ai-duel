@@ -126,7 +126,7 @@ describe('教学对战剧本', () => {
     const run = start()
     playThroughRoundOne(run)
 
-    // 第 2 轮由对手先手，它已经把 deepseek-v4 派上场了，玩家的干扰技能才有目标。
+    // 第 2 轮由对手先手，它已经把 claude-fable-5 派上场了，玩家的干扰技能才有目标。
     expect(stateOf(run.driver).round).toBe(2)
     expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
       'claude-fable-5',
@@ -146,10 +146,12 @@ describe('教学对战剧本', () => {
     confirmRound(run.driver)
     flush()
 
+    // 三轮都是"只有一方答对"：第 1 轮和第 3 轮对手自己答错，第 2 轮是被复读机干扰答错。
+    // 「同结果就比 Token」那一档在教学局里刻意不出现（规格 §8），所以三条都该是 sole-correct。
     const scored = scoredEvents(run.events)
     expect(scored.map((event) => event.verdict)).toEqual([
       'sole-correct',
-      'fewer-tokens',
+      'sole-correct',
       'sole-correct',
     ])
     expect(scored.map((event) => event.scores)).toEqual([
@@ -162,16 +164,29 @@ describe('教学对战剧本', () => {
     ])
   })
 
-  it('第 2 轮只打技能（教程不放行增派）：靠 Token 更省拿下这一分', () => {
+  // 第 2 轮那一课的全部内容：复读机命中之后，对手那张 AI 真的只会答「香蕉」并判错。
+  // 这条断言直接盯着揭晓出来的那句话，卡面写的和玩家看到的对不上时会当场红。
+  // 玩家这一轮只有这一条路可走：教程不放行增派 AI（见 TUTORIAL_CARDS.optionalAi）。
+  it('第 2 轮：被复读机干扰的对手 AI 只答「香蕉」，判错后被罚下', () => {
     const run = start()
     playThroughRoundOne(run)
-    play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
+    const foeAi = foeAiId(run.driver)
+    play(run.driver, TUTORIAL_CARDS.skill, foeAi)
     endPlay(run.driver)
     flush()
 
+    const answered = run.events.filter(
+      (event) => event.type === 'AI_ANSWERED' && event.instanceId === foeAi,
+    )
+    expect(answered).toHaveLength(1)
+    expect(answered[0]).toMatchObject({ correct: false, answer: '香蕉' })
+    // 答错就罚下，所以第 3 轮对手场上只剩它新派的那一张。
+    expect(run.events).toContainEqual({ type: 'AI_ELIMINATED', instanceId: foeAi, owner: FOE })
+
     const round2 = scoredEvents(run.events)[1]
-    expect(round2?.verdict).toBe('fewer-tokens')
-    // 教学限制下玩家这一轮只有这一条路：复读机 4 点，对手 6 点。
+    expect(round2?.verdict).toBe('sole-correct')
+    expect(round2?.correct).toEqual([true, false])
+    // 只花了复读机那 4 点，对手 6 点——这一分和消耗无关，但数字仍旧记在事件里。
     expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 6])
     expect(round2?.scores).toEqual([2, 0])
   })
@@ -292,33 +307,33 @@ describe('教学内容自检', () => {
     })
   })
 
-  it('第 2 轮玩家怎么选都比对手省 Token，掉不进「消耗相同」那一档', () => {
-    // 玩家这一轮最贵的一条路：复读机 + optionalAi 里最贵的那张。
-    // optionalAi 现在是空的，最贵的那条路就是只打复读机（4 点）。
+  it('第 2 轮双方最贵的那条路都买得起', () => {
+    // 教学第 2 轮强制打复读机，之后按 optionalAi 还可能再增派一张（现在是空的）。
+    // 加起来必须在当轮额度内，否则玩家照着引导点下去会被引擎回一句「Token 不够」，教程当场卡住。
+    // Math.max 补一个 0 兜底：名单空着时展开成 Math.max() 会得到 -Infinity。
     const optionalCosts = TUTORIAL_CARDS.optionalAi.map(tutorialCardCost)
     const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(0, ...optionalCosts)
+    expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
+    // 对手那一轮也得付得起（它固定花光 6 点）。
     const foeSpend = (TUTORIAL_FOE_PLAYS[1] ?? []).reduce(
       (sum, cardId) => sum + tutorialCardCost(cardId),
       0,
     )
-    expect(playerMax).toBeLessThan(foeSpend)
-    // 顺带守住"最贵那条路也买得起"：第 2 轮上限是 6 点。
-    expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
+    expect(foeSpend).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
   })
 
   it('第 2 轮一张增派的 AI 都不放行', () => {
-    // 空名单是 Token 对账逼出来的（见 TUTORIAL_CARDS.optionalAi）：复读机占掉 4 点，
-    // 而卡池里最便宜的 AI 是 2 费，放进来玩家就花到 6 点、和对手打平，第 2 轮的结论翻车。
-    // 这里连带守住"卡池里确实没有 1 费 AI"——哪天有了，这条测试会红，提醒把它填回 optionalAi。
+    // 空名单的理由见 TUTORIAL_CARDS.optionalAi：原来放这里的 1 费 GPT-2 调不到模型、
+    // 已经不在卡池里，而这一步要教的是"技能真的会改结果"，不该再塞一个可选动作分散注意力。
+    // 它**不是** Token 对账逼出来的——第 2 轮那一分靠"只有玩家答对"拿到，和消耗无关。
     expect(TUTORIAL_CARDS.optionalAi).toEqual([])
-    const cheapestAi = Math.min(
-      ...CARD_POOL.map(getCard)
-        .filter((card) => card.kind === 'ai')
-        .map((card) => card.tokenCost),
-    )
-    expect(cheapestAi + tutorialCardCost(TUTORIAL_CARDS.skill)).toBeGreaterThanOrEqual(
-      INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH,
-    )
+    // 哪天想把这个可选动作加回来，唯一那条硬约束在这里守着：打完复读机剩下的额度得买得起它。
+    const left = INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH - tutorialCardCost(TUTORIAL_CARDS.skill)
+    for (const cardId of TUTORIAL_CARDS.optionalAi) {
+      const card = getCard(cardId)
+      expect(card.kind).toBe('ai')
+      expect(card.tokenCost).toBeLessThanOrEqual(left)
+    }
   })
 })
 

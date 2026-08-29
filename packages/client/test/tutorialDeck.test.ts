@@ -27,7 +27,7 @@ describe('组牌教学的预填', () => {
     expect(prefill.length + TUTORIAL_DECK_PICKS.length).toBe(DECK_SIZE)
   })
 
-  // CARD_POOL 里没有「即将上线」的那 15 张技能牌，所以这一条同时也守住了
+  // CARD_POOL 里没有「即将上线」的那 14 张技能牌，所以这一条同时也守住了
   // "预填不会替玩家塞一张选不进牌组的牌"——真塞进去会被 sanitizeCards 悄悄丢掉，
   // 教学的 17/20 当场对不上。
   it('预填里的卡都在当前卡池里，不含「即将上线」的牌', () => {

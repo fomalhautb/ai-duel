@@ -34,6 +34,16 @@ const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url))
  */
 const IMAGE_EXTENSIONS = ['.webp', '.png', '.jpg', '.jpeg']
 
+/**
+ * 不算在内的几张：「添加到主屏幕」用的应用图标（见 index.html 和 public/manifest.webmanifest）。
+ *
+ * 它们和 favicon.svg 是一类东西——由浏览器自己按 <link> / manifest 去取，不进任何预加载清单，
+ * 也不该进：玩家没把站点加到主屏幕就一次都不会下载。
+ * 必须是 png 而不是 webp：iOS 的 apple-touch-icon 只认 png，不给它就把页面截图当图标用。
+ * 换图标改 public/icon.svg 再用 sips 重新导出这三张，尺寸别动。
+ */
+const APP_ICONS = ['/icon-180.png', '/icon-192.png', '/icon-512.png']
+
 /** public/ 下全部图片，返回的是页面里用的那种根绝对路径（'/cards/models/gpt-2.webp'）。 */
 function listPublicImages(): string[] {
   const found: string[] = []
@@ -46,7 +56,7 @@ function listPublicImages(): string[] {
     }
   }
   walk(PUBLIC_DIR, '')
-  return found.sort()
+  return found.filter((url) => !APP_ICONS.includes(url)).sort()
 }
 
 /**

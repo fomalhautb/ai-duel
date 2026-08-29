@@ -16,6 +16,30 @@
     <!-- 站点图标。只给一张 SVG：现代浏览器都认，放大不糊，也不用维护多个尺寸的 PNG。
          图形（一颗浅橙黄色四芒星）见 public/favicon.svg。 -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      「添加到主屏幕」用的那一套（manifest + 下面几行 apple- 开头的 meta）。
+
+      为什么非做不可：iPhone 的 Safari / Chrome（iOS 上都是同一个 WebKit）不给网页整页全屏，
+      地址栏和底栏赶不走，而全站是 16:9 死版式、在横屏手机上正好被高度卡住——
+      少一条栏整块画面就大一圈（见 src/ui/fullscreen.ts）。
+      加到主屏幕、再从图标启动是 iOS 上唯一能真正去掉这两条栏的办法，
+      引导玩家走这一步的界面在 src/ui/FullscreenEntry.tsx。
+
+      display: fullscreen 只有安卓认；iOS 看的是 apple-mobile-web-app-capable，
+      两边都写才两边都生效。status-bar-style 取 black-translucent 让画面顶到状态栏底下
+      （横屏 iPhone 上状态栏本来就是隐藏的，这行主要是竖屏时不留一条白边）。
+      manifest 里的 orientation: landscape 同理只有安卓认，iOS 会忽略。
+
+      apple-touch-icon 必须是 PNG，SVG 那张 iOS 不认；不给的话主屏幕图标会变成页面截图。
+      三张 PNG 由 public/icon.svg 用 sips 导出（180 给 iOS，192/512 给 manifest），
+      改图标就改那份 SVG 再重新导一遍。
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="出牌吧AI" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
     <!-- 全站字体，和 /design 设计参考页（纸张 token 在 src/ui/paper/paper.css）用的是同一套：
          EB Garamond 管拉丁字母和数字，Noto Serif SC 管中文。
          Noto Serif SC 多引一档 300 给首页副标题用；EB Garamond 没有 300，

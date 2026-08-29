@@ -13,6 +13,7 @@ import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
 import { OrientationNotice } from './ui/OrientationNotice'
+import { FullscreenEntry } from './ui/FullscreenEntry'
 import { HandDrawnFilterDefs } from './ui/HandDrawnFilterDefs'
 import { MuteButton } from './ui/MuteButton'
 import { HomeScreen } from './screens/HomeScreen'
@@ -55,6 +56,9 @@ export function App() {
       <OrientationNotice />
       {/* 右上角常驻的静音按钮。放在路由外面，换页时不重挂、也不用每个界面自己画一颗。 */}
       <MuteButton />
+      {/* 手机上常驻的全屏入口：画面边上那颗小按钮，iOS 上还带一份「添加到主屏幕」引导。
+          和上面一样自己判定要不要显示，桌面上不出现。 */}
+      <FullscreenEntry />
       <Switch>
         <Route path="/" component={HomeScreen} />
         {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}

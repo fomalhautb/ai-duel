@@ -1927,6 +1927,8 @@ function BattleField({
           }
         : null
 
+  const turnHint = turnHintOf(view, state, mySeat)
+
   return (
     <div className="battle">
       <HandDrawnFilterDefs />
@@ -1960,34 +1962,58 @@ function BattleField({
                 和场上的 tile 才都压得住它。 */}
             <div className="battle__smoke-layer" ref={smokeLayerRef} aria-hidden="true" />
 
+            {/* 每张小卡都套一层 slot：真正排在行里的是 slot，它可以被挤得比卡还窄，
+                卡在里面居中溢出，于是场面摆满时相邻两张对称地互相压边，而不是折行
+                （行已改成永不换行，理由见 .battle__row）。 */}
             <div className="battle__row battle__row--foe">
               {foe.board.map((ai) => (
-                <BoardTile
-                  key={ai.instanceId}
-                  ai={ai}
-                  // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
-                  held={
-                    inspecting?.instanceId === ai.instanceId ||
-                    reveal?.landingId === ai.instanceId
-                  }
-                  // 只有还没被干扰的对手小卡是合法目标。点击路（'pick'）还要把它抬到压暗层之上
-                  // 才点得动；其余小卡（含我方那一行）留在压暗层底下，点它们等于点空白 = 取消。
-                  target={targetMode === 'none' || ai.interfered === true ? 'none' : targetMode}
-                  onActivate={() => (targeting === null ? handleInspect(ai) : confirmTarget(ai))}
-                />
+                <div className="battle__board-slot" key={ai.instanceId}>
+                  <BoardTile
+                    ai={ai}
+                    // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
+                    held={
+                      inspecting?.instanceId === ai.instanceId ||
+                      reveal?.landingId === ai.instanceId
+                    }
+                    // 只有还没被干扰的对手小卡是合法目标。点击路（'pick'）还要把它抬到压暗层之上
+                    // 才点得动；其余小卡（含我方那一行）留在压暗层底下，点它们等于点空白 = 取消。
+                    target={targetMode === 'none' || ai.interfered === true ? 'none' : targetMode}
+                    onActivate={() => (targeting === null ? handleInspect(ai) : confirmTarget(ai))}
+                  />
+                </div>
               ))}
+            </div>
+
+            {/*
+              敌我分界的中线：一条横贯细线，中间嵌一块深蓝小匾，报第几回合、轮到谁出牌。
+              顶栏的回合数和右侧栏的状态行各自也说了一遍，这里再说是因为位置本身就是信息——
+              线两边就是双方的场面，匾正压在分界上，视线不用离开战场。
+
+              线和小匾各自套了手绘滤镜（见 styles.css 的 .battle__midline），
+              这是战场这几层里唯一一处建层叠上下文的地方：其余各层都守着"一处都不建"的规矩
+              （见 .battle__board 上面那段注释），中线能破例是因为它只是两行场面的兄弟节点、
+              不是任何飞行卡的祖先——层叠上下文只圈住它自己的线和匾，
+              带 z-index 的飞行卡照样画在它上面。外层的 .battle__midline 容器本身仍然不写
+              transform / z-index / isolation / filter；照抄这块时别把滤镜提到容器上去。
+            */}
+            <div className="battle__midline">
+              <span className="battle__midline-badge">
+                第 <b className="battle__midline-num">{state.round}</b> 回合
+                {turnHint === null ? null : ` · ${turnHint}`}
+              </span>
             </div>
 
             <div className="battle__row battle__row--mine">
               {me.board.map((ai) => (
-                <BoardTile
-                  key={ai.instanceId}
-                  ai={ai}
-                  held={inspecting?.instanceId === ai.instanceId}
-                  // 干扰技能只打对面，我方这一行永远不是目标。
-                  target="none"
-                  onActivate={() => handleInspect(ai)}
-                />
+                <div className="battle__board-slot" key={ai.instanceId}>
+                  <BoardTile
+                    ai={ai}
+                    held={inspecting?.instanceId === ai.instanceId}
+                    // 干扰技能只打对面，我方这一行永远不是目标。
+                    target="none"
+                    onActivate={() => handleInspect(ai)}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -2345,6 +2371,19 @@ function statusTextOf(view: MatchView, state: GameState, mySeat: PlayerId): stri
   if (state.phase === 'quiz') return '场上 AI 答题中…'
   if (state.activePlayer === mySeat) return '轮到你出牌'
   return `${state.players[state.activePlayer].name} 出牌中…`
+}
+
+/**
+ * 战场中线小匾上跟在回合数后面的那半句：现在轮到谁。
+ *
+ * 措辞比侧栏那行（statusTextOf）短一半：小匾夹在两行小卡中间，只有一行的高度，
+ * 长句会把匾撑得比中线还显眼。
+ * 对局结束或中断后返回 null，匾上只留回合数——那时候已经没有"谁出牌"这回事了。
+ */
+function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string | null {
+  if (view.status !== 'playing') return null
+  if (state.phase === 'quiz') return '答题中'
+  return state.activePlayer === mySeat ? '你出牌' : '对方出牌'
 }
 
 /** 结算层的大标题。平局是正经结果之一（总分相同），不是异常。 */

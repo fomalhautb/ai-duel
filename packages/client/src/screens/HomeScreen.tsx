@@ -55,6 +55,7 @@ import { midFor } from '../ui/cardArtThumb'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
+import { useHomeIntroSound } from '../ui/soundEffects'
 import { useAssetsProgress } from '../ui/preloadAssets'
 import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
@@ -305,6 +306,7 @@ export const HOME_ASSETS = Array.from(
  */
 export function HomeScreen() {
   useBackgroundMusic('beginning')
+  useHomeIntroSound()
   const assets = useAssetsProgress(HOME_ASSETS)
   return assets.ready ? <HomeStage /> : <LoadingScreen progress={assets.progress} />
 }

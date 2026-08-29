@@ -27,6 +27,27 @@ let currentTrack: BackgroundMusicTrack | null = null
 /** audio 元素的 src 上已经装着的曲子。和 currentTrack 分开记，见 syncPlayback 里的解释。 */
 let loadedTrack: BackgroundMusicTrack | null = null
 let waitingForGesture = false
+let previousPlaybackTime = 0
+const replayListeners = new Map<BackgroundMusicTrack, Set<() => void>>()
+
+/** timeupdate 不是逐帧触发，留 1 秒余量只识别真正从曲尾跳回曲首，不把时间抖动当成循环。 */
+const LOOP_REWIND_THRESHOLD_SECONDS = 1
+
+function notifyTrackReplay(track: BackgroundMusicTrack): void {
+  for (const listener of replayListeners.get(track) ?? []) listener()
+}
+
+function handlePlaybackTimeUpdate(): void {
+  const target = player
+  const track = currentTrack
+  if (target === null || track === null) return
+
+  const currentTime = target.currentTime
+  if (currentTime + LOOP_REWIND_THRESHOLD_SECONDS < previousPlaybackTime) {
+    notifyTrackReplay(track)
+  }
+  previousPlaybackTime = currentTime
+}
 
 function getPlayer(): HTMLAudioElement {
   if (player) return player
@@ -37,6 +58,7 @@ function getPlayer(): HTMLAudioElement {
   player.volume = BACKGROUND_MUSIC_VOLUME
   // 玩家按右上角那颗按钮时，把播放状态跟着改过来。只订阅一次，播放器本身也只建一次。
   subscribeMuted(syncPlayback)
+  player.addEventListener('timeupdate', handlePlaybackTimeUpdate)
   return player
 }
 
@@ -92,6 +114,7 @@ function syncPlayback(): void {
   if (loadedTrack !== track) {
     target.pause()
     loadedTrack = track
+    previousPlaybackTime = 0
     target.src = TRACK_SOURCE[track]
     target.load()
   }
@@ -108,6 +131,7 @@ function playBackgroundMusic(track: BackgroundMusicTrack): void {
 function stopBackgroundMusic(track: BackgroundMusicTrack): void {
   if (!player || currentTrack !== track) return
   currentTrack = null
+  previousPlaybackTime = 0
   removeGestureListeners()
   player.pause()
   player.currentTime = 0
@@ -122,4 +146,24 @@ export function useBackgroundMusic(track: BackgroundMusicTrack): void {
     playBackgroundMusic(track)
     return () => stopBackgroundMusic(track)
   }, [track])
+}
+
+/** 订阅一首背景音乐从曲尾循环回曲首；首次开播不在这里通知，由页面自己的挂载逻辑负责。 */
+export function subscribeBackgroundMusicReplay(
+  track: BackgroundMusicTrack,
+  listener: () => void,
+): () => void {
+  let listeners = replayListeners.get(track)
+  if (listeners === undefined) {
+    listeners = new Set()
+    replayListeners.set(track, listeners)
+  }
+  listeners.add(listener)
+
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0 && replayListeners.get(track) === listeners) {
+      replayListeners.delete(track)
+    }
+  }
 }

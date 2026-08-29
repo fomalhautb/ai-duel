@@ -2192,11 +2192,11 @@ body:has(.battle) {
 
 /*
  * 只剩左栏和战场两列：右边那条羊皮纸侧栏已经拆了，原来挤在里面的三块
- *（「下一题」牌匾、Token 细条、结束按钮）改成各自悬浮在战场上方，
+ *（「下一题」牌匾、Token 细条、结束按钮）连同后来补的「催一催」改成各自悬浮在战场上方，
  * 定位见下面的 .battle__next-plaque / .battle__token-rail / .battle__end-turn。
  * 腾出来的 207px 全归战场。
  *
- * position: relative 是给那三块当定位基准的。这里刻意不写 z-index：加了就成层叠上下文，
+ * position: relative 是给这四块当定位基准的。这里刻意不写 z-index：加了就成层叠上下文，
  * 飞行卡内联的 zIndex 60 / 1200 会被关在这一层里（同 .battle__board 上面那段的顾虑）。
  * 基准选它而不是 .battle 根，是因为它的上边沿正好是顶栏下沿，牌匾"从顶边吊下来"
  * 直接写 top: 0 就行，不用再减一次顶栏高度。
@@ -2258,8 +2258,61 @@ body:has(.battle) {
 }
 
 /*
+ * 「催一催」夹在 Token 细条和结束按钮之间。沿用八角手绘匾额的结构，
+ * 只把底色换成低饱和陶橙：它是轻量互动，不该比结束回合那颗主操作更抢眼。
+ */
+.battle__urge {
+  position: absolute;
+  right: 32px;
+  bottom: 108px;
+  z-index: 30;
+}
+
+.battle__urge .plaque-button {
+  --plaque-fill: #b77f5f;
+  --plaque-edge: #6f4f3e;
+  --plaque-line: rgb(244 213 181 / 62%);
+  width: 154px;
+  height: 48px;
+  padding: 0 16px;
+  color: #fff1dc;
+  font-size: 19px;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+}
+
+.battle__urge .plaque-button:hover {
+  --plaque-fill: #c28a68;
+  --plaque-line: rgb(255 227 194 / 82%);
+  color: #fff7e8;
+}
+
+.battle__urge .plaque-button::before {
+  background: linear-gradient(to bottom, rgb(255 244 222 / 20%), transparent 40%);
+  box-shadow:
+    inset 0 2px 0 rgb(255 247 229 / 24%),
+    inset 0 -6px 8px rgb(83 46 28 / 25%);
+}
+
+.battle__urge .plaque-button__corner {
+  stroke: rgb(255 225 188 / 55%);
+}
+
+.battle__urge .plaque-button__spark {
+  fill: #f0c696;
+}
+
+.battle__urge .plaque-button:disabled {
+  --plaque-fill: #9b887c;
+  --plaque-edge: #756961;
+  --plaque-line: rgb(225 214 199 / 32%);
+  color: #d8cec2;
+  filter: saturate(0.35);
+}
+
+/*
  * 纸白匾额，配色和右上角那块「下一题」牌匾同一套（--battle-paper-shade 那档纸色配墨蓝字）：
- * 这三块悬浮 UI 得读起来像一路的东西，一颗墨蓝按钮夹在两块纸匾中间会显得是另一个系统的零件。
+ * 这些悬浮 UI 得读起来像一路的东西，一颗墨蓝按钮夹在纸匾和陶橙小匾之间会显得是另一个系统的零件。
  *
  * 三个 --plaque-* 变量是 .plaque-button 留的接口，SVG 框线直接跟着变，不用改结构。
  * 选择器都多带一级 .battle__end-turn：默认那套墨蓝配色写在 .plaque-button 的
@@ -2316,7 +2369,7 @@ body:has(.battle) {
 }
 
 /*
- * 不可点的样子。底色留在纸白系（三块悬浮 UI 是一套），靠另外三件事说"点不动"：
+ * 不可点的样子。底色留在纸白系（悬浮 UI 是一套），靠另外三件事说"点不动"：
  * 纸色褪到发灰、字和框线一起掉一大档对比、整块再去掉大半饱和度。
  * 可点时字/底对比约 10:1，这里只剩约 2.4:1，一眼就能分开。
  *

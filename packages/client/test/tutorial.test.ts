@@ -1,19 +1,29 @@
 /**
  * 教学对战的剧本对账。
  *
- * 这里只测 driver 那一层（引擎 + 对手脚本 + 预设答案），不碰 UI：
+ * 这里只测 driver 那一层（引擎 + 对手脚本 + 真实模型回答表），不碰 UI：
  * 教程"可预测"这件事全靠这三样，把它们钉住，引导层就只剩排版问题。
  * 两个延迟（对手每一步、答题自动提交）都注入成 0，再配假定时器，整份测试是同步跑完的。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, HEROES, INITIAL_TOKEN_MAX, TOKEN_MAX_GROWTH, getCard } from '@ai-duel/core'
+import {
+  CARD_POOL,
+  HEROES,
+  INITIAL_TOKEN_MAX,
+  QUESTION_POOL,
+  TOKEN_MAX_GROWTH,
+  getCard,
+  scriptedAnswers,
+} from '@ai-duel/core'
 import type { CardId, GameEvent, GameState, InstanceId } from '@ai-duel/core'
 import { createTutorialDriver } from '../src/match/tutorialDriver'
 import type { TutorialDriver } from '../src/match/tutorialDriver'
 import {
   TUTORIAL_CARDS,
   TUTORIAL_FOE_DECK,
+  TUTORIAL_QUESTIONS,
+  TUTORIAL_PLAYER_DRAW_ORDER,
   TUTORIAL_FOE_HERO,
   TUTORIAL_FOE_OPENING_HAND,
   TUTORIAL_FOE_PLAYS,
@@ -102,8 +112,8 @@ function scoredEvents(events: readonly GameEvent[]) {
 }
 
 /**
- * 走完第 1 轮（玩家打指定 AI → 结束出牌 → 对手 minimax → 答题 → 双方确认结算），
- * 停在第 2 轮玩家可以出牌的那一刻（对手已经派出 claude-fable-5 并结束了出牌）。
+ * 走完第 1 轮（玩家打指定 AI → 结束出牌 → 对手 gpt-4o → 答题 → 双方确认结算），
+ * 停在第 2 轮玩家可以出牌的那一刻（对手已经派出 deepseek-r1 并结束了出牌）。
  */
 function playThroughRoundOne(run: TutorialRun): void {
   flush()
@@ -126,11 +136,9 @@ describe('教学对战剧本', () => {
     const run = start()
     playThroughRoundOne(run)
 
-    // 第 2 轮由对手先手，它已经把 claude-fable-5 派上场了，玩家的干扰技能才有目标。
+    // 第 2 轮由对手先手，它已经把 deepseek-r1 派上场了，玩家的干扰技能才有目标。
     expect(stateOf(run.driver).round).toBe(2)
-    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
-      'claude-fable-5',
-    ])
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-r1'])
     // 这一轮只打技能牌：教程不放行增派 AI（见 TUTORIAL_CARDS.optionalAi）。
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
     endPlay(run.driver)
@@ -147,6 +155,7 @@ describe('教学对战剧本', () => {
     flush()
 
     // 三轮都是"只有一方答对"：第 1 轮和第 3 轮对手自己答错，第 2 轮是被复读机干扰答错。
+    // 这三条对错全部来自那张真实模型回答表，不是教学局自己写死的（见 tutorial/content.ts）。
     // 「同结果就比 Token」那一档在教学局里刻意不出现（规格 §8），所以三条都该是 sole-correct。
     const scored = scoredEvents(run.events)
     expect(scored.map((event) => event.verdict)).toEqual([
@@ -186,8 +195,11 @@ describe('教学对战剧本', () => {
     const round2 = scoredEvents(run.events)[1]
     expect(round2?.verdict).toBe('sole-correct')
     expect(round2?.correct).toEqual([true, false])
-    // 只花了复读机那 4 点，对手 6 点——这一分和消耗无关，但数字仍旧记在事件里。
-    expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 6])
+    // 只花了复读机那 4 点，对手 3 点——这一分和消耗无关，但数字仍旧记在事件里。
+    expect(round2?.spent).toEqual([
+      tutorialCardCost(TUTORIAL_CARDS.skill),
+      tutorialCardCost('deepseek-r1'),
+    ])
     expect(round2?.scores).toEqual([2, 0])
   })
 
@@ -210,11 +222,9 @@ describe('教学对战剧本', () => {
     expect(stateOf(run.driver).settleConfirmed).toEqual([false, true])
     confirmRound(run.driver)
     flush()
-    // 双方都确认了才进第 2 轮，对手又先手派出那张 6 费的 AI。
+    // 双方都确认了才进第 2 轮，对手又先手派出那张要被复读机干扰的 AI。
     expect(stateOf(run.driver).round).toBe(2)
-    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
-      'claude-fable-5',
-    ])
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-r1'])
   })
 
   it('第 3 轮什么都不打直接结束：场上的老 AI 照样答对，3:0 收场', () => {
@@ -299,6 +309,64 @@ describe('教学内容自检', () => {
     }
   })
 
+  // 教学题现在从正式题库里挑（core 的 QUESTION_POOL），回答也走正式那张真实模型回答表。
+  // 一旦题库改了 id、或者预生成表重跑出别的结果，教学剧本就会静悄悄地崩——
+  // 主线那条端到端测试会红，但报出来的是"比分不对"，看不出是哪一格变了。
+  // 这条按格子对，直接指出是哪一轮、哪张卡、答对还是答错。
+  it('三轮的对错都是从真实模型回答表里查出来的', () => {
+    for (const question of TUTORIAL_QUESTIONS) {
+      expect(QUESTION_POOL, `${question.id} 不在正式题库里`).toContain(question)
+    }
+
+    TUTORIAL_FOE_PLAYS.forEach((plays, index) => {
+      const question = TUTORIAL_QUESTIONS[index]
+      if (question === undefined) throw new Error(`第 ${index + 1} 轮没有题目`)
+      const foeCard = plays[0]
+      if (foeCard === undefined) throw new Error(`第 ${index + 1} 轮对手没有出牌`)
+
+      // 玩家场上那张 AI 从第 1 轮活到底，三轮都要答对，那三分全靠它。
+      const [mine] = scriptedAnswers(question, [
+        { instanceId: 'mine', cardId: TUTORIAL_CARDS.firstAi, owner: PLAYER },
+      ])
+      expect(mine?.correct, `第 ${index + 1} 轮 ${TUTORIAL_CARDS.firstAi} 该答对`).toBe(true)
+
+      // 对手那张要答错。第 2 轮是靠复读机把它从"答对"改成"答香蕉"，所以两档都要对上：
+      // 没被干扰时答对（不然那张技能牌就没改变任何结果，这一课当场落空），干扰后答错。
+      const interfered = index === 1
+      const [theirs] = scriptedAnswers(question, [
+        {
+          instanceId: 'theirs',
+          cardId: foeCard,
+          owner: FOE,
+          ...(interfered ? { interference: 'fixed-answer' as const } : {}),
+        },
+      ])
+      expect(theirs?.correct, `第 ${index + 1} 轮 ${foeCard} 该答错`).toBe(false)
+      if (interfered) {
+        const [clean] = scriptedAnswers(question, [
+          { instanceId: 'theirs', cardId: foeCard, owner: FOE },
+        ])
+        expect(clean?.correct, `${foeCard} 没被干扰时本该答对`).toBe(true)
+        expect(theirs?.answer, '被复读机干扰之后该改口答香蕉').toContain('香蕉')
+      }
+    })
+  })
+
+  // 第 3 轮是放手轮：玩家想派谁就派谁，而回答查的是真实模型表。
+  // 手上留着一张会答错那道题的 AI，玩家照着"随便派"派出去就会当场看着它被罚下——
+  // 教程刚教完"答错要下场"，这时候演一遍只会让人以为自己做错了。
+  it('第 3 轮玩家摸得到的每一张 AI 都答得对那道题', () => {
+    const question = TUTORIAL_QUESTIONS[2]
+    if (question === undefined) throw new Error('教学局没有第 3 道题')
+    for (const cardId of new Set(TUTORIAL_PLAYER_DRAW_ORDER)) {
+      if (getCard(cardId).kind !== 'ai') continue
+      const [answer] = scriptedAnswers(question, [
+        { instanceId: 'x', cardId, owner: PLAYER },
+      ])
+      expect(answer?.correct, `${cardId} 在第 3 轮那道题上会答错`).toBe(true)
+    }
+  })
+
   it('对手每一轮的脚本都付得起 Token', () => {
     TUTORIAL_FOE_PLAYS.forEach((plays, index) => {
       const limit = INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH * index
@@ -314,7 +382,7 @@ describe('教学内容自检', () => {
     const optionalCosts = TUTORIAL_CARDS.optionalAi.map(tutorialCardCost)
     const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(0, ...optionalCosts)
     expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
-    // 对手那一轮也得付得起（它固定花光 6 点）。
+    // 对手那一轮也得付得起。
     const foeSpend = (TUTORIAL_FOE_PLAYS[1] ?? []).reduce(
       (sum, cardId) => sum + tutorialCardCost(cardId),
       0,

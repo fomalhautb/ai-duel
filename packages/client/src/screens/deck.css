@@ -160,8 +160,9 @@
 }
 
 /*
- * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头怎么摆、hover 时箭头
- * 往左挪）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
+ * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头长什么样、怎么摆、
+ * hover 时箭头往左挪、整颗套手绘抖动）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
+ * 箭头的描边取 currentColor，所以下面这行 color 一改，箭头跟着变成纸面上的墨色。
  * 那边的规则全包在 :where() 里、特指度为 0，所以下面这些单类选择器一律压得住它。
  * 不描边、不铺底：顶栏这一行是直接写在纸上的，加个框反而像贴了张标签。
  */

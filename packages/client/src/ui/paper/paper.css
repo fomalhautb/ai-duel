@@ -23,10 +23,19 @@
   --paper-shade:  #e4ddc9;   /* 纸面暗部：凹槽、次级底 */
   /* 线 */
   --line:         #b9b19e;   /* 常规细线 / 内框 */
-  --line-dark:    #8a8270;   /* 外框、需要咬住视线的线 */
+  --line-dark:    var(--paper-line-dark);   /* 外框、需要咬住视线的线 */
   /* 字 */
-  --ink:          #2e2e38;
+  --ink:          var(--paper-ink);
   --ink-2:        #6b6a5f;   /* 次级文字、说明文字 */
+
+  /*
+   * 上面两条的原始值另存一份。
+   * --ink / --line-dark 是「当前这块面上的字色和框线色」，深色面板会就地翻成浅色
+   *（见 screens/deck.css 的 .deck-pool）；而画在纸上的东西（卡面，见 ui/cardFaceOverlay.css）
+   * 不管被摆在哪块面上都还是纸，得始终读这两份不翻转的值。
+   */
+  --paper-ink:       #2e2e38;
+  --paper-line-dark: #8a8270;
   /* 深色面 */
   --night:        #323d57;   /* 战场底 / 头像框内的星空 */
   --navy:         #232f4b;   /* 卡背、按钮的墨蓝 */

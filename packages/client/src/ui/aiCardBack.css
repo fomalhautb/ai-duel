@@ -4,7 +4,13 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: 5.34cqi;
+  /*
+   * 圆角写成百分比（宽 5.34% / 高 3.56%，在 150×225 的手牌上正好 8px，和 .card-face 一档），
+   * 不能写 cqi：这一层自己就是容器，而容器单位在容器**自身**的属性上是按更外层的容器算的，
+   * 外面没有容器时就掉回按视口宽算——安卓 Chrome 上那一下就是几十 px 的大圆角。
+   * 里面的子元素在这个容器里面，用 cqi 没问题。
+   */
+  border-radius: 5.34% / 3.56%;
   container-type: inline-size;
   font-family: inherit;
   color: var(--card-ink);

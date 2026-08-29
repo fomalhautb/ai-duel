@@ -240,25 +240,41 @@ interface ViewportRect {
  *
  * 只往下退一层，不递归：再往下会把卡面里每个小块都算进来，而这里要的就是"这排牌占多大地方"。
  * 子元素里同样零面积的（纯装饰的空节点之类）跳过；一个都没量到就当这个目标不存在。
+ *
+ * 最后再并进后代里标了 `data-tutorial-extend` 的元素：它们绝对定位到盒子外面，
+ * getBoundingClientRect 量不到（目前只有触屏轻点选中后浮在卡**上方**的那颗「打出」）。
+ * 不并进来的话，那颗按钮既在洞外被压暗层盖灰，又正好被提示气泡压住——气泡就贴着洞的
+ * 上沿放，而按钮离卡顶只有 12px，比气泡还靠下。手机上出牌全靠它，挡住就等于卡住教程。
  */
 function anchorRect(node: HTMLElement): ViewportRect | null {
-  const rect = node.getBoundingClientRect()
-  if (rect.width > 0 && rect.height > 0) {
-    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+  const boxes: DOMRect[] = []
+  const own = node.getBoundingClientRect()
+  if (own.width > 0 && own.height > 0) {
+    boxes.push(own)
+  } else {
+    for (const child of Array.from(node.children)) {
+      const box = child.getBoundingClientRect()
+      if (box.width === 0 || box.height === 0) continue
+      boxes.push(box)
+    }
   }
+  // 溢出到盒子外面的那些（说明见上）。零面积的当作不存在，正在淡出的元素不会把洞撑歪。
+  for (const extra of Array.from(node.querySelectorAll('[data-tutorial-extend]'))) {
+    const box = extra.getBoundingClientRect()
+    if (box.width === 0 || box.height === 0) continue
+    boxes.push(box)
+  }
+  if (boxes.length === 0) return null
   let left = Number.POSITIVE_INFINITY
   let top = Number.POSITIVE_INFINITY
   let right = Number.NEGATIVE_INFINITY
   let bottom = Number.NEGATIVE_INFINITY
-  for (const child of Array.from(node.children)) {
-    const box = child.getBoundingClientRect()
-    if (box.width === 0 || box.height === 0) continue
+  for (const box of boxes) {
     left = Math.min(left, box.left)
     top = Math.min(top, box.top)
     right = Math.max(right, box.right)
     bottom = Math.max(bottom, box.bottom)
   }
-  if (left === Number.POSITIVE_INFINITY) return null
   return { left, top, width: right - left, height: bottom - top }
 }
 

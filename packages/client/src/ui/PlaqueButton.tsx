@@ -9,6 +9,11 @@ export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
    * 经过一层组件就要求属性类型里真的有这一项。
    */
   'data-tutorial-anchor'?: string
+  /**
+   * 新手教程挖洞时要把这颗按钮并进宿主元素的矩形里（见 tutorial/TutorialOverlay.tsx）。
+   * 和上面那条一样，得单独列出来 TS 才认。
+   */
+  'data-tutorial-extend'?: string
 }
 
 /** 再快的点击也至少完整显示这么久的压入姿态，避免反馈强度取决于用户按键速度。 */

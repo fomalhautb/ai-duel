@@ -77,6 +77,17 @@ function endPlay(driver: TutorialDriver): void {
   driver.send({ type: 'END_PLAY', player: PLAYER })
 }
 
+/**
+ * 玩家在结算层上点「进入下一轮」。
+ *
+ * 对手那一下由 driver 自己代点（见 tutorialDriver 的 pumpFoeConfirm），
+ * 玩家这一下在真界面上是结算层按钮的一次点击，测试里只能手动补。
+ * 双方都确认之后才会推进下一轮，所以每一轮结算后都要调它一次。
+ */
+function confirmRound(driver: TutorialDriver): void {
+  driver.send({ type: 'CONFIRM_ROUND', player: PLAYER })
+}
+
 /** 对手场上唯一那个 AI（教学脚本保证每轮至多一个）。 */
 function foeAiId(driver: TutorialDriver): InstanceId {
   const ai = stateOf(driver).players[FOE].board[0]
@@ -89,13 +100,15 @@ function scoredEvents(events: readonly GameEvent[]) {
 }
 
 /**
- * 走完第 1 轮（玩家打指定 AI → 结束出牌 → 对手 minimax → 答题结算），
- * 停在第 2 轮玩家可以出牌的那一刻（对手已经派出 deepseek-v4 并结束了出牌）。
+ * 走完第 1 轮（玩家打指定 AI → 结束出牌 → 对手 minimax → 答题 → 双方确认结算），
+ * 停在第 2 轮玩家可以出牌的那一刻（对手已经派出 claude-fable-5 并结束了出牌）。
  */
 function playThroughRoundOne(run: TutorialRun): void {
   flush()
   play(run.driver, TUTORIAL_CARDS.firstAi)
   endPlay(run.driver)
+  flush()
+  confirmRound(run.driver)
   flush()
 }
 
@@ -113,16 +126,22 @@ describe('教学对战剧本', () => {
 
     // 第 2 轮由对手先手，它已经把 deepseek-v4 派上场了，玩家的干扰技能才有目标。
     expect(stateOf(run.driver).round).toBe(2)
-    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-v4'])
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
+      'claude-fable-5',
+    ])
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
-    play(run.driver, 'doubao')
+    play(run.driver, 'gpt-2')
     endPlay(run.driver)
+    flush()
+    confirmRound(run.driver)
     flush()
 
     // 第 3 轮回到玩家先手，随便派一张都不影响结果。
     expect(stateOf(run.driver).round).toBe(3)
     play(run.driver, 'gemini')
     endPlay(run.driver)
+    flush()
+    confirmRound(run.driver)
     flush()
 
     const scored = scoredEvents(run.events)
@@ -150,12 +169,12 @@ describe('教学对战剧本', () => {
 
     const round2 = scoredEvents(run.events)[1]
     expect(round2?.verdict).toBe('fewer-tokens')
-    // 只花了技能牌那 2 点，对手 5 点。
-    expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 5])
+    // 只花了复读机那 4 点，对手 6 点。
+    expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 6])
     expect(round2?.scores).toEqual([2, 0])
   })
 
-  it('第 2 轮增派 GPT-2：消耗 3 点，这一分照样是玩家的', () => {
+  it('第 2 轮增派 GPT-2：消耗 5 点，这一分照样是玩家的', () => {
     const run = start()
     playThroughRoundOne(run)
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
@@ -163,9 +182,10 @@ describe('教学对战剧本', () => {
     endPlay(run.driver)
     flush()
 
+    // 这是玩家在教学限制内花得最多的一条路：4 + 1 = 5，仍旧严格少于对手的 6。
     const round2 = scoredEvents(run.events)[1]
     expect(round2?.verdict).toBe('fewer-tokens')
-    expect(round2?.spent).toEqual([3, 5])
+    expect(round2?.spent).toEqual([5, 6])
     expect(round2?.scores).toEqual([2, 0])
   })
 
@@ -182,9 +202,17 @@ describe('教学对战剧本', () => {
 
     run.driver.setFoeHold(false)
     flush()
-    // 放行之后它把整轮补完：出牌 → 结束出牌 → 答题结算 → 第 2 轮又轮到它先手。
+    // 放行之后它把整轮补完：出牌 → 结束出牌 → 答题 → 它自己那下结算确认。
+    // 玩家那下确认还没点，所以局面停在结算阶段等着。
+    expect(stateOf(run.driver).phase).toBe('settle')
+    expect(stateOf(run.driver).settleConfirmed).toEqual([false, true])
+    confirmRound(run.driver)
+    flush()
+    // 双方都确认了才进第 2 轮，对手又先手派出那张 6 费的 AI。
     expect(stateOf(run.driver).round).toBe(2)
-    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-v4'])
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
+      'claude-fable-5',
+    ])
   })
 
   it('第 3 轮什么都不打直接结束：场上的老 AI 照样答对，3:0 收场', () => {
@@ -193,9 +221,13 @@ describe('教学对战剧本', () => {
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
     endPlay(run.driver)
     flush()
+    confirmRound(run.driver)
+    flush()
 
     expect(stateOf(run.driver).round).toBe(3)
     endPlay(run.driver)
+    flush()
+    confirmRound(run.driver)
     flush()
 
     const scored = scoredEvents(run.events)
@@ -258,7 +290,10 @@ describe('教学内容自检', () => {
     expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
   })
 
-  it('第 2 轮可选的两张都是低费 AI 牌', () => {
+  it('第 2 轮可选增派的只有 GPT-2 这一张低费 AI', () => {
+    // 收窄到一张是 Token 对账的硬要求（见 TUTORIAL_CARDS.optionalAi）：
+    // 再放进一张 2 费的，玩家最多就花到 6 点，和对手打平，第 2 轮的教学结论当场翻车。
+    expect(TUTORIAL_CARDS.optionalAi).toEqual(['gpt-2'])
     for (const cardId of TUTORIAL_CARDS.optionalAi) {
       const card = getCard(cardId)
       expect(card.kind).toBe('ai')

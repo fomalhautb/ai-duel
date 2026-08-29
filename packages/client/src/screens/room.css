@@ -9,9 +9,10 @@
    ------------------------------------------------------------
    视觉件全是切片素材
    ------------------------------------------------------------
-   除了文字、状态点和输入框里那层淡底，画面上看得见的东西都是 <img>：
-   返回箭头、书本、标题花饰、面板双线框、房间码匾、复制框、分隔线、输入框、
+   除了文字、状态点、返回箭头和输入框里那层淡底，画面上看得见的东西都是 <img>：
+   书本、标题花饰、面板双线框、房间码匾、复制框、分隔线、输入框、
    加入按钮、两块横幅、底部装饰。
+   （返回箭头原来也是切片，现在改用公共组件 ui/BackButton 里画的那把细描边箭头。）
 
    素材来源是一张去掉了背景和文字的整图 assets/room-ui-sheet.png，
    用 assets/slice-room-ui.py 切成一张张 webp 放进 public/room/。
@@ -86,7 +87,6 @@
    每张的具体 width / height 都写死成 cqi 或 %，不用 auto——auto 要等图解码完才知道，
    中间会有一帧版面是错的。 */
 .room__bg,
-.room__back-arrow,
 .room__book,
 .room__flourish,
 .room__substar,
@@ -139,17 +139,54 @@
 /*
  * 两块都是「图标 + 文字」的一行。定位锚的是图标：素材上箭头画在
  * (115,110)-(204,188)、书本画在 (2842,115)-(2948,194)，折算成舞台是
- * 箭头 left 3.44cqi / top 5.84%、书本 left 84.99cqi / top 6.11%。
+ * 箭头 left 3.44cqi / top 5.84%（高 2.33cqi）、书本 left 84.99cqi / top 6.11%。
  * 这里的 left / top 是把 padding 减掉之后的值（padding 是为了把点击区从
  * 「只有那两个字」撑到一个手指按得中的方块，纯视觉位置不该跟着 padding 挪）：
  * 横向减 0.5cqi，纵向减 0.4cqi（= 0.71% 的舞台高）。
  *
  * 教程那块也用 left 锚定而不是像以前那样 right 锚定：书本在素材里的位置是定死的，
  * 从右边推过去还得把文字宽度算进来，直接锚图标最省事。
+ *
+ * 返回按钮的 DOM 是公共组件 ui/BackButton.tsx（.ui-back）：箭头长什么样、怎么摆、
+ * hover 时箭头左移、整颗套手绘抖动，全在 styles.css 的「可复用返回按钮」一节，
+ * 这儿只补定位、字号和配色。原来那张切片素材 public/room/back-arrow.webp 是个粗实心箭头，
+ * 换成公共组件后是细描边的那一把（换的理由见 BackButton.tsx），图和它在 ROOM_ASSETS 里的
+ * 预加载条目都已经删掉。
+ *
+ * 因此返回这一行的 top 不能照上面那条「素材 top 减 0.4cqi」算：新箭头只有 0.78cqi 高，
+ * 撑起按钮的是文字行盒（1.15cqi），按钮比原来那块 2.33cqi 的图矮了一截。
+ * 改成按中心对齐反推——素材里箭头的纵向中心在 5.84% + 2.33cqi/2 ≈ 7.91%，
+ * 按钮高 = 1.15cqi 行盒 + 上下各 0.4cqi = 1.95cqi ≈ 3.47% 的舞台高，
+ * 所以 top = 7.91% - 3.47%/2 ≈ 6.17%。横向不受影响：箭头左边缘仍落在 3.44cqi。
  */
-.room__back,
+.room__back {
+  position: absolute;
+  top: 6.17%;
+  left: 2.94cqi;
+  padding: 0.4cqi 0.5cqi;
+  color: var(--room-ink);
+  font-size: 1.15cqi;
+  letter-spacing: 0.1em;
+  transition: color 0.18s ease;
+}
+
+/* 返回键的箭头描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
+.room__back:hover,
+.room__tutorial:hover {
+  color: var(--room-ink-lit);
+}
+
+.room__back:focus-visible {
+  outline: 0.12cqi solid var(--room-ink-lit);
+  outline-offset: 0.2cqi;
+}
+
+/* 教程那块排版自己写一份：它和返回按钮长得像，但图标是书本不是箭头，
+   而返回按钮的样式已经搬进公共组件（见上面那段注释），两边不再共用一条规则。 */
 .room__tutorial {
   position: absolute;
+  top: 5.4%;
+  left: 84.49cqi;
   display: flex;
   align-items: center;
   gap: 1.04cqi;
@@ -160,50 +197,10 @@
   font-size: 1.15cqi;
   letter-spacing: 0.1em;
   line-height: 1;
-}
-
-.room__back {
-  top: 5.13%;
-  left: 2.94cqi;
+  /* 教程页已经做回来了，这块是真能点的 button（见 RoomScreen 里的 /tutorial）：
+     光标给手型，hover 时文字变色、书本提亮，和返回按钮一套反馈。 */
   cursor: pointer;
-  /* 只有返回按钮会变色，所以过渡也只写在它身上（教程那块不响应 hover，见下）。 */
   transition: color 0.18s ease;
-}
-
-.room__tutorial {
-  top: 5.4%;
-  left: 84.49cqi;
-  cursor: pointer;
-  /* 和返回按钮一样只有文字变色，图（书本）跟着 hover 提亮，见下面那条。 */
-  transition: color 0.18s ease;
-}
-
-.room__back:hover,
-.room__tutorial:hover {
-  color: var(--room-ink-lit);
-}
-
-/* 箭头单独一层，hover 时只有它左移 + 提亮。
-   箭头是张图，没法跟着 currentColor 走，用 brightness 顶上去当「变亮」。
-   transform 写在这里不违反「transform 归 GSAP」那条：GSAP 只碰 .room__back 本身，
-   父子各自一套 transform 互不覆盖。 */
-.room__back-arrow {
-  width: 2.66cqi;
-  /* 高度用 cqi 不用 %：这张图的父元素是高度自适应的按钮，% 算不出来。 */
-  height: 2.33cqi;
-  transition:
-    transform 0.18s ease,
-    filter 0.18s ease;
-}
-
-.room__back:hover .room__back-arrow {
-  transform: translateX(-0.3cqi);
-  filter: brightness(1.25);
-}
-
-.room__back:focus-visible {
-  outline: 0.12cqi solid var(--room-ink-lit);
-  outline-offset: 0.2cqi;
 }
 
 .room__book {
@@ -237,9 +234,9 @@
   left: 0;
   text-align: center;
   /*
-   * 标题块横跨整个舞台（right/left 都是 0），而它在 DOM 里排在返回和「新手教程」之后，
-   * 两颗按钮的下半截正好落在标题的盒子里、点不动——返回按钮一直是"只有上半边能按"，
-   * 「新手教程」整颗按钮更是被盖得严严实实。
+   * 同 .hero__head：标题块横跨整个舞台（right/left 都是 0），而它在 DOM 里排在
+   * 返回和「新手教程」之后，两颗按钮的下半截正好落在标题的盒子里、点不动——
+   * 返回按钮会变成"只有上半边能按"，「新手教程」整颗更是被盖得严严实实。
    * 这里就两行纯文字，本来也没有任何交互，直接让它不吃指针事件，
    * 比给两颗按钮各加一个 z-index 干净（这个舞台里一处 z-index 都没有，见文件头）。
    */
@@ -964,8 +961,8 @@
     animation: none;
   }
 
+  /* 返回箭头的位移不在这儿列：它归公共的 .ui-back__arrow 管，styles.css 里已经压过了。 */
   .room__back,
-  .room__back-arrow,
   .room__copy,
   .room__join,
   .room__banner,

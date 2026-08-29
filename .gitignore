@@ -19,3 +19,4 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+scripts/out/pregen-smoke.json

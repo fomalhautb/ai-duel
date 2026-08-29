@@ -698,7 +698,7 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
               {/* 详情只能从这两颗按钮（或 ESC）退出：点空白处会关掉，
                   就没法在大卡上随便挪指针看画，所以那条去掉了。 */}
               <div className="hero__detail-actions">
-                {/* 和左上角那颗同一个公共组件（ui/BackButton），只是字号更大、套了手绘滤镜，
+                {/* 和左上角那颗同一个公共组件（ui/BackButton），只是字号更大，
                     定位交给 .hero__detail-back。 */}
                 <BackButton className="hero__detail-back" ref={detailBackRef} onClick={closeDetail} />
                 {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。

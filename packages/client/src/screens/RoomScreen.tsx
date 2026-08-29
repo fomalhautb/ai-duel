@@ -39,6 +39,8 @@ import { loadSave, saveHero } from '../save/save'
 import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
+import { BackButton } from '../ui/BackButton'
+import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { useAssetsReady } from '../ui/preloadAssets'
 import './room.css'
 
@@ -58,7 +60,6 @@ const ROOM_CODE_PATTERN = /^\d{4}$/
  */
 export const ROOM_ASSETS = [
   '/hero/hero-bg.webp',
-  '/room/back-arrow.webp',
   '/room/book.webp',
   '/room/flourish-l.webp',
   '/room/flourish-r.webp',
@@ -524,14 +525,14 @@ function RoomStage({
 
   return (
     <div className="room grain on-dark" ref={rootRef}>
+      {/* 返回按钮的手绘抖动要用它，缺了这一份 Chrome 上整颗按钮不画（见 ui/BackButton.tsx）。 */}
+      <HandDrawnFilterDefs />
       <div className="room__stage">
         <img className="room__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
-        {/* 图都是纯装饰（alt=""），按钮的可读名字由旁边的文字给。 */}
-        <button type="button" className="room__back" onClick={() => navigate('/')}>
-          <img className="room__back-arrow" src="/room/back-arrow.webp" alt="" draggable={false} />
-          返回
-        </button>
+        {/* 位置和配色留在 room.css 的 .room__back 里，箭头和排版由公共组件管。
+            这一页的箭头就是公共组件那套比例的出处（见 styles.css 的「可复用返回按钮」）。 */}
+        <BackButton className="room__back" onClick={() => navigate('/')} />
 
         {/* 重玩新手教程的入口（规格 §14：重玩入口放在匹配房，不占完成页的主视觉）。
             不看存档里的 tutorialDone——那个字段只管首页「开始游戏」往哪分流，

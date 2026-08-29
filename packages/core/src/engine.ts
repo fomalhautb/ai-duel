@@ -135,7 +135,7 @@ export function createGame(setup: GameSetup): ExecuteResult {
       name: config.name,
       score: 0,
       // 开局就是满的：第 1 轮双方各 INITIAL_TOKEN_MAX 点，
-      // 之后每轮补满并涨 TOKEN_MAX_GROWTH（见 submitAnswers 那段）。
+      // 之后每轮补满并涨 TOKEN_MAX_GROWTH（见 confirmRound 那段）。
       tokens: INITIAL_TOKEN_MAX,
       tokenMax: INITIAL_TOKEN_MAX,
       spentThisRound: 0,
@@ -181,6 +181,7 @@ export function createGame(setup: GameSetup): ExecuteResult {
     questions,
     players,
     winner: null,
+    settleConfirmed: [false, false],
     seq,
   }
 
@@ -213,6 +214,9 @@ export function execute(state: GameState, command: Command): ExecuteResult {
     case 'SUBMIT_ANSWERS':
       if (state.phase !== 'quiz') return reject(state, '现在不是答题阶段')
       return submitAnswers(state, command.results)
+    case 'CONFIRM_ROUND':
+      if (state.phase !== 'settle') return reject(state, '现在不是回合结算阶段')
+      return confirmRound(state, command.player)
     // DEBUG_ADD_CARD / DEBUG_REMOVE_CARD 不限阶段：测试房要能在答题阶段先把手牌摆好。
     case 'DEBUG_ADD_CARD':
       return debugAddCard(state, command.player, command.cardId)
@@ -279,7 +283,9 @@ function playCard(
   player.hand.splice(handIndex, 1)
   // 扣费和抽走手牌绑在一起：上面所有会拒绝的分支都已经走完，到这里这张牌必定打得出去。
   player.tokens -= card.tokenCost
-  // 本轮消耗照记，技能牌待会儿被英雄技能抵消也不退——Token 是真花出去的，作废的只是效果。
+  // 同一笔钱记两处：tokens 是"还剩多少"，会在进下一轮时被补满冲掉；
+  // spentThisRound 是"这一轮花了多少"，结算要用它比大小，所以得单独攒着。
+  // 技能牌待会儿被英雄技能抵消也不退——Token 是真花出去的，作废的只是效果。
   // 同对同错时比的就是这个数（见 submitAnswers），所以这一笔的口径必须是"付出去了多少"。
   player.spentThisRound += card.tokenCost
 
@@ -360,10 +366,14 @@ function enterQuiz(state: GameState): GameEvent[] {
 }
 
 /**
- * 结算本轮答题。
+ * 结算本轮答题：判对错、罚下答错的、算出这一轮谁拿分，然后停在 settle 等双方确认。
  *
  * results 由房主/本地 driver 在进入答题阶段后一次性生成，覆盖场上每一个 AI；
  * 对不上就整条拒绝——那说明 driver 拿的是过期状态，宁可什么都不做也别结算出错的局面。
+ *
+ * 这里**不**推进轮次也不判终局：那一段搬去了 confirmRound。
+ * 结算界面要播一整套揭晓动画，中途局面不能变（补牌、换先手、Token 补满都会让界面跳），
+ * 所以这条指令只把分算完写进快照就收手。
  */
 function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult {
   const next = clone(state)
@@ -393,8 +403,11 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
       type: 'AI_ANSWERED',
       instanceId: ai.instanceId,
       owner: ai.owner,
+      // 这个 AI 马上可能被罚下，从快照里消失；界面画头像要的卡面身份只剩事件里这一份。
+      cardId: ai.cardId,
       correct: result.correct,
-      answerText: result.answerText,
+      answer: result.answer,
+      reasoning: result.reasoning,
     })
     if (!result.correct) {
       owner.board.splice(index, 1)
@@ -433,8 +446,31 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   const scores: [number, number] = [next.players[0].score, next.players[1].score]
   events.push({ type: 'ROUND_SCORED', gains, scores, correct, spent, verdict })
 
+  // 停在这里等双方点"进入下一轮"。轮次、Token、手牌全都保持本轮的样子，
+  // 结算界面读快照就能显示"本轮消耗"这类只在这一刻有意义的数。
+  next.phase = 'settle'
+  next.settleConfirmed = [false, false]
+  return { state: next, events }
+}
+
+/**
+ * 某一方确认本轮结算。双方都确认了才真的推进：推进下一轮，或在最后一轮结束整局。
+ *
+ * 为什么要等两边：结算界面是一整套逐步揭晓的动画，两端各播各的、快慢不同步，
+ * 先看完的一方直接把局面推走的话，另一边的动画会被下一轮的横幅和补牌打断。
+ */
+function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
+  if (state.settleConfirmed[playerId]) return reject(state, '这一轮你已经确认过了')
+
+  const next = clone(state)
+  next.settleConfirmed[playerId] = true
+  const events: GameEvent[] = [{ type: 'ROUND_CONFIRMED', player: playerId }]
+  if (!next.settleConfirmed[0] || !next.settleConfirmed[1]) return { state: next, events }
+
   // 收场有两条路：有人**单独**到 WIN_TARGET 分（题库还剩题也当场结束），
   // 或者题库出完了保底判一次。双方同时到线且分数相同不算结束，继续加赛下一轮。
+  // 分数在 submitAnswers 里就加完了，这里只是读快照来判要不要收场。
+  const scores: [number, number] = [next.players[0].score, next.players[1].score]
   const decided = (scores[0] >= WIN_TARGET || scores[1] >= WIN_TARGET) && scores[0] !== scores[1]
   if (decided || next.round >= next.totalRounds) {
     next.phase = 'finished'
@@ -451,6 +487,7 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
   // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉。
   // 本轮消耗和"派过 AI 了"两个标志一起清零，新一轮从头算。
+  // 消耗那一份的读者是结算界面，所以一直留到真的离开结算这一刻才失效。
   for (const player of next.players) {
     player.tokenMax += TOKEN_MAX_GROWTH
     player.tokens = player.tokenMax

@@ -41,21 +41,24 @@ export const TUTORIAL_QUESTIONS: Question[] = [
     category: 'brainteaser',
     text: '小明住 12 楼，每天下楼都坐电梯到 1 楼，上楼却只坐到 6 楼，再走楼梯回家。为什么？',
     keywords: ['日常闲聊', '生活常识', '简单推理'],
-    answer: '他个子矮，只够得着电梯里第 6 层的按钮',
+    answer: '他个子矮',
+    explanation: '够不着 12 楼那颗按钮，只能先按到 6 楼再走上去。',
   },
   {
     id: 'tut-q-programmer',
     category: 'bias',
     text: '「那位程序员把孩子哄睡着之后，回到电脑前改完了最后一个 bug。」请问这位程序员是男是女？',
     keywords: ['程序员', '性别判断', '刻板印象'],
-    answer: '无法判断——题目根本没有交代性别',
+    answer: '无法判断',
+    explanation: '题目从头到尾没有交代这位程序员的性别，任何一边都是猜的。',
   },
   {
     id: 'tut-q-icecube',
     category: 'brainteaser',
     text: '一杯水里漂着一块冰。冰全部化掉之后，水面会升高、降低，还是不变？',
     keywords: ['冰块融化', '水面高低'],
-    answer: '不变——冰排开的水的体积正好等于它化成的水',
+    answer: '不变',
+    explanation: '冰排开的水的体积，正好等于它化成的那些水。',
   },
 ]
 
@@ -68,27 +71,41 @@ export const TUTORIAL_QUESTIONS: Question[] = [
 export const TUTORIAL_CARDS = {
   /** 第 1 轮唯一放行的 AI 牌（2 费）。 */
   firstAi: 'gpt-3-5' as CardId,
-  /** 第 2 轮的教学技能牌（2 费，要选对方一个 AI 当目标）。 */
-  skill: 'skill-must-answer' as CardId,
-  /** 第 2 轮"可以再派一张"时高亮的两张低费 AI（1 费 / 2 费）。 */
-  optionalAi: ['gpt-2', 'doubao'] as CardId[],
+  /**
+   * 第 2 轮的教学技能牌：「复读机」（4 费，要选对方一个还没被干扰过的 AI 当目标）。
+   *
+   * 这是 24 张技能牌里**唯一**接进规则引擎的一张（其余只有卡面，打出即进弃牌堆，
+   * 见 core 的 skillCards.ts）。教学要演"技能打在谁身上"，就只能用它。
+   */
+  skill: 'fixed-answer' as CardId,
+  /**
+   * 第 2 轮"可以再派一张"时高亮的 AI，只留 GPT-2（1 费）这一张。
+   *
+   * 收窄到一张是 Token 对账的硬要求，不是排版偏好：第 2 轮玩家最多花
+   * 复读机 4 + GPT-2 1 = 5 点，严格小于对手那一轮的 6 点，
+   * 于是无论玩家怎么操作都稳拿"消耗更少"那一分（对账见下面 TUTORIAL_FOE_PLAYS）。
+   * 再放进一张 2 费的就会打成 6 比 6 平手，第 2 轮的教学结论当场翻车。
+   */
+  optionalAi: ['gpt-2'] as CardId[],
 }
 
 /**
  * 玩家的抽牌顺序：前 5 张是起手，之后每轮补 2 张。
  *
- * 起手必须凑齐教学要用的全部牌：第 1 轮指定的 AI、第 2 轮的技能牌、
- * 第 2 轮可选增派的那两张低费 AI。deepseek-r1 只是把起手补满，教程不点名用它。
+ * 起手必须凑齐教学要用的全部牌：第 1 轮指定的 AI（gpt-3-5）、第 2 轮的技能牌（复读机）、
+ * 第 2 轮可选增派的那张 GPT-2。豆包和 deepseek-r1 只是把起手补满，教程不点名用它们
+ * ——尤其豆包（2 费）：它现在**不在** optionalAi 里，第 2 轮是压暗打不出的，
+ * 留在手上正好让"这一轮只放行这一张"看得见对照。
  */
 const PLAYER_DRAW_ORDER: CardId[] = [
   // 起手 5 张
   'gpt-3-5',
-  'skill-must-answer',
+  'fixed-answer',
   'gpt-2',
   'doubao',
   'deepseek-r1',
   // 第 2 轮补 2 张
-  'placeholder-skill',
+  'one-sentence-answer',
   'qwen',
   // 第 3 轮补 2 张
   'gemini',
@@ -112,10 +129,10 @@ const PLAYER_FILLER: CardId[] = [
 
 /**
  * 对手的抽牌顺序。起手必须含脚本要打的三张：minimax（第 1 轮）、
- * deepseek-v4（第 2 轮）、grok（第 3 轮），剩下两张只是把起手补满。
+ * claude-fable-5（第 2 轮）、grok（第 3 轮），剩下两张只是把起手补满。
  * 对手第 2、3 轮照常补牌，补到什么无所谓——它只按脚本出牌。
  */
-const FOE_DRAW_ORDER: CardId[] = ['minimax', 'deepseek-v4', 'grok', 'gpt-4o', 'qwen']
+const FOE_DRAW_ORDER: CardId[] = ['minimax', 'claude-fable-5', 'grok', 'gpt-4o', 'qwen']
 
 /** 对手牌组的填充部分。gpt-2 和豆包各两份，凑够 15 张；对手不出技能牌，所以一张技能牌都不放。 */
 const FOE_FILLER: CardId[] = [
@@ -154,11 +171,15 @@ export const TUTORIAL_FOE_OPENING_HAND: CardId[] = FOE_DRAW_ORDER.slice(0, 5)
  * 全是 AI 牌，一张技能牌都没有——教学局不该出现"对手也会用技能"这个还没教的概念，
  * 而且玩家的霍珀会抵消对手第一张技能牌，凭空多演一层抵消过场只会更乱。
  *
- * 费用对账（Token 上限每轮 +1，从 5 起）：3 ≤ 5、5 ≤ 6、4 ≤ 7，每一轮都付得起。
- * 第 2 轮那 5 点是故意花的：它必须**严格大于**玩家在教学限制内可能的最大消耗
- *（技能 2 + 最贵的可选 AI 2 = 4），这样"同结果比 Token"那一分才稳稳属于玩家。
+ * 费用对账（Token 上限每轮 +1，从 5 起）：3 ≤ 5、6 ≤ 6、4 ≤ 7，每一轮都付得起
+ *（第 2 轮那 6 点正好花光当轮额度，是对手出得起的最贵一张）。
+ *
+ * 第 2 轮那 6 点是故意花的：它必须**严格大于**玩家在教学限制内可能的最大消耗
+ *（复读机 4 + 唯一放行的 GPT-2 1 = 5），这样"双方同对就比 Token"那一分才稳稳属于玩家。
+ * 下限那头也是稳的：玩家这一轮就算一张都不打（消耗 0），0 < 6 照样赢。
+ * 换对手这一轮的牌就要重算这条不等式——只要它掉到 5 或以下，第 2 轮的教学结论就翻车。
  */
-export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['deepseek-v4'], ['grok']]
+export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['claude-fable-5'], ['grok']]
 
 /**
  * 预设答题结果的判据：**只看谁的 AI 和第几轮**，不看具体是哪张卡。
@@ -167,8 +188,9 @@ export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['deepseek-v4'], ['g
  * 玩家新派的任何一张 AI 都必须答对，这一分才跑不掉。
  *
  * - 第 1 轮：玩家全对、对手全错（minimax 被罚下）→ 只有一方答对，玩家 +1。
- * - 第 2 轮：双方全对（被干扰的 deepseek-v4 也答对——干扰不保证立刻起效，
- *   顺带给它第 3 轮答错埋个伏笔）→ 比本轮消耗，玩家更省，玩家 +1。
+ * - 第 2 轮：双方全对（被复读机干扰的 claude-fable-5 也答对——干扰只是标记，
+ *   还没接进答题，顺带给它第 3 轮答错埋个伏笔）→ 双方同对就比本轮消耗，
+ *   玩家最多 5 点、对手 6 点，玩家更省，玩家 +1。
  * - 第 3 轮：玩家全对、对手全错 → 玩家 +1，3:0 收场。
  */
 function isCorrectFor(round: number, owner: PlayerId): boolean {
@@ -176,10 +198,16 @@ function isCorrectFor(round: number, owner: PlayerId): boolean {
   return round === 2
 }
 
-/** 一条按卡定制的回答。`correct` 是它成立的前提：对错由上面那条规则算，对不上就退回通用文案。 */
+/**
+ * 一条按卡定制的回答。`correct` 是它成立的前提：对错由上面那条规则算，对不上就退回通用文案。
+ *
+ * 答案和理由分成两栏是结算层的排版要求（同 core 的 AnswerResult）：
+ * `answer` 是结果卡上那行大字，写成短语；讲道理的部分全部放进 `reasoning` 那行小字。
+ */
 interface ScriptedLine {
   correct: boolean
-  text: string
+  answer: string
+  reasoning: string
 }
 
 /**
@@ -194,37 +222,53 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
   {
     'tut-q-elevator': {
       fallback: [
-        { correct: true, text: '他个子矮，够不到 12 楼的按钮。' },
-        { correct: false, text: '他想多爬几层楼锻炼身体。' },
+        { correct: true, answer: '他个子矮', reasoning: '够不到 12 楼的按钮，只能按到 6 楼。' },
+        { correct: false, answer: '为了锻炼身体', reasoning: '他想多爬几层楼练练腿。' },
       ],
       lines: {
-        'gpt-3-5': { correct: true, text: '他个子够不到 12 楼那颗按钮，这题我熟。' },
-        minimax: { correct: false, text: '为了锻炼身体嘛，多走两层挺好的！' },
+        'gpt-3-5': {
+          correct: true,
+          answer: '他个子矮',
+          reasoning: '够不到 12 楼那颗按钮，这题我熟。',
+        },
+        minimax: {
+          correct: false,
+          answer: '为了锻炼身体',
+          reasoning: '多走两层挺好的，健康第一！',
+        },
       },
     },
     'tut-q-programmer': {
       fallback: [
-        { correct: true, text: '题目没交代性别，判断不了。' },
-        { correct: false, text: '按常理推断，应该是位男程序员。' },
+        { correct: true, answer: '无法判断', reasoning: '题目没交代性别，判断不了。' },
+        { correct: false, answer: '男的', reasoning: '按常理推断，应该是位男程序员。' },
       ],
       lines: {
-        'gpt-3-5': { correct: true, text: '题目里没写性别，我不敢替它补一个。' },
-        'gpt-2': { correct: true, text: '没说。真没说。' },
-        doubao: { correct: true, text: '题目没有提到性别哦～不能乱猜的。' },
-        'deepseek-v4': { correct: true, text: '信息不足，无法判断。' },
+        'gpt-3-5': {
+          correct: true,
+          answer: '无法判断',
+          reasoning: '题目里没写性别，我不敢替它补一个。',
+        },
+        'gpt-2': { correct: true, answer: '没说', reasoning: '真没说。一个字都没说。' },
+        doubao: { correct: true, answer: '判断不了', reasoning: '题目没有提到性别哦～不能乱猜的。' },
+        'claude-fable-5': { correct: true, answer: '无法判断', reasoning: '信息不足，不做推断。' },
       },
     },
     'tut-q-icecube': {
       fallback: [
-        { correct: true, text: '不变——冰排开的水正好等于它化成的水。' },
-        { correct: false, text: '冰化成了水，水面当然会升高。' },
+        { correct: true, answer: '不变', reasoning: '冰排开的水正好等于它化成的水。' },
+        { correct: false, answer: '会升高', reasoning: '冰化成了水，水当然变多了。' },
       ],
       lines: {
-        'gpt-3-5': { correct: true, text: '水面不变，浮力那条定律刚好抵掉。' },
-        'gpt-2': { correct: true, text: '不变。不变。不变。' },
-        doubao: { correct: true, text: '水面不会变哒～' },
-        'deepseek-v4': { correct: false, text: '冰化成水体积增加，水面升高。' },
-        grok: { correct: false, text: '当然升高，冰总不能凭空消失吧。' },
+        'gpt-3-5': { correct: true, answer: '不变', reasoning: '浮力那条定律刚好把它抵掉。' },
+        'gpt-2': { correct: true, answer: '不变', reasoning: '不变。不变。真的不变。' },
+        doubao: { correct: true, answer: '不会变', reasoning: '水面高度保持原样哒～' },
+        'claude-fable-5': {
+          correct: false,
+          answer: '会升高',
+          reasoning: '冰化成水体积增加，水面上升。',
+        },
+        grok: { correct: false, answer: '会升高', reasoning: '当然升高，冰总不能凭空消失吧。' },
       },
     },
   }
@@ -248,11 +292,16 @@ export function tutorialAnswers(
   return aiUnits.map((ai) => {
     const correct = isCorrectFor(round, ai.owner)
     const line = table.lines[ai.cardId]
-    const text =
+    const picked =
       line !== undefined && line.correct === correct
-        ? line.text
-        : (table.fallback.find((item) => item.correct === correct)?.text ?? '……')
-    return { instanceId: ai.instanceId, correct, answerText: text }
+        ? line
+        : table.fallback.find((item) => item.correct === correct)
+    return {
+      instanceId: ai.instanceId,
+      correct,
+      answer: picked?.answer ?? '……',
+      reasoning: picked?.reasoning ?? '',
+    }
   })
 }
 

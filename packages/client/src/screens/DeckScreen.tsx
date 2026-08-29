@@ -75,6 +75,9 @@ import {
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
 import { loadSave } from '../save/save'
+import { FACTIONS, filterDeckCards } from './deckFactions'
+import type { DeckFaction } from './deckFactions'
+import { SkillCardHoverPreview } from './SkillCardHoverPreview'
 import './deck.css'
 
 gsap.registerPlugin(useGSAP)
@@ -286,7 +289,15 @@ export interface DeckScreenProps {
 
 export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
+  /**
+   * 选中的阵营，null = 不按阵营筛。
+   *
+   * 切到「技能牌」页签时刻意**不重置**：技能牌那一页压根不显示阵营药丸（技能牌没有阵营），
+   * 玩家去技能页看一眼再切回来，多半是想接着挑刚才那家的 AI。
+   */
+  const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
+  const [previewedSkill, setPreviewedSkill] = useState<HandCardData | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
   const nextKeyRef = useRef(0)
 
@@ -339,7 +350,7 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
   const pool = useMemo<readonly CardId[]>(() => loadSave().ownedCards, [])
 
   /**
-   * 页签上的数字。按整个卡池实算，不跟着当前页签变：
+   * 页签上的数字。按整个卡池实算，既不跟着当前页签变，也不跟着阵营筛选变：
    * 它说的是"这一类我一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
    */
   const kindCounts = useMemo<Record<KindTabId, number>>(() => {
@@ -885,14 +896,11 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
 
   // ---------- 筛选 ----------
 
-  // 只按种类筛。以前还有一排阵营药丸，那是 demo 卡自带的分组维度，core 的卡池没有阵营。
+  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里（阵营只作用于 AI 牌）。
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
   const shown = useMemo(
-    () =>
-      kindFilter === 'all'
-        ? pool
-        : pool.filter((cardId) => CARD_BY_ID.get(cardId)?.kind === kindFilter),
-    [pool, kindFilter],
+    () => filterDeckCards(pool, kindFilter, faction),
+    [pool, kindFilter, faction],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -959,6 +967,42 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                       <i className="deck-kinds__dia" />
                     </i>
                   </div>
+                  {/* 阵营药丸。技能牌和阵营无关，所以「技能牌」页签下不摆那六颗，
+                      只留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
+                      切页签时下面的卡池网格会跟着上下跳一截。 */}
+                  <div
+                    className="deck-factions"
+                    role="group"
+                    aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}
+                  >
+                    {kindFilter === 'skill' ? (
+                      <button type="button" className="deck-faction" data-active>
+                        全部卡牌
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="deck-faction"
+                          data-active={faction === null}
+                          onClick={() => setFaction(null)}
+                        >
+                          全部阵营
+                        </button>
+                        {FACTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="deck-faction"
+                            data-active={faction === option.id}
+                            onClick={() => setFaction(option.id)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="deck-grid" ref={gridRef}>
@@ -975,6 +1019,7 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                         canAdd={!deckFull && picked < MAX_COPIES}
                         bind={bindPoolCard(cardId)}
                         onAdd={addCard}
+                        onPreview={setPreviewedSkill}
                         hidden={zoomed?.flipId === flipId}
                       />
                     )
@@ -987,8 +1032,8 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                   {tutorial !== undefined
                     ? '点击高亮的卡牌，把它加入牌组'
                     : deckFull
-                      ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
-                      : '点击放大 · 圆圈或拖拽加入'}
+                      ? `牌组已满 ${DECK_SIZE} 张 · 技能牌悬停看双面 · 先移除才能再加`
+                      : '技能牌悬停看双面 · 点击放大 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -1157,6 +1202,7 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                                 entryKey={entry.key}
                                 bind={bindDeckCard(entry.key)}
                                 onRemove={removeEntry}
+                                onPreview={setPreviewedSkill}
                                 hidden={zoomed?.flipId === deckFlipId(entry.key)}
                               />
                             )
@@ -1167,10 +1213,10 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
                       <div className="deck-side__foot">
                         <div className="deck-side__notes">
                           {/* 文案照实写：这一页是"点一下放大"，移除走圆圈或者把牌拖出面板，
-                              没有悬停放大这回事。 */}
+                              没有悬停放大这回事（技能牌的悬停是翻看背面，不是放大）。 */}
                           <p className="deck-side__hint">
                             {tutorial === undefined
-                              ? '点击放大 · 圆圈或拖出移除'
+                              ? '技能牌悬停看双面 · 点击放大 · 圆圈或拖出移除'
                               : '教学阶段：牌组里的牌暂时不能改动'}
                           </p>
                           {shortfall > 0 ? (
@@ -1213,6 +1259,9 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
               }}
               closeOnEscape
             />
+            {previewedSkill !== null && zoomed === null ? (
+              <SkillCardHoverPreview card={previewedSkill} />
+            ) : null}
           </div>
 
           {/* 额外浮层的插槽，现在只有教程的引导层。挂在 .paper-page__inner 外面、
@@ -1244,6 +1293,7 @@ interface PoolCardProps {
   canAdd: boolean
   bind: CardDragBindings
   onAdd: (cardId: CardId) => void
+  onPreview: (card: HandCardData | null) => void
   /** 这张卡正被放大，原位要就地藏起来。 */
   hidden: boolean
 }
@@ -1254,6 +1304,7 @@ const PoolCard = memo(function PoolCard({
   canAdd,
   bind,
   onAdd,
+  onPreview,
   hidden,
 }: PoolCardProps) {
   return (
@@ -1268,6 +1319,14 @@ const PoolCard = memo(function PoolCard({
         data-picked={picked > 0 ? picked : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
+        onPointerEnter={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onPointerLeave={() => onPreview(null)}
+        onFocus={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onBlur={() => onPreview(null)}
       >
         <HandCardFace card={card} />
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
@@ -1300,6 +1359,7 @@ interface DeckSlotItemProps {
   entryKey: string
   bind: CardDragBindings
   onRemove: (entryKey: string) => void
+  onPreview: (card: HandCardData | null) => void
   hidden: boolean
 }
 
@@ -1308,6 +1368,7 @@ const DeckSlotItem = memo(function DeckSlotItem({
   entryKey,
   bind,
   onRemove,
+  onPreview,
   hidden,
 }: DeckSlotItemProps) {
   return (
@@ -1317,6 +1378,14 @@ const DeckSlotItem = memo(function DeckSlotItem({
         data-flip-id={deckFlipId(entryKey)}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
+        onPointerEnter={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onPointerLeave={() => onPreview(null)}
+        onFocus={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onBlur={() => onPreview(null)}
       >
         {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
             两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}

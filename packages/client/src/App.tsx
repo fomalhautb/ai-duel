@@ -20,6 +20,8 @@ import { MatchScreen } from './screens/MatchScreen'
 import { TutorialScreen } from './screens/TutorialScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
+import { GenerationScreen } from './screens/GenerationScreen'
+import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
@@ -61,9 +63,17 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
-        {/* 结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
-            省得为了调结算版式真去打完一局。 */}
+        {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
+            按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
+            不用打完整一局就能反复看那一整套动画。 */}
+        <Route path="/test" component={SettleTestScreen} />
+        {/* 终局结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
+            省得为了调结算版式真去打完一局。和上面的 /test 分工：这里调"整局打完"的底板，
+            那里调"每一轮答完"的结算层。 */}
         <Route path="/result" component={ResultDemo} />
+        {/* 预生成答题结果对照页：把离线跑好的「模型 × 题目 × 技能」结果摊成一张表，
+            用来看哪张技能卡真的把模型带偏了。数据是构建期生成的静态 JSON，不联网。 */}
+        <Route path="/generation" component={GenerationScreen} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

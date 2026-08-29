@@ -36,8 +36,16 @@ export interface Question {
    * 正确答案，答题阶段直接摊给玩家看。
    * 本项目不防作弊（见 docs/architecture.md 4.1），所以整份题库连答案一起放在
    * GameState 里发给双方，不做"只在结算时下发"这种服务器权威式的遮挡。
+   *
+   * 写成短语而不是整句：结算界面把它当大字标题排版，长句会挤成两三行。
+   * 说明的部分放到 explanation 里。
    */
   answer: string
+  /**
+   * 标准答案下面那行小字，讲清楚"为什么是这个答案"。
+   * 和 answer 分开是排版需要：一行大字 + 一行小字，两者不能揉进同一个字段。
+   */
+  explanation: string
 }
 
 interface CardBase {
@@ -65,7 +73,7 @@ export interface AiCard extends CardBase {
 
 /**
  * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有「必须回答」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ * 本迭代只有「复读机」有实际结算（把目标标成已干扰），其余只有卡面和动画。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'
@@ -77,6 +85,15 @@ export interface SkillCard extends CardBase {
    * `playCard` 那段校验一行都不用改。
    */
   target?: 'foe-ai'
+  /**
+   * 设计稿定下的效果全文，**规则引擎尚未实装**，只供卡背展示。
+   *
+   * 带着它的牌走的是占位路径：打出后亮个相就进弃牌堆，什么都不会发生。
+   * 所以客户端拼卡背文案时必须一并说明"还没实装"（见 client 的 ui/cardText.ts）——
+   * 直接把这句话摆出来，玩家会以为打出去真有效果。
+   * 哪天某张牌接进引擎，就把这个字段删掉、改成真正的结算逻辑。
+   */
+  plannedEffect?: string
 }
 
 /**
@@ -156,15 +173,22 @@ export interface AiInstance {
 export interface AnswerResult {
   instanceId: InstanceId
   correct: boolean
-  /** 这个 AI 给出的回答原文，只用来展示。 */
-  answerText: string
+  /** 这个 AI 的回答本身，一个短语。结算界面拿它当大字排版，所以别写成整段话。 */
+  answer: string
+  /** 这个 AI 给出的理由，两行以内的小字，排在 answer 下面。 */
+  reasoning: string
 }
 
 /**
- * 一轮分三段：双方轮流出牌（play）→ 全场答题结算（quiz）→ 下一轮。
- * 有一方单独到 WIN_TARGET 分、或者题库出完了，就进 finished。
+ * 一轮分四段：双方轮流出牌（play）→ 全场答题（quiz）→ 结算等双方确认（settle）→ 下一轮。
+ *
+ * 分数在 quiz 末尾就算完了，但要等 settle 里双方都确认才推进；到那一刻若有一方
+ * 单独到 WIN_TARGET 分、或者题库已经出完，就直接进 finished 而不是开下一轮。
+ *
+ * settle 单独占一段是为了让结算界面有一段"局面不再变"的时间：
+ * 计分已经算完写进快照，但轮次、Token、手牌都还停在本轮的样子，界面可以放心读快照。
  */
-export type GamePhase = 'play' | 'quiz' | 'finished'
+export type GamePhase = 'play' | 'quiz' | 'settle' | 'finished'
 
 /**
  * 本轮那 1 分是怎么分出来的。三档按判定顺序排，客户端照它选结算文案。
@@ -188,17 +212,18 @@ export interface PlayerState {
   /**
    * 本轮还剩多少 Token。出牌时按卡面 tokenCost 扣，扣光了就打不出更贵的牌。
    *
-   * 每轮答题结算完补满到 tokenMax，不跨轮攒：省下来的 Token 不会带到下一轮，
+   * 双方确认结算、进下一轮时补满到 tokenMax，不跨轮攒：省下来的 Token 不会带到下一轮，
    * 所以"这一轮的额度尽量用掉"本身就是一条策略。
    */
   tokens: number
   /**
-   * 本轮已经花掉的 Token，每轮推进时清零。
+   * 本轮已经花掉的 Token，等双方确认结算、真的进下一轮时才清零。
    *
-   * 单独记一份而不是拿 `tokenMax - tokens` 现算：那个差值在**每轮**都对得上，
-   * 但它表达的是"额度剩多少"，而计分要的是"这一轮为新打出的牌付了多少"。
-   * 两者眼下数值相同，写成独立字段是为了钉住语义——将来只要出现一条
-   * 「回复 Token」或「本轮额度临时 +N」的效果，那个差值立刻就不是消耗了。
+   * 单独记一份而不是拿 `tokenMax - tokens` 现算：那个差值在出牌阶段对得上，
+   * 但它表达的是"额度剩多少"，而计分要的是"这一轮为新打出的牌付了多少"；
+   * 而且进下一轮时 tokens 会补满、tokenMax 还要涨，差值当场就没了。
+   * 结算界面正需要在那之前把"本轮消耗"显示出来，它也是同对/同错时的判据，
+   * 所以清零必须押后到离开 settle 那一刻。
    *
    * 技能牌被英雄技能抵消也照样计入：Token 是真花出去的，作废的只是效果。
    */
@@ -263,6 +288,14 @@ export interface GameState {
    */
   winner: PlayerId | 'draw' | null
   /**
+   * settle 阶段里两位玩家分别确认过没有，按座位号排。
+   *
+   * 双方都点了"进入下一轮"才推进（见 engine.ts 的 confirmRound）：结算界面要播一整套
+   * 揭晓动画，谁看完了谁先点，不能让先看完的一方把还在看的那一方拖走。
+   * 每次进 settle 重置成 [false, false]。
+   */
+  settleConfirmed: [boolean, boolean]
+  /**
    * 下一个卡牌实例序号，开局发完双方牌组后接着往下走。
    * 调试指令凭空造牌时靠它保证 instanceId 不撞车。引擎里不许用 Math.random / Date，
    * 所以这个计数器必须留在状态里，才能跟着状态一起被拷贝和发给客人。
@@ -296,6 +329,11 @@ export type Command =
    * （现在结果来自 script.ts 的固定剧本，将来换成调 AI API，指令形状不变）。
    */
   | { type: 'SUBMIT_ANSWERS'; results: AnswerResult[] }
+  /**
+   * 结算界面上点"进入下一轮"。双方都发过才真的推进（或在最后一轮结束整局）。
+   * 重复发会被拒，所以界面按下之后要把按钮置灰等对方。
+   */
+  | { type: 'CONFIRM_ROUND'; player: PlayerId }
   // 下面四条是 dev 测试房专用的调试指令，走的是和正常指令一样的 execute 路径，
   // 所以联机时客人发给房主也照样会被执行。本项目不防作弊（见 docs/architecture.md 4.1），
   // 客户端只在测试房里给出入口，引擎这一层不做任何身份或来源限制。
@@ -380,8 +418,18 @@ export type GameEvent =
       type: 'AI_ANSWERED'
       instanceId: InstanceId
       owner: PlayerId
+      /**
+       * 这个 AI 是哪张卡。结算界面靠它画头像和卡名。
+       *
+       * 明明快照里查得到，还要在事件里再报一遍，是因为答错的 AI 紧接着就被罚下了：
+       * 界面拿到这批事件时新快照还没提交，等提交完那个单位已经从场上消失，再查就查不到。
+       */
+      cardId: CardId
       correct: boolean
-      answerText: string
+      /** 回答本身（短语），界面上是那行大字。 */
+      answer: string
+      /** 回答的理由（两行以内），排在大字下面。 */
+      reasoning: string
     }
   /** 答错被罚下，从场上移进弃牌堆。 */
   | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
@@ -406,6 +454,8 @@ export type GameEvent =
       /** 这一分是按哪条规则分出来的。 */
       verdict: RoundVerdict
     }
+  /** 某一方在结算界面上确认了本轮。双方都确认后才会有后续的推进事件。 */
+  | { type: 'ROUND_CONFIRMED'; player: PlayerId }
   | { type: 'GAME_OVER'; winner: PlayerId | 'draw' }
   /**
    * 非法指令。状态保持不变，只回这一条事件。

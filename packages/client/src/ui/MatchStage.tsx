@@ -40,9 +40,7 @@ import type {
   InstanceId,
   PlayerId,
   PlayerState,
-  Question,
   QuestionCategory,
-  RoundVerdict,
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
@@ -66,6 +64,8 @@ import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSkillHitFx, playSummonFx } from './playSummonFx'
+import { RoundSettleLayer } from './RoundSettleLayer'
+import type { RoundSettle, SettleAiResult, SettleScore } from './RoundSettleLayer'
 import { useStageScale } from './useStageScale'
 
 gsap.registerPlugin(useGSAP, Flip)
@@ -159,73 +159,22 @@ const DEAL_HOLD_FALLBACK = 0.8
 /**
  * 回合末补牌的兜底放行时间（秒）。
  *
- * 结算那批事件一到就把补牌憋住，正常由答题揭晓层的收尾放行（见 dealHeld）。
- * 那条时间线要是因为任何原因没跑到收尾（比如揭晓层被别的路径提前清掉了），
+ * 双方都确认之后那批事件一到就把补牌憋住，正常由回合结算层的退场放行（见 dealHeld）。
+ * 那条路要是没走到（比如结算层被别的路径提前换掉、退场动画的 onComplete 不会再来），
  * 牌就会一直压在卡堆上、操作也跟着一直锁着，所以另配一条兜底。
  *
- * 取值要盖得住收尾时间线的全程，按它自己的排法算（n = 这一轮的结果行数）：
- * 「场上 AI 作答中…」淡出 0.25s 和结果行那段 0.42 + 0.16 × (n − 1) 是并排起跑的，
- * 取两者较大的一个，再串上计分前的 0.2s 间隔、计分弹出 0.35s、停留 QUIZ_HOLD 1.1s、
- * 整层淡出 0.45s。也就是 max(0.25, 0.42 + 0.16 × (n − 1)) + 2.1 秒。
- * 正式对局双方加起来八九行，不到 4 秒；但引擎不限制场上 AI 的数量，
- * 测试房拿 DevPanel 堆到二十几行就能捅破原先定的 6 秒——兜底一提前放行，
- * 牌就又跑到遮罩后面去飞了，正是这条兜底本来要防的事情反过来发生。
- * 现在的 8 秒能盖到 n ≈ 35 行，正常流程永远轮不到它。
+ * 要盖住的时间很短：憋牌和"阶段离开 settle"是同一批事件带来的，结算层下一帧就开始退场，
+ * 只有整层淡出的 EXIT_DUR（0.45 秒，见 RoundSettleLayer）这一段。2 秒是四倍余量。
+ *
+ * 注意这条兜底不能取长：它一到点就放行，而那时结算层要是还立着，牌就跑到遮罩后面去飞了，
+ * 正是这条兜底本来要防的事情反过来发生。所以宁可短一点、宁可偶尔早放行，也不留大余量。
  */
-const ROUND_DEAL_HOLD_FALLBACK = 8
-
-/** 答题结果逐条淡入的间隔（秒）。 */
-const QUIZ_ROW_STAGGER = 0.16
-/** 计分那行出来之后停留多久（秒）再整层淡出，露出已经更新的战场和比分。 */
-const QUIZ_HOLD = 1.1
+const ROUND_DEAL_HOLD_FALLBACK = 2
 
 /** 一条中央横幅从淡入到淡出的总时长（秒），排队时按它算下一条什么时候上。 */
 const BANNER_IN = 0.3
 const BANNER_HOLD = 0.75
 const BANNER_OUT = 0.35
-
-/** 答题揭晓层里的一行结果，全部由 AI_ANSWERED 事件当场攒出来。 */
-interface QuizAnswerRow {
-  instanceId: InstanceId
-  /** 这个 AI 是我方的还是对方的。收到事件时就按当时的座位算好，渲染时不用再查局面。 */
-  mine: boolean
-  name: string
-  correct: boolean
-  answerText: string
-}
-
-/**
- * 本轮结算的全部依据，整份来自 ROUND_SCORED，只是把座位号换算成了「我方 / 对方」。
- *
- * 三档判定（见 core 的 RoundVerdict）各配一句文案，所以这几项一个都不能省：
- * 光有 gains 说不出"为什么是他得分"，而那恰恰是这一版规则最需要教给玩家的东西。
- */
-interface QuizScore {
-  /** 本轮各得几分（0 或 1；双方同对同错且消耗相同时两边都是 1）。 */
-  gains: { mine: number; theirs: number }
-  /** 各方算不算答对（团队口径：己方至少一个 AI 答对；场上没 AI 视为没答对）。 */
-  correct: { mine: boolean; theirs: boolean }
-  /** 各方本轮为新打出的牌花掉的 Token。 */
-  spent: { mine: number; theirs: number }
-  verdict: RoundVerdict
-}
-
-/**
- * 答题全屏揭晓层的全部内容。
- *
- * 结果**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
- * 提交一完成，答错的 tile 立刻就从战场上消失了，没有机会在它身上播罚下动画。
- * 所以这一层刻意盖住整个战场，把那次跳变藏在自己后面（见计划的"关键陷阱"）。
- */
-interface QuizReveal {
-  /** 每次揭晓换一个新的 key，用来重新触发下面几段 useGSAP，并识别"这条时间线是不是自己的"。 */
-  key: number
-  question: Question
-  /** AI_ANSWERED 逐条追加。 */
-  rows: QuizAnswerRow[]
-  /** ROUND_SCORED 到了才有；它一到就说明这一轮播完了，可以走收尾。 */
-  score: QuizScore | null
-}
 
 /**
  * 放大查看的那张卡原来摆在哪：战场上的一个格子，还是左侧栏里的英雄牌。
@@ -388,8 +337,11 @@ export function MatchStage({
  *
  * 缩放系数由 useStageScale 量 .battle-stage 的宽算出来写进 --battle-scale，
  * 不在 CSS 里算（Safari 上会整块塌掉，原因见 ui/useStageScale.ts）。
+ *
+ * 导出给结算测试页（screens/SettleTestScreen.tsx）复用：那一页也要把结算层放进同一套
+ * 舞台里才对得上排版，抄一份的话两边迟早会漂。
  */
-function BattleFrame({ children }: { children: ReactNode }) {
+export function BattleFrame({ children }: { children: ReactNode }) {
   const scalerRef = useStageScale<HTMLDivElement>('--battle-scale')
   return (
     <div className="battle-frame">
@@ -460,8 +412,15 @@ function BattleField({
   } | null>(null)
   /** 开局抛硬币过场；播完置回 null 把整层卸载掉。 */
   const [coinToss, setCoinToss] = useState<{ firstPlayer: PlayerId; key: number } | null>(null)
-  /** 答题全屏揭晓层；同样播完置回 null。 */
-  const [quizReveal, setQuizReveal] = useState<QuizReveal | null>(null)
+  /**
+   * 回合结算全屏层：答题揭晓、每个 AI 答了什么、本轮计分和确认按钮全在里面。
+   *
+   * 内容**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
+   * 提交一完成，答错的 tile 立刻就从战场上消失了，没有机会在它身上播罚下动画。
+   * 所以这一层刻意盖住整个战场，把那次跳变藏在自己后面。
+   * 收层由它自己的 onExited 回调触发（双方都确认、阶段离开 settle 之后）。
+   */
+  const [roundSettle, setRoundSettle] = useState<RoundSettle | null>(null)
   /**
    * 英雄技能抵消的全屏提示（现在只有 Debug 一种）。
    * 两行文案在收到 SKILL_CANCELED 那一刻就按当时的座位拼好，演的时候不再回头读局面。
@@ -477,10 +436,11 @@ function BattleField({
    *   那时两排扇形已经把开局手牌摆好、动画都排上了，等 coinToss 立起来再拦就晚了一拍。
    *   所以默认拦着，由抛硬币的收尾放开，另有一条兜底定时器防着"这一局根本没有过场"
    *  （见 DEAL_HOLD_FALLBACK）。
-   * - **每轮结算后的补牌**：ROUND_SCORED 和 CARD_DRAWN 是同一批事件，收到时答题揭晓层
-   *   才刚开始演；不拦的话那两张牌就在遮罩后面飞完了。所以在事件回调里当场重新拦上
-   *  （见 useMatchEvents 里的 holdRoundDeal），由揭晓层的收尾放开，
-   *   兜底见 ROUND_DEAL_HOLD_FALLBACK。
+   * - **每轮结算后的补牌**：双方都确认之后，ROUND_CONFIRMED 和 CARD_DRAWN 是同一批事件，
+   *   收到时回合结算层还立在屏幕上（它要等这批事件带来的 phase 变化才开始退场）；
+   *   不拦的话那两张牌就在遮罩后面飞完了。所以在事件回调里当场重新拦上
+   *  （见 useMatchEvents 里的 holdRoundDeal），由结算层的退场收尾放开
+   *  （RoundSettleLayer 的 onExited），兜底见 ROUND_DEAL_HOLD_FALLBACK。
    */
   const [dealHeld, setDealHeld] = useState(true)
   /**
@@ -522,7 +482,6 @@ function BattleField({
   const skillShowRef = useRef<HTMLDivElement>(null)
   const coinTossRef = useRef<HTMLDivElement>(null)
   const coinInnerRef = useRef<HTMLDivElement>(null)
-  const quizRevealRef = useRef<HTMLDivElement>(null)
   const skillCancelRef = useRef<HTMLDivElement>(null)
   /** 上场特效的烟尘容器。卸载时要把里面动态插的 DOM 一次清干净。 */
   const smokeLayerRef = useRef<HTMLDivElement>(null)
@@ -556,7 +515,7 @@ function BattleField({
   /** 发牌憋着的兜底放行定时器。抛硬币一起来就把它撤掉，放行交给过场的收尾。 */
   const dealHoldFallbackRef = useRef<gsap.core.Tween | null>(null)
   /**
-   * 回合末补牌憋着的兜底放行定时器，正常由答题揭晓层的收尾撤掉。
+   * 回合末补牌憋着的兜底放行定时器，正常由回合结算层的退场收尾撤掉。
    * 和上面那条分开两个 ref：开局那条是挂载时就上、收到 GAME_STARTED 就撤，
    * 两条的生命周期不重叠但归属完全不同，共用一个 ref 只会让"现在等的是哪一条"说不清楚。
    */
@@ -650,29 +609,26 @@ function BattleField({
    * 有全屏过场正在演。这两个标志一起决定横幅要不要先憋着。
    *
    * 横幅在特效层（z-index 80），全屏过场和展示遮罩都在 1100，它们演的时候播横幅
-   * 等于播给遮罩看。而且事件是一整批到的——结算那批里 ROUND_SCORED 后面紧跟着就是下一轮的
-   * ROUND_STARTED / PLAY_TURN_STARTED，正常播的话会在揭晓层还没退场时就白白用掉。
+   * 等于播给遮罩看——抛硬币那批里的第 1 轮宣告就是这么被盖掉的。
    * 所以过场期间只入队不播，等过场淡出的 onComplete 再把攒着的一起放出来。
    *
    * 用 ref 而不是读上面那两个 state：一批事件是在同一次回调里同步处理完的，
    * 这中间 React 还没重渲染，读 state 拿到的还是"过场没开始"的旧值。
    * 强制展示那一档的闸门是 revealBusyRef，理由一样。
+   *
+   * quizUpRef 盖的是整个回合结算层：从题目揭晓一直到双方确认完退场，中间横幅全憋着。
    */
   const coinUpRef = useRef(false)
   const quizUpRef = useRef(false)
-  /**
-   * 现在挂在屏幕上的揭晓层是哪一次（key），没有就是 null。渲染期间就写好，同 seatRef。
+  /*
+   * 这里原先还有一个 quizRevealKeyRef，给旧揭晓层的收尾时间线判活用：那条线建在 MatchStage
+   * 自己的 useGSAP 里，依赖变化时**不会**被 revert（架构 5.5），于是被顶替的旧收尾可能在新一层
+   * 立起来之后才跑完，把 quizUpRef 和补牌闸门替新的那层提前收掉。
    *
-   * 给揭晓层的收尾时间线判活用：那条时间线在依赖变化时**不会**被 revert（架构 5.5），
-   * 所以旧的一条可能在新的一层已经立起来之后才跑完收尾。测试房里点得出来：
-   * 第 N 轮的收尾还在演时点 DevPanel 的「跳到答题」——那时 phase 已经是 play、指令合法，
-   * 而 DevPanel 在根层叠上下文（z-index 85），压得住被 .battle-scaler 关进层叠上下文的
-   * 揭晓层（1100），是真点得动的——揭晓层就换成了 key+1 的新一层。
-   * 旧那条要是照常跑完收尾，会把 quizUpRef 擦成 false、把下一轮的补牌提前放行，
-   * 于是下一批结算的憋牌判据（quizUpRef）不成立，整批补牌在新揭晓层后面白飞一趟。
+   * 换成 RoundSettleLayer 之后这个问题结构上就没有了：整层带 React key，换一轮就是换一个组件实例，
+   * 旧实例卸载时它自己那个 useGSAP context 直接 revert，退场补间被 kill、onComplete 不会再来，
+   * 过气的收尾根本没有机会执行。所以那个 ref 一并删掉，不留一个永远为真的判活。
    */
-  const quizRevealKeyRef = useRef<number | null>(null)
-  quizRevealKeyRef.current = quizReveal?.key ?? null
   /** 抵消层正演着。和上面两个同一档（全屏 1100、吃指针事件），闸门作用也一样。 */
   const cancelUpRef = useRef(false)
   /**
@@ -742,7 +698,11 @@ function BattleField({
     )
   })
 
-  /** 放行憋着的补牌，顺手撤掉兜底。没在憋也照调不误（多一次同值 setState，React 自己会短路）。 */
+  /**
+   * 放行憋着的补牌，顺手撤掉兜底。由回合结算层的退场收尾调（onExited）。
+   * 没在憋也照调不误（多一次同值 setState，React 自己会短路），
+   * 所以不必判"这一轮到底憋没憋"——最后一轮和中途接手那两种不憋的情况照样走这里。
+   */
   const releaseRoundDeal = () => {
     roundDealFallbackRef.current?.kill()
     roundDealFallbackRef.current = null
@@ -924,7 +884,7 @@ function BattleField({
    * 强行收掉正在进行的强制展示，不播收尾。
    *
    * 只有一个调用方：答题阶段开始。展示要停 1.5 秒，而对手"出完最后一张牌就结束出牌"时
-   * 那两条指令挨得很近，揭晓层（1100）会直接盖在还没演完的展示（同样 1100）上。
+   * 那两条指令挨得很近，回合结算层（1100）会直接盖在还没演完的展示（同样 1100）上。
    * 与其让两层打架，不如让展示让位——它想说的"对手打了这张牌"已经看到一部分了。
    * 遮罩要显式关掉：它是常驻节点，展示卡被卸载并不会把它带走。
    */
@@ -943,37 +903,38 @@ function BattleField({
   })
 
   useMatchEvents(driver, (events) => {
-    // 结算后的补牌要憋到答题揭晓层退场再飞：引擎在一次 execute 里就把
-    // [AI_ANSWERED×N, ROUND_SCORED, CARD_DRAWN×双方各 2, ROUND_STARTED, PLAY_TURN_STARTED]
-    // 整批发过来，收到时揭晓层（z-index 1100）才刚开始演，不拦的话牌就在遮罩后面飞完了。
+    // 回合末的补牌要憋到回合结算层退场再飞。推进轮次的是后手确认的那一下：引擎在一次
+    // execute 里把 [ROUND_CONFIRMED, CARD_DRAWN×双方各 2, ROUND_STARTED, PLAY_TURN_STARTED]
+    // 整批发过来（见 core 的 confirmRound），收到时结算层（z-index 1100）还整个立在屏幕上——
+    // 它要等这批事件带来的 phase 变化才开始退场——不拦的话牌就在遮罩后面飞完了。
     //
-    // 判据是"揭晓层真的立着，且这一批里 ROUND_SCORED 后面还跟着 CARD_DRAWN"，三个条件缺一不可：
-    // 最后一轮结算后面跟的是 GAME_OVER、没有补牌，拦了就永远等不到揭晓层的收尾来放行；
-    // 测试面板的"加1张"那一批里没有 ROUND_SCORED，属于玩家自己点出来的加牌，该当场就飞。
+    // 判据是"结算层真的立着，且这一批里 ROUND_CONFIRMED 后面还跟着 CARD_DRAWN"，三个条件缺一不可：
+    // 先手确认的那一批只有 ROUND_CONFIRMED、没有补牌，局面根本没推进；
+    // 最后一轮双方确认后跟的是 GAME_OVER、同样没有补牌，拦了就永远等不到退场来放行；
+    // 测试面板的"加1张"那一批里没有 ROUND_CONFIRMED，属于玩家自己点出来的加牌，该当场就飞。
     // 牌堆抽空时 CARD_DRAWN 一条都不发，同样不该拦。
     //
-    // 这条判据刻意保持简单，代价是有一个已知的边角没照顾到：答题的等待窗口里
-    //（QUESTION_REVEALED 已经到了、autopilot 还没提交答案）点测试面板的"加1张"，
-    // 那一批只有 CARD_DRAWN、没有 ROUND_SCORED，于是不拦，牌就在揭晓层后面飞完了。
-    // 只有测试房的调试工具能造出这个时机，正式对局里玩家没有任何入口在答题期间加牌，
-    // 所以接受现状，不为它把判据变复杂。
+    // 这条判据刻意保持简单，代价是有一个已知的边角没照顾到：结算层立着的那段时间里
+    // 点测试面板的"加1张"，那一批只有 CARD_DRAWN、没有 ROUND_CONFIRMED，于是不拦，
+    // 牌就在结算层后面飞完了。只有测试房的调试工具能造出这个时机，
+    // 正式对局里玩家没有任何入口在答题 / 结算期间加牌，所以接受现状，不为它把判据变复杂。
     //
-    // quizUpRef 那一条挡的是"没看见过 QUESTION_REVEALED 的那一端"：联机客人在答题阶段
-    // 中途接手时，match:start 直接给的是 quiz 期的快照，揭晓层从来没立起来过，
-    // 于是 ROUND_SCORED 那条 case 里 quizReveal 是 null、score 填不进去，收尾时间线不会跑，
-    // 也就没人来放行——拦了的话只能干等兜底超时。没有遮罩要等就当场发牌。
-    // 事件回调里读 ref 拿到的正是现值：quizUpRef 是上一批事件（QUESTION_REVEALED）置的，
+    // quizUpRef 那一条挡的是"没看见过 QUESTION_REVEALED 的那一端"：联机客人在答题 / 结算阶段
+    // 中途接手时，match:start 直接给的是 quiz / settle 期的快照，结算层从来没立起来过
+    //（roundSettle 恒为 null），也就没有退场来放行——拦了的话只能干等兜底超时。
+    // 没有遮罩要等就当场发牌。
+    // 事件回调里读 ref 拿到的正是现值：quizUpRef 是更早那批事件（QUESTION_REVEALED）置的，
     // 那之后 React 已经重渲染过了。
     //
     // 这一下必须和新手牌同一次提交送到两排扇形：事件回调和 driver 的快照 patch 在同一个同步块里，
     // React 的自动批处理会把它们合成一次重渲染，扇形第一次看到新牌时 dealHold 就已经是 true 了。
     // 就算哪天两边分成了两次提交也还兜得住：扇形那边 dealHold 变化沿上还会再重排一次，
     // 把已经排出去、还没跑过一帧的进场补间收回卡堆（见 HandFan 里那个 [dealHold] 的 layout effect）。
-    const scoredAt = events.findIndex((event) => event.type === 'ROUND_SCORED')
+    const confirmedAt = events.findIndex((event) => event.type === 'ROUND_CONFIRMED')
     if (
       quizUpRef.current &&
-      scoredAt >= 0 &&
-      events.slice(scoredAt + 1).some((event) => event.type === 'CARD_DRAWN')
+      confirmedAt >= 0 &&
+      events.slice(confirmedAt + 1).some((event) => event.type === 'CARD_DRAWN')
     ) {
       holdRoundDeal()
     }
@@ -1049,58 +1010,73 @@ function BattleField({
           pumpSkillCancel()
           break
         }
-        case 'QUESTION_REVEALED':
-          // 全屏揭晓：题目和正确答案先亮出来，等 driver 那边的自动驾驶把结果提交上来
-          // （默认 2.5 秒后，那批事件不在这一批里），再往这一层里填结果。
-          // 揭晓层和展示层同在 1100，先把还没演完的展示收掉再开这一层（见 abortReveal）。
+        case 'QUESTION_REVEALED': {
+          // 全屏结算层开场：题目和标准答案先亮出来，等 driver 那边的自动驾驶把结果提交上来
+          // （默认 2.5 秒后，那批事件不在这一批里），再往这一层里填结果和计分。
+          // 结算层和展示层同在 1100，先把还没演完的展示收掉再开这一层（见 abortReveal）。
           abortReveal()
           // 进答题就出不了牌了，正选着目标的那张技能牌一并收掉（它会自己落回扇形）。
           setTargeting(null)
-          // 还憋着没演的抵消提示直接丢掉：它说的是刚才那次出牌，等揭晓层演完再补一遍，
+          // 还憋着没演的抵消提示直接丢掉：它说的是刚才那次出牌，等结算层演完再补一遍，
           // 就成了下一轮开头凭空冒出来的一句话，比不演更让人糊涂。
           pendingCancelRef.current = null
           quizUpRef.current = true
-          setQuizReveal((current) => ({
+          // 轮次和计分前的总分在这一刻按快照采样：事件是在 React 提交新快照之前送到的，
+          // 读的正是"这一轮还没结算"的那份，也就是结算层顶栏该显示的起点。
+          const before = driver.getSnapshot().state
+          const seat = seatRef.current
+          setRoundSettle((current) => ({
             key: (current?.key ?? 0) + 1,
             question: event.question,
-            rows: [],
+            round: before?.round ?? 1,
+            scoresBefore: {
+              mine: before?.players[seat].score ?? 0,
+              theirs: before?.players[other(seat)].score ?? 0,
+            },
+            results: [],
             score: null,
           }))
           stageCue('quiz-open')
           break
+        }
         case 'AI_ANSWERED': {
-          // 结果渲染在揭晓层内部，不去动战场上那张即将被 React 移除的小卡。
-          const row: QuizAnswerRow = {
+          // 结果渲染在结算层内部，不去动战场上那张即将被 React 移除的小卡。
+          // 卡面身份直接读事件里的 cardId：答错的那个单位马上就被罚下，回头查快照会查空。
+          const result: SettleAiResult = {
             instanceId: event.instanceId,
+            cardId: event.cardId,
             mine: event.owner === seatRef.current,
-            name: nameOfCard(event.instanceId, state),
             correct: event.correct,
-            answerText: event.answerText,
+            answer: event.answer,
+            reasoning: event.reasoning,
           }
-          setQuizReveal((current) =>
-            current === null ? current : { ...current, rows: [...current.rows, row] },
+          setRoundSettle((current) =>
+            current === null ? current : { ...current, results: [...current.results, result] },
           )
           break
         }
         case 'ROUND_SCORED': {
-          // 事件里所有成对的字段都按座位号排，这里一次性换算成「我方 / 对方」，
-          // 渲染那边就不用再拿座位号绕一圈了。
-          const mine = seatRef.current
-          const theirs = other(mine)
-          const score: QuizScore = {
-            gains: { mine: event.gains[mine], theirs: event.gains[theirs] },
-            correct: { mine: event.correct[mine], theirs: event.correct[theirs] },
-            spent: { mine: event.spent[mine], theirs: event.spent[theirs] },
+          // 事件里所有成对的字段都按座位号排，这里一次换算成结算层要的"我方 / 对方"。
+          // verdict 一并带上：三档判定各配一句结论文案，光有 gains 说不出"为什么是他得分"，
+          // 而那恰恰是这一版规则最需要讲给玩家的东西（见 core 的 RoundVerdict）。
+          const seat = seatRef.current
+          const foe = other(seat)
+          const score: SettleScore = {
+            correct: { mine: event.correct[seat], theirs: event.correct[foe] },
+            spent: { mine: event.spent[seat], theirs: event.spent[foe] },
+            gains: { mine: event.gains[seat], theirs: event.gains[foe] },
+            totals: { mine: event.scores[seat], theirs: event.scores[foe] },
             verdict: event.verdict,
           }
-          setQuizReveal((current) => (current === null ? current : { ...current, score }))
+          setRoundSettle((current) => (current === null ? current : { ...current, score }))
           break
         }
         default:
-          // AI_ELIMINATED 不单独播：揭晓层里那一行的 ✗ 和罚下样式已经说明了，
-          // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被揭晓层盖住）。
+          // AI_ELIMINATED 不单独播：结算层里那张卡的红叉和压暗样式已经说明了，
+          // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被结算层盖住）。
+          // ROUND_CONFIRMED 也不用管：确认态由结算层直接读快照（见 RoundSettleLayer 的两路口径）。
           // CARD_DRAWN 的进场动画归 HandFan 自己管（这一批要不要先憋着已经在循环外判过了）；
-          // GAME_OVER 由结算层接管；
+          // GAME_OVER 由终局结算层接管；
           // COMMAND_REJECTED 走 view.lastRejection 那条提示。
           break
       }
@@ -1300,103 +1276,11 @@ function BattleField({
     { dependencies: [skillCancel?.key ?? null] },
   )
 
-  /** 答题揭晓层出场：整层淡入、题面从下方升起。只在新的一轮揭晓时跑。 */
-  useGSAP(
-    () => {
-      const node = quizRevealRef.current
-      if (quizReveal === null || node === null) return
-      gsap
-        .timeline()
-        .fromTo(
-          node,
-          { autoAlpha: 0 },
-          { autoAlpha: 1, duration: 0.3, ease: 'power2.out', overwrite: 'auto' },
-        )
-        .fromTo(
-          node.querySelector('.quiz-reveal__panel'),
-          { autoAlpha: 0, y: 26 },
-          { autoAlpha: 1, y: 0, duration: 0.45, ease: 'back.out(1.3)', overwrite: 'auto' },
-          0.08,
-        )
-    },
-    { dependencies: [quizReveal?.key ?? null] },
-  )
-
-  /**
-   * 答题揭晓层收尾：结果逐条淡入 → 计分 → 停一下 → 整层淡出。
-   *
-   * 触发条件是"计分到了"而不是"有结果行了"：AI_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
-   * React 把这一批合成一次重渲染，所以这段跑起来时结果行已经全在 DOM 里了，一次排完就行。
-   */
-  const quizScored = quizReveal !== null && quizReveal.score !== null
-  useGSAP(
-    () => {
-      const node = quizRevealRef.current
-      if (!quizScored || quizReveal === null || node === null) return
-      const shownKey = quizReveal.key
-      gsap
-        .timeline({
-          onComplete: () => {
-            // 屏幕上挂的已经不是我这一层了（见 quizRevealKeyRef）：什么都不许碰。
-            // 闸门和放行交给活着的那条收尾，或者对局中断时的强制清场。
-            // 早退必须整体做，不能只保 setQuizReveal——下面三句都是全局状态，
-            // 过气的时间线擦掉它们，等于替新的那一层提前收了尾。
-            if (quizRevealKeyRef.current !== shownKey) return
-            quizUpRef.current = false
-            // 判活之后这里必然清的是自己那一层，函数式写法留着当第二道保险：
-            // 万一哪天 ref 的更新时机变了（现在靠渲染期赋值，稳稳排在 GSAP 的 rAF 之前），
-            // 这一句也不会误清别人的层。
-            setQuizReveal((current) => (current?.key === shownKey ? null : current))
-            // 揭晓层退场了，教程的提示这才有地方站（它在 1000，这一层在 1100）。
-            stageCue('quiz-closed')
-            // 同一批里跟在 ROUND_SCORED 后面的下一轮横幅一直憋到这里才放出来。
-            pumpBanner()
-            // 屏幕空出来了，这一轮的补牌这才从各自的卡堆飞出去（见 dealHeld）。
-            releaseRoundDeal()
-          },
-        })
-        .to(node.querySelector('.quiz-reveal__waiting'), {
-          autoAlpha: 0,
-          duration: 0.25,
-          ease: 'power2.in',
-          overwrite: 'auto',
-        })
-        .fromTo(
-          node.querySelectorAll('.quiz-reveal__row'),
-          { autoAlpha: 0, x: -16 },
-          {
-            autoAlpha: 1,
-            x: 0,
-            duration: 0.3,
-            ease: 'power2.out',
-            stagger: QUIZ_ROW_STAGGER,
-            overwrite: 'auto',
-          },
-          0.12,
-        )
-        // 两条 call 都是 0 时长，插进来不会改变后面那两段的起跑时间（'+=' 仍旧相对同一个末端）。
-        .call(() => stageCue('quiz-rows-done'))
-        .fromTo(
-          node.querySelector('.quiz-reveal__score'),
-          { autoAlpha: 0, scale: 0.88 },
-          { autoAlpha: 1, scale: 1, duration: 0.35, ease: 'back.out(1.6)', overwrite: 'auto' },
-          '+=0.2',
-        )
-        .call(() => stageCue('quiz-score-shown'))
-        .to(
-          node,
-          { autoAlpha: 0, duration: 0.45, ease: 'power2.in', overwrite: 'auto' },
-          `+=${QUIZ_HOLD}`,
-        )
-    },
-    { dependencies: [quizScored, quizReveal?.key ?? null] },
-  )
-
   /**
    * 对局中断（对手断线）时把还在演的全屏过场收掉。
    *
-   * 答题揭晓层要等 ROUND_SCORED 才会自己退场，而中断时那条事件永远不会来了；
-   * 结算层在它下面（z-index 90 < 1100），不清掉的话玩家会被一层退不掉的遮罩挡死。
+   * 回合结算层要等双方确认、阶段离开 settle 才会自己退场，而中断时对面再也不会确认了；
+   * 终局结算层在它下面（z-index 90 < 1100），不清掉的话玩家会被一层退不掉的遮罩挡死。
    * 强制展示会自己走完，但对手都断线了没必要再演，一并收掉。
    */
   useEffect(() => {
@@ -1408,7 +1292,7 @@ function BattleField({
     cancelUpRef.current = false
     pendingCancelRef.current = null
     skillShowBusyRef.current = 0
-    // 抛硬币和答题揭晓都被收掉了，放行发牌的那两条收尾也就不会来了；牌不该一直压在卡堆上。
+    // 抛硬币和回合结算层都被收掉了，放行发牌的那两条收尾也就不会来了；牌不该一直压在卡堆上。
     // 兜底定时器一起撤掉：它到点只会再喊一次同样的放行，留着没意义。
     roundDealFallbackRef.current?.kill()
     roundDealFallbackRef.current = null
@@ -1417,7 +1301,7 @@ function BattleField({
     // 对局都中断了，锁着的界面没有任何意义（status 不是 playing，actionsLocked 本来就恒真）。
     setDealBusy({ mine: false, foe: false })
     setCoinToss(null)
-    setQuizReveal(null)
+    setRoundSettle(null)
     setSkillCancel(null)
     abortReveal()
     abortInspect()
@@ -1871,8 +1755,12 @@ function BattleField({
    * 所以这里再判一次 phase 之后，!myPlayTurn 就等价于 activePlayer !== mySeat。
    */
   const waitingForFoe = view.status === 'playing' && state.phase === 'play' && !myPlayTurn
-  /** 答题阶段：双方都出不了牌，等场上的 AI 答完。 */
-  const quizWait = view.status === 'playing' && state.phase === 'quiz'
+  /**
+   * 答题和随后的回合结算：这两段双方都出不了牌，手牌一律灰着。
+   * 结算（settle）也算进来，是因为它同样是"等着，什么都点不了"的一段。
+   */
+  const quizWait =
+    view.status === 'playing' && (state.phase === 'quiz' || state.phase === 'settle')
   /**
    * 交给 HandFan 的"为什么出不了牌"。它不挡操作（那仍归上面的 actionsLocked），
    * 只决定手牌要不要进灰墨态、点上去弹哪句提示（见 HandFanProps.lockReason）。
@@ -2481,7 +2369,7 @@ function BattleField({
 
             {/*
               敌我分界的中线：一条横贯细线，中间嵌一块深蓝小匾，报第几回合、轮到谁出牌。
-              顶栏的回合数和右侧栏的状态行各自也说了一遍，这里再说是因为位置本身就是信息——
+              顶栏的回合数也说了一遍，这里再说是因为位置本身就是信息——
               线两边就是双方的场面，匾正压在分界上，视线不用离开战场。
 
               线和小匾各自套了手绘滤镜（见 styles.css 的 .battle__midline），
@@ -2525,28 +2413,37 @@ function BattleField({
           ) : null}
         </main>
 
-        <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
-          <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
-            {/*
-              终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
-              最后一题的类别，看着像还有一题要考。
-            */}
-            {finished || category === undefined ? null : (
-              <NextQuestionPlaque category={category} keywords={nextQuestion?.keywords ?? []} />
-            )}
-            <TokenTrack tokens={me.tokens} max={me.tokenMax} />
-            {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
-                三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
-                换文案撑不破框。 */}
-            <PlaqueButton
-              data-tutorial-anchor="endTurnButton"
-              disabled={endPlayLocked}
-              onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
-            >
-              {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
-            </PlaqueButton>
-          </OrnateFrame>
-        </aside>
+        {/*
+          回合操作的三块：「下一题」牌匾、Token 细条、结束按钮。
+
+          它们原来挤在一条羊皮纸右侧栏里，现在拆开各自贴着屏幕边悬浮在战场上方
+          （牌匾右上吊着、细条贴最右缘居中、按钮落右下角，定位全在 styles.css 里）。
+          写成 .battle__layout 的绝对定位子元素而不是 fixed：基准框的上边沿正好是顶栏下沿，
+          牌匾"从顶边吊下来"直接 top: 0 就行。
+
+          教程的三个语义锚点（keywordPanel / tokenCounter / endTurnButton）就落在这三块上，
+          拆散之后各自成了独立元素，挖洞高亮反而比原来圈住整条侧栏更准。
+        */}
+
+        {/*
+          终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
+          最后一题的类别，看着像还有一题要考。
+        */}
+        {finished || category === undefined ? null : (
+          <NextQuestionPlaque category={category} keywords={nextQuestion?.keywords ?? []} />
+        )}
+        <TokenTrack tokens={me.tokens} max={me.tokenMax} />
+        {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
+            三句都是四五个字，按钮宽度写死 184px 且 overflow: hidden，换文案撑不破框。 */}
+        <div className="battle__end-turn">
+          <PlaqueButton
+            data-tutorial-anchor="endTurnButton"
+            disabled={endPlayLocked}
+            onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
+          >
+            {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
+          </PlaqueButton>
+        </div>
       </div>
 
       {/*
@@ -2627,7 +2524,7 @@ function BattleField({
         // 上面那行已经把选目标态算进去了）。
         castingId={targeting?.instanceId ?? null}
         onDragStateChange={setDraggingId}
-        // 新牌从我方卡堆飞进扇形；开局那 5 张憋到抛硬币演完、每轮的补牌憋到答题揭晓层
+        // 新牌从我方卡堆飞进扇形；开局那 5 张憋到抛硬币演完、每轮的补牌憋到回合结算层
         // 退场再飞（见 dealHeld）。整段发牌期间上面那个 disabled 是锁着的（见 actionsLocked）。
         getDealOrigin={myDealOrigin}
         dealHold={dealHeld}
@@ -2776,10 +2673,37 @@ function BattleField({
         </div>
       ) : null}
 
-      {quizReveal !== null ? (
-        // key 让下一轮揭晓拿到一套全新的 DOM：上一轮那些结果行上还留着 GSAP 写的内联样式，
+      {roundSettle !== null ? (
+        // key 让下一轮结算拿到一套全新的 DOM：上一轮那些卡片上还会留着 GSAP 写的内联样式，
         // 复用同一批节点的话新一轮的 fromTo 要和它们打架。
-        <QuizRevealLayer key={quizReveal.key} reveal={quizReveal} rootRef={quizRevealRef} />
+        // 顺带把层内那个"我点过确认了"的本地标志也重置掉。
+        <RoundSettleLayer
+          key={roundSettle.key}
+          settle={roundSettle}
+          totalRounds={state.totalRounds}
+          phase={state.phase}
+          myConfirmed={state.settleConfirmed[mySeat]}
+          foeConfirmed={state.settleConfirmed[foeSeat]}
+          onConfirm={() => driver.send({ type: 'CONFIRM_ROUND', player: mySeat })}
+          onExited={() => {
+            quizUpRef.current = false
+            setRoundSettle(null)
+            // 结算层退场了，教程的提示这才有地方站（它在 1000，这一层在 1100）。
+            stageCue('quiz-closed')
+            // 结算层立着的这段时间里憋下的横幅（下一轮的宣告），到这里才放出来。
+            pumpBanner()
+            // 屏幕空出来了，这一轮的补牌这才从各自的卡堆飞出去（见 dealHeld）。
+            releaseRoundDeal()
+          }}
+          onStage={(name) => {
+            // 结算层的演出节点翻译成教程的舞台信号。两个名字分属两套词汇：
+            // 结算层说的是自己演到哪儿（results-done / score-shown），
+            // 教程说的是"哪一句话该出场了"（quiz-rows-done / quiz-score-shown）。
+            // 另外两个信号不在这里：整层立起来是收到 QUESTION_REVEALED 那一刻发的，
+            // 整层退场完毕在上面的 onExited 里发。
+            stageCue(name === 'results-done' ? 'quiz-rows-done' : 'quiz-score-shown')
+          }}
+        />
       ) : null}
 
       {/* 英雄技能抵消。key 同抛硬币：每次都换一套新 DOM，上一次留下的内联样式不会跟到下一次。
@@ -2792,94 +2716,6 @@ function BattleField({
       ) : null}
     </div>
   )
-}
-
-/**
- * 答题全屏揭晓层：题目 + 正确答案 + 每个在场 AI 的作答结果 + 本轮计分。
- *
- * 内容全部来自事件（`QuizReveal`），不读局面快照——答错的 AI 在新快照里已经被罚下、
- * 从战场上消失了，只有事件里还留着它答了什么。
- *
- * 动画归上面 BattleField 的两段 useGSAP 管，这里只负责结构：
- * 那两段靠类名（.quiz-reveal__panel / __waiting / __row / __score）找元素，改类名要一起改。
- */
-function QuizRevealLayer({
-  reveal,
-  rootRef,
-}: {
-  reveal: QuizReveal
-  rootRef: RefObject<HTMLDivElement | null>
-}) {
-  const { question, rows, score } = reveal
-  return (
-    <div className="quiz-reveal" ref={rootRef}>
-      <div className="quiz-reveal__panel">
-        <span className="quiz-reveal__category">{QUESTION_CATEGORY_LABELS[question.category]}</span>
-        <p className="quiz-reveal__question">{question.text}</p>
-        <p className="quiz-reveal__answer">
-          <span className="quiz-reveal__answer-label">正确答案</span>
-          {question.answer}
-        </p>
-
-        <div className="quiz-reveal__body">
-          {/*
-            「作答中」和结果行叠在同一块地方交叉淡入淡出，所以这一行常驻 DOM 且脱离文档流：
-            条件渲染的话它一消失就会把下面的结果行整体往上拽一截。
-          */}
-          <p className="quiz-reveal__waiting">场上 AI 作答中…</p>
-          <div className="quiz-reveal__rows">
-            {rows.length === 0 ? (
-              // 双方场上一个 AI 都没有时也要有句交代，否则揭晓层看着像卡住了。
-              // 顶着 __row 的类名是为了跟着同一段 stagger 淡入。
-              score === null ? null : (
-                <p className="quiz-reveal__row quiz-reveal__row--none">场上没有 AI 作答</p>
-              )
-            ) : (
-              rows.map((row) => (
-                <p
-                  key={row.instanceId}
-                  className={`quiz-reveal__row${row.correct ? '' : ' quiz-reveal__row--wrong'}`}
-                >
-                  <span className="quiz-reveal__row-side">{row.mine ? '我方' : '对方'}</span>
-                  <span className="quiz-reveal__row-name">{row.name}</span>
-                  <span className="quiz-reveal__row-mark">{row.correct ? '✓' : '✗'}</span>
-                  <span className="quiz-reveal__row-text">{row.answerText}</span>
-                </p>
-              ))
-            )}
-          </div>
-        </div>
-
-        {score === null ? null : (
-          <div className="quiz-reveal__score">
-            <p className="quiz-reveal__score-line">
-              本轮 你 +{score.gains.mine} / 对方 +{score.gains.theirs}
-            </p>
-            {/* 判定理由单独一行小字：新规则里"为什么是他得分"比"得了几分"更需要讲清楚。 */}
-            <p className="quiz-reveal__verdict">{verdictTextOf(score)}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * 结算那行小字：这一分是怎么来的。
- *
- * 三档判定各一句，控制在一句话内（见 core 的 RoundVerdict）。
- * 比 Token 那两档要把双方的本轮消耗摆出来——玩家得看见数字才明白"省 Token"是真能赢分的。
- */
-function verdictTextOf(score: QuizScore): string {
-  const spent = `你 ${score.spent.mine} · 对方 ${score.spent.theirs}`
-  switch (score.verdict) {
-    case 'sole-correct':
-      return score.correct.mine ? '只有你答对，这一分归你' : '只有对方答对，这一分归对方'
-    case 'fewer-tokens':
-      return `${score.correct.mine ? '双方都答对' : '双方都答错'}：${spent}，更省 Token 的一方得分`
-    case 'equal-tokens':
-      return `${score.correct.mine ? '双方都答对' : '双方都答错'}，Token 消耗也相同（${spent}），各得 1 分`
-  }
 }
 
 /**
@@ -2965,6 +2801,7 @@ function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): 
 function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string | null {
   if (view.status !== 'playing') return null
   if (state.phase === 'quiz') return '答题中'
+  if (state.phase === 'settle') return '结算中'
   return state.activePlayer === mySeat ? '你出牌' : '对方出牌'
 }
 
@@ -3025,20 +2862,23 @@ const TOKEN_STAR_PATH =
   'M49.5 4L50.5 4L57 43L96 49.5L96 50.5L57 57L50.5 96L49.5 96L43 57L4 50.5L4 49.5L43 43Z'
 
 /**
- * Token 上限到几点为止还排成一列。
+ * Token 细条里留给星星那一列的高度预算（px）。
  *
- * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列。
- * 上限从 5 起、每轮 +1（见 core 的 INITIAL_TOKEN_MAX / TOKEN_MAX_GROWTH），
- * 所以第 4 轮 8 点是一列的最后一轮，第 5 轮 9 点起变两列。
- *
- * 两列是目前的上限。正常一局三五轮就分出胜负（先到 3 分），题库 5 道题也就是加赛到头
- * 最多 5 轮、上限 9 点、折成 5 行，侧栏还很宽裕；
- * 题库要是扩到十几道、加赛真打到那么久，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
+ * 这个数是从 styles.css 的 .battle__token-rail 推出来的：细条高 470，减去上下内边距 26、
+ * 落款那两行约 28、以及它和星星之间的 10，剩下约 406，取个整 400。
+ * 改细条高度或落款字号要回来跟着改。
  */
-const TOKEN_SINGLE_COLUMN_MAX = 8
+const TOKEN_STACK_H = 400
+
+/** 一颗星星的边长（px）。同 styles.css 的 .battle__token-star，两处必须一致。 */
+const TOKEN_STAR_SIZE = 30
+
+/** 星星之间最松和最紧的间距（px）。负数就是让星星互相压边——见 TokenTrack。 */
+const TOKEN_GAP_MAX = 18
+const TOKEN_GAP_MIN = -18
 
 /**
- * 右侧栏顶上那块「下一题」牌匾。
+ * 右上角吊着的那块「下一题」牌匾。
  *
  * 只报类别和关键词，不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
  * 关键词是出牌阶段唯一的具体情报（见 core 的 Question.keywords），
@@ -3102,30 +2942,48 @@ function NextQuestionPlaque({
 }
 
 /**
- * 剩余 Token：一颗四芒星＝一点，发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
+ * 剩余 Token：贴着屏幕最右缘那条细板，一颗四芒星＝一点，
+ * 发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
  *
  * 星星**从下往上**烧：最底下那颗是第 1 点，越往上编号越大，花钱是从顶上往下灭的，
  * 像一格格烧下去的蜡烛。数字那行照旧压在星星底下，当这一块的落款。
  *
- * 上限 8 点以内排成一列，超过折成两列——上限每轮 +1（见 core 的 TOKEN_MAX_GROWTH），
- * 加赛打到后面会超过 8 点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
+ * **永远单列**。上限从 5 起、每轮 +1（见 core 的 INITIAL_TOKEN_MAX / TOKEN_MAX_GROWTH），
+ * 点数一多就只压间距不换列：换成两列的话"从下往上烧"会断成两段，读不出还剩几点。
+ * 间距在这里算好交给 CSS（--token-gap）：细条高度是写死的，CSS 自己算不出一列该留多宽。
+ * 挤到极限时间距是负的，星星互相压边——这时靠每颗星星那圈深色描边分开彼此
+ *（见 styles.css 的 .battle__token-star）。
+ *
+ * 压边也有极限：TOKEN_GAP_MIN 那一档下，一列最多排得下约 30 颗。题库现在 5 道题，
+ * 就算一路同分加赛打满 5 轮，上限也才 9 点，还很宽裕；
+ * 题库要是扩到十几道以上、加赛真打到那么久，得回来把星星缩小。
  */
 function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
-  const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
+  // max 为 1 时没有间隔，除数兜到 1 免得算出 Infinity。
+  const gapCount = Math.max(max - 1, 1)
+  const gap = Math.min(
+    TOKEN_GAP_MAX,
+    Math.max(TOKEN_GAP_MIN, (TOKEN_STACK_H - max * TOKEN_STAR_SIZE) / gapCount),
+  )
   return (
-    <div className="battle__tokens" data-tutorial-anchor="tokenCounter">
-      <div className="battle__token-grid" style={{ '--token-rows': rows } as CSSProperties}>
+    // data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/steps.ts）。
+    <div className="battle__token-rail" data-tutorial-anchor="tokenCounter">
+      <div
+        className="battle__token-stack"
+        style={{ '--token-gap': `${gap.toFixed(2)}px` } as CSSProperties}
+      >
         {Array.from({ length: max }, (_, index) => {
-          // index 是格子号，DOM 顺序就是视觉顺序：左列从上到下，再右列
-          //（CSS 那边 grid-auto-flow: column）。Token 却是从下往上数的，
-          // 所以这里把格子号翻译成"它是这一列自下而上的第几点"。
-          const column = Math.floor(index / rows)
-          const point = column * rows + (rows - 1 - (index % rows))
+          // index 是从上往下的行号，Token 却是从下往上数的，翻一下：
+          // 最上面那颗编号最大，也就是最先被花掉的那点。
+          const point = max - 1 - index
           return <TokenStar key={point} spent={point >= tokens} />
         })}
       </div>
       <span className="battle__token-count">
-        {tokens}/{max} token
+        <span className="battle__token-count-value">
+          {tokens}/{max}
+        </span>
+        <span className="battle__token-count-unit">token</span>
       </span>
     </div>
   )
@@ -3463,19 +3321,4 @@ function handCardOfDefinition(cardId: CardId): HandCardData {
  */
 function handCardOfAi(ai: AiInstance): HandCardData {
   return { ...handCardOfDefinition(ai.cardId), id: ai.instanceId }
-}
-
-/**
- * 按实例 id 查这个 AI 的卡名，给答题揭晓层的结果行用。
- *
- * 事件是在 React 提交新局面**之前**送到的，所以答错被罚下的那个单位这时还在 state 里，
- * 名字查得到——查完就存进 QuizAnswerRow，之后不再回头读局面。
- * 查不到（理论上不该发生）就退回一个中性称呼，不为了一行字把界面搞崩。
- */
-function nameOfCard(instanceId: InstanceId, state: GameState): string {
-  for (const player of state.players) {
-    const ai = player.board.find((item) => item.instanceId === instanceId)
-    if (ai !== undefined) return getCard(ai.cardId).name
-  }
-  return '场上 AI'
 }

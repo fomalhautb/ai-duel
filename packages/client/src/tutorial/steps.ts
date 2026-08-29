@@ -290,15 +290,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'TUTORIAL_R2_PLAY',
-    // 这一步开始降低强制程度：两张低费 AI 都放行，也允许一张都不派直接结束出牌。
+    // 这一步开始降低强制程度：那张低费 AI 放行，也允许一张都不派直接结束出牌。
+    // 放行的只有 GPT-2 一张，是第 2 轮 Token 对账的硬要求（见 TUTORIAL_CARDS.optionalAi）。
     instruction: '场上的 AI 会继续作答。你也可以再派一张新的 AI。',
-    highlight: [
-      ...TUTORIAL_CARDS.optionalAi.map(card),
-      anchor('endTurnButton'),
-    ],
+    highlight: [...TUTORIAL_CARDS.optionalAi.map(card), anchor('endTurnButton')],
     allow: {
       playableCards: [...TUTORIAL_CARDS.optionalAi],
-      blockTip: '这一轮只能从高亮的两张低费 AI 里再派一张，或者直接结束出牌',
+      blockTip: '这一轮只能再派高亮的那张低费 AI，或者直接结束出牌',
       endPlay: true,
     },
     advance: cue('quiz-open'),

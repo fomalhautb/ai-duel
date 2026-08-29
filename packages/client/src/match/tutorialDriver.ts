@@ -6,7 +6,11 @@
  * 1. 把 `GameSetup` 焊死（不洗牌、指定先手、教学牌组、教学题、教学英雄），
  *    答题结果换成教学预设表，于是整局是一段可复现的剧本；
  * 2. 轮到对手就照 `TUTORIAL_FOE_PLAYS` 逐条出牌，出完自动「结束出牌」；
+ *    每轮结算停在 settle 等双方确认，对手那一下也由这层代点（见 pumpFoeConfirm）；
  * 3. 给教程控制器开一条**事件旁路**（`onEvents`）。
+ *
+ * 玩家自己那下确认不在这里：它是结算层上真的一次点击（RoundSettleLayer 的按钮），
+ * 正好合上教程「讲解步骤要玩家点一下才推进」的规矩，不需要也不该由 driver 代劳。
  *
  * 旁路必须单开一条：UI 那条 `subscribeEvents` 全局只允许一个订阅者（见 driver.ts），
  * 那个位置是 MatchStage 的，教程再挤进去就会把动画层顶掉。所以这层自己订走 localDriver
@@ -89,6 +93,8 @@ export function createTutorialDriver(options: TutorialDriverOptions = {}): Tutor
 
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | null = null
+  /** 结算确认单独一个句柄，见 pumpFoeConfirm。 */
+  let confirmTimer: ReturnType<typeof setTimeout> | null = null
   let foeHold = false
   /** 对手这一轮的脚本正在跑，防止同一轮被重复触发。 */
   let foeBusy = false
@@ -157,9 +163,39 @@ export function createTutorialDriver(options: TutorialDriverOptions = {}): Tutor
     schedule(runFoeStep)
   }
 
+  /**
+   * 结算阶段替脚本对手点一下「进入下一轮」。
+   *
+   * 每轮结算要**双方**都确认才推进（见 core 的 confirmRound）。教学局的"对方"不是活人，
+   * 这一下没人替它点，玩家点完自己那下之后就会一直卡在结算层上等一个永远不来的确认。
+   *
+   * 它刻意**不受 setFoeHold 管**：那道闸挡的是对手的出牌演出盖住引导提示，
+   * 而结算层本身就是全屏过场、盖着整个战场，把确认挡在外面只会把教程卡死。
+   *
+   * 用自己的定时器而不是共用 schedule：那一个是出牌脚本的，两边抢同一个句柄会互相取消。
+   * 发之前再查一次局面：这中间隔着一个定时器，玩家可能已经点完确认把轮次推走了，
+   * 那时再发一条会被引擎当成"这一轮你已经确认过了"拒掉，界面上就是一句莫名其妙的报错。
+   */
+  function pumpFoeConfirm(): void {
+    if (disposed || confirmTimer !== null || !foeShouldConfirm()) return
+    confirmTimer = setTimeout(() => {
+      confirmTimer = null
+      if (disposed || !foeShouldConfirm()) return
+      inner.send({ type: 'CONFIRM_ROUND', player: TUTORIAL_FOE_SEAT })
+    }, stepDelayMs)
+  }
+
+  /** 现在轮得到对手确认吗：局面停在结算阶段，且它自己还没确认过。 */
+  function foeShouldConfirm(): boolean {
+    const { state } = inner.getSnapshot()
+    if (state === null) return false
+    return state.phase === 'settle' && !state.settleConfirmed[TUTORIAL_FOE_SEAT]
+  }
+
   const unsubscribeInner = inner.subscribe(() => {
     fanout.patch(inner.getSnapshot())
     pumpFoe()
+    pumpFoeConfirm()
   })
   // 构造时 localDriver 不发 patch，所以开局这一次要自己喊：
   // 第 1 轮是玩家先手，正常情况下这一下什么都不会做，只是不留特例。
@@ -198,6 +234,8 @@ export function createTutorialDriver(options: TutorialDriverOptions = {}): Tutor
       disposed = true
       if (timer !== null) clearTimeout(timer)
       timer = null
+      if (confirmTimer !== null) clearTimeout(confirmTimer)
+      confirmTimer = null
       bypassListener = null
       unsubscribeInner()
       unsubscribeInnerEvents()

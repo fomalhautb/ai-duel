@@ -62,7 +62,7 @@ import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
-import { HandCardFace } from '../ui/HandFan'
+import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
@@ -2027,11 +2027,11 @@ const DeckSlotItem = memo(function DeckSlotItem({
  *
  * markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
  * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样。
- * AI 牌铺统一卡背图，技能牌印卡名和 backText。
+ * AI 牌铺统一卡背图，技能牌在星象边框底图上印卡名和 backText（底图见 .card-back--skill）。
  */
 function CardBackFace({ card }: { card: HandCardData }) {
   return (
-    <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+    <div className={cardBackClassName(card.kind)}>
       {card.kind === 'ai' ? (
         <img
           className="card-back__art"

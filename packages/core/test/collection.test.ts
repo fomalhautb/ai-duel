@@ -51,7 +51,7 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('技能牌一共 24 张，只有「复读机」要选目标', () => {
+  it('技能牌一共 24 张，其中 5 张要选目标', () => {
     // 早期那两张（placeholder-skill / skill-must-answer）已经删掉：占位技能没有卡面原画，
     // 而「必须回答」的功能整个挪到了同样效果的「复读机」上。守着别有人把旧 id 又捡回来。
     const skills = Object.values(CARDS).filter((card) => card.kind === 'skill')
@@ -62,9 +62,18 @@ describe('卡池与初始收藏', () => {
       expect(INITIAL_COLLECTION).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }
-    expect(skills.filter((card) => card.target !== undefined).map((card) => card.id)).toEqual([
-      'fixed-answer',
-    ])
+    // 客户端的选目标交互按这份名单走，各自选谁由 skillCards.test.ts 那条守着。
+    expect(
+      new Set(skills.filter((card) => card.target !== undefined).map((card) => card.id)),
+    ).toEqual(
+      new Set([
+        'fixed-answer',
+        'black-white-reversal',
+        'jade-purification-vase',
+        'safe-pass',
+        'model-distillation',
+      ]),
+    )
   })
 
   it('卡池覆盖全部卡牌定义', () => {
@@ -99,6 +108,59 @@ describe('卡池与初始收藏', () => {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
+    }
+  })
+})
+
+describe('AI 牌身上给技能牌读的两个标签', () => {
+  const aiCards = Object.values(CARDS).filter((card) => card.kind === 'ai')
+
+  it('国产标签正好挂在这 10 张上（「国产替代」按它清场）', () => {
+    expect(new Set(aiCards.filter((card) => card.domestic === true).map((card) => card.id))).toEqual(
+      new Set([
+        'deepseek-r1',
+        'deepseek-v4',
+        'qwen',
+        'kimi-k2-6',
+        'kimi-k3',
+        'doubao',
+        'glm-5',
+        'minimax',
+        'yuanbao',
+        'wenxin-yiyan',
+      ]),
+    )
+    // 只标 true 不标 false：非国产的那 8 张一律不带这个字段。
+    for (const card of aiCards) {
+      expect([true, undefined]).toContain(card.domestic)
+    }
+  })
+
+  it('四条进化链首尾相接，链尾不再往下指', () => {
+    const nextOf = Object.fromEntries(aiCards.map((card) => [card.id, card.evolvesTo]))
+    expect(nextOf).toMatchObject({
+      'gpt-2': 'gpt-3-5',
+      'gpt-3-5': 'gpt-4o',
+      'gpt-4o': 'chatgpt-5-6-sol',
+      'chatgpt-5-6-sol': undefined,
+      'claude-5-sonnet': 'claude-fable-5',
+      'claude-fable-5': undefined,
+      'deepseek-r1': 'deepseek-v4',
+      'deepseek-v4': undefined,
+      'kimi-k2-6': 'kimi-k3',
+      'kimi-k3': undefined,
+    })
+    // 没有前后代的单张一律不可进化，「鸡犬升天」扫到它们时原地不动。
+    for (const id of ['gemini', 'qwen', 'doubao', 'glm-5', 'minimax', 'yuanbao', 'grok', 'wenxin-yiyan']) {
+      expect(nextOf[id]).toBeUndefined()
+    }
+  })
+
+  it('进化链指向的都是真卡，且不会指回自己（否则鸡犬升天会原地打转）', () => {
+    for (const card of aiCards) {
+      if (card.evolvesTo === undefined) continue
+      expect(CARDS[card.evolvesTo]).toBeDefined()
+      expect(card.evolvesTo).not.toBe(card.id)
     }
   })
 })

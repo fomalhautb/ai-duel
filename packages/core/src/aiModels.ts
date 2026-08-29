@@ -11,6 +11,13 @@ import type { AiCard, CardId } from './types'
  * tokenCost 只决定这一轮出不出得起。数值大致按"越新越全能越贵"排（1~7），
  * 这批数字原先躺在客户端当卡面装饰，现在是引擎真扣的费用，改动会直接影响平衡。
  * 卡面文案是玩梗，不代表这些模型的真实表现。
+ *
+ * 另有两个给技能牌读的标签，改动同样会直接影响平衡：
+ * - `domestic`：国产模型（下面 10 张）。「国产替代」把双方场上没标它的全部罚下。
+ * - `evolvesTo`：进化链的下一级。四条链 gpt-2→gpt-3-5→gpt-4o→chatgpt-5-6-sol、
+ *   claude-5-sonnet→claude-fable-5、deepseek-r1→deepseek-v4、kimi-k2-6→kimi-k3，
+ *   「鸡犬升天」顺着它把场上单位换成下一张。链尾和 Gemini、Grok 这类没有前后代的单张不填，
+ *   也就是"不可进化"。链是按同厂商的代际排的，跨厂商不连，费用也顺着链递增。
  */
 export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
   'gpt-2': {
@@ -19,6 +26,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'GPT-2',
     model: 'GPT-2',
     tokenCost: 1,
+    evolvesTo: 'gpt-3-5',
     text: '它会接话，但不保证接的是人话。',
   },
   'gpt-3-5': {
@@ -27,6 +35,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'GPT-3.5',
     model: 'GPT-3.5',
     tokenCost: 2,
+    evolvesTo: 'gpt-4o',
     text: '什么都答得上来，答得对不对是另一回事。',
   },
   'gpt-4o': {
@@ -35,6 +44,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'GPT-4o',
     model: 'GPT-4o',
     tokenCost: 4,
+    evolvesTo: 'chatgpt-5-6-sol',
     text: '看得见图、听得见声，就是有点太想夸你。',
   },
   'chatgpt-5-6-sol': {
@@ -51,6 +61,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     name: 'Claude 5 Sonnet',
     model: 'Claude 5 Sonnet',
     tokenCost: 4,
+    evolvesTo: 'claude-fable-5',
     text: '写代码很稳，就是喜欢先解释一遍它打算怎么写。',
   },
   'claude-fable-5': {
@@ -66,7 +77,9 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'deepseek-r1',
     name: 'DeepSeek R1',
     model: 'DeepSeek R1',
+    domestic: true,
     tokenCost: 3,
+    evolvesTo: 'deepseek-v4',
     text: '先自言自语三千字，再回答你那个是非题。',
   },
   'deepseek-v4': {
@@ -74,6 +87,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'deepseek-v4',
     name: 'DeepSeek V4',
     model: 'DeepSeek V4',
+    domestic: true,
     tokenCost: 5,
     text: '用别人一半的算力，办完一样的事。',
   },
@@ -90,6 +104,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'qwen',
     name: '通义千问',
     model: 'Qwen',
+    domestic: true,
     tokenCost: 3,
     text: '什么尺寸都有，什么活都接。',
   },
@@ -98,7 +113,9 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'kimi-k2-6',
     name: 'Kimi K2.6',
     model: 'Kimi K2.6',
+    domestic: true,
     tokenCost: 3,
+    evolvesTo: 'kimi-k3',
     text: '嘴上说着「这个我不能回答」，手上已经开始写了。',
   },
   'kimi-k3': {
@@ -106,6 +123,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'kimi-k3',
     name: 'Kimi K3',
     model: 'Kimi K3',
+    domestic: true,
     tokenCost: 5,
     text: '会自己调工具、自己查资料、自己相信查到的东西。',
   },
@@ -114,6 +132,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'doubao',
     name: '豆包',
     model: 'Doubao',
+    domestic: true,
     tokenCost: 2,
     text: '语气永远是好脾气，答案偶尔不是。',
   },
@@ -122,6 +141,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'glm-5',
     name: 'GLM-5',
     model: 'GLM-5',
+    domestic: true,
     tokenCost: 4,
     text: '中文说得比谁都顺，顺到你懒得核对。',
   },
@@ -130,6 +150,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'minimax',
     name: 'MiniMax',
     model: 'MiniMax',
+    domestic: true,
     tokenCost: 3,
     text: '能说会唱，正经答题的时候有点跳。',
   },
@@ -138,6 +159,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'yuanbao',
     name: '腾讯元宝',
     model: 'Yuanbao',
+    domestic: true,
     tokenCost: 3,
     text: '先去搜一圈再回来答，搜到什么信什么。',
   },
@@ -154,6 +176,7 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
     id: 'wenxin-yiyan',
     name: '文心一言',
     model: 'ERNIE',
+    domestic: true,
     tokenCost: 3,
     text: '成语接得漂亮，事实核得一般。',
   },

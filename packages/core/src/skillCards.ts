@@ -1,21 +1,26 @@
 import type { CardId, SkillCard } from './types'
 
 /**
- * 24 张技能牌，一批设计稿出来的牌。除「复读机」外效果都还只停在设计稿上，
- * 常量名里的 DESIGN 就是这个来历。
+ * 24 张技能牌，一批设计稿出来的牌。常量名里的 DESIGN 是"整批从设计稿转录来"的来历，
+ * 眼下其中 10 张已经接进引擎。
  *
  * 组织方式对齐 aiModels.ts：一张卡对一张原画，客户端按同一份 id 查图
  * （ui/skillCardArt.ts 的 SKILL_CARD_ART），所以 id 是资源名的一部分，
  * 改 id 等于换掉那张卡的插画，必须两边一起改。
  *
- * **除了「复读机」，这批牌的效果都还没接进规则引擎**：不填 `target` 的那些走占位路径——
- * 打出后亮个相就进弃牌堆，什么都不发生。文案里写着「选1个 Agent」的那些也一样，
- * engine.ts 不认识它们。设计稿定下的效果全文放在 `plannedEffect` 里，只给卡背展示。
+ * **已接进引擎的 10 张**（结算都在 engine.ts 的 playCard 里，靠 `card.id` 分派）：
+ * 复读机、黑白颠倒、玉净瓶、保送、金钟罩、核电站、模型蒸馏、内存紧缺、国产替代、鸡犬升天。
+ * 它们不写 `plannedEffect`——带上它卡背会印"还没实装"，而它们确实会改局面。
+ * 要选目标的那几张靠 `target` 声明选谁（见 types.ts 的 `SkillCard.target`）。
+ *
+ * **其余 14 张仍是占位牌**：带着 `plannedEffect`、不带 `target`，打出后亮个相就进弃牌堆，
+ * 什么都不发生。文案里写着「选1个 Agent」的那些也一样，engine.ts 不认识它们。
  *
  * `tokenCost` 是逐张照原画转录的，不是随手定的平衡数值：每张原画左上角都印着一枚
  * 「N TOKEN」圆章，而 tokenCost 又是引擎真正扣费的那个数（见 CardBase）。两者一旦对不上，
  * 玩家会看到"卡面写 4 点，却提示 Token 不够"。所以改这里的数字之前先去看
  * public/cards/skills/<id>.webp 上印的是多少——要改就得连原画一起重出。
+ * 核电站的减费只影响"打出去实际扣多少"，不改这里的印刷数字。
  */
 export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
   'context-flood': {
@@ -46,21 +51,18 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'black-white-reversal',
     name: '黑白颠倒',
+    // 和复读机同一类：命中写 `AiInstance.interference`，本轮判定被翻个面（对→错、错→对）。
+    target: 'foe-ai',
     tokenCost: 3,
     text: '要求对方1个作答 Agent 给出与自身判断相反的答案。',
-    plannedEffect: '要求对方1个作答 Agent 给出与自身判断相反的答案。',
   },
   'fixed-answer': {
     kind: 'skill',
     id: 'fixed-answer',
     name: '复读机',
-    /**
-     * 这批牌里唯一接进规则引擎的一张：打出时要点对方场上一个还没被干扰过的 AI。
-     *
-     * 命中只是把目标标成「已干扰」（`AiInstance.interfered`），答题时它还不会真的只答香蕉
-     * ——往上下文里塞话要等模型 API 接上。效果只做了一半，所以这张牌也不写 `plannedEffect`：
-     * 那个字段会让卡背印上"还没实装、打出去什么都不会发生"，而它确实会改场上的状态。
-     */
+    // 命中把目标标成被复读机干扰（`AiInstance.interference`），它本轮只会答「香蕉」、判错。
+    // 干扰的本体是往 prompt 里注入一句话（见 script.ts 的 INTERFERENCE_PROMPTS），
+    // 真实模型 API 还没接，剧本模式先按等效结果模拟。
     target: 'foe-ai',
     tokenCost: 4,
     text: '对方1个作答 Agent 无论题目是什么，都只能回答香蕉。',
@@ -93,9 +95,12 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'jade-purification-vase',
     name: '玉净瓶',
+    // 解掉己方一个 AI 身上的干扰。文案说的是"作用于你的 Agent 的效果"而不是点名干扰：
+    // 眼下能被它移除的只有复读机/黑白颠倒两种，将来的限制类效果也归它管，
+    // 卡面不必跟着一起改。这类效果都只持续本轮（进下一轮自动清），所以文案里的「本轮」成立。
+    target: 'own-affected-ai',
     tokenCost: 4,
-    text: '移除一个本轮作用于己方 Agent 的限制效果。',
-    plannedEffect: '移除一个本轮作用于己方 Agent 的限制效果。',
+    text: '选择1个本轮作用于你的 Agent 效果，将其移除。',
   },
   boomerang: {
     kind: 'skill',
@@ -109,17 +114,19 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'golden-bell-shield',
     name: '金钟罩',
+    // 按卡面字面全挡：连对己方有利的效果、连自己后面打出的技能牌也一起挡在外面
+    // （完整口径见 types.ts 的 `PlayerState.shielded`）。无目标，打出即生效。
     tokenCost: 7,
     text: '本轮内你和所有己方 Agent 不受其他技能牌影响。',
-    plannedEffect: '本轮内你和所有己方 Agent 不受其他技能牌影响。',
   },
   'safe-pass': {
     kind: 'skill',
     id: 'safe-pass',
     name: '保送',
+    // 只免掉"答错罚下"这一下，不改计分：被保送的单位答错仍然算答错。
+    target: 'own-ai',
     tokenCost: 3,
     text: '选己方场上一个 Agent，本轮结算无论答案是否正确都留在场上。',
-    plannedEffect: '选己方场上一个 Agent，本轮结算无论答案是否正确都留在场上。',
   },
   'anti-addiction': {
     kind: 'skill',
@@ -145,8 +152,11 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     // 具体费用，填 1 至少不会和画面矛盾。等原画补上数字，这里跟着改成那个数。
     tokenCost: 1,
     name: '模型蒸馏',
+    // 全卡池唯一一张选手牌的：targetInstanceId 指的是自己手牌里那张 AI 牌的实例。
+    // 换来的 Token 按被弃那张的**印刷费用** +1 算，可以把 tokens 顶到 tokenMax 之上
+    // （下一轮补满时被覆盖）。
+    target: 'own-hand-ai',
     text: '弃置手牌中1张 Agent，获得等同其费用加1的 Token。',
-    plannedEffect: '弃置手牌中1张 Agent，获得等同其费用加1的 Token。',
   },
   'open-source-reproduction': {
     kind: 'skill',
@@ -160,9 +170,10 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'nuclear-power-station',
     name: '核电站',
+    // 减的是双方的费用，也包括打出方自己后面的牌，可叠加（打两张就 -2）。
+    // 计数记在 `GameState.costReduction`，进下一轮清零。
     tokenCost: 4,
     text: '本轮双方后续所有牌费用减少1，最低1。',
-    plannedEffect: '本轮双方后续所有牌费用减少1，最低1。',
   },
   'far-ahead': {
     kind: 'skill',
@@ -177,9 +188,9 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'domestic-substitution',
     name: '国产替代',
+    // 「双方」包括打出方自己：不带 `AiCard.domestic` 的一律清场，谁打的都不例外。
     tokenCost: 6,
     text: '双方场上没有国产标签的 Agent 均被罚下并移入弃牌区。',
-    plannedEffect: '双方场上没有国产标签的 Agent 均被罚下并移入弃牌区。',
   },
   'version-rollback': {
     kind: 'skill',
@@ -209,17 +220,20 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'rising-tide',
     name: '鸡犬升天',
+    // 顺着 `AiCard.evolvesTo` 各升一级，只换卡面身份、单位本身不动
+    // （instanceId 和身上的本轮标记都留着）。链尾和不可进化的原地不变。
+    // 「双方」包括打出方自己，也就是可能白白把对面喂大。
     tokenCost: 2,
     text: '双方场上所有可进化 Agent 各进化1级。',
-    plannedEffect: '双方场上所有可进化 Agent 各进化1级。',
   },
   'memory-shortage': {
+    // 全卡池唯一一张要掷随机的牌：随机数从 `GameState.rngSeed` 起，
+    // 所以同一份状态打出它永远得到同一批幸存者，联机两端不会分叉。
     kind: 'skill',
     id: 'memory-shortage',
     name: '内存紧缺',
     tokenCost: 2,
     text: '双方各随机保留场上一半 Agent，向上取整，其余罚下移入弃牌区。',
-    plannedEffect: '双方各随机保留场上一半 Agent，向上取整，其余罚下移入弃牌区。',
   },
 }
 

@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { CARD_POOL, SKILL_DESIGN_CARD_IDS, getCard } from '@ai-duel/core'
+import type { CardId, SkillCard } from '@ai-duel/core'
+import { cardBackText } from '../src/ui/cardText'
+
+/**
+ * 要玩家指定目标的技能牌，以及各自选的是哪一档目标（口径见 core 的 `SkillCard.target`）。
+ * 没列在这里的牌一律不该填 target。
+ */
+const TARGETED_SKILLS: Record<CardId, SkillCard['target']> = {
+  'fixed-answer': 'foe-ai',
+  'black-white-reversal': 'foe-ai',
+  'jade-purification-vase': 'own-affected-ai',
+  'safe-pass': 'own-ai',
+  'model-distillation': 'own-hand-ai',
+}
 
 /**
  * 牌组页（screens/DeckScreen.tsx）的卡池是玩家存档里的真卡，那批 id 全部来自 core 的 CARD_POOL。
@@ -24,11 +38,12 @@ describe('牌组页卡池', () => {
     expect(counted).toBe(CARD_POOL.length)
   })
 
-  it('24 张技能卡都在卡池里，只有「复读机」要选目标', () => {
+  it('24 张技能卡都在卡池里，要选目标的正好是接进引擎的那 5 张', () => {
     // 这批牌从"只有设计稿的展示数据"转正成了真卡（core 的 SKILL_DESIGN_CARDS），
     // 所以它们必须满足卡池的全部约束：取得到定义、算技能牌。
     // target 那条尤其要守：效果还没接进引擎的牌一旦填了 target，引擎就会逼玩家点一个目标，
-    // 而点完什么都不会发生。「复读机」是唯一的例外，它命中会真的给目标盖上 interfered。
+    // 而点完什么都不会发生。反过来，接进引擎、又确实要玩家指一个目标的那几张必须填对档位
+    //（客户端照 target 决定亮哪一批目标，见 MatchStage 的 boardTargetsOf）。
     const pool = new Set<string>(CARD_POOL)
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
     for (const cardId of SKILL_DESIGN_CARD_IDS) {
@@ -36,7 +51,22 @@ describe('牌组页卡池', () => {
       const card = getCard(cardId)
       // 这一句既是"必须是技能牌"那条断言，也顺带把类型收窄到 SkillCard，下面才读得到 target。
       if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)
-      expect(card.target).toBe(cardId === 'fixed-answer' ? 'foe-ai' : undefined)
+      expect(card.target).toBe(TARGETED_SKILLS[cardId])
+    }
+  })
+
+  it('接进引擎的技能牌各有一段自己的卡背文案，不会印成「还没实装」', () => {
+    // 卡背文案按 id 手写在 ui/cardText.ts 的表里，而"这张牌实装了没有"的唯一判据是
+    // 卡牌定义上还带不带 plannedEffect（见 core 的 types.ts）。两边一旦对不上：
+    // 实装了却漏写文案，玩家会读到"打出后没有任何实际效果"这句假话；
+    // 没实装却写了文案，则是反过来骗他这张牌能用。
+    for (const cardId of SKILL_DESIGN_CARD_IDS) {
+      const card = getCard(cardId)
+      if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)
+      const text = cardBackText(card)
+      // 认的是占位分支那句独一份的话（「还没接进规则引擎」）：光找"还没"两个字会误伤
+      //「还没被干扰过的 AI」这种正经文案。
+      expect(text.includes('还没接进规则引擎')).toBe(card.plannedEffect !== undefined)
     }
   })
 })

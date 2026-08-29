@@ -62,22 +62,46 @@ export interface AiCard extends CardBase {
   kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
+  /**
+   * 国产模型。「国产替代」按它决定谁留在场上（没标的一律罚下）。
+   *
+   * 只标 true、不写 false：没这一项就是非国产，JSON 里少一份冗余，
+   * 也免得以后有人误以为 `domestic: false` 和不写是两种状态。
+   */
+  domestic?: true
+  /**
+   * 进化链的下一级卡（「鸡犬升天」把场上单位换成它）。
+   *
+   * 不填 = 这张卡不可进化：链尾（如 ChatGPT 5.6 Sol）和没有前后代的单张都不填。
+   * 进化链写在卡牌定义上而不是引擎里，再补一条链只要改这里。
+   */
+  evolvesTo?: CardId
 }
 
+/** 干扰类技能牌的 id。命中后写进 `AiInstance.interference`，答案生成层按种类模拟。 */
+export type InterferenceCardId = 'fixed-answer' | 'black-white-reversal'
+
 /**
- * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有「复读机」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ * 技能牌：打出即效果结算、随后进弃牌堆，效果可以持续到本轮结束。
+ *
+ * 24 张里有 10 张接进了引擎（名单和各自的结算见 skillCards.ts 的文件头注释），
+ * 其余 14 张还带着 `plannedEffect` 走占位路径：打出后亮个相就进弃牌堆，什么都不发生。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'
   /**
    * 打出时必须指定的目标；不填就是无目标技能，打出即结算。
    *
-   * `'foe-ai'` = 对方场上一个还没被干扰过的 AI（`AiInstance.interfered` 不为 true）。
-   * 目标规则写在卡牌定义上而不是引擎里：再加一张干扰类技能只要标这个字段，
-   * `playCard` 那段校验一行都不用改。
+   * - `'foe-ai'`：对方场上一个还没被干扰过的 AI（`AiInstance.interference` 没设置）。复读机、黑白颠倒。
+   * - `'own-ai'`：己方场上一个还没被保送的 AI。保送。
+   * - `'own-affected-ai'`：己方场上一个身上带着 `interference` 的 AI。玉净瓶。
+   * - `'own-hand-ai'`：**自己手牌里**的一张 AI 牌，`targetInstanceId` 指的是手牌实例
+   *   而不是场上单位。模型蒸馏。
+   *
+   * 目标规则写在卡牌定义上而不是引擎里：新技能只要标上其中一档，
+   * `playCard` 那段校验和客户端的选目标交互都不用改。
    */
-  target?: 'foe-ai'
+  target?: 'foe-ai' | 'own-ai' | 'own-affected-ai' | 'own-hand-ai'
   /**
    * 设计稿定下的效果全文，**规则引擎尚未实装**，只供卡背展示。
    *
@@ -145,21 +169,36 @@ export interface CardInstance {
 
 /**
  * 场上的 AI 单位。
- * 除了身份三件套，只有一个被干扰标记；
+ *
+ * 除了身份三件套，只有两个「本轮」标记，都在双方确认结算、真的进下一轮时清掉
+ * （见 engine.ts 的 confirmRound）；
  * 之后要加"上场后被增益/削弱"的数值时再往这里拷贝卡面数值。
+ *
+ * 两个标记都写成可选字段、只设不为空的那一档：没被打过的单位就不带这一项，
+ * JSON 深拷贝和联机转发都少一份冗余。
  */
 export interface AiInstance {
   instanceId: InstanceId
   cardId: CardId
   owner: PlayerId
   /**
-   * 被干扰类技能命中过。
+   * 被哪张干扰类技能命中了。
    *
-   * 本迭代它只管两件事：这个 AI 不能再被第二张干扰技能选中，以及战场小卡上挂一个「已干扰」角标。
-   * **不影响答题**——真正往上下文里塞话的效果还没做。
-   * 写成可选字段，没被干扰过的单位就不带这一项，JSON 深拷贝和联机转发都少一份冗余。
+   * 干扰的本体是"往这个 AI 的 prompt 里注入一句话"（注入文案见 script.ts 的
+   * `INTERFERENCE_PROMPTS`）。真实模型 API 还没接，所以剧本模式按种类等效模拟：
+   * 复读机一律答「香蕉」判错，黑白颠倒把本来的判定翻个面。
+   *
+   * 记的是种类而不是一个布尔，因为下游要分三处用：答案生成层按种类模拟、
+   * 玉净瓶按"身上有没有它"挑目标、战场小卡按种类显示不同角标。
+   * 一个 AI 同时只能挂一种：已经带着它的单位不能再被第二张干扰技能选中。
    */
-  interfered?: boolean
+  interference?: InterferenceCardId
+  /**
+   * 被「保送」选中过：本轮结算答错也不罚下（改发 `AI_SAFE_PASSED`）。
+   *
+   * 它只免掉罚下，**不改计分**：保送留场的那个 AI 在 `ROUND_SCORED.correct` 里仍然算答错。
+   */
+  safePassed?: true
 }
 
 /** 一次答题的结果，由房主/本地 driver 生成后喂进引擎。 */
@@ -189,6 +228,19 @@ export interface PlayerState {
    * 一样多就比谁花的 Token 少，还一样就双方各拿 1 分（规则见 engine.ts 的 submitAnswers）。
    */
   score: number
+  /**
+   * 本轮打出过「金钟罩」：这一方和他场上所有 AI 不受**任何**技能牌影响，
+   * 进下一轮时清掉（见 engine.ts 的 confirmRound）。
+   *
+   * 口径是字面全挡，对己方有利的效果也一样挡：
+   * 对方的干扰技能选不中他的 AI（直接拒绝出牌）、他自己也打不出玉净瓶/保送/模型蒸馏
+   * 这类作用于自己的牌、群体牌结算时跳过他的场面、核电站的减费他也不享受
+   * （见 engine.ts 的 effectivePlayCost）。唯一的例外是金钟罩自己，
+   * 否则第一张就会把自己挡住、这张牌永远打不出去。
+   *
+   * 只设 true 不设 false：和场上单位的两个标记同一套写法。
+   */
+  shielded?: true
   /**
    * 本轮还剩多少 Token。出牌时按卡面 tokenCost 扣，扣光了就打不出更贵的牌。
    *
@@ -257,6 +309,24 @@ export interface GameState {
    */
   settleConfirmed: [boolean, boolean]
   /**
+   * 本轮打出过几张「核电站」：双方后续每张牌都便宜这么多点，最低 1 点
+   * （算法见 engine.ts 的 effectivePlayCost）。进下一轮时清零。
+   *
+   * 记张数而不是一个布尔：这张牌可叠加，打两张就是 -2。
+   * 它是全局的一份而不是每方一份——核电站减的是双方的费用。
+   */
+  costReduction: number
+  /**
+   * 状态内的随机种子，让引擎在保持"纯函数 + 可序列化"的前提下也能掷随机
+   * （眼下只有「内存紧缺」要随机保留一半场上单位）。
+   *
+   * 用法：`mersenne(rngSeed)` 起一把生成器，取完要用的值再把下一个种子写回这里。
+   * 随机数生成器本身进不了状态（它不可 JSON 序列化），种子可以。
+   * 这样"同一份状态 + 同一条指令 = 同一个结果"仍然成立：房主广播完快照，
+   * 客人手上那份状态里的种子和房主的是同一个，重放也不会分叉。
+   */
+  rngSeed: number
+  /**
    * 下一个卡牌实例序号，开局发完双方牌组后接着往下走。
    * 调试指令凭空造牌时靠它保证 instanceId 不撞车。引擎里不许用 Math.random / Date，
    * 所以这个计数器必须留在状态里，才能跟着状态一起被拷贝和发给客人。
@@ -267,11 +337,12 @@ export interface GameState {
 /** 玩家能对引擎发出的全部指令。 */
 export type Command =
   /**
-   * 打出一张手牌。一轮内能打几张由剩余 Token 决定（每张按卡面 tokenCost 扣，
+   * 打出一张手牌。一轮内能打几张由剩余 Token 决定（每张扣的是**实际费用**，
+   * 也就是卡面 tokenCost 减去核电站的减免，见 engine.ts 的 effectivePlayCost；
    * 剩的不够就整条被拒）。
    *
-   * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
-   * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；
+   * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填，指的是场上单位还是手牌实例
+   * 由那一档 `target` 决定（见 `SkillCard.target`）。该填不填、或者填了个不合法的目标都会被拒；
    * 无目标的卡带上它则直接忽略。
    */
   | {
@@ -318,7 +389,10 @@ export type GameEvent =
   /** 开局抛硬币的结果，客户端拿它播全场硬币动画。 */
   | { type: 'GAME_STARTED'; firstPlayer: PlayerId }
   | { type: 'CARD_DRAWN'; player: PlayerId; card: CardInstance }
-  /** 一张手牌被直接弃掉（目前只有调试指令会产生，正常出牌走 AI_DEPLOYED / SKILL_PLAYED）。 */
+  /**
+   * 一张手牌被直接弃掉（不是打出去的：打出去走 AI_DEPLOYED / SKILL_PLAYED）。
+   * 两个来源：调试指令 DEBUG_REMOVE_CARD，以及「模型蒸馏」弃掉的那张 AI 牌。
+   */
   | { type: 'CARD_REMOVED'; player: PlayerId; instanceId: InstanceId }
   | {
       type: 'ROUND_STARTED'
@@ -341,12 +415,15 @@ export type GameEvent =
        */
       instanceId: InstanceId
       /**
-       * 这张技能打向的那个 AI（只有干扰类技能才有）。
+       * 这张技能打向的那个**场上单位**（`target` 是 foe-ai / own-ai / own-affected-ai 的卡才有）。
        *
        * 同样是给客户端定位用的：技能牌亮相完要飞向这个 AI 的战场格子并在那儿播命中特效。
-       * 结算在事件发出前就做完了，但**别拿它当"目标一定被干扰了"的凭据**：
+       * 「模型蒸馏」那种打向手牌的（`target: 'own-hand-ai'`）刻意不带这个字段——
+       * 客户端拿它去战场上找格子会扑空，那张手牌的去向由随后的 CARD_REMOVED 交代。
+       *
+       * 结算在事件发出前就做完了，但**别拿它当"效果一定生效了"的凭据**：
        * 这张牌可能紧接着被一条 SKILL_CANCELED 抵消掉，那时目标身上什么标记都没留下。
-       * 谁被干扰了永远以快照里的 `AiInstance.interfered` 为准。
+       * 目标身上到底有什么永远以快照里的 `AiInstance` 为准。
        */
       targetInstanceId?: InstanceId
     }
@@ -391,11 +468,47 @@ export type GameEvent =
   /** 答错被罚下，从场上移进弃牌堆。 */
   | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
   /**
+   * 答错了但因为被「保送」而留在场上。
+   *
+   * 排在它自己那条 AI_ANSWERED 之后，占的就是本该发 AI_ELIMINATED 的位置：
+   * 客户端在结算层里照常演"这个答错了"，但别演罚下，改标一个「保送」。
+   */
+  | { type: 'AI_SAFE_PASSED'; instanceId: InstanceId; owner: PlayerId }
+  /**
+   * 被技能牌罚下，从场上移进弃牌堆（不是答错罚下，那条走 AI_ELIMINATED）。
+   *
+   * `by` 是干这件事的那张技能牌，眼下只可能是 'memory-shortage' 或 'domestic-substitution'，
+   * 客户端可以据此给两张牌配不同的演出。
+   * 还带一个 `cardId` 是因为事件发出时快照里这个单位已经不在场上了，
+   * 界面要画"谁被清掉了"只剩事件里这一份卡面身份（和 AI_ANSWERED 同一个道理）。
+   */
+  | {
+      type: 'AI_REMOVED'
+      instanceId: InstanceId
+      owner: PlayerId
+      cardId: CardId
+      by: CardId
+    }
+  /**
+   * 场上单位进化成了另一张卡（眼下只有「鸡犬升天」会产生）。
+   *
+   * 换的是同一个单位的卡面身份，`instanceId` 不变，身上的本轮标记也都留着——
+   * 客户端换图即可，不要当成"旧的下场、新的上场"来演。
+   */
+  | {
+      type: 'AI_TRANSFORMED'
+      instanceId: InstanceId
+      owner: PlayerId
+      fromCardId: CardId
+      toCardId: CardId
+    }
+  /**
    * 本轮计分，四个数组都按座位号排，[0] 是 0 号玩家。
    *
    * - `gains`：本轮拿到的分，只可能是 0 或 1；双方打平时是 [1, 1]。
    * - `scores`：加完之后的总分。
-   * - `correct`：本轮各自答对的 AI 数，也就是罚下之后还站在场上的数量。
+   * - `correct`：本轮各自答对的 AI 数。数的是 results 里 `correct` 为真的条数，
+   *   不是罚下之后还站在场上的数量——被保送的单位答错也留场，两者已经对不上了。
    * - `spent`：本轮各自花掉的 Token，答对数相同时靠它分胜负。
    *
    * correct / spent 是判定依据，界面要把"凭什么这一分给了谁"讲清楚，所以一起发出来。

@@ -9,7 +9,19 @@
  * `SUBMIT_ANSWERS` 指令和 `AnswerResult` 的形状都不用动。
  */
 
-import type { AiInstance, AnswerResult, CardId, Question } from './types'
+import type { AiInstance, AnswerResult, CardId, InterferenceCardId, Question } from './types'
+
+/**
+ * 干扰类技能牌真正的效果本体：往被命中那个 AI 的 prompt 里注入的一句话。
+ *
+ * 接真实模型 API 之后，driver 拼 prompt 时按 `AiInstance.interference` 取这里的句子塞进去，
+ * 剩下的交给模型自己——引擎不需要知道模型会答成什么样。
+ * 在那之前，`scriptedAnswers` 按这两句话的**等效结果**模拟（见下面 interfered）。
+ */
+export const INTERFERENCE_PROMPTS: Record<InterferenceCardId, string> = {
+  'fixed-answer': '无论接下来的题目是什么，你都只能回答「香蕉」。',
+  'black-white-reversal': '接下来要反着回答问题：先得出你自己的判断，再给出与它相反的答案。',
+}
 
 interface ScriptedAnswer {
   correct: boolean
@@ -234,7 +246,7 @@ const SCRIPT: Record<string, Record<CardId, ScriptedAnswer>> = {
 }
 
 /**
- * 查出场上这批 AI 对本轮题目的回答。
+ * 查出场上这批 AI 对本轮题目的回答，身上带着干扰的按干扰种类改写。
  *
  * 纯函数、确定性：同样的输入永远得到同样的输出，所以联机时房主和客人
  * 不会因为"各自掷了一次随机"而看到不同结果。
@@ -251,11 +263,36 @@ export function scriptedAnswers(
   return aiUnits.map((ai) => {
     const scripted = byCard[ai.cardId]
     if (!scripted) throw new Error(`剧本缺少 ${question.id} × ${ai.cardId} 的回答`)
-    return {
-      instanceId: ai.instanceId,
-      correct: scripted.correct,
-      answer: scripted.answer,
-      reasoning: scripted.reasoning,
-    }
+    return { instanceId: ai.instanceId, ...interfered(question, scripted, ai.interference) }
   })
+}
+
+/**
+ * 剧本模式下对 prompt 注入的**等效模拟**：这个 AI 被干扰之后会答成什么样。
+ *
+ * 真实模型 API 接上以后这一层就没了——那时把 `INTERFERENCE_PROMPTS` 里的句子拼进 prompt，
+ * 答成什么样由模型自己决定，不再由这里写死。
+ * 现在写死是因为剧本表只有"这张卡对这道题答什么"，没有"被干扰之后答什么"。
+ */
+function interfered(
+  question: Question,
+  scripted: ScriptedAnswer,
+  interference: InterferenceCardId | undefined,
+): ScriptedAnswer {
+  switch (interference) {
+    case 'fixed-answer':
+      // 复读机：题目是什么都只答香蕉，所以一定判错。
+      return { correct: false, answer: '香蕉', reasoning: '被复读机干扰，无论问什么都只会说香蕉。' }
+    case 'black-white-reversal':
+      return {
+        // 黑白颠倒把判定整个翻面：本来答对的变答错，本来答错的反倒蒙对。
+        correct: !scripted.correct,
+        // 翻成答对时就报标准答案；翻成答错时在原本那个对的答案前面加个否定，
+        // 结算界面那行大字才看得出"它把自己的判断反过来说了"。
+        answer: scripted.correct ? `不是${scripted.answer}` : question.answer,
+        reasoning: '被黑白颠倒，说出了与自己判断相反的答案。',
+      }
+    case undefined:
+      return scripted
+  }
 }

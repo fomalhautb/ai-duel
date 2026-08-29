@@ -213,6 +213,16 @@ export interface HandFanProps {
    */
   tokens?: number | null
   /**
+   * 这张牌现在**实际**要扣多少 Token，只影响上面那条"打不起"的判断。
+   *
+   * 卡面印的 `tokenCost` 是原价，而局面里可能有减费（「核电站」本轮全场便宜 1 点、可叠加），
+   * 两者能差好几点。变灰的判据必须和引擎扣费用同一个口径，否则玩家会看到
+   * "明明还剩 3 点、卡面写 4 点的牌却是灰的"，而那张牌其实打得出去。
+   *
+   * 不传就按卡面原价判：对局之外的地方（图鉴、演示页）没有局面可问。
+   */
+  playCostOf?: (card: HandCardData) => number
+  /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
    * 这张牌**留在扇形里**，只是抬高一点、单独亮着，同一时刻整排其余的牌一起压暗
@@ -509,6 +519,7 @@ export function HandFan({
   onPlay,
   disabled = false,
   tokens = null,
+  playCostOf,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -535,9 +546,15 @@ export function HandFan({
     const ids = new Set<string>()
     if (tokens === null) return ids
     for (const card of cards) {
-      if (card.tokenCost !== undefined && card.tokenCost > tokens) ids.add(card.id)
+      if (card.tokenCost === undefined) continue
+      // 没给 playCostOf 就按卡面印的原价判（图鉴、演示页这类没有减费概念的地方）。
+      const cost = playCostOf === undefined ? card.tokenCost : playCostOf(card)
+      if (cost > tokens) ids.add(card.id)
     }
     return ids
+    // 刻意不把 playCostOf 列进依赖：它每次渲染都是个新函数，列了等于每次都重算一遍。
+    // 它读的那份局面（剩余额度、核电站的减免）一变，tokens 必然跟着变
+    // ——减免和金钟罩都是打出一张牌才会变的，而打牌就要扣 Token，靠 tokens 当变化沿够用。
   }, [cards, tokens])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())

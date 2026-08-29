@@ -240,7 +240,7 @@ html {
    * 平均色 rgb(221 201 180)（≈#ddc9b4，暖棕），而不是全局纸张 token --paper（#f0ecdf，偏冷的米白）——
    * 那个白跟这张图接在一起会在图片四周留下一道明显的硬接缝。
    * 写进来的值比 #ddc9b4 再亮约 2%，是给上面叠的 .grain 留的补偿：斑驳层平均把底色压暗约 2%
-   * （原因见 paper.css 里 --tex-mottle 的注释），提亮之后叠完纹理的平均亮度正好落回图片边缘色。
+   * （原因见 paper.css 里纸纹变量那段注释），提亮之后叠完纹理的平均亮度正好落回图片边缘色。
    * 图片那边还另做了一层边缘羽化（见 .home__layer），接缝因此是软的；但羽化只抹得平图片四角
    * 那点亮度不均，底色本身仍要贴着图片边缘色——差得多了，羽化的那段渐变自己就成了一圈看得见的色带。
    */
@@ -2084,7 +2084,7 @@ body:has(.battle) {
   height: 100%;
 }
 
-.ornate-frame__line,
+.ornate-frame__edge,
 .ornate-frame__corner {
   position: absolute;
   z-index: 2;
@@ -2093,18 +2093,86 @@ body:has(.battle) {
   pointer-events: none;
 }
 
-.ornate-frame__line {
-  border: 1px solid var(--battle-line, #aaa391);
+/*
+ * 双线的每一条边。四条拼一圈，不再是一个和面板等大的空盒子——理由（滤镜按包围盒算）
+ * 写在 ui/OrnateFrame.tsx 的 FrameLine 上。
+ *
+ * --of-band 是这条边的**盒子**厚度，不是线的粗细：线只有 1px，画在盒子贴着面板那一侧的
+ * 边框上。盒子留到 8px 是给滤镜的位移让地方——滤镜区域是包围盒的 140%，也就是这一侧
+ * 还能往外溢出 1.6px，正好装得下这套滤镜 ±1.5px 的位移。收到 1px 的话线会被裁秃，
+ * 手绘的抖直接没了（同 HandDrawnFilterDefs 里说的"细线装不下位移"）。
+ *
+ * border 先整体写成 0 宽，再由各边打开自己那一侧：这样四条边共用同一个颜色声明。
+ */
+.ornate-frame__edge {
+  --of-band: 8px;
+
+  border: 0 solid var(--battle-line, #aaa391);
 }
 
-.ornate-frame__line--outer {
-  inset: 6px;
+.ornate-frame__edge--top {
+  top: var(--of-inset);
+  right: var(--of-inset);
+  left: var(--of-inset);
+  height: var(--of-band);
+  border-top-width: 1px;
+}
+
+.ornate-frame__edge--bottom {
+  right: var(--of-inset);
+  bottom: var(--of-inset);
+  left: var(--of-inset);
+  height: var(--of-band);
+  border-bottom-width: 1px;
+}
+
+.ornate-frame__edge--left {
+  top: var(--of-inset);
+  bottom: var(--of-inset);
+  left: var(--of-inset);
+  width: var(--of-band);
+  border-left-width: 1px;
+}
+
+.ornate-frame__edge--right {
+  top: var(--of-inset);
+  right: var(--of-inset);
+  bottom: var(--of-inset);
+  width: var(--of-band);
+  border-right-width: 1px;
+}
+
+.ornate-frame__edge--outer {
+  --of-inset: 6px;
+
   border-color: var(--battle-line-dark, #777465);
 }
 
-.ornate-frame__line--inner {
-  inset: 11px;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 30%);
+.ornate-frame__edge--inner {
+  --of-inset: 11px;
+}
+
+/*
+ * 内线贴着自己往里 1px 的那道白色高光。
+ *
+ * 原来是一条 `inset 0 0 0 1px` 的四面环形内阴影，拆成四条边之后每条边只该留自己那一侧，
+ * 所以改成带偏移、零模糊零扩散的内阴影：把内边距框往里挪 1px，露出来的就是紧贴线的那 1px。
+ * 环形那条在这里不能用——它会沿着 8px 的盒子画一圈，另外三面都是多出来的白线。
+ */
+.ornate-frame__edge--inner.ornate-frame__edge--top {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+.ornate-frame__edge--inner.ornate-frame__edge--bottom {
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 30%);
+}
+
+.ornate-frame__edge--inner.ornate-frame__edge--left {
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 30%);
+}
+
+.ornate-frame__edge--inner.ornate-frame__edge--right {
+  box-shadow: inset -1px 0 0 rgb(255 255 255 / 30%);
 }
 
 .ornate-frame__corner {
@@ -3991,8 +4059,8 @@ body:has(.battle) {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* 压暗已经到 78%，那 2px 的模糊几乎看不出来，却要合成器把整屏背景过一遍，直接不要。 */
   background: rgb(8 12 20 / 78%);
-  backdrop-filter: blur(2px) saturate(72%);
 }
 
 /*
@@ -4627,8 +4695,18 @@ body:has(.battle) {
   position: fixed;
   inset: 0;
   z-index: 1100;
-  background: rgb(0 0 0 / 50%);
-  backdrop-filter: blur(7px);
+  /*
+   * 只压暗、不模糊。原来这里是 backdrop-filter: blur(7px)，现在整档去掉（原先只在触屏上关）。
+   *
+   * 为什么：backdrop-filter 要求合成器把整块背景抠出来、降采样、模糊、再贴回去，
+   * 是最贵的合成操作之一；而这一层偏偏是**淡入淡出**的（GSAP 的 autoAlpha），
+   * 每一帧透明度都在变，等于整屏模糊要按帧重算。每出一张牌都要过一遍这层，一局里几十次。
+   *
+   * 压暗从 50% 补到 66% 作为补偿：模糊原本承担了一半的"把背景推远"，
+   * 只剩半透明黑的话，战场的线条会透过来和前景抢注意力。
+   * 数值是照着"背景还认得出是战场、但不再吸引视线"定的。
+   */
+  background: rgb(0 0 0 / 66%);
   opacity: 0;
   visibility: hidden;
 }
@@ -4817,8 +4895,9 @@ body:has(.battle) {
   gap: 26px;
   align-items: center;
   justify-content: center;
-  background: rgb(0 0 0 / 52%);
-  backdrop-filter: blur(7px);
+  /* 同 .reveal-overlay：只压暗不模糊，52% 补到 68%。.settle 不吃这个背景
+     （它自己铺一整张不透明的羊皮纸，见下面那条规则），写在这里只是省一条选择器。 */
+  background: rgb(0 0 0 / 68%);
   opacity: 0;
   /* 和 opacity: 0 配成 GSAP 的 autoAlpha 初值。visibility 这一半是必须的：
      万一时间线没跑起来（拿不到 ref 之类），只有 opacity: 0 的话这层看不见却照样挡着点击。 */
@@ -4958,8 +5037,6 @@ body:has(.battle) {
   background-blend-mode: multiply;
   /* 纸的外缘：一圈深色细边，让整张纸有个收口，不至于和舞台底色糊在一起。 */
   box-shadow: inset 0 0 0 1px var(--battle-line-dark);
-  /* 纸是不透明的，底下的模糊纯属白烧一层合成，关掉。 */
-  backdrop-filter: none;
 }
 
 /* ---------- 回合结算层：顶栏 ---------- */
@@ -7231,32 +7308,9 @@ body:has(.battle) {
   }
 
   /*
-   * 全屏背景模糊整批关掉，只留压暗。
-   *
-   * 为什么关：backdrop-filter 要求合成器把整块背景抠出来、降采样、模糊、再贴回去，
-   * 是移动端最贵的合成操作之一。而这几层偏偏都是**淡入淡出**的（GSAP 的 autoAlpha），
-   * 每一帧透明度都在变，等于整屏模糊要按帧重算。亮相层（.reveal-overlay）尤其要命：
-   * 每出一张牌都要过一遍，一局里几十次。
-   *
-   * 压暗补深一档作为补偿：模糊原本承担了一半的"把背景推远"，只剩半透明黑的话，
-   * 战场的线条会透过来和前景抢注意力。数值是照着"背景还认得出是战场、但不再吸引视线"定的。
-   *
-   * .settle 不在这里：它自己的背景是一整张不透明的羊皮纸，
-   * 早就写了 backdrop-filter: none（见那条规则），本来就没有模糊可关。
-   * .battle__result 那档只有 blur(2px)、压暗又已经到 78%，直接关掉不用补偿。
+   * 全屏背景模糊原来在这一档整批关掉，现在已经提到各自的基础规则里、桌面端一起关了
+   *（见 .reveal-overlay / .coin-toss / .battle__result 那几条，压暗补偿也写在那儿）。
+   * 这里之所以还留一句话：那几条规则里"为什么不用 backdrop-filter"的原委是从这一档搬过去的，
+   * 将来要给桌面端把模糊加回来，别只改基础规则、忘了触屏这一档同样吃不消。
    */
-  .reveal-overlay {
-    background: rgb(0 0 0 / 66%);
-    backdrop-filter: none;
-  }
-
-  .coin-toss,
-  .skill-cancel {
-    background: rgb(0 0 0 / 68%);
-    backdrop-filter: none;
-  }
-
-  .battle__result {
-    backdrop-filter: none;
-  }
 }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
    纸纹调参面板（开发工具，不要出现在正式对局界面里）
    ------------------------------------------------------------
    从原来那个静态设计参考页底部的 script 移植过来（页面现在是 /design）。
-   拖滑条会按当前值重新生成两张噪声 data URI 写回 :root，
+   拖滑条会按当前值重新生成噪声 data URI 写回 :root（两层纹理各有黑白两份，共四张），
    全站（页面背景、卡面、卡背）一起变；不透明度和暗角浓度是独立的
    CSS 变量，拖它们不重算噪声。
    ============================================================ */
@@ -28,7 +28,7 @@ type MottleParams = Pick<TunerState, 'mBf' | 'mOct' | 'mSurf' | 'mElev' | 'mSeed
 type FiberParams = Pick<TunerState, 'fBf' | 'fOct' | 'fSeed'>
 
 /**
- * 初始值必须和 paper.css 里烘死的那两个 data URI 完全一致。
+ * 初始值必须和 paper.css 里烘死的那四个 data URI 完全一致。
  * 面板一挂载就整个重算一遍写回 :root，所以对不上的话打开页面
  * 纹理会「跳」一下——等于每次开面板都自检一次。
  */
@@ -59,8 +59,10 @@ const FIBER_TILE = 240
     这几个变量首页背景也在用，不清的话从调参页离开后主页纸纹
     会一直带着调过的参数。 */
 const TUNED_VARS = [
-  '--tex-mottle',
-  '--tex-fiber',
+  '--tex-mottle-ink',
+  '--tex-mottle-glow',
+  '--tex-fiber-ink',
+  '--tex-fiber-glow',
   '--mottle-alpha',
   '--fiber-alpha',
   '--vignette-alpha',
@@ -76,7 +78,22 @@ function toUrl(svg: string) {
   return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")'
 }
 
-function buildMottle(s: MottleParams) {
+/**
+ * 每层纹理各要烘两份：浅色面叠黑、深色面叠白，alpha 曲线是同一条。
+ * 为什么是「纯色 + alpha」而不是 multiply / screen，见 paper.css 里纸纹变量那段的恒等式。
+ */
+type Tone = 'ink' | 'glow'
+
+/**
+ * 收尾的那条 feColorMatrix：把 RGB 定成黑（全 0）或白（offset 全 1），
+ * alpha 写成 1 − R。此刻 R 已经是灰度的纸面亮度，所以 1 − R 正是「这一点该压掉多少」。
+ */
+function toneMatrix(tone: Tone) {
+  const rgb = tone === 'ink' ? '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0' : '0 0 0 0 1 0 0 0 0 1 0 0 0 0 1'
+  return "<feColorMatrix type='matrix' values='" + rgb + " -1 0 0 0 1'/>"
+}
+
+function buildMottle(s: MottleParams, tone: Tone) {
   const n = MOTTLE_TILE
   return toUrl(
     "<svg xmlns='http://www.w3.org/2000/svg' width='" + n + "' height='" + n + "'>" +
@@ -99,11 +116,13 @@ function buildMottle(s: MottleParams) {
       s.mElev +
       "'/>" +
       '</feDiffuseLighting>' +
+      /* 只调 R：打光用的是白光，出来三通道相等，而下面 toneMatrix 也只读 R。
+         斜率 / 截距是原来那套按通道分开的值（0.47/0.52/0.60）取的平均，
+         亮度曲线不变，代价是暗部少了点暖色调——原委见 paper.css 里纸纹变量那段。 */
       '<feComponentTransfer>' +
-      "<feFuncR type='linear' slope='0.47' intercept='0.591'/>" +
-      "<feFuncG type='linear' slope='0.52' intercept='0.548'/>" +
-      "<feFuncB type='linear' slope='0.60' intercept='0.478'/>" +
+      "<feFuncR type='linear' slope='0.53' intercept='0.539'/>" +
       '</feComponentTransfer>' +
+      toneMatrix(tone) +
       '</filter>' +
       "<rect width='" +
       n +
@@ -114,7 +133,7 @@ function buildMottle(s: MottleParams) {
   )
 }
 
-function buildFiber(s: FiberParams) {
+function buildFiber(s: FiberParams, tone: Tone) {
   const n = FIBER_TILE
   return toUrl(
     "<svg xmlns='http://www.w3.org/2000/svg' width='" + n + "' height='" + n + "'>" +
@@ -131,11 +150,11 @@ function buildFiber(s: FiberParams) {
       s.fSeed +
       "' stitchTiles='stitch'/>" +
       "<feColorMatrix type='matrix' values='0.34 0.33 0.33 0 0 0.34 0.33 0.33 0 0 0.34 0.33 0.33 0 0 0 0 0 0 1'/>" +
+      /* 上一步已经把三通道压成同一个灰度值，所以这里同样只调 R（下面 toneMatrix 只读 R）。 */
       '<feComponentTransfer>' +
       "<feFuncR type='linear' slope='0.34' intercept='0.83'/>" +
-      "<feFuncG type='linear' slope='0.34' intercept='0.83'/>" +
-      "<feFuncB type='linear' slope='0.34' intercept='0.83'/>" +
       '</feComponentTransfer>' +
+      toneMatrix(tone) +
       '</filter>' +
       "<rect width='" +
       n +
@@ -174,7 +193,7 @@ type TunerRow =
   | { type: 'seed'; key: TunerKey; label: string }
 
 const ROWS: TunerRow[] = [
-  { type: 'group', text: '大尺度斑驳 · --tex-mottle' },
+  { type: 'group', text: '大尺度斑驳 · --tex-mottle-*' },
   { type: 'range', key: 'mBf', label: 'baseFrequency', min: 0.002, max: 0.05, step: 0.0001, dec: 4 },
   { type: 'range', key: 'mOct', label: 'numOctaves', min: 1, max: 6, step: 1, dec: 0 },
   { type: 'range', key: 'mSurf', label: 'surfaceScale', min: 1, max: 30, step: 0.5, dec: 1 },
@@ -182,7 +201,7 @@ const ROWS: TunerRow[] = [
   { type: 'range', key: 'mAlpha', label: '图层不透明度', min: 0, max: 1, step: 0.01, dec: 2 },
   { type: 'seed', key: 'mSeed', label: 'seed' },
 
-  { type: 'group', text: '细颗粒 · --tex-fiber' },
+  { type: 'group', text: '细颗粒 · --tex-fiber-*' },
   { type: 'range', key: 'fBf', label: 'baseFrequency', min: 0.3, max: 1.2, step: 0.01, dec: 2 },
   { type: 'range', key: 'fOct', label: 'numOctaves', min: 1, max: 4, step: 1, dec: 0 },
   { type: 'range', key: 'fAlpha', label: '图层不透明度', min: 0, max: 1, step: 0.01, dec: 2 },
@@ -235,11 +254,17 @@ function exportCss(s: TunerState) {
     summaryText(s).replace(/\n/g, '\n   ') +
     ' */\n' +
     ':root {\n' +
-    '  --tex-mottle: ' +
-    buildMottle(s) +
+    '  --tex-mottle-ink: ' +
+    buildMottle(s, 'ink') +
     ';\n\n' +
-    '  --tex-fiber: ' +
-    buildFiber(s) +
+    '  --tex-mottle-glow: ' +
+    buildMottle(s, 'glow') +
+    ';\n\n' +
+    '  --tex-fiber-ink: ' +
+    buildFiber(s, 'ink') +
+    ';\n\n' +
+    '  --tex-fiber-glow: ' +
+    buildFiber(s, 'glow') +
     ';\n\n' +
     '  --mottle-alpha: ' +
     s.mAlpha +
@@ -293,12 +318,16 @@ export function PaperTuner({ className = '' }: PaperTunerProps) {
   const { mBf, mOct, mSurf, mElev, mSeed, mAlpha, fBf, fOct, fSeed, fAlpha, vig } = state
 
   /* 两张图各自缓存：拖细颗粒的滑条时不会连带重算 900px 那张斑驳图
-     （feTurbulence + feDiffuseLighting 解码一次要几十毫秒）。 */
-  const mottleUrl = useMemo(
-    () => buildMottle({ mBf, mOct, mSurf, mElev, mSeed }),
-    [mBf, mOct, mSurf, mElev, mSeed],
-  )
-  const fiberUrl = useMemo(() => buildFiber({ fBf, fOct, fSeed }), [fBf, fOct, fSeed])
+     （feTurbulence + feDiffuseLighting 解码一次要几十毫秒）。
+     每层的黑白两份是同一条噪声链、只有收尾那条矩阵不同，所以一起算、一起缓存。 */
+  const mottleUrls = useMemo(() => {
+    const params = { mBf, mOct, mSurf, mElev, mSeed }
+    return { ink: buildMottle(params, 'ink'), glow: buildMottle(params, 'glow') }
+  }, [mBf, mOct, mSurf, mElev, mSeed])
+  const fiberUrls = useMemo(() => {
+    const params = { fBf, fOct, fSeed }
+    return { ink: buildFiber(params, 'ink'), glow: buildFiber(params, 'glow') }
+  }, [fBf, fOct, fSeed])
 
   /* ----------------------------------------------------------
      写回 :root：rAF 合并
@@ -310,8 +339,10 @@ export function PaperTuner({ className = '' }: PaperTunerProps) {
 
   useEffect(() => {
     pendingRef.current = {
-      '--tex-mottle': mottleUrl,
-      '--tex-fiber': fiberUrl,
+      '--tex-mottle-ink': mottleUrls.ink,
+      '--tex-mottle-glow': mottleUrls.glow,
+      '--tex-fiber-ink': fiberUrls.ink,
+      '--tex-fiber-glow': fiberUrls.glow,
       /* 这三个是纯变量改动，零成本，每次都写一遍省得再做脏标记 */
       '--mottle-alpha': String(mAlpha),
       '--fiber-alpha': String(fAlpha),
@@ -327,7 +358,7 @@ export function PaperTuner({ className = '' }: PaperTunerProps) {
         document.documentElement.style.setProperty(name, value)
       }
     })
-  }, [mottleUrl, fiberUrl, mAlpha, fAlpha, vig])
+  }, [mottleUrls, fiberUrls, mAlpha, fAlpha, vig])
 
   /* 卸载时把内联变量摘掉，让 :root 退回 paper.css 里烘死的那一套。
      不摘的话调过参数再离开这个页面，全站纸纹会一直保持调完的样子。 */

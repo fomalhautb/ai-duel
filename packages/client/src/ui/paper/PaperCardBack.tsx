@@ -8,7 +8,7 @@ export type PaperCardBackProps = {
  * 卡背 / 空卡槽。两者是同一套 DOM，只靠 slot 切换：
  * 背景换成近乎透明的墨蓝、边框改虚线、罗盘不透明度从 0.62 降到 0.28。
  *
- * 实体卡背叠 .grain.on-dark（深色面上纸纹要先 invert 再 screen，否则墨蓝上
+ * 实体卡背叠 .grain.on-dark（深色面上纸纹要换成提亮的那一份，否则墨蓝上
  * 会出现一块块黑斑）；空槽不叠——它本来就该淡到看不见，再加纹理只会变脏。
  *
  * 罗盘用 #ai-duel-rough-compass 而不是图标那几个滤镜：同心圆的线又长又细，

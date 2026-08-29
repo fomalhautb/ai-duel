@@ -105,7 +105,7 @@ describe('牌组存档', () => {
     })
 
     // 预设直接取 core 的示例牌组，它本来就是一副能开局的牌，这里守着"没在存档层被改坏"。
-    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 2 份', () => {
+    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 MAX_COPIES 份', () => {
       const deck = loadDecks().decks[0]
       expect(deck?.cards).toEqual([...STARTER_DECK])
       expect(deck?.cards).toHaveLength(DECK_SIZE)
@@ -336,10 +336,10 @@ describe('牌组存档', () => {
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 
-    it('同一张卡最多留 2 份', () => {
+    it('同一张卡最多留 3 份', () => {
       seedEmptyDeck()
-      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_B])
-      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_B])
+      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_A, CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A, CARD_B])
     })
 
     it('超过 20 张的部分被截掉', () => {
@@ -350,10 +350,10 @@ describe('牌组存档', () => {
 
     it('读存档时同样会过滤：存档里被改坏的卡表读出来是干净的', () => {
       writeRaw({
-        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, '野卡'] }],
+        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, CARD_A, '野卡'] }],
         currentId: 'a',
       })
-      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A])
+      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A])
     })
 
     it('cards 不是数组时读成空牌组', () => {

@@ -41,7 +41,7 @@ export function MuteButton({ className = '', variant = 'seal' }: MuteButtonProps
       title={label}
       onClick={toggleMuted}
     >
-      <SpeakerMark muted={muted} />
+      <SpeakerMark muted={muted} variant={variant} />
     </button>
   )
 }
@@ -51,12 +51,19 @@ export function MuteButton({ className = '', variant = 'seal' }: MuteButtonProps
  *
  * 外圈和喇叭都带 class，是因为 plain 那副长相靠 CSS 改它们：外圈不画，喇叭填实
  *（喇叭本来就是一条闭合路径，填色即可，不用另画一套图形）。
+ *
+ * plain 换一个更紧的 viewBox：这幅图是照着"喇叭要塞进 r=9.4 的圆里"画的，
+ * 喇叭本身只占满格 24 的四成。seal 有圆底兜着看不出来，plain 把圆底去掉之后，
+ * 同样大的按钮上它就明显比旁边的「离开」小一圈（那个图形占到七成）。
+ * 这里把取景框收到 14×14（正好框住喇叭再留一点边），喇叭就和「离开」一样大了。
+ * 不用 CSS 放大整个 svg：手绘抖动滤镜的位移量是按元素的像素尺寸算的，
+ * 元素被放大或缩放后那圈毛边会跟着变形。
  */
-function SpeakerMark({ muted }: { muted: boolean }) {
+function SpeakerMark({ muted, variant }: { muted: boolean; variant: 'seal' | 'plain' }) {
   return (
     <svg
       className="mute-toggle__mark"
-      viewBox="0 0 24 24"
+      viewBox={variant === 'plain' ? '5.55 5 14 14' : '0 0 24 24'}
       aria-hidden="true"
       focusable="false"
     >

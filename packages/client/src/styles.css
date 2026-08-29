@@ -603,7 +603,8 @@ html {
  * 2.4cqi 在设计稿的 1672 宽上正好是 40px。
  */
 .home__mute {
-  --mute-size: 2.4cqi;
+  /* 原来是 2.4cqi（设计稿上 40px），整档放大到 150%：这颗按着偏小。 */
+  --mute-size: 3.6cqi;
   position: absolute;
   top: 4%;
   right: 2.6cqi;
@@ -1840,6 +1841,12 @@ body:has(.battle) {
      靠它让开侧栏、正对着战场居中，三处必须是同一个数。
      触屏上另有一档更窄的（见文件末尾"移动端版式档"）。 */
   --battle-side-w: 306px;
+  /* 顶栏右端那簇控件（.battle-actions：静音 + 离开）连右边距一共占掉的宽度：
+     26px 右边距 + 两颗 51px 图标 + 中间 14px 间隙。
+     写成变量是因为回合结算层要用它让位——那一层的轮次和比分在同一个角上，
+     而 .battle-actions 层级比它高，不让开就会被压住（见 .settle__meta）。
+     教程页那一格里换成了「跳过教程」匾额，宽度另算（见 tutorial/tutorial.css）。 */
+  --battle-actions-w: 142px;
   /* 顶栏那一行右端的控件（.battle-actions）按这一层定位。
      它和 .battle-scaler 是同一个盒子（宽高都铺满），所以这条不会挪动别的绝对定位元素。 */
   position: relative;
@@ -2003,8 +2010,13 @@ body:has(.battle) {
 /* 顶栏这张纸上的图标统一按墨色画，比正文淡一档：它们是随时能用、但不该抢眼的控件。 */
 .battle-topbar__icon,
 .leave-match {
-  width: 34px;
-  height: 34px;
+  /* 原来是 34px，整档放大到 150%：桌面上这两颗跟着舞台缩放之后偏小，按着费劲。
+     顺带把 --mute-size 也设上——静音钮的尺寸只认这个变量，
+     .mute-toggle 那条规则写在本文件后面，会盖掉这里的 width / height。 */
+  --mute-size: 51px;
+
+  width: 51px;
+  height: 51px;
   color: var(--battle-ink);
 }
 
@@ -5062,6 +5074,18 @@ body:has(.battle) {
   gap: 16px;
   align-items: center;
   justify-content: flex-end;
+  /*
+   * 让开顶栏右端那簇控件（静音 + 离开）。它们不属于本层，而是画在对局顶栏上、
+   * 层级比本层高，答题这一屏立起来之后正好压在轮次和比分上。
+   * 让位量 = 那一簇占的宽度 - 本层顶栏自己的 28px 内边距 + 16px 空隙。
+   */
+  padding-right: calc(var(--battle-actions-w) - 12px);
+  /*
+   * 本层顶栏 84px 高，比对局顶栏（--battle-topbar-h）高一截，同样"垂直居中"落下来
+   * 会比右边那两颗图标低一截。补一段下外边距把这块顶回去：
+   * grid 居中会把外边距算进去，中线正好回到 --battle-topbar-h 的一半。
+   */
+  margin-bottom: calc(84px - var(--battle-topbar-h));
 }
 
 .settle__round-pill {
@@ -6886,7 +6910,9 @@ body:has(.battle) {
   /* 没有圆底要让边距，图标可以铺满整颗按钮。 */
   width: 100%;
   height: 100%;
-  stroke-width: 1.7;
+  /* 比 seal 细一点点：plain 的取景框收紧了（见 ui/MuteButton.tsx），
+     同一个描边宽度换算成屏幕像素会粗上一半，压回来才和旁边「离开」的实心块一样重。 */
+  stroke-width: 1.4;
 }
 
 .mute-toggle--plain {
@@ -7005,15 +7031,22 @@ body:has(.battle) {
    * 静音和离开这两颗图标整档放大三成。
    *
    * 它们现在画在各页的版式里，跟着舞台一起缩（缩放系数 0.36～0.41），
-   * 桌面上刚好的 34～40px 落到手机上只剩十几个屏幕像素，手指按不准。
+   * 桌面上刚好的 38～40px 落到手机上只剩十几个屏幕像素，手指按不准。
    * 放大三成之后大约是 17～20 个屏幕像素——仍然够不着 44px 的触摸目标下限，
    * 这是"把控件画进版式里"换来的代价（原来它固定在视口上，各档屏幕同样大小）。
    * 再往上加就要挤走顶栏的比分和页眉的副标题了。
    *
    * 只写这几处、不改 :root 的 --mute-size：各页都在自己那条规则里写死了尺寸
    *（有的按 cqi、有的按 px），改根变量对它们一点作用都没有。
+   *
+   * 对局顶栏那两颗不在这儿：它们的桌面档已经是 51px（比这一档还大），
+   * 再放大就顶破 56px 的移动端顶栏了，两档统一用 51px。
    */
-  .home__mute,
+  .home__mute {
+    /* 桌面档同样放大了 150%（2.4 → 3.6cqi），这一档跟着放。 */
+    --mute-size: 4.65cqi;
+  }
+
   .info__mute,
   .hero__mute,
   .room__mute {
@@ -7021,15 +7054,9 @@ body:has(.battle) {
   }
 
   .deck-mute,
-  .tutorial-page__mute,
-  .battle-topbar__icon {
+  .tutorial-page__mute {
     --mute-size: 44px;
 
-    width: 44px;
-    height: 44px;
-  }
-
-  .leave-match {
     width: 44px;
     height: 44px;
   }

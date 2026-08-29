@@ -113,6 +113,17 @@ const AVATAR_HOVER_SCALE = 2
  * 所以空位就空着。张数超过这个数时列数跟着涨，见渲染处 .settle__squads 上的注释。
  */
 const MIN_CARD_COLUMNS = 3
+/**
+ * 不用横向滚动就能排下的最多列数。
+ *
+ * 一块面板里能给卡的宽度约 1576px（舞台 1672 减两侧留白、面板内边距和边框），
+ * 每列至少 300px（见 .settle__cards 的 --settle-card-min-w）、列间 14px 缝，
+ * 五列正好是 5×300 + 4×14 = 1556 还塞得下，第六列就超了。
+ * 超过这个数的那一侧会开横向滚动，而不是继续把每张卡压窄——
+ * 再窄下去卡名那一栏只剩几个像素（右边还要给判定章留 120px），读不出是哪个模型。
+ * 改这个数要连着改那个最小列宽，两处对不上就会出现"没超宽却挂着滚动条"。
+ */
+const SETTLE_FIT_COLUMNS = 5
 /** 结果卡里那张迷你卡面在空间够时的高度（px）。和 .settle-card__avatar 的 135px 是同一个数。 */
 const SETTLE_AVATAR_H = 135
 /** 结果卡的上下内边距之和（px）。和 .settle-card 的 padding: 14px 是同一个数。 */
@@ -261,6 +272,10 @@ export function RoundSettleLayer({
   const theirs = results.filter((item) => !item.mine)
   /** 两侧结果卡共用的列数：至少三列，人多了就按人多的那一侧加列（见下面 .settle__squads 的注释）。 */
   const cols = Math.max(MIN_CARD_COLUMNS, mine.length, theirs.length)
+  /** 列数超过一屏能塞下的数目时改成横向滚动，两侧一起开（列数是共用的，一侧超宽另一侧也超）。 */
+  const scroll = cols > SETTLE_FIT_COLUMNS
+
+  useSettleScrollSync(squadsRef, scroll)
 
   // 阶段 A：入场。依赖 settle.key，而这个 key 同时也是 React key，所以整段只在挂载时跑一次。
   useGSAP(
@@ -461,7 +476,7 @@ export function RoundSettleLayer({
       tl.call(() => setStep(1), undefined, at)
       at += dur(ANSWER_REVEAL_DUR)
 
-      // ② 逐卡作答。DOM 里我方那块 squad 排在对方前面，所以按文档顺序取到的就是"我方在前"。
+      // ② 逐卡作答。按文档顺序取，也就是从上到下：对方那块 squad 排在前面，先演对方再演我方。
       const cards = all(root, '.settle-card')
       const answersStart = at
       let answersEnd = at
@@ -722,10 +737,18 @@ export function RoundSettleLayer({
         为什么不写死三列：这一层的高度是死的（舞台 941px），一侧的卡分到的那一格只有约 170px，
         刚好一张卡的高度。列数固定的话第四张就换到第二行，而第二行根本没地方放——
         实测 5v4 时两块面板互相压 96px，最后一行整个掉出舞台被裁掉。
-        所以张数多了就加列、不换行，宁可每张窄一点。
+        所以张数多了就加列、不换行。
+
+        但列不能一直加下去：超过 SETTLE_FIT_COLUMNS 列就改成横向滚动（scroll 传下去开
+        .settle__cards 的 overflow-x），每张卡保住最小宽度，看不完的往右拉。
 
         两侧取同一个列数（而不是各按各的张数算），是为了保住"两侧的卡永远一样宽"：
         列宽不一样的话，横着比"谁答对得多"就得先在心里换算一次。少的那侧空位就空着。
+        滚动时两侧的横向位置也是同步的（见 useSettleScrollSync），否则一拉就错位，
+        同样没法横着比。
+
+        上下是**对方在上、我方在下**：自己那块贴着底栏的结论和确认按钮，
+        视线从对面扫到自己、再落到"这一分算给了谁"，一路往下不用回头。
       */}
       <div
         className="settle__squads"
@@ -733,16 +756,18 @@ export function RoundSettleLayer({
         style={{ '--settle-cols': cols } as CSSProperties}
       >
         <SettleSquad
-          side="mine"
-          results={mine}
-          scored={score !== null}
-          lead={lead === null ? null : lead.mine}
-        />
-        <SettleSquad
           side="foe"
           results={theirs}
           scored={score !== null}
           lead={lead === null ? null : lead.theirs}
+          scroll={scroll}
+        />
+        <SettleSquad
+          side="mine"
+          results={mine}
+          scored={score !== null}
+          lead={lead === null ? null : lead.mine}
+          scroll={scroll}
         />
       </div>
 
@@ -813,6 +838,34 @@ function useSettleAvatarScale(ref: RefObject<HTMLDivElement | null>): void {
 }
 
 /**
+ * 开了横向滚动时，把两侧那一行卡的横向位置绑在一起。
+ *
+ * 两块面板的列数和列宽是共用的，所以同一列在上下两块里本来就对得齐；各滚各的会立刻错位，
+ * 而这一层的全部意义就是"横着比两边"。
+ *
+ * 不用加"正在同步"的标记：跟随时先比一眼再赋值，回声那一次值已经相同、不会再往下传。
+ */
+function useSettleScrollSync(ref: RefObject<HTMLDivElement | null>, enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return
+    const node = ref.current
+    if (node === null) return
+    const rows = Array.from(node.querySelectorAll<HTMLElement>('.settle__cards'))
+    if (rows.length < 2) return
+    const onScroll = (event: Event) => {
+      const from = event.currentTarget as HTMLElement
+      for (const row of rows) {
+        if (row !== from && row.scrollLeft !== from.scrollLeft) row.scrollLeft = from.scrollLeft
+      }
+    }
+    for (const row of rows) row.addEventListener('scroll', onScroll)
+    return () => {
+      for (const row of rows) row.removeEventListener('scroll', onScroll)
+    }
+  }, [ref, enabled])
+}
+
+/**
  * 一侧的结果面板：一条竖页签 + 标头 + 一行结果卡。
  *
  * scored 为 false（还没计分）时正确数和 lead 都不显示——
@@ -827,11 +880,14 @@ function SettleSquad({
   results,
   scored,
   lead,
+  scroll,
 }: {
   side: 'mine' | 'foe'
   results: SettleAiResult[]
   scored: boolean
   lead: string | null
+  /** 这一行卡是否开横向滚动。由外面按共用列数算，两侧永远一致。 */
+  scroll: boolean
 }) {
   const label = side === 'mine' ? '我方' : '对方'
   const correct = scored ? results.filter((item) => item.correct).length : null
@@ -854,7 +910,7 @@ function SettleSquad({
         )}
         {lead === null ? null : <span className="settle__lead-badge">{lead}</span>}
       </div>
-      <div className="settle__cards">
+      <div className="settle__cards" data-scroll={scroll ? 'true' : 'false'}>
         {results.map((result) => (
           <SettleCard key={result.instanceId} result={result} />
         ))}

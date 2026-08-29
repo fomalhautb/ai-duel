@@ -5237,7 +5237,9 @@ body:has(.battle) {
 /* ---------- 回合结算层：双方作答 ---------- */
 
 /*
- * 上我方、下对方，两块等高：谁答对得多要靠横向比对，两块不一样高就没法比。
+ * 上对方、下我方，两块等高：谁答对得多要靠横向比对，两块不一样高就没法比。
+ * 我方在下是贴着底栏走的——消耗、结论、确认按钮都在底栏，视线从对面扫到自己再落到结论，
+ * 一路往下不用回头。
  *
  * 底下留 10px：不留的话对方那块的下边框正好压在底栏那条分割线上（两者都在 y=845），
  * 一条线上叠着一条边，看着像边框漏到线外面去了。
@@ -5260,6 +5262,9 @@ body:has(.battle) {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
+  /* 网格项的自动最小尺寸是内容的 min-content，不写这行的话，卡多到超宽时整块面板会被
+     里面那行卡撑成两千多像素宽、连着把整层顶出舞台，而不是让那行卡自己滚。 */
+  min-width: 0;
   /* 左边多留 6px 给下面那条竖色条。 */
   padding: 12px 16px 14px 22px;
   border: 1px solid var(--battle-line);
@@ -5353,6 +5358,10 @@ body:has(.battle) {
  * 只有约 170px，正好一张卡，第二行会直接压到另一侧的面板上、最后一行掉出舞台被根上的
  * overflow: hidden 裁掉（5v4 实测两块面板互相压 96px）。宁可每张窄一点。
  *
+ * 列宽 minmax(--settle-card-min-w, 1fr)：平时几列平分，列多到超宽时每列停在最小宽度、
+ * 整行往右溢出，由 [data-scroll='true'] 那条规则开横向滚动（开关在 RoundSettleLayer 的
+ * SETTLE_FIT_COLUMNS，那边按这个最小宽度算出五列是上限）。
+ *
  * 行高是 minmax(0, 1fr)：永远只有一行（列数保证了这点），这一行就正好等于面板里剩下的高度。
  * **不能写成按内容撑的 auto**：一侧分到的高度会随题面长短、字号档位变，回答一长行就撑过面板，
  * 卡的下边框直接画到面板外面、压到底栏那条线上。现在改成卡去适应格子——放不下的字在卡里截断
@@ -5360,12 +5369,33 @@ body:has(.battle) {
  * 的 useSettleAvatarScale）。min-width: 0 那一半交给列上的 minmax(0, 1fr)：不写的话长回答会把列撑出面板。
  */
 .settle__cards {
+  --settle-card-min-w: 300px;
+
   display: grid;
   flex: 1;
   grid-auto-rows: minmax(0, 1fr);
-  grid-template-columns: repeat(var(--settle-cols, 3), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--settle-cols, 3), minmax(var(--settle-card-min-w), 1fr));
   gap: 14px;
+  /* 理由同 .settle__squad 的 min-width：弹性项也会拿 min-content 当最小宽度，
+     不归零的话这一行永远"正好装得下"，overflow-x 就没有可滚的东西。 */
+  min-width: 0;
   min-height: 0;
+}
+
+/*
+ * 卡太多、一行排不下时才开的横向滚动。
+ *
+ * 只在真的超宽时挂 overflow-x（由 RoundSettleLayer 按列数决定，见 SETTLE_FIT_COLUMNS）：
+ * 滚动容器会连着纵向一起裁，而头像 hover 时要放大到两倍、纵向溢出卡外近百像素，
+ * 常态就挂上的话那一下放大会被削掉一半。超宽这一档里放大被裁是认了的代价——
+ * 卡多到要拉着看的时候，先保证读得到每张卡。
+ *
+ * 滚动条压细一档：这一行本来只有约 170px 高，默认那条粗条会再吃掉一截卡的高度。
+ * 两侧的横向位置由 useSettleScrollSync 绑在一起。
+ */
+.settle__cards[data-scroll='true'] {
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 /* ---------- 回合结算层：一张结果卡 ---------- */

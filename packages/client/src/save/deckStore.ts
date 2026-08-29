@@ -193,6 +193,17 @@ export function loadDecks(): DecksData {
   return commit(seedPresets())
 }
 
+/**
+ * 清空牌组存档，重新播种三套预设。给演示和调试用（首页「重置存档」一起调它）。
+ *
+ * 单独写一个而不是让首页直接删 key：牌组和收藏是两份存档（两个 key），
+ * 首页那颗按钮要的是"回到新号状态"，少调这一个就会把上一局编好的牌组留下来。
+ * 不删 key 而是直接写回预设，是为了让 localStorage 写不进去的环境也能靠 cachedDecks 生效。
+ */
+export function resetDecks(): DecksData {
+  return commit(seedPresets())
+}
+
 /** 只给测试用：清掉内存缓存，让每个用例都从"这次会话还没读过存档"开始。 */
 export function resetDeckStoreCacheForTest(): void {
   cachedDecks = null

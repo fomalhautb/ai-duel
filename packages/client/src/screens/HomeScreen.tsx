@@ -60,6 +60,7 @@ import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
+import { resetDecks } from '../save/deckStore'
 import { hitTestAlphaMaps, loadCastAlphaMaps } from './castHitTest'
 import type { AlphaMap, NormalizedBox } from './castHitTest'
 
@@ -704,7 +705,15 @@ function HomeStage() {
           <button type="button" className="home__dev-link" onClick={() => navigate('/loader')}>
             加载动画
           </button>
-          <button type="button" className="home__dev-link" onClick={() => setSave(resetSave())}>
+          <button
+            type="button"
+            className="home__dev-link"
+            onClick={() => {
+              // 收藏和牌组是两份存档，两边都要清，不然重置完还留着上次编的牌组。
+              resetDecks()
+              setSave(resetSave())
+            }}
+          >
             重置存档
           </button>
         </div>

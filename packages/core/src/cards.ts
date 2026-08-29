@@ -3,8 +3,12 @@ import { AI_MODEL_CARDS, AI_MODEL_CARD_IDS } from './aiModels'
 import { SKILL_DESIGN_CARDS } from './skillCards'
 
 /**
- * 全部能进牌组的牌：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
+ * 全部卡牌定义：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
  * 加上 24 张技能牌（表在 skillCards.ts，同样一张卡对一张原画）。
+ *
+ * **这不等于卡池**：24 张技能牌里只开放了 9 张，其余 15 张是「即将上线」——卡面数据留在
+ * 这张表里，好让牌组页和图鉴照常画出它们，但它们不在 collection.ts 的 CARD_POOL 里，
+ * 选不进牌组也上不了牌桌。要"能进牌组的牌"请读 CARD_POOL，别读这张表。
  *
  * 技能牌里只有「复读机」有结算路径：打出时要选对方一个还没被干扰过的 AI，命中也只是把它
  * 标成"已干扰"，不改答题结果。其余 23 张的效果都还没接进引擎——打出即进弃牌堆，什么都不
@@ -37,20 +41,16 @@ export const DECK_SIZE = 20
 /**
  * 默认牌组：十八张 AI 各一张 + 两张技能牌各一张，正好凑满 DECK_SIZE 张。
  *
- * 技能牌挑的这两张各走一条出牌链路：「复读机」要选目标，「一句话回答」打出即完事，
- * 一副默认牌组就能把两条链路都摸到。剩下 22 张技能牌刻意不进默认牌组——它们和
- * 「一句话回答」是同一条链路，多带几张只是让默认牌组少几张 AI，摸不到新东西。
+ * 技能牌挑的这两张各走一条出牌链路：「复读机」要选目标，「防沉迷」打出即完事，
+ * 一副默认牌组就能把两条链路都摸到。开放的另外几张技能牌刻意不进默认牌组——它们和
+ * 「防沉迷」是同一条链路，多带几张只是让默认牌组少几张 AI，摸不到新东西。
  * 总数由 collection 的测试守着，想再加牌就得挤掉一张。
  *
  * 一局最多摸 5（起手）+ 8（第 2~5 轮各 2 张，见 engine.ts 的 ROUND_DRAW_SIZE）= 13 张，
  * 20 张管够，不会抽空。
  *
- * 只用 `INITIAL_COLLECTION` 里的卡，否则新玩家会拿到自己还没解锁的卡；
- * 这条约束由 collection 的测试守着（这里不 import collection.ts，
- * 因为它反过来依赖本文件，直接引会成环）。
+ * 只用 `INITIAL_COLLECTION` 里的卡（那也就是 CARD_POOL），否则新玩家会拿到自己还没解锁、
+ * 甚至还没开放的卡。这条约束由 collection 的测试守着——这里不 import collection.ts 现校验，
+ * 是因为那是运行期做不了的事：牌组是常量，写错了应该在测试里当场红，而不是等玩家开局。
  */
-export const STARTER_DECK: CardId[] = [
-  ...AI_MODEL_CARD_IDS,
-  'fixed-answer',
-  'one-sentence-answer',
-]
+export const STARTER_DECK: CardId[] = [...AI_MODEL_CARD_IDS, 'fixed-answer', 'anti-addiction']

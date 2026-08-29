@@ -895,7 +895,7 @@ body,
 /* ---------- 出不了牌时的手牌（灰墨态） ---------- */
 
 /*
- * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题）。
+ * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题、正在发牌）。
  * 值就是那个原因，现在只当开关用，样式不分档。
  *
  * 这一整套刻意只走 CSS，而且只挑 GSAP 碰不到的属性：
@@ -1402,14 +1402,10 @@ body:has(.battle) {
  * 自动改成钉在舞台上，留边区域不会再被它们盖住。JS 那边把光标坐标换算回舞台内坐标的
  * 口径统一在 ui/battleStage.ts。
  *
- * --battle-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
- * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
- * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
- *
- * 但这份值只是兜底：WebKit 的 atan2 处理"cqi 和 px 混着来"有 bug，Safari 上整条表达式
- * 算不出值、缩放塌掉、整块画面看不见。所以运行时由 ui/useStageScale.ts 量一次舞台宽、
- * 把同一个比值以内联样式写到缩放层上盖掉这里（无条件覆盖，不做浏览器判断）。
- * 改这里的算法时记得连那个 hook 一起改。
+ * --battle-scale（= 舞台宽 ÷ 设计宽 1672）由 ui/useStageScale.ts 在运行时量出来写进行内样式，
+ * 不用纯 CSS 算：scale() 只吃无单位数字，而 calc 不允许长度除以长度，绕开的写法
+ * tan(atan2(100cqi, 1672px)) 在 WebKit 上有 bug（两个参数单位不一致时第二个被忽略），
+ * Safari 下算出垃圾值、整块画面被缩没。理由细节见那个文件。
  */
 .battle-frame {
   display: grid;
@@ -1422,7 +1418,6 @@ body:has(.battle) {
 }
 
 .battle-stage {
-  container-type: inline-size;
   position: relative;
   width: min(100vw, 100vh * 1672 / 941);
   aspect-ratio: 1672 / 941;
@@ -1430,7 +1425,8 @@ body:has(.battle) {
 }
 
 .battle-scaler {
-  --battle-scale: tan(atan2(100cqi, 1672px));
+  /* 兜底：JS 没跑起来时画面至少看得见，只是没缩放。真值由 useStageScale 写进行内样式。 */
+  --battle-scale: 1;
   position: absolute;
   top: 0;
   left: 0;
@@ -1680,6 +1676,62 @@ body:has(.battle) {
   right: 6px;
   bottom: 6px;
   transform: scale(-1);
+}
+
+/* ---------- 可复用返回按钮 ---------- */
+
+/*
+ * ui/BackButton.tsx 的排版底子。定位、字号和颜色都不写在这儿，由使用方的类名给。
+ *
+ * 全部包了一层 :where()，这样这些规则的特异性是 0，使用方随便一个类名都能盖掉。
+ * 这一层不是可有可无的洁癖：main.tsx 里 `import { App }` 排在 `import './styles.css'` 前面，
+ * App 拉起的各页面 CSS 因此**先于**本文件进入打包结果——同特异性时后来的本文件会赢，
+ * 页面样式反倒盖不住公共样式。:where() 把这个先后顺序的坑直接绕开。
+ *
+ * 尺寸和位移都写成 em，跟着使用方给的 font-size 缩放：
+ * 各页舞台的字号单位不一样（/hero 用 cqi），公共样式没法写死一套长度。
+ */
+:where(.ui-back) {
+  display: inline-flex;
+  align-items: center;
+  /* 箭头右端到文字左端。设计稿上 /hero 是 22px 字配 20px 间距，约 0.9em。 */
+  gap: 0.9em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/*
+ * 箭头是独立一层，hover 时只有它左移，按钮本身不动：
+ * 页面可能拿 GSAP 给按钮写入场用的 transform（/hero 就是），
+ * 位移放在子元素上，父子各写各的 transform，不会互相抹掉。
+ *
+ * 宽高按 viewBox 的 23:15 给，换算过来正好是设计稿上箭头相对文字的大小。
+ */
+:where(.ui-back__arrow) {
+  width: 1.04em;
+  height: 0.68em;
+  transition: transform 0.18s ease;
+}
+
+:where(.ui-back:hover) .ui-back__arrow {
+  transform: translateX(-0.26em);
+}
+
+:where(.ui-back):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 0.2em;
+}
+
+/* 减弱动效：位移不取消，只压成瞬时（同本文件其他几处的处理）。 */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-back__arrow) {
+    transition-duration: 1ms;
+  }
 }
 
 /* ---------- 主战场与侧栏 ---------- */
@@ -3266,32 +3318,13 @@ body:has(.battle) {
   letter-spacing: 0.08em;
 }
 
-/*
- * 只排版，不管按钮长什么样：里面那两个按钮由 MatchScreen 传进来，自带 .navy-gold-btn。
- * 原来这里还有一份按钮外观（元素选择器 `... button`），比公共类更具体，会把公共类整个压住，
- * 所以随公共类的抽取一起删掉了。
- */
+/* 按钮本身直接复用「结束回合」那块八角匾额（PlaqueButton），这里只排布，不再另写一套外观。 */
 .battle__result-actions {
   display: flex;
-  gap: 14px;
-}
-
-/* 终局结算底板里那两个按钮排得开一点，中断页那一份仍用上面的 14px。 */
-.battle__result .battle__result-actions {
   gap: 32px;
 }
 
-/* ---------- 深蓝描金按钮 ---------- */
-
-/*
- * 终局结算那两个按钮共用这一套外观，所以抽成公共类，用的地方直接加 class="navy-gold-btn"。
- * （回合结算层的确认按钮已经换成八角匾额 PlaqueButton，不再走这一套。）
- *
- * 层次全靠三样：外描边 + 内缩一圈的 outline（双线，同这套设计里"正式文书"的做法）、
- * 左右两道竖向高光把按钮切成一块匾、底部 5px 实心投影撑出厚度。
- * hover / active 只动 translate 和投影厚度，看着像真的被按下去一层。
- */
-.navy-gold-btn {
+.battle__result .battle__result-actions button {
   position: relative;
   min-width: 224px;
   min-height: 66px;
@@ -3308,13 +3341,11 @@ body:has(.battle) {
     0 10px 18px rgb(8 11 17 / 28%),
     inset 0 1px 0 rgb(255 239 200 / 16%);
   color: #ede1c8;
-  font: inherit;
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-indent: 0.14em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 76%);
-  cursor: pointer;
   transition:
     translate 160ms ease,
     border-color 160ms ease,
@@ -3322,8 +3353,7 @@ body:has(.battle) {
     box-shadow 160ms ease;
 }
 
-/* 灰着的时候不许再有 hover / active 的位移，否则按钮看着还能按。 */
-.navy-gold-btn:hover:not(:disabled) {
+.battle__result .battle__result-actions button:hover {
   translate: 0 -2px;
   border-color: #d4ae6b;
   background:
@@ -3336,25 +3366,16 @@ body:has(.battle) {
   filter: brightness(1.06);
 }
 
-.navy-gold-btn:active:not(:disabled) {
+.battle__result .battle__result-actions button:active {
   translate: 0 2px;
   box-shadow:
     0 2px 0 #111827,
     0 6px 12px rgb(8 11 17 / 24%);
 }
 
-.navy-gold-btn:focus-visible {
+.battle__result .battle__result-actions button:focus-visible {
   outline: 2px solid #f0cb83;
   outline-offset: 3px;
-}
-
-/*
- * 已确认、还在等对方的那一档。褪色而不是降透明度：这套按钮的立体感是靠实心投影堆出来的，
- * 调 opacity 会把投影一起变淡，按钮直接塌成一块平片。
- */
-.navy-gold-btn:disabled {
-  filter: grayscale(0.7) brightness(0.8);
-  cursor: default;
 }
 
 /* ---------- dev 测试面板 ---------- */
@@ -4294,7 +4315,7 @@ body:has(.battle) {
 }
 
 /*
- * 标准答案卡。深绿双线框（外描边 + 内缩一圈的 outline，同 .navy-gold-btn 的"正式文书"做法）——
+ * 标准答案卡。深绿双线框（外描边 + 内缩一圈的 outline，同终局结算那两个按钮的"正式文书"做法）——
  * 整层最该被一眼找到的就是这块，所以只有它用了阵营色描边。
  */
 .settle__answer-panel {
@@ -5524,4 +5545,72 @@ body:has(.battle) {
   color: var(--ink-2, #6b6a5f);
   font-size: 17px;
   line-height: 1.75;
+}
+
+/* ---------- 结算界面调试页（/result） ---------- */
+
+/*
+ * 结算层自己是 position: fixed 的，页面只需要给它一个深色底当战场的替身，
+ * 再把调参面板浮在最上面。面板 z-index 要压过结算层的 90。
+ */
+.result-demo {
+  position: fixed;
+  inset: 0;
+  background: #0b0f17;
+}
+
+.result-demo__panel {
+  position: fixed;
+  z-index: 100;
+  bottom: 18px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(226 213 184 / 30%);
+  border-radius: 6px;
+  background: rgb(12 17 26 / 92%);
+  color: #e7e1d4;
+}
+
+.result-demo__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+}
+
+.result-demo__pick {
+  padding: 6px 14px;
+  border: 1px solid rgb(226 213 184 / 40%);
+  border-radius: 3px;
+  background: rgb(37 49 73 / 90%);
+  color: #e7e1d4;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.result-demo__pick--on {
+  border-color: #cb9d7b;
+  background: #30456b;
+}
+
+.result-demo__field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.result-demo__field input {
+  width: 64px;
+  padding: 5px 8px;
+  border: 1px solid rgb(226 213 184 / 35%);
+  border-radius: 3px;
+  background: rgb(8 12 20 / 90%);
+  color: #e7e1d4;
+  font: inherit;
 }

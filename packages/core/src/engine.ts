@@ -52,7 +52,7 @@ export const INITIAL_TOKEN_MAX = 4
  */
 export const TOKEN_MAX_GROWTH = 2
 
-/** 没指定英雄时用谁。选英雄的界面还没做，所以双方默认都是格蕾丝·霍珀。 */
+/** 没指定英雄时用谁。留一个兜底是为了让「不关心英雄」的调用方（大多是测试）能少写一个字段。 */
 const DEFAULT_HERO: HeroId = 'grace-hopper'
 
 export interface PlayerSetup {
@@ -61,7 +61,8 @@ export interface PlayerSetup {
   deck: CardId[]
   /**
    * 这一方的英雄，不填就是 DEFAULT_HERO。
-   * 暂时没有选英雄的界面，联机和测试房都不传这一项，双方都拿到默认英雄。
+   * 联机对局双方都会明确传（匹配后的选英雄那一步，见 client 的 RoomScreen）；
+   * 测试房只在存档里存过英雄时才传，没存过就吃默认值。
    * 传 null 表示这一方不带英雄（现在只有测试会这么用）。
    */
   hero?: HeroId | null

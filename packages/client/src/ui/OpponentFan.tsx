@@ -121,6 +121,8 @@ export interface OpponentFanProps {
   dealHold?: boolean
   /** 还压在卡堆上、没起飞的新牌张数变了。见 HandFanProps.onDealPendingChange。 */
   onDealPendingChange?: (count: number) => void
+  /** 进场动画还没全部落地。语义和实现都同 HandFanProps.onDealBusyChange。 */
+  onDealBusyChange?: (busy: boolean) => void
 }
 
 export function OpponentFan({
@@ -130,6 +132,7 @@ export function OpponentFan({
   getDealOrigin,
   dealHold = false,
   onDealPendingChange,
+  onDealBusyChange,
 }: OpponentFanProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
@@ -138,8 +141,9 @@ export function OpponentFan({
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
   const placedRef = useRef(new Set<string>())
   /**
-   * 发牌那三个 prop 的最新值。applyLayout 常常是上一次渲染留下的闭包，
+   * 发牌那几个 prop 的最新值。applyLayout 常常是上一次渲染留下的闭包，
    * 而 dealHold 变化时 cards 没变、闭包不会刷新，只能走 ref 拿当前值。
+   * dealHoldRef 在渲染期间就写好，理由见 HandFan 的同名 ref（要赶在 layout effect 之前）。
    */
   const dealHoldRef = useRef(dealHold)
   dealHoldRef.current = dealHold
@@ -147,15 +151,35 @@ export function OpponentFan({
   dealOriginRef.current = getDealOrigin
   const dealPendingRef = useRef(onDealPendingChange)
   dealPendingRef.current = onDealPendingChange
+  const dealBusyRef = useRef(onDealBusyChange)
+  dealBusyRef.current = onDealBusyChange
   /** 还压在卡堆上、没起飞的新牌。size 就是报给父组件的张数，含义见 HandFan 的同名 ref。 */
   const dealQueueRef = useRef(new Set<string>())
   /** 已经排好队、还在等 stagger 延迟的进场补间。重排时要亲手换掉，理由见 HandFan 的同名 ref。 */
   const dealTweensRef = useRef(new Map<string, gsap.core.Tween>())
+  /** 进场动画还没演完的牌（含压着等放行的）。和 dealQueueRef 的分界线见 HandFan 的同名 ref。 */
+  const dealBusySetRef = useRef(new Set<string>())
+  /** 上一次报给父组件的 busy，用来只在变化沿通知。 */
+  const dealBusyReportedRef = useRef(false)
   /** 给 resize 监听用：它要拿到最新一次渲染的布局函数。 */
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
   /** 把"还压着几张"报给父组件。没人关心时什么都不做。 */
   const reportDealPending = () => dealPendingRef.current?.(dealQueueRef.current.size)
+
+  /** 把"进场动画演完没有"报给父组件，只在变化沿报一次。同 HandFan 的 reportDealBusy。 */
+  const reportDealBusy = () => {
+    const busy = dealBusySetRef.current.size > 0
+    if (busy === dealBusyReportedRef.current) return
+    dealBusyReportedRef.current = busy
+    dealBusyRef.current?.(busy)
+  }
+
+  /** 这张牌的进场动画演完了（或者不会再演了）。同 HandFan 的 finishDealBusy。 */
+  const finishDealBusy = (id: string) => {
+    if (!dealBusySetRef.current.delete(id)) return
+    reportDealBusy()
+  }
 
   /** 这张牌不再压在卡堆上了。重复调用是安全的，同 HandFan 的 finishDeal。 */
   const finishDeal = (id: string) => {
@@ -171,6 +195,7 @@ export function OpponentFan({
     //（玩家那边量的是战场中栏，见 HandFan 的 fanAreaWidth）。
     const stageWidth = battleStageWidth()
     const count = cards.length
+    const ids = new Set(cards.map((card) => card.id))
     // 减少动效时不做发牌飞行：新牌退回原来那段"从基准位外沉、淡入"，也不排队错开。
     const reduce = prefersReducedMotion()
     const dealOriginRect = reduce ? null : (dealOriginRef.current?.() ?? null)
@@ -185,8 +210,10 @@ export function OpponentFan({
     /** 这一轮真正安排起飞的第几张，决定各自的 stagger 延迟。 */
     let dealSeq = 0
 
+    // 离开手牌的牌这一轮不会拿到任何补间，也就再没有谁替它销账，留着会把父组件的锁挂死。
+    for (const id of dealBusySetRef.current) if (!ids.has(id)) dealBusySetRef.current.delete(id)
+
     if (mode === 'reflow') {
-      const ids = new Set(cards.map((card) => card.id))
       // 只清理"已经不在手牌里"的记录：被点走的那张牌，DOM 这一帧就没了，
       // hover 记录留着的话下一张顶上来的牌会莫名其妙带着抬起状态。
       if (hoverRef.current !== null && !ids.has(hoverRef.current)) hoverRef.current = null
@@ -201,7 +228,11 @@ export function OpponentFan({
 
     cards.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
-      if (!slot) return
+      if (!slot) {
+        // 没有节点就没有补间，也就不会有 onComplete 来销账（同 HandFan）。
+        finishDealBusy(card.id)
+        return
+      }
 
       const base = fanTransform(index, count, stageWidth, OPPONENT_FAN)
       // 牌心间距跟着卡面一起收紧。缩放是以每张牌自己的底边中点为原点做的，只缩卡面不动 x，
@@ -213,6 +244,7 @@ export function OpponentFan({
       if (isNew) {
         placedRef.current.add(card.id)
         dealQueueRef.current.add(card.id)
+        dealBusySetRef.current.add(card.id)
         dealAdded += 1
         // 拿得到卡堆位置就从那儿起飞，拿不到就退回原来的"先退到舞台外再滑进来"。
         // 从卡堆起飞的那张一开始就是不透明的：起点在左侧栏里，而侧栏（z-index 30）
@@ -234,9 +266,9 @@ export function OpponentFan({
       /** 这张牌还在发牌队里：要么正压着卡堆等放行，要么这一轮该给它排一次起飞。 */
       const dealing = dealQueueRef.current.has(card.id)
       if (dealing && dealHoldRef.current) {
-        // 过场（开局抛硬币）还盖着屏幕，这张牌先原地压在卡堆上，这一轮不给它任何补间。
-        // 上一轮万一已经排过起飞（开局事件比第一次布局晚一拍到），那条补间还没跑过，
-        // 得亲手掐掉并把牌退回卡堆位，否则它会在过场演着的时候自己跑起来。
+        // 全屏过场（开局抛硬币 / 回合末的答题揭晓）还盖着屏幕，这张牌先原地压在卡堆上，
+        // 这一轮不给它任何补间。上一轮万一已经排过起飞（开局事件比第一次布局晚一拍到），
+        // 那条补间还没跑过，得亲手掐掉并把牌退回卡堆位，否则它会在过场演着的时候自己跑起来。
         const scheduled = dealTweensRef.current.get(card.id)
         if (scheduled !== undefined) {
           scheduled.kill()
@@ -276,12 +308,17 @@ export function OpponentFan({
         // 两条路都要有，所以不管走哪条都补上。
         vars.opacity = 1
       }
+      // 收尾挂在每一条补间上而不只是进场那条，理由见 HandFan 的同一处：
+      // 中途重排会用 overwrite 掐掉旧补间，它的 onComplete 再也不会跑。
+      if (dealBusySetRef.current.has(card.id)) vars.onComplete = () => finishDealBusy(card.id)
       const tween = gsap.to(slot, vars)
       if (dealing) dealTweensRef.current.set(card.id, tween)
     })
 
     // 新排上队的牌攒到这儿一次报完，不用一张一张地惊动父组件。
     if (dealAdded > 0) reportDealPending()
+    // busy 是个布尔，上面加加减减完统一看一眼变没变。
+    reportDealBusy()
   }
 
   const { contextSafe } = useGSAP(
@@ -300,6 +337,9 @@ export function OpponentFan({
         for (const tween of dealTweensRef.current.values()) tween.kill()
         dealTweensRef.current.clear()
         dealQueueRef.current.clear()
+        // busy 要报最后一次，父组件拿它锁着操作，不报锁就永远挂着了（同 HandFan）。
+        dealBusySetRef.current.clear()
+        reportDealBusy()
       }
     },
     { scope: rootRef, dependencies: [cards] },
@@ -314,7 +354,8 @@ export function OpponentFan({
   /** 上一次的 dealHold，用来认出"憋着的发牌被放开"这一个瞬间。 */
   const prevDealHoldRef = useRef(dealHold)
   /**
-   * 开局的抛硬币演完了：重排一次，把压在卡堆上的那几张牌依次放出去。
+   * 盖着屏幕的那层过场演完了（开局抛硬币 / 回合末答题揭晓）：
+   * 重排一次，把压在卡堆上的那几张牌依次放出去。
    * 只在这个值真的变了才动手，理由同 HandFan 的同一段。
    */
   useLayoutEffect(() => {

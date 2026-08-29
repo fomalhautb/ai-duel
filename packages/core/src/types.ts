@@ -80,8 +80,18 @@ export interface SkillCard extends CardBase {
   target?: 'foe-ai'
 }
 
-/** 英雄 id。英雄很少，直接用字面量联合，写错名字当场就是类型错误。 */
-export type HeroId = 'grace-hopper'
+/**
+ * 英雄 id。英雄总共就这 7 位、不会随版本增删，直接用字面量联合，写错名字当场就是类型错误。
+ * 这里的排列顺序不代表展示顺序——展示顺序由 heroes.ts 里 HEROES 的键序决定。
+ */
+export type HeroId =
+  | 'fei-fei-li'
+  | 'danqi-chen'
+  | 'melanie-perkins'
+  | 'mira-murati'
+  | 'ada-lovelace'
+  | 'margaret-hamilton'
+  | 'grace-hopper'
 
 /**
  * 英雄牌：开局就跟着玩家，不是牌组里的一张牌。

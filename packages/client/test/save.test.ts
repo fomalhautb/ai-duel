@@ -8,10 +8,10 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
-import { loadSave, recordWin, resetSave } from '../src/save/save'
+import { loadSave, recordWin, resetSave, saveHero } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
-const SAVE_KEY = 'ai-duel-save-v5'
+const SAVE_KEY = 'ai-duel-save-v6'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -85,7 +85,29 @@ describe('本地存档', () => {
   it('重置存档回到初始收藏，localStorage 里的记录也被清掉', () => {
     recordWin()
     const reset = resetSave()
-    expect(reset).toEqual({ ownedCards: INITIAL_COLLECTION, wins: 0 })
+    expect(reset).toEqual({ ownedCards: INITIAL_COLLECTION, wins: 0, savedHero: null })
     expect(localStorage.getItem(SAVE_KEY)).toBeNull()
+  })
+
+  // 牌组归 deckStore 管，这份存档里只剩英雄这一个选择结果。
+  it('确认过的英雄写入后能读回来，收藏和胜场不受影响', () => {
+    const before = loadSave()
+    saveHero('ada-lovelace')
+    const save = loadSave()
+    expect(save.savedHero).toBe('ada-lovelace')
+    expect(save.ownedCards).toEqual(before.ownedCards)
+    expect(save.wins).toBe(before.wins)
+  })
+
+  it('存档里的英雄不在英雄表里时读回 null', () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        ownedCards: [...INITIAL_COLLECTION],
+        wins: 0,
+        savedHero: '没有这个英雄',
+      }),
+    )
+    expect(loadSave().savedHero).toBeNull()
   })
 })

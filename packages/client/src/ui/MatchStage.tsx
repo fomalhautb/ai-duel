@@ -51,6 +51,7 @@ import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
 import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
+import { MatchResult } from './MatchResult'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
@@ -155,6 +156,20 @@ const CANCEL_HOLD = 1.3
  * 所以只要这个时间盖得住"挂载到第一批事件"这一小会儿就够，取多长不影响正常开局。
  */
 const DEAL_HOLD_FALLBACK = 0.8
+/**
+ * 回合末补牌的兜底放行时间（秒）。
+ *
+ * 双方都确认之后那批事件一到就把补牌憋住，正常由回合结算层的退场放行（见 dealHeld）。
+ * 那条路要是没走到（比如结算层被别的路径提前换掉、退场动画的 onComplete 不会再来），
+ * 牌就会一直压在卡堆上、操作也跟着一直锁着，所以另配一条兜底。
+ *
+ * 要盖住的时间很短：憋牌和"阶段离开 settle"是同一批事件带来的，结算层下一帧就开始退场，
+ * 只有整层淡出的 EXIT_DUR（0.45 秒，见 RoundSettleLayer）这一段。2 秒是四倍余量。
+ *
+ * 注意这条兜底不能取长：它一到点就放行，而那时结算层要是还立着，牌就跑到遮罩后面去飞了，
+ * 正是这条兜底本来要防的事情反过来发生。所以宁可短一点、宁可偶尔早放行，也不留大余量。
+ */
+const ROUND_DEAL_HOLD_FALLBACK = 2
 
 /** 一条中央横幅从淡入到淡出的总时长（秒），排队时按它算下一条什么时候上。 */
 const BANNER_IN = 0.3
@@ -298,20 +313,17 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
  * 缩放层上那个 stage-scaler 是给 JS 认的：ui/battleStage.ts 照它查当前舞台，
  * 卡组页的 .deck-scaler 也带同一个类，两页共用同一套坐标换算。样式仍写在 .battle-scaler 上。
  *
- * 缩放比由 useStageScale 在运行时写成内联样式盖掉 CSS 里那份，原因见该文件（Safari 的
- * atan2 混合单位有 bug，不盖的话这一页在 Safari 上整块看不见）。
+ * 缩放系数由 useStageScale 量 .battle-stage 的宽算出来写进 --battle-scale，
+ * 不在 CSS 里算（Safari 上会整块塌掉，原因见 ui/useStageScale.ts）。
  *
  * 导出给结算测试页（screens/SettleTestScreen.tsx）复用：那一页也要把结算层放进同一套
  * 舞台里才对得上排版，抄一份的话两边迟早会漂。
  */
 export function BattleFrame({ children }: { children: ReactNode }) {
-  const stageRef = useRef<HTMLDivElement>(null)
-  const scalerRef = useRef<HTMLDivElement>(null)
-  useStageScale('--battle-scale', stageRef, scalerRef)
-
+  const scalerRef = useStageScale<HTMLDivElement>('--battle-scale')
   return (
     <div className="battle-frame">
-      <div className="battle-stage" ref={stageRef}>
+      <div className="battle-stage">
         <div className="battle-scaler stage-scaler" ref={scalerRef}>
           {children}
         </div>
@@ -391,12 +403,18 @@ function BattleField({
   /** 正在放大查看的那张卡（战场小卡或侧栏英雄牌）；非空即"查看中"，同时也是遮罩可点关闭的开关。 */
   const [inspecting, setInspecting] = useState<InspectTarget | null>(null)
   /**
-   * 开局的发牌先憋着，等抛硬币过场演完再放。
+   * 发牌先憋着，等盖住屏幕的那层过场演完再放。全屏过场在 z-index 1100，
+   * 它演的时候发牌等于发给遮罩看，玩家一张都瞧不见。两处会憋：
    *
-   * 初值就是 true：开局事件是挂载之后的 effect 才送到的（架构 5.2），
-   * 那时两排扇形已经把开局手牌摆好、动画都排上了，等 coinToss 立起来再拦就晚了一拍。
-   * 所以默认拦着，由抛硬币的收尾放开，另有一条兜底定时器防着"这一局根本没有过场"
-   *（见 DEAL_HOLD_FALLBACK）。
+   * - **开局**：初值就是 true。开局事件是挂载之后的 effect 才送到的（架构 5.2），
+   *   那时两排扇形已经把开局手牌摆好、动画都排上了，等 coinToss 立起来再拦就晚了一拍。
+   *   所以默认拦着，由抛硬币的收尾放开，另有一条兜底定时器防着"这一局根本没有过场"
+   *  （见 DEAL_HOLD_FALLBACK）。
+   * - **每轮结算后的补牌**：双方都确认之后，ROUND_CONFIRMED 和 CARD_DRAWN 是同一批事件，
+   *   收到时回合结算层还立在屏幕上（它要等这批事件带来的 phase 变化才开始退场）；
+   *   不拦的话那两张牌就在遮罩后面飞完了。所以在事件回调里当场重新拦上
+   *  （见 useMatchEvents 里的 holdRoundDeal），由结算层的退场收尾放开
+   *  （RoundSettleLayer 的 onExited），兜底见 ROUND_DEAL_HOLD_FALLBACK。
    */
   const [dealHeld, setDealHeld] = useState(true)
   /**
@@ -407,6 +425,15 @@ function BattleField({
    * 测试房里对方那排扇形不渲染（换成了摊开的手牌条），foe 恒为 0，卡堆直接显示局面里的数。
    */
   const [dealPending, setDealPending] = useState({ mine: 0, foe: 0 })
+  /**
+   * 两排扇形各自"进场动画还没全部落地"。
+   *
+   * 和上面的 dealPending 是两个信号：那个在牌起飞的瞬间就减（卡堆的数字要那时候变），
+   * 这个要等最后一张真的落进扇形才清（见 HandFanProps.onDealBusyChange）。
+   * 它只有一个用途——发牌全程锁住操作，见下面的 actionsLocked。
+   * 测试房里对方那排扇形不渲染，foe 恒为 false（同 dealPending）。
+   */
+  const [dealBusy, setDealBusy] = useState({ mine: false, foe: false })
   /** 对手正打出的那张牌，强制展示在屏幕中央。 */
   const [reveal, setReveal] = useState<RevealTarget | null>(null)
   /** 正在给一张干扰技能选目标（点击路）；非空即选目标态。 */
@@ -461,6 +488,12 @@ function BattleField({
   const skillLockTokenRef = useRef(0)
   /** 发牌憋着的兜底放行定时器。抛硬币一起来就把它撤掉，放行交给过场的收尾。 */
   const dealHoldFallbackRef = useRef<gsap.core.Tween | null>(null)
+  /**
+   * 回合末补牌憋着的兜底放行定时器，正常由回合结算层的退场收尾撤掉。
+   * 和上面那条分开两个 ref：开局那条是挂载时就上、收到 GAME_STARTED 就撤，
+   * 两条的生命周期不重叠但归属完全不同，共用一个 ref 只会让"现在等的是哪一条"说不清楚。
+   */
+  const roundDealFallbackRef = useRef<gsap.core.Tween | null>(null)
   /** 当前正在展示的那张技能牌的 key。连打时用它认出"我这条时间线是不是已经过气了"。 */
   const skillShowKeyRef = useRef<number | null>(null)
   /** 松手那一刻记下的手牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。 */
@@ -550,6 +583,15 @@ function BattleField({
    */
   const coinUpRef = useRef(false)
   const quizUpRef = useRef(false)
+  /*
+   * 这里原先还有一个 quizRevealKeyRef，给旧揭晓层的收尾时间线判活用：那条线建在 MatchStage
+   * 自己的 useGSAP 里，依赖变化时**不会**被 revert（架构 5.5），于是被顶替的旧收尾可能在新一层
+   * 立起来之后才跑完，把 quizUpRef 和补牌闸门替新的那层提前收掉。
+   *
+   * 换成 RoundSettleLayer 之后这个问题结构上就没有了：整层带 React key，换一轮就是换一个组件实例，
+   * 旧实例卸载时它自己那个 useGSAP context 直接 revert，退场补间被 kill、onComplete 不会再来，
+   * 过气的收尾根本没有机会执行。所以那个 ref 一并删掉，不留一个永远为真的判活。
+   */
   /** 抵消层正演着。和上面两个同一档（全屏 1100、吃指针事件），闸门作用也一样。 */
   const cancelUpRef = useRef(false)
   /**
@@ -582,15 +624,53 @@ function BattleField({
   /**
    * 发牌憋着的兜底放行：这一局要是根本没有抛硬币过场，也得让开局手牌飞出来。
    * 收到 GAME_STARTED 时会把它撤掉（见那条 case），放行改由过场的收尾负责。
+   *
+   * 到点了还要再看一眼 coinUpRef——**光靠"收到 GAME_STARTED 就撤掉"是不够的**，
+   * 开发模式下的 StrictMode 会让这条 effect 跑两遍，而开局事件只送得到第一遍：
+   * 第一次挂载建定时器①，useMatchEvents 一订阅，driver 就把攒着的开局事件补发过来
+   *（buffered 只补发给第一个订阅者、而且只发一次，见 driver.ts），GAME_STARTED 撤掉①；
+   * StrictMode 接着卸载重挂，这里又建了定时器②，可重新订阅时 buffered 已经空了，
+   * GAME_STARTED 不会再来，②就没人撤——0.8 秒后它把牌放出去，而硬币要转满 3 秒，
+   * 于是"抛硬币和发牌同时播"。ref 跨 StrictMode 的重挂载是活的，所以②到点时
+   * 靠 coinUpRef 认得出"硬币正演着"，直接不放行，放行仍旧交给硬币时间线的收尾。
+   * 真正需要兜底的场景（联机客人中途接手，压根没有 GAME_STARTED）coinUpRef 恒为 false，不受影响。
    */
   useEffect(() => {
-    const fallback = gsap.delayedCall(DEAL_HOLD_FALLBACK, () => setDealHeld(false))
+    const fallback = gsap.delayedCall(DEAL_HOLD_FALLBACK, () => {
+      if (coinUpRef.current) return
+      setDealHeld(false)
+    })
     dealHoldFallbackRef.current = fallback
     return () => {
       fallback.kill()
       if (dealHoldFallbackRef.current === fallback) dealHoldFallbackRef.current = null
     }
   }, [])
+
+  /**
+   * 把回合末的补牌重新憋住，同时上一条兜底放行。
+   *
+   * 事件回调里调，那时早出了 useGSAP 回调的同步区间，delayedCall 建的补间不包一层
+   * 就不归 context 管，组件卸载时 revert 不掉（架构 5.5）。
+   */
+  const holdRoundDeal = contextSafe(() => {
+    setDealHeld(true)
+    roundDealFallbackRef.current?.kill()
+    roundDealFallbackRef.current = gsap.delayedCall(ROUND_DEAL_HOLD_FALLBACK, () =>
+      setDealHeld(false),
+    )
+  })
+
+  /**
+   * 放行憋着的补牌，顺手撤掉兜底。由回合结算层的退场收尾调（onExited）。
+   * 没在憋也照调不误（多一次同值 setState，React 自己会短路），
+   * 所以不必判"这一轮到底憋没憋"——最后一轮和中途接手那两种不憋的情况照样走这里。
+   */
+  const releaseRoundDeal = () => {
+    roundDealFallbackRef.current?.kill()
+    roundDealFallbackRef.current = null
+    setDealHeld(false)
+  }
 
   // ---------- 事件动画 ----------
 
@@ -762,7 +842,7 @@ function BattleField({
    * 强行收掉正在进行的强制展示，不播收尾。
    *
    * 只有一个调用方：答题阶段开始。展示要停 1.5 秒，而对手"出完最后一张牌就结束出牌"时
-   * 那两条指令挨得很近，揭晓层（1100）会直接盖在还没演完的展示（同样 1100）上。
+   * 那两条指令挨得很近，回合结算层（1100）会直接盖在还没演完的展示（同样 1100）上。
    * 与其让两层打架，不如让展示让位——它想说的"对手打了这张牌"已经看到一部分了。
    * 遮罩要显式关掉：它是常驻节点，展示卡被卸载并不会把它带走。
    */
@@ -781,6 +861,41 @@ function BattleField({
   })
 
   useMatchEvents(driver, (events) => {
+    // 回合末的补牌要憋到回合结算层退场再飞。推进轮次的是后手确认的那一下：引擎在一次
+    // execute 里把 [ROUND_CONFIRMED, CARD_DRAWN×双方各 2, ROUND_STARTED, PLAY_TURN_STARTED]
+    // 整批发过来（见 core 的 confirmRound），收到时结算层（z-index 1100）还整个立在屏幕上——
+    // 它要等这批事件带来的 phase 变化才开始退场——不拦的话牌就在遮罩后面飞完了。
+    //
+    // 判据是"结算层真的立着，且这一批里 ROUND_CONFIRMED 后面还跟着 CARD_DRAWN"，三个条件缺一不可：
+    // 先手确认的那一批只有 ROUND_CONFIRMED、没有补牌，局面根本没推进；
+    // 最后一轮双方确认后跟的是 GAME_OVER、同样没有补牌，拦了就永远等不到退场来放行；
+    // 测试面板的"加1张"那一批里没有 ROUND_CONFIRMED，属于玩家自己点出来的加牌，该当场就飞。
+    // 牌堆抽空时 CARD_DRAWN 一条都不发，同样不该拦。
+    //
+    // 这条判据刻意保持简单，代价是有一个已知的边角没照顾到：结算层立着的那段时间里
+    // 点测试面板的"加1张"，那一批只有 CARD_DRAWN、没有 ROUND_CONFIRMED，于是不拦，
+    // 牌就在结算层后面飞完了。只有测试房的调试工具能造出这个时机，
+    // 正式对局里玩家没有任何入口在答题 / 结算期间加牌，所以接受现状，不为它把判据变复杂。
+    //
+    // quizUpRef 那一条挡的是"没看见过 QUESTION_REVEALED 的那一端"：联机客人在答题 / 结算阶段
+    // 中途接手时，match:start 直接给的是 quiz / settle 期的快照，结算层从来没立起来过
+    //（roundSettle 恒为 null），也就没有退场来放行——拦了的话只能干等兜底超时。
+    // 没有遮罩要等就当场发牌。
+    // 事件回调里读 ref 拿到的正是现值：quizUpRef 是更早那批事件（QUESTION_REVEALED）置的，
+    // 那之后 React 已经重渲染过了。
+    //
+    // 这一下必须和新手牌同一次提交送到两排扇形：事件回调和 driver 的快照 patch 在同一个同步块里，
+    // React 的自动批处理会把它们合成一次重渲染，扇形第一次看到新牌时 dealHold 就已经是 true 了。
+    // 就算哪天两边分成了两次提交也还兜得住：扇形那边 dealHold 变化沿上还会再重排一次，
+    // 把已经排出去、还没跑过一帧的进场补间收回卡堆（见 HandFan 里那个 [dealHold] 的 layout effect）。
+    const confirmedAt = events.findIndex((event) => event.type === 'ROUND_CONFIRMED')
+    if (
+      quizUpRef.current &&
+      confirmedAt >= 0 &&
+      events.slice(confirmedAt + 1).some((event) => event.type === 'CARD_DRAWN')
+    ) {
+      holdRoundDeal()
+    }
     for (const event of events) {
       switch (event.type) {
         case 'GAME_STARTED':
@@ -914,7 +1029,8 @@ function BattleField({
           // AI_ELIMINATED 不单独播：结算层里那张卡的红叉和压暗样式已经说明了，
           // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被结算层盖住）。
           // ROUND_CONFIRMED 也不用管：确认态由结算层直接读快照（见 RoundSettleLayer 的两路口径）。
-          // CARD_DRAWN 的进场动画归 HandFan 自己管；GAME_OVER 由终局结算层接管；
+          // CARD_DRAWN 的进场动画归 HandFan 自己管（这一批要不要先憋着已经在循环外判过了）；
+          // GAME_OVER 由终局结算层接管；
           // COMMAND_REJECTED 走 view.lastRejection 那条提示。
           break
       }
@@ -1128,8 +1244,14 @@ function BattleField({
     cancelUpRef.current = false
     pendingCancelRef.current = null
     skillShowBusyRef.current = 0
-    // 抛硬币被收掉了，放行发牌的那条收尾也就不会来了；开局手牌不该一直压在卡堆上。
+    // 抛硬币和回合结算层都被收掉了，放行发牌的那两条收尾也就不会来了；牌不该一直压在卡堆上。
+    // 兜底定时器一起撤掉：它到点只会再喊一次同样的放行，留着没意义。
+    roundDealFallbackRef.current?.kill()
+    roundDealFallbackRef.current = null
     setDealHeld(false)
+    // 发牌的锁也一并松开。牌照样会飞完并各自报一次 false，但那要等一整段动画；
+    // 对局都中断了，锁着的界面没有任何意义（status 不是 playing，actionsLocked 本来就恒真）。
+    setDealBusy({ mine: false, foe: false })
     setCoinToss(null)
     setRoundSettle(null)
     setSkillCancel(null)
@@ -1512,17 +1634,34 @@ function BattleField({
   // 展示层演着的时候玩家什么都不该点得动（遮罩本来就吃掉了指针事件，这里是让手牌和
   // 「结束出牌」按钮在视觉上也是关着的）。
   const showcasing = reveal !== null || inspecting !== null
+  /**
+   * 发牌还没演完：牌压在卡堆上等放行（dealHeld），或者已经在飞、还没全部落地（dealBusy）。
+   * 两排扇形谁在演都算——回合末双方是同一批补牌，同时起飞也同时落地。
+   *
+   * 下面的 actionsLocked 和 handLockReason 都读这一份，不许各写一遍：
+   * 两者必须在同一次提交里一起松开，否则手牌那边"锁解开了抖一下整排牌"的判据会落空
+   *（它在 lockReason 变 null 那一刻回头看 effectiveDisabled，见 HandFan 那个 effect）。
+   */
+  const dealing = dealHeld || dealBusy.mine || dealBusy.foe
   // 出牌和「结束出牌」同一个口径：不是我的出牌轮、对局已结束、正在等回包、展示层演着、
   // 有牌正在飞、正在给一张技能牌选目标时都锁住。
   // 选目标那一档还兼着另一件事：锁上 HandFan 的 disabled，它才知道这次出牌被受理了
   //（在等玩家选目标），不会把那张牌当成"父组件没受理"送回扇形（见 HandFanProps.onPlay）。
+  //
+  // 最后那项是发牌：开局的 5 张和每轮结算后的补牌都是强制过场，牌还压在卡堆上、
+  // 或者还在半空中的时候玩家不该出得了牌——不锁的话手牌会一边飞一边被打出去，
+  // 飞行补间和出牌那段 Flip 抢同一批属性，画面直接乱掉。
+  // 刻意只喂 disabled 不喂 handFrozen：frozen 一变就要重排一遍手牌，
+  // 而重排会亲手掐掉正在飞的进场补间（见 HandFan 的 dealTweensRef），等于自己打断发牌动画；
+  // 挡住出牌和「结束出牌」按钮已经够了，发牌期间 hover 看牌不算操作。
   const actionsLocked =
     !myPlayTurn ||
     view.status !== 'playing' ||
     awaiting ||
     showcasing ||
     landing ||
-    targeting !== null
+    targeting !== null ||
+    dealing
   /**
    * 手牌彻底冻住（连 hover 都不接）的时刻：屏幕上有牌在飞或刚落地、展示层正演着，
    * 或者正在给一张技能牌选目标。
@@ -1555,12 +1694,24 @@ function BattleField({
   /**
    * 交给 HandFan 的"为什么出不了牌"。它不挡操作（那仍归上面的 actionsLocked），
    * 只决定手牌要不要进灰墨态、点上去弹哪句提示（见 HandFanProps.lockReason）。
+   *
+   * 前两档优先：发牌和"轮到对方 / 在答题"撞上时，玩家更该知道的是后者
+   *（每轮补牌那次，对方先手的话整段等待里一直是「对方出牌中」，中途插一句「发牌中」反而碎）。
+   * 排掉选目标态是为了守住"data-locked 和 data-casting 不同时出现"这条（见下面 HandFan 的
+   * data-locked）：正常对局里两者撞不上（进答题就会 setTargeting(null)），
+   * 但测试房的 DevPanel 能在选目标时凭空加一张手牌，那一下会同时满足。
+   *
+   * 发牌落地那一刻这一档变回 null，而 actionsLocked 里的 dealHeld / dealBusy 是同一批账，
+   * 同一次提交里一起松开——HandFan 那边"锁解开了抖一下整排牌"的判据要读 effectiveDisabled，
+   * 差一次提交就不弹了（见它那个 [lockReason] 的 effect）。
    */
   const handLockReason: HandLockReason | null = waitingForFoe
     ? 'foe-turn'
     : quizWait
       ? 'quiz'
-      : null
+      : dealing && targeting === null
+        ? 'deal'
+        : null
 
   /**
    * 现算的话每次渲染都是个新数组，两个 Fan 的 useGSAP 会跟着重跑一遍归位补间；
@@ -1587,6 +1738,16 @@ function BattleField({
     setDealPending((current) => (current.mine === count ? current : { ...current, mine: count }))
   const setFoeDealPending = (count: number) =>
     setDealPending((current) => (current.foe === count ? current : { ...current, foe: count }))
+
+  /**
+   * 扇形报上来"进场动画演完没有"。两个扇形只在变化沿报，这里再判一次相等是为了中断路径：
+   * 那边强行把两个都清成 false 之后，扇形迟到的那次 false 不该再惊动一次渲染。
+   * 这两个回调既会在布局（layout effect）里被同步调到，也会被 GSAP 的 onComplete 延迟调到。
+   */
+  const setMyDealBusy = (busy: boolean) =>
+    setDealBusy((current) => (current.mine === busy ? current : { ...current, mine: busy }))
+  const setFoeDealBusy = (busy: boolean) =>
+    setDealBusy((current) => (current.foe === busy ? current : { ...current, foe: busy }))
 
   // ---------- 飞行与进场 ----------
 
@@ -2244,6 +2405,7 @@ function BattleField({
           getDealOrigin={foeDealOrigin}
           dealHold={dealHeld}
           onDealPendingChange={setFoeDealPending}
+          onDealBusyChange={setFoeDealBusy}
         />
       )}
 
@@ -2266,10 +2428,12 @@ function BattleField({
         // 上面那行已经把选目标态算进去了）。
         castingId={targeting?.instanceId ?? null}
         onDragStateChange={setDraggingId}
-        // 新牌从我方卡堆飞进扇形；开局那 5 张憋到抛硬币演完再飞（见 dealHeld）。
+        // 新牌从我方卡堆飞进扇形；开局那 5 张憋到抛硬币演完、每轮的补牌憋到回合结算层
+        // 退场再飞（见 dealHeld）。整段发牌期间上面那个 disabled 是锁着的（见 actionsLocked）。
         getDealOrigin={myDealOrigin}
         dealHold={dealHeld}
         onDealPendingChange={setMyDealPending}
+        onDealBusyChange={setMyDealBusy}
       />
 
       {/*
@@ -2368,19 +2532,11 @@ function BattleField({
       ) : null}
 
       {finished ? (
-        <div className="battle__result">
-          <div className="battle__result-panel">
-            <div className="battle__result-content">
-              <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
-              {view.status === 'aborted' ? null : (
-                <p className="battle__result-score">
-                  最终比分 <strong>{me.score} : {foe.score}</strong>
-                </p>
-              )}
-              <div className="battle__result-actions">{resultActions}</div>
-            </div>
-          </div>
-        </div>
+        <MatchResult
+          title={resultTitleOf(view, state, mySeat)}
+          score={view.status === 'aborted' ? null : { mine: me.score, foe: foe.score }}
+          actions={resultActions}
+        />
       ) : null}
 
       {/*
@@ -2431,6 +2587,8 @@ function BattleField({
             setRoundSettle(null)
             // 结算层立着的这段时间里憋下的横幅（下一轮的宣告），到这里才放出来。
             pumpBanner()
+            // 屏幕空出来了，这一轮的补牌这才从各自的卡堆飞出去（见 dealHeld）。
+            releaseRoundDeal()
           }}
         />
       ) : null}

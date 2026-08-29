@@ -1069,22 +1069,24 @@ html {
 }
 
 /*
- * 这一轮的 Token 买不起的那张牌（data-unaffordable 由 HandFan 逐张打上）。
+ * 这一刻打不出去的那几张牌（data-unplayable 由 HandFan 逐张打上）：
+ * Token 买不起的，以及本轮已经派过 AI 之后手上其余的 AI 牌。两种情况画法一样，
+ * 差别只在点上去弹哪句提示（见 HandFan 的 blocked）。
  *
  * 和整排灰墨态是两条线，可以同时成立（自己回合里整排是亮的，只有最贵的那张打不起），
  * 所以这里只挑 [data-locked] 没写过的属性：褪色打在 .card-face 上、位移一概不碰。
  * hover 抬起来时**不**恢复本色，这一点和灰墨态相反：那边是"轮不到你，但你能看"，
  * 这边是"看清楚了也打不出"，抬起来还压着灰才说得通。
  */
-.hand-fan__slot[data-unaffordable] .card-face {
+.hand-fan__slot[data-unplayable] .card-face {
   filter: grayscale(0.6) brightness(0.72) contrast(0.95);
   transition: filter 0.3s ease;
 }
 
-/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不起的那张让路——它还抓在手上。
-   （实际走不到：费用只在自己出牌时才会变，而那一刻手上没有正在拖的牌。留着是为了
-   和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
-.hand-fan__slot[data-unaffordable]:not([data-dragging]) {
+/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不出的那张让路——它还抓在手上。
+   （实际走不到：费用和"派过 AI 没有"都只在自己出牌时才会变，而那一刻手上没有正在拖的牌。
+   留着是为了和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
+.hand-fan__slot[data-unplayable]:not([data-dragging]) {
   cursor: not-allowed;
 }
 
@@ -1121,7 +1123,7 @@ html {
      摇头和解锁回弹那两段 GSAP 动画由 HandFan 自己让路（见那边的 prefersReducedMotion）。 */
   .hand-fan,
   .hand-fan__face,
-  .hand-fan__slot[data-unaffordable] .card-face {
+  .hand-fan__slot[data-unplayable] .card-face {
     transition-duration: 1ms;
   }
 }
@@ -1336,7 +1338,8 @@ html {
 }
 
 /*
- * 玩家自己手牌的背面容器：AI 牌铺统一美术图，其他牌展示卡名和说明文字。
+ * 玩家自己手牌的背面容器：AI 牌铺整张统一美术图，技能牌在星象边框底图上印卡名和说明
+ * （见下面的 --ai-art / --skill），英雄牌是默认的深色底加同一套文字。
  * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
  * .card-back-hidden。
  */
@@ -1387,6 +1390,44 @@ html {
   height: 100%;
   object-fit: cover;
   user-select: none;
+}
+
+/*
+ * 技能牌的背面：铺和放大查看那张（deck.css 的 .deck-skill-back）同一路数的星象边框底图，
+ * 卡名和说明压在中间留白里。
+ *
+ * 不铺底图的话这一面就是块深色板子，和正面那张米色原画完全不像同一张牌——AI 牌早就有
+ * 自己的美术卡背（上面的 --ai-art），只有技能牌翻过去是空的。英雄牌不进牌组也不进手牌，
+ * 仍走默认的深色底，没跟着改。
+ *
+ * 底图按 100% 100% 拉满而不是 cover：底图和卡框都是 2:3，拉伸看不出来，还省掉 cover 的裁切
+ * ——边框上的花纹一旦被裁掉一圈，四角的罗盘就缺了角。
+ * 内边距写成百分比，是因为这张背面在手牌（150×225）、卡池格子和图鉴预览里尺寸各不相同，
+ * 而文字必须始终落在底图中央那圈留白里，不能压到边框的花纹上。
+ */
+.card-back--skill {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 15% 13%;
+  border-color: #cbbb9a;
+  background: #eee4d2 url('/cards/card-back-v1.webp') center / 100% 100% no-repeat;
+  text-align: center;
+}
+
+/* 底图是米色纸面，字色照 .deck-skill-back 那套墨色来，深色底下那两档蓝灰在这上面看不清。 */
+.card-back--skill .card-back__title {
+  color: #4a4034;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.card-back--skill .card-back__text {
+  color: #554b3e;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 /*
@@ -2522,6 +2563,36 @@ body:has(.battle) {
 }
 
 /*
+ * 匾体下面那排关键词标签。
+ *
+ * 摆在匾外面而不是匾里：匾体是固定的 168×118 画稿，两三个词塞进去必然顶破框线
+ *（见 MatchStage 的 NextQuestionPlaque）。侧栏只有 207px 宽，所以允许换行，
+ * 一行放不下就自然折成两行。
+ */
+.battle__next-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一枚关键词：浅色纸面小药丸，比类别名低一档，别和匾上那行大字抢视线。 */
+.battle__next-keyword {
+  padding: 2px 8px;
+  border: 1px solid rgb(37 49 73 / 22%);
+  border-radius: 999px;
+  background: rgb(255 252 244 / 55%);
+  color: var(--battle-navy);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/*
  * ---------- Token 细条 ----------
  *
  * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
@@ -2728,9 +2799,9 @@ body:has(.battle) {
   transform: translateY(-5px);
 }
 
-/* 测试房：对方这一轮的 Token 买不起的牌。只压暗不拦点击——测试房本来就是拿来试
-   各种被拒场景的，点下去照样会收到引擎那句「Token 不够」。 */
-.battle__foe-card[data-unaffordable] {
+/* 测试房：对方现在打不出去的牌（Token 买不起，或者本轮已经派过 AI）。
+   只压暗不拦点击——测试房本来就是拿来试各种被拒场景的，点下去照样会收到引擎的拒绝提示。 */
+.battle__foe-card[data-unplayable] {
   filter: grayscale(0.6) brightness(0.72);
 }
 

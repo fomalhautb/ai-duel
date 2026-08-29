@@ -816,11 +816,65 @@
   outline-offset: -4px;
 }
 
-/* 选满两份：整卡退到背景里，明确「这张不用再看了」。滤镜只压正面卡面（.card-face），
-   问号、圆圈按钮和圆章都在这棵子树外面，仍然保持清晰；背面（.card-back）也不压——
-   翻过去是为了读那段说明，褪色只会让它更难读。 */
-.deck-pool-card[data-picked='2'] .card-face {
+/* 份数选满（MAX_COPIES）：整卡退到背景里，明确「这张不用再看了」。
+   认的是 data-full 而不是 data-picked 的具体数字——那样每调一次 MAX_COPIES 都得记得回来改
+   选择器里的数（属性由 DeckScreen 的 PoolCard 现算）。
+   滤镜只压正面卡面（.card-face），问号、圆圈按钮和圆章都在这棵子树外面，仍然保持清晰；
+   背面（.card-back）也不压——翻过去是为了读那段说明，褪色只会让它更难读。 */
+.deck-pool-card[data-full] .card-face {
   filter: grayscale(0.72) brightness(0.66);
+}
+
+/* ============================================================
+   即将上线的技能牌
+   ------------------------------------------------------------
+   这批牌（core 的 COMING_SOON_SKILL_CARD_IDS）摆在卡池最后，只能看不能选。
+   压得比"选满份数"更狠一档：那种灰是"这张已经拿够了"，这种是"这张还拿不到"，
+   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __soon 牌子。
+   同样只压正面：背面那段说明还是要读的。
+   ============================================================ */
+.deck-pool-card[data-soon] {
+  cursor: not-allowed;
+}
+
+.deck-pool-card[data-soon] .card-face {
+  filter: grayscale(1) brightness(0.48);
+}
+
+/* hover 那圈金光是"这张可以拿"的意思，加不了的牌不该亮它。
+   多带一个属性选择器就压过了上面那条 .deck-pool-card:hover .deck-pool-card__glow，
+   不用 !important。 */
+.deck-pool-card[data-soon]:hover .deck-pool-card__glow {
+  opacity: 0;
+}
+
+/*
+ * 卡面正中那块「即将上线」的牌子。
+ *
+ * 是 .deck-pool-card 的直接子级（同 __glow / __seal），所以不跟着卡面倾斜和翻面，
+ * 也不跟着 --deck-pool-scale 放大——它按屏幕像素排，和问号、圆钮是一档。
+ * 摆正中而不是角上：四个角都被占了（左上 Token 圆章、右上问号、右下「＋」、左下选中圆章），
+ * 而且正中压的是插画留白，盖不掉任何字。
+ * transform 不用 translate 独立属性：这一层虽然现在没有 GSAP 碰，但整页别处有过
+ * "GSAP 内联 transform 压死独立属性"的坑，统一写 transform 省得日后踩。
+ */
+.deck-pool-card__soon {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  padding: 4px 11px;
+  border: 1px solid rgb(255 229 164 / 48%);
+  border-radius: 999px;
+  background: rgb(10 15 26 / 88%);
+  box-shadow: 0 3px 12px rgb(4 9 19 / 55%);
+  color: #ffeec5;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 /* 抓在手上的那张：换光标、加重投影。zIndex 由 hook 写在内联样式上。 */
@@ -832,7 +886,7 @@
 
 /*
  * 选中圆章：金底墨字，钉在卡的左下角，约三分之一探出卡外。
- * 一份显示「✓」，两份（MAX_COPIES）显示「×2」。
+ * 一份显示「✓」，多带几份就显示「×2」「×3」。
  *
  * 四个角是分配好的：左上是卡面自带的 Token 圆章（不能压），右上是问号，
  * 右下是「＋」，只剩左下给它。
@@ -940,7 +994,7 @@
   box-shadow: 0 0 0 2px rgb(217 164 65 / 45%);
 }
 
-/* 加不进去（牌组满了 / 已经两份）。用 data-disabled 而不是真的 disabled：
+/* 加不进去（牌组满了 / 份数选满了 / 这张还没上线）。用 data-disabled 而不是真的 disabled：
    真禁用的按钮连 click 都不发，就没法在点它的时候摇头 + 弹一句原因（见 DeckScreen 的 addFromPool）。
    所以这里只画出禁用的样子，行为归 JS 判。 */
 .deck-circle--add[data-disabled] {

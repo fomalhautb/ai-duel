@@ -7,8 +7,14 @@
  *
  * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack
  * （左上角的返回按钮，纯查看时右下角还有一颗同样调 onBack 的「返回匹配」）。
- * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
- * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
+ * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步），
+ * 还能当新手教程的组牌一步（/tutorial，多传一个 tutorial prop）。
+ * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它，
+ * 教程的 17 张预填也是同一条路：进这一页之前先把那套牌组写进 deckStore 并设为当前。
+ *
+ * 教程模式（DeckScreenTutorial）只做减法：除了引导指定的那张卡和「确认牌组」，
+ * 其余操作（移除、加别的卡、改名、切换/新建/删除牌组、切页签、放大查看）一律挡下并喊一声，
+ * 由教程去显示一句提示。不传这个 prop 的两条入口行为一字不变。
  *
  * 四块复用件：
  * - 卡面用对局那套 HandCardFace（写死 150×225）。卡池卡放大、牌组迷你卡缩小，都是在内层套一个
@@ -18,8 +24,8 @@
  *   （ui/flipCard.ts，由右上角的问号热区驱动），再里面是正反两个 face。
  *   两面身上的 data-flip-face 是 flipCard.ts 认人的契约。倾斜句柄按 id 存在
  *   poolTiltsRef / deckTiltsRef 里，卡增减时增量挂 / 摘（见下面那个 useGSAP）。
- *   **只有技能牌有背面这一层和那个问号**：AI 牌的背面是全套通用的美术图，翻过去读不到任何东西
- *   （见 PoolCard 的 flippable，对局手牌同一口径）；
+ *   **AI 牌和即将上线的牌没有背面这一层和那个问号**：前者的背面是全套通用的美术图、翻过去
+ *   读不到任何东西（对局手牌同一口径），后者翻过去只是一段还没生效的效果说明（见 flippable）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
  *   （不传 veilRef），点遮罩和 ESC 都能关。正面大卡落在中央偏左（落位由 deck.css 覆盖），
@@ -28,7 +34,9 @@
  *
  * 加牌不是"瞬间填进格子"：拖拽松手、点加号、放大层里点「加入牌组」三个入口都先量一份
  * Flip 起点存进 pendingInsertRef，等新格子挂载之后，再把那张迷你卡从起点飞进格子。
- * 加不进去（牌组满了 / 已经两份）时不是静默失败，而是摇头 + 在卡上方弹一句原因（见 refuseAdd）。
+ * 加不进去（牌组满了 / 份数选满了 / 这张还没上线）时不是静默失败，而是摇头 + 在卡上方
+ * 弹一句原因（见 refuseAdd）。三种原因由 blockReasonNow 一处判完，拖拽、「＋」、
+ * 放大层那颗按钮说的是同一句话。
  *
  * 性能上有三处刻意的安排，改这一页时别顺手拆掉：
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
@@ -54,11 +62,11 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
-import { CARD_POOL, getCard } from '@ai-duel/core'
+import { CARD_POOL, COMING_SOON_SKILL_CARD_IDS, getCard } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
@@ -66,7 +74,7 @@ import { thumbFor } from '../ui/cardArtThumb'
 import { CardHelpMark } from '../ui/CardHelpMark'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
-import { HandCardFace } from '../ui/HandFan'
+import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
@@ -149,6 +157,22 @@ const ADD_TIP_GAP = 10
  */
 const DECK_FULL_TIP = `牌组已满 ${DECK_SIZE} 张`
 const MAX_COPIES_TIP = `同一张牌最多带 ${MAX_COPIES} 份`
+/**
+ * 还没开放的那些技能牌（core 的 COMING_SOON_SKILL_CARD_IDS）点上去说的话。
+ * 和上面两句一样走 blockReasonNow，所以拖拽、「＋」、放大层那颗按钮都说同一句。
+ */
+const COMING_SOON_TIP = '即将上线'
+
+/**
+ * 卡池里能摆出来的全部 id：已开放的（CARD_POOL）在前，「即将上线」的在后。
+ *
+ * 「排序永远在最后」这条就落在这一行——不是靠排序函数，而是靠拼接顺序，
+ * 后面的筛选（filterDeckCards）只做过滤、不重排，所以这个先后关系一路保持到网格上。
+ */
+const DISPLAY_CARD_IDS: CardId[] = [...CARD_POOL, ...COMING_SOON_SKILL_CARD_IDS]
+
+/** 查一张卡是不是「即将上线」。渲染期每张卡都要问一次，所以用 Set 而不是 includes。 */
+const COMING_SOON_IDS = new Set<CardId>(COMING_SOON_SKILL_CARD_IDS)
 
 /**
  * 一张卡里那两层的选择器。卡池卡和迷你卡的类名不一样，但要找的层是同一个角色，
@@ -198,12 +222,13 @@ type KindTabId = (typeof KIND_TABS)[number]['id']
 /**
  * id → 卡（原画版）。放大查看和统计口径都读它。
  *
- * 建的是**整个卡池**而不是玩家已拥有的那部分：卡池是编译期就定死的常量（core 的 CARDS），
- * 建成模块级常量才能保证对象身份稳定——它是传给下面两个 React.memo 卡片组件的 props，
- * 每次渲染现拼的话 memo 就永远命不中。玩家拥有哪些卡是渲染时再筛的（见 pool）。
+ * 建的是**这一页画得出的全部卡**（DISPLAY_CARD_IDS，含「即将上线」那批）而不是玩家已拥有的
+ * 那部分：这批 id 是编译期就定死的常量（core 的 CARDS），建成模块级常量才能保证对象身份稳定
+ * ——它是传给下面两个 React.memo 卡片组件的 props，每次渲染现拼的话 memo 就永远命不中。
+ * 玩家拥有哪些卡是渲染时再筛的（见 pool）。
  */
 const CARD_BY_ID = new Map<CardId, HandCardData>(
-  CARD_POOL.map((cardId) => [cardId, handCardOfDefinition(getCard(cardId))]),
+  DISPLAY_CARD_IDS.map((cardId) => [cardId, handCardOfDefinition(getCard(cardId))]),
 )
 
 /**
@@ -219,7 +244,7 @@ const CARD_BY_ID = new Map<CardId, HandCardData>(
  * **放大查看必须继续走 CARD_BY_ID 那份原画**：屏幕中央那张占到大半个屏幕，300 宽拉上去一眼就糊。
  */
 const THUMB_CARD_BY_ID = new Map<CardId, HandCardData>(
-  CARD_POOL.map((cardId) => {
+  DISPLAY_CARD_IDS.map((cardId) => {
     const card = handCardOfDefinition(getCard(cardId))
     return [cardId, { ...card, art: thumbFor(cardArtFor(cardId)) }]
   }),
@@ -236,7 +261,7 @@ const HIDDEN_IN_PLACE: CSSProperties = { visibility: 'hidden' }
 /**
  * 牌组里的一份牌。
  *
- * 存 key 而不是直接用下标当身份：同一张卡可以带两份，而删掉中间一份会让后面所有份的下标平移，
+ * 存 key 而不是直接用下标当身份：同一张卡可以带好几份，而删掉中间一份会让后面所有份的下标平移，
  * React 的 key、拖拽的 id、Flip 的配对键就全跟着换了一遍，正在拖 / 正在放大的那份会被认成另一份。
  * key 只在这次会话里有效，不落盘——存档里存的是纯 id 数组，进页面时现发一轮新 key。
  */
@@ -325,6 +350,26 @@ function useBindCache() {
 }
 
 /**
+ * 新手教程挂上来的限制（规格 §15 末段：组牌阶段只能点引导指定的卡和按钮）。
+ *
+ * 这一层刻意只有"放行哪张卡 / 确认能不能点 / 被挡了喊一声"三件事：
+ * 步骤怎么走、提示说什么全在 tutorial/ 那边，这一页对教程本身一无所知。
+ * 不传这个 prop 时整页就是原来的自由编辑页（/deck 和匹配流程都走那条）。
+ */
+export interface DeckScreenTutorial {
+  /** 这一步唯一放得进牌组的卡；null = 现在一张都不许加。 */
+  allowedCardId: CardId | null
+  /** 「确认牌组」能不能点。 */
+  allowConfirm: boolean
+  /** 被锁住的操作统一说这句话。 */
+  blockTip: string
+  /** 玩家点了锁住的东西，由教程去把提示显示出来（锁必须有话说，不能没反应）。 */
+  onBlocked: (tip: string) => void
+  /** 放行的那张卡真进牌组了，教程据此推进到下一步。 */
+  onCardAdded: (cardId: CardId) => void
+}
+
+/**
  * 把「每次渲染都换一份新身份」的回调钉成一个稳定的函数。
  *
  * 专门给要往下传给那两个 React.memo 卡片组件的回调用：contextSafe 包出来的函数每次渲染
@@ -347,9 +392,19 @@ export interface DeckScreenProps {
   onConfirm?: (deck: CardId[]) => void
   /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
   onBack?: () => void
+  /** 新手教程模式。不传 = 自由编辑，也就是这一页原本的样子。 */
+  tutorial?: DeckScreenTutorial
+  /**
+   * 盖在整页之上的额外一层，现在只有教程的引导层。
+   *
+   * 必须由这里挂进 `.deck-scaler` 里面：那一层有 transform，
+   * 既是层叠上下文（挂在外面的浮层压不住页内元素），
+   * 也是引导层 `position: fixed` 的包含块（挂在外面坐标就对不上舞台）。
+   */
+  overlay?: ReactNode
 }
 
-export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
+export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   /**
    * 选中的阵营，null = 不按阵营筛。只在「AI 牌」页签下生效（见 shown）。
@@ -403,6 +458,25 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   //（纯 CSS 那套在 Safari 上会让整页塌掉，原因见 ui/useStageScale.ts）。
   const scalerRef = useStageScale<HTMLDivElement>('--deck-scale')
 
+  /**
+   * 教程限制的镜像。拖拽和管理条的回调跨渲染活着，直接闭包捕获 prop 会读到过期的那份；
+   * 而把 tutorial 写进 addCard / removeEntry 的依赖，又会让它们每次渲染都换身份，
+   * 底下两个 React.memo 卡片组件就再也命不中（见 PoolCard 的说明）。
+   */
+  const tutorialRef = useRef(tutorial)
+  tutorialRef.current = tutorial
+
+  /**
+   * 教程期间挡下一次操作：喊一声由教程去显示提示，返回 true 表示"这一步到此为止"。
+   * 不在教程模式时恒返回 false，调用点照常往下走。
+   */
+  const blockedByTutorial = useCallback((): boolean => {
+    const guide = tutorialRef.current
+    if (guide === undefined) return false
+    guide.onBlocked(guide.blockTip)
+    return true
+  }, [])
+
   // 这一页没有挂载动画，useGSAP 在这儿只是为了拿 contextSafe：
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
   const { contextSafe } = useGSAP(() => {}, { scope: pageRef })
@@ -414,15 +488,25 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   // ---------- 卡池 ----------
 
   /**
-   * 卡池 = 存档里已拥有的卡，挂载时读一次。
+   * 卡池 = 存档里已拥有的卡 + 「即将上线」那批，挂载时读一次。
+   *
+   * 后面那批是灰着摆出来给人看的（选不进牌组，见 blockReasonNow），拼在末尾就是
+   * 「排序永远在最后」那条要求；它们不在存档的已拥有列表里，所以要在这儿另接上。
+   *
    * 这一页不会解锁新卡（收藏只在对局结束后变，见 save/save.ts 的 recordWin），
    * 所以中途不用重读，读一次还能保证卡池顺序稳定、网格不会莫名重排。
    */
-  const pool = useMemo<readonly CardId[]>(() => loadSave().ownedCards, [])
+  const pool = useMemo<readonly CardId[]>(
+    () => [...loadSave().ownedCards, ...COMING_SOON_SKILL_CARD_IDS],
+    [],
+  )
 
   /**
    * 页签上的数字。按整个卡池实算，既不跟着当前页签变，也不跟着阵营筛选变：
    * 它说的是"这一类我一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
+   *
+   * 「即将上线」那批也算在里面：它们就摆在这个页签底下的网格里，数字对不上网格里的张数
+   * 才更让人犯嘀咕。数字是"这一类一共有几张卡"，不是"我能选几张"。
    */
   const kindCounts = useMemo<Record<KindTabId, number>>(() => {
     const cards = pool.map((cardId) => CARD_BY_ID.get(cardId))
@@ -517,8 +601,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    *
    * 返回原因而不是布尔，是因为"加不了"现在要说话（浮字提示、放大层里的小字），
    * 让判定和话术留在同一处，免得两边各写一次 if 又对不上。
+   *
+   * 「即将上线」排在最前面判：它和牌组的状态无关（牌组空着也一样加不了），
+   * 而且这一句要盖过"牌组已满"——牌组正好满着的时候说"先移除才能再加"是在骗人，
+   * 移空了它照样加不进来。
    */
   const blockReasonNow = useCallback((cardId: CardId): string | null => {
+    if (COMING_SOON_IDS.has(cardId)) return COMING_SOON_TIP
     const current = deckRef.current
     if (current.length >= DECK_SIZE) return DECK_FULL_TIP
     let owned = 0
@@ -564,6 +653,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    */
   const addCard = useCallback(
     (cardId: CardId, captureFrom?: HTMLElement) => {
+      const guide = tutorialRef.current
+      // 教程期间只放行当前这一步点名的那张，连"再加一份已经加过的牌"也一起挡掉：
+      // 不挡的话玩家连点两下就把牌组填满了，后面几步没牌可加。
+      if (guide !== undefined && guide.allowedCardId !== cardId) {
+        guide.onBlocked(guide.blockTip)
+        return
+      }
       if (!canAddNow(cardId)) return
       nextKeyRef.current += 1
       const key = `pick-${nextKeyRef.current}`
@@ -581,12 +677,16 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
         else captureFrom.dataset.flipId = original
       }
       commitDeck([...deckRef.current, { key, cardId }])
+      // 教学靠这一声推进到下一步，所以它排在真的落牌之后：加不进去的分支上面已经 return 了。
+      guide?.onCardAdded(cardId)
     },
     [canAddNow, commitDeck],
   )
 
   const removeEntry = useCallback(
     (entryKey: string) => {
+      // 教程阶段牌组里的牌一张都不许动（规格 §15）。
+      if (blockedByTutorial()) return
       const current = deckRef.current
       const next = current.filter((entry) => entry.key !== entryKey)
       // 这份牌已经不在了（同一拍里被移过一次）就什么都别做：
@@ -594,7 +694,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
       if (next.length === current.length) return
       commitDeck(next)
     },
-    [commitDeck],
+    [blockedByTutorial, commitDeck],
   )
 
   const cardOfEntry = (entryKey: string): HandCardData | undefined => {
@@ -1008,7 +1108,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   /**
    * 卡池 → 牌组。落点是整个右面板。
    *
-   * 加不进去的牌（牌组满了、或这张已经两份）不靠 canDrag 挡：canDrag 在 pointerdown 就返回，
+   * 加不进去的牌（牌组满了、份数选满了、或这张还没上线）不靠 canDrag 挡：canDrag 在
+   * pointerdown 就返回，
    * 连"原地点一下放大看看"都会被一起挡掉。改成过了阈值再在 onDragStart 里掐掉这次拖拽——
    * 这是 hook 明确支持的用法，此时姿态和落点高亮都还没建起来，牌一动不动，而点击照常。
    */
@@ -1019,6 +1120,15 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     // 圆圈按钮（加入 / 移除）和问号热区（看背面）另有用途，按在它们上面不算抓牌。
     ignoreSelector: '.deck-circle, .deck-help',
     onDragStart: (drag) => {
+      // 教程期间只有放行的那张拖得动；别的牌当场掐掉这次拖拽，由教程去说原因。
+      // 这一关排在 blockReasonNow 前面：教学里被挡下的理由永远是"这一步别动它"，
+      // 不该冒出"牌组已满"这种和当前教学对不上的话。
+      const guide = tutorialRef.current
+      if (guide !== undefined && guide.allowedCardId !== drag.id) {
+        guide.onBlocked(guide.blockTip)
+        poolDragRef.current?.endDrag()
+        return
+      }
       const reason = blockReasonNow(drag.id)
       if (reason !== null) {
         // 拖不动这一下不能什么都不发生：摇个头再说一句为什么。
@@ -1037,7 +1147,30 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
       snapHome(drag.element)
     },
     onCancel: (drag) => returnHome(drag.element, true),
-    onTap: (id) => {
+    onTap: (id, drag) => {
+      /*
+       * 教程模式下点一张卡池卡就是"加入牌组"，不再是放大查看（规格 §12 写的正是
+       * "玩家点击指定 AI 牌后，卡牌进入牌组"）。放大查看这一步整段关掉：
+       * 它会铺一层遮罩把引导层压住，而这一段教学也没有需要细看卡面的地方。
+       *
+       * 走的是「＋」那条路（addFromPool），于是加牌飞行动画和 onCardAdded 都照常，
+       * 点错卡则由它里面的教程闸门挡下并让教程说话。
+       *
+       * 这一关排在「即将上线」前面，和 onDragStart、addFromPool 里的顺序一致：
+       * 教学里点错卡的理由永远是"这一步先点高亮那张"，不该冒出"即将上线"这种
+       * 和当前教学对不上的话。要加的那三张教学卡本来就都是已开放的，
+       * 所以「即将上线」的牌在教学里只会走上面这道教程闸门，加不进牌组。
+       */
+      if (tutorialRef.current !== undefined) {
+        addFromPool(id, drag.element)
+        return
+      }
+      // 「即将上线」的牌不放大：点它就是在问"这张怎么选不了"，那就当场回这一句。
+      // 这也是这类卡唯一会说话的地方——它们不给问号、也不给 hover 提示（见 PoolCard）。
+      if (COMING_SOON_IDS.has(id)) {
+        refuseAdd(drag.element, COMING_SOON_TIP)
+        return
+      }
       const card = CARD_BY_ID.get(id)
       if (card !== undefined) openZoom(card, 'pool', id)
     },
@@ -1048,6 +1181,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   /**
    * 牌组 → 拖出面板 = 移除。
+   *
+   * onDragStart 里要调 endDrag（教程期间不让拖），handle 又是本次 useCardDrag 的返回值，
+   * 只能事后存进 ref 里绕开这个循环——同上面卡池那侧的 poolDragRef。
    *
    * 靠 zones 的顺序做"面板外面才算数"：面板排在前面且 accepts: false，整页容器排在后面且接受，
    * 于是"压在面板上松手 = 取消（回弹）"、"面板外松手 = 移除"。
@@ -1064,6 +1200,12 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     contextSafe,
     ignoreSelector: '.deck-circle, .deck-help',
     onDragStart: (drag) => {
+      // 教程期间牌组里的牌一张都不许动，拖也不行：当场掐掉，别让牌跟着指针跑一段再弹回去。
+      // 排在摆正之前：这条路上牌根本不该动，摆正和拎出文档流都没必要做。
+      if (blockedByTutorial()) {
+        deckDragRef.current?.endDrag()
+        return
+      }
       // 起拖前先摆正，理由见 settleCard：liftCardOut 量的是外接矩形。
       settleCard(drag.element, deckTiltsRef.current.get(drag.id))
       // 格子区自己滚（见 .deck-slots），拖出去的牌不切成 fixed 就会被裁在格子区里。
@@ -1073,6 +1215,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     onDrop: (drag) => removeEntry(drag.id),
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (entryKey) => {
+      // 同卡池那边：教程期间不开放大查看，点一下只会得到一句"这一步别动牌组"。
+      if (blockedByTutorial()) return
       const card = cardOfEntry(entryKey)
       if (card !== undefined) openZoom(card, 'deck', entryKey)
     },
@@ -1089,6 +1233,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    * 就是为了能在这儿给一句反馈——真禁用的按钮连 click 都不发，玩家点半天没动静。
    */
   const addFromPool = useStable((cardId: CardId, cardEl: HTMLElement) => {
+    // 教程期间点错卡的话，理由归教程说（"这一步先点高亮那张"），
+    // 不能弹 blockReasonNow 那套和当前教学对不上的原因，所以这一关排在最前面。
+    const guide = tutorialRef.current
+    if (guide !== undefined && guide.allowedCardId !== cardId) {
+      guide.onBlocked(guide.blockTip)
+      return
+    }
     const reason = blockReasonNow(cardId)
     if (reason !== null) {
       refuseAdd(cardEl, reason)
@@ -1100,7 +1251,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   })
 
   /** 问号热区的进出。卡池卡和迷你卡共用，翻面层由 flipHelp 自己从热区往上找。
-      热区只长在技能牌上（见 PoolCard 的 flippable），所以这两个回调收不到 AI 牌。 */
+      热区只长在能翻面的牌上（见 PoolCard 的 flippable），AI 牌和即将上线的牌都到不了这里。 */
   const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
   const handleHelpLeave = useStable((help: HTMLElement) => flipHelp(help, false))
   /**
@@ -1166,6 +1317,10 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const selectDeck = (id: string) => {
     closeConfirm()
+    // 教程阶段不许切牌组：预填的那一套（「我的第一套牌组」）就是这一步要组的牌，
+    // 换一套的话引导说的"已选 17 / 20"当场对不上。
+    // 这条闸门原本挂在管理条的「切换」按钮上，那颗按钮已经摊成了这一行 tab。
+    if (blockedByTutorial()) return
     if (id === savedRef.current.currentId) return
     closeZoom()
     openDeck(setCurrentDeck(id))
@@ -1173,6 +1328,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const createNewDeck = () => {
     closeConfirm()
+    // 教程阶段不许新建牌组：这一步玩的就是眼前这套预填牌组。
+    if (blockedByTutorial()) return
     const next = createDeck()
     // 已经 12 套。按钮此时本来就是禁用的，这里只是不让 null 往下走。
     if (next === null) return
@@ -1189,6 +1346,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const startRename = () => {
     closeConfirm()
+    // 教程阶段不许改名：牌组名「我的第一套牌组」是教学文案的一部分。
+    if (blockedByTutorial()) return
     renameAbortRef.current = false
     setNameDraft(currentName)
     setRenaming(true)
@@ -1440,7 +1599,12 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         aria-selected={index === kindTab}
                         className="deck-kind"
                         data-active={index === kindTab}
-                        onClick={() => setKindTab(index)}
+                        // 教程期间不许切页签：一切就可能把当前要点的那张卡筛掉，
+                        // 引导圈会指向一个已经不在页面上的元素。
+                        onClick={() => {
+                          if (blockedByTutorial()) return
+                          setKindTab(index)
+                        }}
                       >
                         {tab.label} {kindCounts[tab.id]}
                       </button>
@@ -1496,12 +1660,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                     if (thumb === undefined) return null
                     const flipId = poolFlipId(cardId)
                     const picked = copies.get(cardId) ?? 0
+                    const comingSoon = COMING_SOON_IDS.has(cardId)
                     return (
                       <PoolCard
                         key={cardId}
                         card={thumb}
                         picked={picked}
-                        canAdd={!deckFull && picked < MAX_COPIES}
+                        canAdd={!comingSoon && !deckFull && picked < MAX_COPIES}
+                        comingSoon={comingSoon}
                         bind={bindPoolCard(cardId)}
                         onAdd={addFromPool}
                         onHelpEnter={handleHelpEnter}
@@ -1513,10 +1679,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                   })}
                 </div>
 
+                {/* 教程模式下点一张卡就是加入牌组、也不开放大查看，这行字必须跟着改口，
+                    否则它说的操作和实际行为对不上。 */}
                 <p className="deck-pool__hint">
-                  {deckFull
-                    ? `牌组已满 ${DECK_SIZE} 张 · 先移除才能再加`
-                    : '问号看背面 · 点击放大 · 加号或拖拽加入'}
+                  {tutorial !== undefined
+                    ? '点击高亮的卡牌，把它加入牌组'
+                    : deckFull
+                      ? `牌组已满 ${DECK_SIZE} 张 · 先移除才能再加`
+                      : '问号看背面 · 点击放大 · 加号或拖拽加入'}
                 </p>
               </section>
 
@@ -1603,7 +1773,11 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                             <button
                               type="button"
                               className="deck-manage__btn"
-                              onClick={() => setDeleting((open) => !open)}
+                              onClick={() => {
+                                // 教程阶段不许删牌组：预填的这一套正是教学要用的。
+                                if (blockedByTutorial()) return
+                                setDeleting((open) => !open)
+                              }}
                             >
                               删除
                             </button>
@@ -1633,7 +1807,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         ) : null}
                       </div>
 
-                      <div className="deck-tally">
+                      {/* data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/deckSteps.ts）：
+                          组牌教学第一句话高亮的就是这块「已选 N / 20」。 */}
+                      <div className="deck-tally" data-tutorial-anchor="deckCounter">
                         <p className="deck-tally__count">
                           已选 <b>{deck.length}</b>
                           <span className="deck-tally__total">/ {DECK_SIZE}</span>
@@ -1680,18 +1856,28 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                       <div className="deck-side__foot">
                         <div className="deck-side__notes">
-                          <p className="deck-side__hint">问号看背面 · 点击放大 · 返回按钮或拖出移除</p>
+                          {/* 教程阶段牌组是锁死的，这行字得跟着改口，
+                              否则它说的操作一样都做不了。 */}
+                          <p className="deck-side__hint">
+                            {tutorial === undefined
+                              ? '问号看背面 · 点击放大 · 返回按钮或拖出移除'
+                              : '教学阶段：牌组里的牌暂时不能改动'}
+                          </p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                           ) : null}
                         </div>
                         {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。
+                            教程模式下还要等引导走到最后一步才解锁（规格 §12：加满 20 张，按钮才亮）。
                             纯查看时（没有 onConfirm）这一格换成「返回匹配」，
                             省得只能去左上角找返回按钮。 */}
                         {onConfirm !== undefined ? (
                           <PlaqueButton
                             className="deck-confirm"
-                            disabled={shortfall > 0}
+                            data-tutorial-anchor="deckConfirm"
+                            disabled={
+                              shortfall > 0 || (tutorial !== undefined && !tutorial.allowConfirm)
+                            }
                             onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
                           >
                             确认牌组
@@ -1789,6 +1975,11 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                 又要低于展示遮罩（1100），出了这个层叠上下文就排不进这两者中间。 */}
             <div className="deck-add-tip" ref={addTipRef} aria-hidden="true" />
           </div>
+
+          {/* 额外浮层的插槽，现在只有教程的引导层。挂在 .paper-page__inner 外面、
+              仍然在 .deck-scaler 里面：前者是 z-index: 1 的层叠上下文（放进去就压不住页内元素），
+              后者带着 transform（放出去引导层的 fixed 坐标就不再以舞台为准）。 */}
+          {overlay}
         </div>
       </div>
     </div>
@@ -1813,6 +2004,14 @@ interface PoolCardProps {
   /** 这张卡已经选了几份。 */
   picked: number
   canAdd: boolean
+  /**
+   * 这张牌还没开放（core 的 COMING_SOON_SKILL_CARD_IDS）。
+   *
+   * 卡面灰掉、常驻一枚「即将上线」的小牌子，另外**不给问号**：翻过去也只是一段还没生效的
+   * 效果说明，不如让这类卡安静地待在卡池末尾，一眼就知道是占位。
+   * 拦下"加不进去"这件事的不是它，而是 blockReasonNow：三个入口都走那一条判定。
+   */
+  comingSoon: boolean
   bind: CardDragBindings
   /**
    * 点了「＋」。第二个参数是这张卡的外层元素（.deck-pool-card）：
@@ -1820,7 +2019,7 @@ interface PoolCardProps {
    * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
    */
   onAdd: (cardId: CardId, cardEl: HTMLElement) => void
-  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。 */
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。AI 牌和 comingSoon 的卡不挂问号（见 flippable）。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
   onHelpToggle: (help: HTMLElement) => void
@@ -1832,6 +2031,7 @@ const PoolCard = memo(function PoolCard({
   card,
   picked,
   canAdd,
+  comingSoon,
   bind,
   onAdd,
   onHelpEnter,
@@ -1839,9 +2039,13 @@ const PoolCard = memo(function PoolCard({
   onHelpToggle,
   hidden,
 }: PoolCardProps) {
-  /* 只有技能牌能翻面：AI 牌的背面是全套通用的那张美术图，翻过去什么信息都没有，
-     所以它连问号带背面整层一起不渲染（同对局手牌的口径，见 ui/HandFan.tsx 的 flippable）。 */
-  const flippable = card.kind !== 'ai'
+  /*
+   * 能不能翻面。不能翻的那两类，问号、热区和背面整层一起不渲染：
+   * - AI 牌：背面是全套通用的那张美术图，翻过去什么信息都没有（同对局手牌，见 HandFan 的 flippable）；
+   * - 即将上线的牌：背面只是一段还没生效的效果说明，问号留着只会让人一直去点，
+   *   热区还会把「点卡面 = 弹一句即将上线」那一下吃掉。
+   */
+  const flippable = card.kind !== 'ai' && !comingSoon
   return (
     // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
     // 没有这个盒子的话邻牌会立刻塌陷补位。
@@ -1852,6 +2056,10 @@ const PoolCard = memo(function PoolCard({
         // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
         data-flip-id={poolFlipId(card.id)}
         data-picked={picked > 0 ? picked : undefined}
+        // 「选满了」交给这个布尔属性，而不是让 CSS 去对 data-picked 的具体数字：
+        // 那样每次调 MAX_COPIES 都得记得回去改选择器里的那个数（见 deck.css）。
+        data-full={picked >= MAX_COPIES ? 'true' : undefined}
+        data-soon={comingSoon ? 'true' : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
       >
@@ -1893,6 +2101,9 @@ const PoolCard = memo(function PoolCard({
             必须留在 __inner 外面：跟着翻面转的话，牌一翻到背面它就转到指针够不着的地方，
             pointerleave 立刻翻回来、又被 hover 到，来回抖个没完（原委见 styles.css 的 .hand-fan__help）。
             靠 ignoreSelector 让「按在问号上」不等于抓牌（见两个 useCardDrag 的 ignoreSelector）。
+
+            「即将上线」的牌整个不挂它：这类卡不翻面，热区留着就是一块盖在卡右上角、
+            按下去什么都不发生的死区，还会把「点卡面 = 弹一句即将上线」那一下吃掉。
           */}
           {flippable ? (
             <button
@@ -1939,9 +2150,15 @@ const PoolCard = memo(function PoolCard({
         >
           <CircleGlyph kind="add" />
         </button>
+        {/*
+          常驻的「即将上线」小牌子。光把卡面刷灰不够：选满份数的卡也是灰的（见 deck.css），
+          两种灰摆在同一屏里分不出来，得有一行字说明这张是哪一种。
+          和下面那枚圆章一样是 .deck-pool-card 的直接子级，不跟着卡面倾斜、翻面。
+        */}
+        {comingSoon ? <span className="deck-pool-card__soon">即将上线</span> : null}
         {picked > 0 ? (
           <span className="deck-pool-card__seal" aria-hidden="true">
-            {picked >= MAX_COPIES ? '×2' : '✓'}
+            {picked > 1 ? `×${picked}` : '✓'}
           </span>
         ) : null}
       </div>
@@ -2047,14 +2264,15 @@ const DeckSlotItem = memo(function DeckSlotItem({
 /**
  * 卡牌背面（写死 150×225，和 HandCardFace 同一个口径，外面套缩放层用）。
  *
- * 技能牌那一支的 markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）
- * 保持一致，用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样。
+ * 技能牌那一支的 markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
+ * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样，
+ * 铺的是星象边框底图再压卡名和 backText（底图见 .card-back--skill）。
  * AI 牌那一支只剩放大查看的伴随层还在用（卡池卡和格子里的 AI 牌不翻面了，见 PoolCard 的
  * flippable），铺的是统一卡背图。
  */
 function CardBackFace({ card }: { card: HandCardData }) {
   return (
-    <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+    <div className={cardBackClassName(card.kind)}>
       {card.kind === 'ai' ? (
         <img
           className="card-back__art"

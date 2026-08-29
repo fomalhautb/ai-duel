@@ -670,6 +670,22 @@
   visibility: hidden;
 }
 
+/*
+ * 新手教程里被锁住的那六位（技能都写着「待实装」，见 HeroScreen 的 tutorial prop）。
+ *
+ * 去色 + 压暗到能看清是谁、但一眼看得出"这张不能选"；光标改成默认，不做出可点的样子。
+ * 仍然是真按钮、也不加 disabled：点上去要能弹一句"其余几位还没实装"，
+ * disabled 的按钮连 click 都不会触发（同 DeckScreen 里那些被挡下的操作）。
+ * 悬停上浮由 JS 那侧照 data-locked 跳过——那段位移是 GSAP 写的行内 transform，CSS 压不住。
+ */
+.hero__card[data-locked='true'] {
+  cursor: default;
+}
+
+.hero__card[data-locked='true'] .hero__card-tilt {
+  filter: grayscale(0.85) brightness(0.55);
+}
+
 /* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时。做法同首页（见 styles.css 的同名块）。
    确认按钮不用列在这儿：它是 .plaque-button，styles.css 里已经有自己那份同类规则。 */
 @media (prefers-reduced-motion: reduce) {

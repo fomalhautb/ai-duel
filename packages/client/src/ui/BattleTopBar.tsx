@@ -31,7 +31,8 @@ export function BattleTopBar({ status }: BattleTopBarProps) {
             第 <span className="battle-topbar__round-num">{status.round}</span> 轮
           </span>
           <DiamondMark />
-          <span className="battle-topbar__score">
+          {/* data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/steps.ts）。 */}
+          <span className="battle-topbar__score" data-tutorial-anchor="scoreBoard">
             <span className="battle-topbar__score-side">我方</span>
             <span className="battle-topbar__score-num">{status.myScore}</span>
             <span className="battle-topbar__score-colon">:</span>

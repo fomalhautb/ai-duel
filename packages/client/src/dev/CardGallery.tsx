@@ -13,7 +13,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation } from 'wouter'
 import type { Card, CardId } from '@ai-duel/core'
-import { HandCardFace } from '../ui/HandFan'
+import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import { AI_CARD_BACK_ART, CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
 import { toHandCardData } from '../ui/handCardData'
@@ -172,7 +172,7 @@ function CardDetail({ card }: { card: Card }) {
           <figcaption className="gallery__face-name">正面</figcaption>
         </figure>
         <figure className="gallery__face">
-          {/* AI 牌使用统一美术背面；其他牌的 .card-back 宽高各 100%，两者都由外层盒子定尺寸。 */}
+          {/* AI 牌使用统一美术背面；技能牌和英雄牌的 .card-back 宽高各 100%，都由外层盒子定尺寸。 */}
           <div className="gallery__card">
             {card.kind === 'ai' ? (
               <img
@@ -182,7 +182,7 @@ function CardDetail({ card }: { card: Card }) {
                 draggable={false}
               />
             ) : (
-              <div className="card-back">
+              <div className={cardBackClassName(card.kind)}>
                 <span className="card-back__title">{card.name}</span>
                 <p className="card-back__text">
                   {isIllustratedSkillCard(card.id) ? card.text : cardBackText(card)}

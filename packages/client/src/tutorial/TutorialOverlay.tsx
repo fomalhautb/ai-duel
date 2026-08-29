@@ -3,8 +3,10 @@
  *
  * 三条约定：
  *
- * - **整层不吃指针事件**。洞里的真实 UI 照常点得到、拖得动（手牌是 pointer capture，
+ * - **整层默认不吃指针事件**。洞里的真实 UI 照常点得到、拖得动（手牌是 pointer capture，
  *   拖出洞也不受影响）；"这一步不许点什么"由 MatchStage 的限制负责，不靠遮罩挡。
+ *   唯一的例外是 onNext 那几步：纯讲解的步骤本来就把界面锁死了，玩家没有别的可点，
+ *   这时才铺一层点击捕获层接住"点任意处继续"。
  * - **只认语义锚点，不认坐标**。目标是一串 CSS 选择器（由控制器从步骤表换算出来），
  *   位置每帧现量，布局一动就跟着走。
  * - **层级放在 1000 档**：压过对局的常规 UI（≤90），但被全屏过场（1100）盖住——
@@ -40,6 +42,8 @@ const TIP_GAP = 18
 const TIP_MARGIN = 24
 /** 气泡的估算高度，只用来判断"上面放不放得下"，真实高度由内容撑开。 */
 const TIP_HEIGHT_GUESS = 84
+/** 多出来的「下一步」按钮占的高度，气泡放在洞上方时要一起让开。 */
+const TIP_NEXT_HEIGHT = 46
 
 export interface TutorialOverlayProps {
   /** 一句话提示。null 或空串就不画气泡。 */
@@ -50,6 +54,11 @@ export interface TutorialOverlayProps {
   dim: boolean
   /** 这一步的提示可以出场了（readyOn 都到齐）。为 false 时整层什么都不画。 */
   active: boolean
+  /**
+   * 这一步要玩家点一下才往前走，点了就调它。
+   * null / 不传 = 这一步由对局流程或玩家的实际操作推进，不铺点击捕获层、也不画「下一步」。
+   */
+  onNext?: (() => void) | null
 }
 
 /** 舞台尺寸（舞台内坐标）。有缩放层时是设计稿尺寸，没有时就是视口尺寸。 */
@@ -58,7 +67,13 @@ interface StageSize {
   h: number
 }
 
-export function TutorialOverlay({ instruction, selectors, dim, active }: TutorialOverlayProps) {
+export function TutorialOverlay({
+  instruction,
+  selectors,
+  dim,
+  active,
+  onNext = null,
+}: TutorialOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [holes, setHoles] = useState<OverlayRect[]>([])
   /**
@@ -115,7 +130,7 @@ export function TutorialOverlay({ instruction, selectors, dim, active }: Tutoria
   }, [active, selectors.join('|')])
 
   const shades = active && dim ? dimRects(holes, stage.w, stage.h) : []
-  const tip = active && instruction ? tipPosition(holes, stage) : null
+  const tip = active && instruction ? tipPosition(holes, stage, onNext !== null) : null
 
   /**
    * 描边的呼吸。只补间 opacity，位置归 React 的行内样式管，两边不抢同一个属性。
@@ -176,15 +191,31 @@ export function TutorialOverlay({ instruction, selectors, dim, active }: Tutoria
           aria-hidden="true"
         />
       ))}
+      {onNext === null ? null : (
+        // 「点任意处继续」的接盘手。铺在压暗块之上、气泡之下，和气泡是兄弟节点，
+        // 所以点「下一步」按钮不会顺带触发这里（事件冒泡只往父节点走）。
+        <div
+          className="tutorial-overlay__catcher"
+          onClick={onNext}
+          // 键盘用户走气泡里那颗真按钮，这层只是给鼠标用的，别出现在辅助树里。
+          aria-hidden="true"
+        />
+      )}
       {tip === null || instruction === null ? null : (
-        <p
+        <div
           className="tutorial-overlay__tip"
           style={{ left: `${tip.x}px`, top: `${tip.y}px`, width: `${TIP_WIDTH}px` }}
-          // 提示是给玩家读的，屏幕阅读器该念出来；换一句就重念一遍。
-          role="status"
         >
-          {instruction}
-        </p>
+          {/* 提示是给玩家读的，屏幕阅读器该念出来；换一句就重念一遍。 */}
+          <p className="tutorial-overlay__text" role="status">
+            {instruction}
+          </p>
+          {onNext === null ? null : (
+            <button type="button" className="tutorial-overlay__next" onClick={onNext}>
+              下一步 <span aria-hidden="true">▸</span>
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -203,19 +234,27 @@ function rectStyle(rect: OverlayRect): CSSProperties {
  * 气泡摆在哪：贴着第一个洞放，洞在上半屏就放它下面、在下半屏就放它上面，
  * 一个洞都没有时摆在舞台上方居中（那种步骤只压暗、不指具体元素）。
  * 最后统一夹回舞台内，靠边的目标不会把气泡挤出画面。
+ *
+ * `withNext` 说的是气泡里多了一颗「下一步」：往上放的时候要多让开这颗按钮的高度，
+ * 否则气泡底边会压到它指着的那个洞上。
  */
-function tipPosition(holes: readonly OverlayRect[], stage: StageSize): { x: number; y: number } {
+function tipPosition(
+  holes: readonly OverlayRect[],
+  stage: StageSize,
+  withNext: boolean,
+): { x: number; y: number } {
+  const height = TIP_HEIGHT_GUESS + (withNext ? TIP_NEXT_HEIGHT : 0)
   const anchor = holes[0]
   if (anchor === undefined) {
     return { x: (stage.w - TIP_WIDTH) / 2, y: stage.h * 0.18 }
   }
   const centerY = anchor.y + anchor.h / 2
   const below = centerY < stage.h / 2
-  const rawY = below ? anchor.y + anchor.h + TIP_GAP : anchor.y - TIP_GAP - TIP_HEIGHT_GUESS
+  const rawY = below ? anchor.y + anchor.h + TIP_GAP : anchor.y - TIP_GAP - height
   const rawX = anchor.x + anchor.w / 2 - TIP_WIDTH / 2
   return {
     x: clamp(rawX, TIP_MARGIN, stage.w - TIP_WIDTH - TIP_MARGIN),
-    y: clamp(rawY, TIP_MARGIN, stage.h - TIP_HEIGHT_GUESS - TIP_MARGIN),
+    y: clamp(rawY, TIP_MARGIN, stage.h - height - TIP_MARGIN),
   }
 }
 

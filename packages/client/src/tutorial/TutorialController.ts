@@ -2,9 +2,12 @@
  * 教程控制器：把步骤表（steps.ts）跑起来。
  *
  * 三路输入汇到这里——引擎事件（tutorialDriver 的事件旁路）、舞台演出信号
- * （MatchStage 的 onStageCue）、以及计时——推着当前步骤往前走；
+ * （MatchStage 的 onStageCue）、以及玩家点击（notifyTap）——推着当前步骤往前走；
  * 两路输出交出去：给 MatchStage 的限制（哪几张手牌能打、「结束出牌」能不能点）
  * 和给 TutorialOverlay 的提示（一句话 + 要挖洞高亮的元素）。
+ *
+ * 纯讲解的步骤全部等玩家点一下才走，不排定时器自动跳；这里的定时器只剩两类：
+ * readyOn 的等待（等一段演出）和弱引导（idleHint）。
  *
  * 步骤推进的判定全在 steps.ts 的纯函数里，这里只负责"什么时候调它们"和排定时器。
  */
@@ -18,12 +21,18 @@ import type { MatchStageCue, MatchStageTutorial } from '../ui/matchStageTutorial
 import { TUTORIAL_PLAYER_SEAT } from './content'
 import {
   TUTORIAL_FIRST_STEP,
-  TUTORIAL_STEPS,
   allowanceOf,
-  signalSatisfied,
+  enterTutorialStep,
+  pumpTutorial,
   tutorialStep,
 } from './steps'
-import type { TutorialHighlight, TutorialSignal, TutorialStep, TutorialStepId } from './steps'
+import type {
+  TutorialHighlight,
+  TutorialMachineState,
+  TutorialSignal,
+  TutorialStep,
+  TutorialStepId,
+} from './steps'
 
 export interface TutorialControllerResult {
   /** 当前这一步的完整定义，Overlay 拿它取提示文案和压暗开关。 */
@@ -34,6 +43,13 @@ export interface TutorialControllerResult {
   highlightSelectors: string[]
   /** 原样交给 MatchStage 的 tutorial prop。 */
   stage: MatchStageTutorial
+  /**
+   * 这一步正等玩家点一下（提示已出场，且推进条件是 tap）。
+   * Overlay 靠它决定要不要铺点击捕获层和画「下一步」按钮。
+   */
+  awaitingTap: boolean
+  /** 玩家点了一下。没在等点击的时候调也无害，pump 会自己判掉。 */
+  notifyTap: () => void
 }
 
 /** 拿一个高亮目标换算成能查到 DOM 的选择器；查不到对应手牌时返回 null。 */
@@ -92,15 +108,11 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
   const [idleHintOn, setIdleHintOn] = useState(false)
 
   /**
-   * 机器本身的状态全走 ref：事件旁路是在 React 提交新快照**之前**同步送到的，
+   * 机器本身的状态走 ref：事件旁路是在 React 提交新快照**之前**同步送到的，
    * 那时读 state 拿到的是上一次渲染的旧值（同 MatchStage 里那批 ref 的理由）。
+   * 上面那两个 state 只是它的投影，供渲染用。
    */
-  const stepIdRef = useRef<TutorialStepId>(TUTORIAL_FIRST_STEP)
-  const readyRef = useRef(false)
-  /** 这一步还差哪几个 readyOn 信号没到。拷一份，别拿步骤表里那个数组当可变状态用。 */
-  const pendingReadyRef = useRef<TutorialSignal[]>([
-    ...(tutorialStep(TUTORIAL_FIRST_STEP).readyOn ?? []),
-  ])
+  const machineRef = useRef<TutorialMachineState>(enterTutorialStep(TUTORIAL_FIRST_STEP))
   /**
    * 本轮已经出现过的舞台信号，每轮 ROUND_STARTED 清空一次。
    * 记着而不是只认"刚到的那条"的理由见 steps.ts 的 TutorialSignalContext.seenCues。
@@ -108,56 +120,38 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
   const seenCuesRef = useRef(new Set<MatchStageCue>())
   const enteredAtRef = useRef(Date.now())
 
-  /** 进入某一步：只改状态和计时起点，具体的就绪/推进判定交给下面的 pump。 */
-  const enterStep = useCallback((next: TutorialStepId) => {
-    stepIdRef.current = next
-    readyRef.current = false
-    pendingReadyRef.current = [...(tutorialStep(next).readyOn ?? [])]
-    enteredAtRef.current = Date.now()
-    setStepId(next)
-    setReady(false)
-    setIdleHintOn(false)
+  /** 把状态机算出来的新状态落到 ref 和 state 上。换了一步就重新起算计时。 */
+  const apply = useCallback((next: TutorialMachineState) => {
+    const previous = machineRef.current
+    machineRef.current = next
+    if (next.stepId !== previous.stepId) {
+      enteredAtRef.current = Date.now()
+      setStepId(next.stepId)
+      setIdleHintOn(false)
+    }
+    setReady(next.ready)
   }, [])
 
-  /**
-   * 把当前这批输入喂给状态机，能推几步推几步。
-   *
-   * 循环是必要的：一批事件（或一条信号）可能同时满足"这一步就绪"和"这一步走完"，
-   * 甚至连着满足下一步的就绪条件。上限取步骤表长度，防着数据写错时空转。
-   */
+  /** 把当前这批输入喂给状态机（推进逻辑全在 steps.ts 的 pumpTutorial 里）。 */
   const pump = useCallback(
-    (events: readonly GameEvent[]) => {
-      for (let guard = 0; guard < TUTORIAL_STEPS.length; guard += 1) {
-        const context = {
+    (events: readonly GameEvent[], tapped = false) => {
+      apply(
+        pumpTutorial(machineRef.current, {
           seenCues: seenCuesRef.current,
           elapsedMs: Date.now() - enteredAtRef.current,
           events,
+          tapped,
           playerSeat: TUTORIAL_PLAYER_SEAT,
-        }
-        if (!readyRef.current) {
-          pendingReadyRef.current = pendingReadyRef.current.filter(
-            (signal) => !signalSatisfied(signal, context),
-          )
-          if (pendingReadyRef.current.length === 0) {
-            readyRef.current = true
-            // 就绪那一刻重新起算：advance 的 delay 说的是"提示出来之后停多久"。
-            enteredAtRef.current = Date.now()
-            setReady(true)
-          }
-        }
-        if (!readyRef.current) return
-
-        const step = tutorialStep(stepIdRef.current)
-        const advance = step.advance
-        if (advance === undefined || step.next === null) return
-        // delay 那一档由下面的定时器负责，这里只判"信号已经到了"的两种。
-        if (advance.kind === 'delay') return
-        if (!signalSatisfied(advance, { ...context, elapsedMs: 0 })) return
-        enterStep(step.next)
-      }
+        }),
+      )
     },
-    [enterStep],
+    [apply],
   )
+
+  /** 玩家点了一下（点屏幕或点「下一步」）。身份稳定，Overlay 可以直接当 prop 传。 */
+  const notifyTap = useCallback(() => {
+    pump([], true)
+  }, [pump])
 
   /** 事件旁路：ROUND_STARTED 换一轮就把本轮的信号记录清空，然后照常推进。 */
   const handleEvents = useCallback(
@@ -201,14 +195,15 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
    */
   useEffect(() => {
     const signals = tutorialStep(stepId).readyOn ?? []
-    if (signals.length === 0 || readyRef.current) return
+    if (signals.length === 0 || machineRef.current.ready) return
     const timers: ReturnType<typeof setTimeout>[] = []
     const ms = longestDelay(signals)
     if (ms !== null) timers.push(setTimeout(() => pump([]), ms))
     timers.push(
       setTimeout(() => {
-        if (readyRef.current) return
-        pendingReadyRef.current = []
+        if (machineRef.current.ready) return
+        // 清空待办等于"不等了"，下面这一泵就会让提示出场。
+        machineRef.current = { ...machineRef.current, pendingReady: [] }
         pump([])
       }, READY_TIMEOUT_MS),
     )
@@ -216,21 +211,6 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
       for (const timer of timers) clearTimeout(timer)
     }
   }, [stepId, pump])
-
-  // advance 是 delay 的那些步：提示出场之后停够时间就走下一步。
-  useEffect(() => {
-    if (!ready) return
-    const step = tutorialStep(stepId)
-    if (step.advance?.kind !== 'delay' || step.next === null) return
-    const next = step.next
-    const timer = setTimeout(() => {
-      enterStep(next)
-      // 进完新的一步必须再泵一次：不泵的话，readyOn 为空（进入即就绪）的下一步永远不会就绪，
-      // 因为 enterStep 只改状态、就绪判定全在 pump 里。整条链会卡在这一步上。
-      pump([])
-    }, step.advance.ms)
-    return () => clearTimeout(timer)
-  }, [stepId, ready, enterStep, pump])
 
   // 弱引导（规格 §9）：第 3 轮长时间没操作才轻微高亮，不压暗也不弹规则说明。
   useEffect(() => {
@@ -282,5 +262,12 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
     [blockedCards, allowance.endPlay, onStageCue],
   )
 
-  return { step, ready, highlightSelectors, stage }
+  return {
+    step,
+    ready,
+    highlightSelectors,
+    stage,
+    awaitingTap: ready && step.advance?.kind === 'tap',
+    notifyTap,
+  }
 }

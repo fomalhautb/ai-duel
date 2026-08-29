@@ -137,6 +137,8 @@ function TutorialMatch({
           selectors={tutorial.highlightSelectors}
           dim={tutorial.step.dim !== false}
           active={tutorial.ready && tutorial.step.instruction !== null}
+          // 纯讲解的步骤等玩家点一下才走；要玩家出牌 / 等演出的那些步不传，界面照常操作。
+          onNext={tutorial.awaitingTap ? tutorial.notifyTap : null}
         />
       }
       resultActions={

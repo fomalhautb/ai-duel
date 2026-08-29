@@ -6,7 +6,9 @@
  * 这张表一行都不用动（锚点清单见 TutorialAnchorName）。
  *
  * 推进这张表的是 TutorialController，它把三种输入喂进来：
- * 引擎事件（旁路自 tutorialDriver）、舞台演出信号（MatchStage 的 onStageCue）、计时。
+ * 引擎事件（旁路自 tutorialDriver）、舞台演出信号（MatchStage 的 onStageCue）、玩家点击。
+ * 纯讲解的那几步一律等玩家点一下才走，不自己跳——玩家读一句话的快慢差得很远，
+ * 定时推进只会有人没读完就被翻页、有人读完了干等着。
  * 所有判定都写成下面那几个纯函数，测试可以直接断言。
  */
 
@@ -77,12 +79,21 @@ export interface TutorialEventSignal {
 
 /**
  * 一个"什么时候算数"的信号。
- * `delay` 从这一步**准备就绪**那一刻起算（没有 readyOn 就是进入这一步的那一刻）。
+ *
+ * `delay` 只用在 readyOn 上，从进入这一步那一刻起算——它等的是一段没有收尾信号的演出。
+ * 推进（advance）一律不用 delay：讲解步骤等 `tap`（玩家点一下），其余等对局流程或演出信号。
  */
 export type TutorialSignal =
   | { kind: 'cue'; cue: MatchStageCue }
   | { kind: 'event'; event: TutorialEventSignal }
   | { kind: 'delay'; ms: number }
+  | { kind: 'tap' }
+
+/**
+ * 能当推进条件用的信号：把 `delay` 排除在外，从类型上钉死"讲解步骤不会自己跳"。
+ * 想加一步纯讲解就写 `advance: tap()`。
+ */
+export type TutorialAdvanceSignal = Exclude<TutorialSignal, { kind: 'delay' }>
 
 /** 这一步玩家能做什么（规格 §15）。 */
 export interface TutorialAllowance {
@@ -119,16 +130,18 @@ export interface TutorialStep {
   /** 规格 §9 的弱引导：玩家长时间没动作才轻微高亮这几处，不压暗也不弹规则。 */
   idleHint?: { afterMs: number; highlight: TutorialHighlight[] }
   /** 满足它就进入 next。next 为 null 的终点步不填。 */
-  advance?: TutorialSignal
+  advance?: TutorialAdvanceSignal
   next: TutorialStepId | null
 }
 
 /** 过渡态里手牌一律锁着时点上去弹的话。 */
 const CUTSCENE_TIP = '教学演出还没走完，先看这一段'
 
-const cue = (name: MatchStageCue): TutorialSignal => ({ kind: 'cue', cue: name })
+const cue = (name: MatchStageCue): TutorialAdvanceSignal => ({ kind: 'cue', cue: name })
 const delay = (ms: number): TutorialSignal => ({ kind: 'delay', ms })
-const onEvent = (type: GameEvent['type'], by?: 'me' | 'foe'): TutorialSignal => ({
+/** 等玩家点一下屏幕或「下一步」按钮。纯讲解的步骤全用它。 */
+const tap = (): TutorialAdvanceSignal => ({ kind: 'tap' })
+const onEvent = (type: GameEvent['type'], by?: 'me' | 'foe'): TutorialAdvanceSignal => ({
   kind: 'event',
   event: by === undefined ? { type } : { type, by },
 })
@@ -147,7 +160,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     readyOn: [cue('deal-done'), cue('round-banner-done')],
     instruction: '这是你的手牌。你的牌组共 20 张，开局抽 5 张。',
     highlight: [anchor('hand')],
-    advance: delay(3000),
+    advance: tap(),
     next: 'TUTORIAL_R1_KEYWORD',
   },
 
@@ -156,7 +169,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'TUTORIAL_R1_KEYWORD',
     instruction: '正式题目还没揭晓。先根据关键词判断该派谁上场。',
     highlight: [anchor('keywordPanel')],
-    advance: delay(3200),
+    advance: tap(),
     next: 'TUTORIAL_R1_PLAY_AI',
   },
   {
@@ -177,7 +190,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     readyOn: [delay(1600)],
     instruction: 'AI 牌上场后会留在场上，直到它答错题目。',
     highlight: [anchor('battlefieldMine')],
-    advance: delay(2800),
+    advance: tap(),
     next: 'TUTORIAL_R1_END_PLAY',
   },
   {
@@ -197,7 +210,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // 这句话趁对手还没动手时说：对手的出牌演出也是全屏过场，一上来提示就看不见了。
     instruction: '双方都结束出牌后，完整题目才会揭晓。',
     highlight: [anchor('battlefieldFoe')],
-    advance: delay(2800),
+    advance: tap(),
     next: 'TUTORIAL_R1_FOE_PLAY',
   },
   {
@@ -219,7 +232,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     readyOn: [cue('quiz-score-shown'), cue('round-banner-done')],
     instruction: '只有你答对，这一分属于你。',
     highlight: [anchor('scoreBoard')],
-    advance: delay(2600),
+    advance: tap(),
     next: 'TUTORIAL_R2_REFRESH',
   },
 
@@ -228,21 +241,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'TUTORIAL_R2_REFRESH',
     instruction: '上一轮答对的 AI 还在场上，它会自动参加这一轮，不需要重新付 Token。',
     highlight: [anchor('battlefieldMine')],
-    advance: delay(3400),
+    advance: tap(),
     next: 'TUTORIAL_R2_TOKEN',
   },
   {
     id: 'TUTORIAL_R2_TOKEN',
     instruction: '每轮结束后 Token 会恢复，并且下一轮上限 +1。',
     highlight: [anchor('tokenCounter')],
-    advance: delay(2800),
+    advance: tap(),
     next: 'TUTORIAL_R2_DRAW',
   },
   {
     id: 'TUTORIAL_R2_DRAW',
     instruction: '从第 2 轮开始，每轮抽 2 张牌。',
     highlight: [anchor('hand')],
-    advance: delay(2600),
+    advance: tap(),
     next: 'TUTORIAL_R2_FOE_PLAY',
   },
 
@@ -272,7 +285,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     readyOn: [cue('skill-hit')],
     instruction: '技能牌使用后立即生效。',
     highlight: [anchor('battlefieldFoe')],
-    advance: delay(2400),
+    advance: tap(),
     next: 'TUTORIAL_R2_PLAY',
   },
   {
@@ -302,7 +315,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     readyOn: [cue('round-banner-done')],
     instruction: '双方都答对时，本轮消耗 Token 更少的一方得分。',
     highlight: [anchor('scoreBoard')],
-    advance: delay(3000),
+    advance: tap(),
     next: 'TUTORIAL_R3_FREE_PLAY',
   },
 
@@ -392,14 +405,21 @@ export interface TutorialSignalContext {
    * 每轮 `ROUND_STARTED` 清空一次，跨轮的同名信号才不会互相顶替。
    */
   seenCues: ReadonlySet<MatchStageCue>
-  /** 这一步就绪之后过了多久（毫秒）；还没就绪时按 0 算。 */
+  /** 进入这一步之后过了多久（毫秒）。只有 readyOn 里的 delay 会看它。 */
   elapsedMs: number
   /** 这一批新到的引擎事件。 */
   events: readonly GameEvent[]
+  /**
+   * 这批输入里有没有一次玩家点击（点屏幕或点「下一步」）。
+   *
+   * 一次点击只算数一次：推完一步 tap 就把它划掉再往下判，
+   * 否则连着几步纯讲解会被同一下点击一口气翻完（见 pumpTutorial）。
+   */
+  tapped: boolean
   playerSeat: PlayerId
 }
 
-/** 一个信号现在成立没有。三种信号各查各的来源，互不相干。 */
+/** 一个信号现在成立没有。四种信号各查各的来源，互不相干。 */
 export function signalSatisfied(
   signal: TutorialSignal,
   context: TutorialSignalContext,
@@ -409,9 +429,86 @@ export function signalSatisfied(
       return context.seenCues.has(signal.cue)
     case 'delay':
       return context.elapsedMs >= signal.ms
+    case 'tap':
+      return context.tapped
     case 'event':
       return context.events.some((event) =>
         eventMatches(signal.event, event, context.playerSeat),
       )
   }
+}
+
+/** 这一步走得动的话，往哪走、这一下点击是不是被它吃掉了。 */
+interface TutorialAdvanceResult {
+  next: TutorialStepId
+  /** 这一步是被点击推走的，那这一下点击就用完了（见 pumpTutorial）。 */
+  tapConsumed: boolean
+}
+
+/** 当前这一步现在能不能往下走。走不动（含终点步）返回 null。 */
+function tryAdvance(
+  step: TutorialStep,
+  context: TutorialSignalContext,
+): TutorialAdvanceResult | null {
+  const advance = step.advance
+  if (advance === undefined || step.next === null) return null
+  if (!signalSatisfied(advance, context)) return null
+  return { next: step.next, tapConsumed: advance.kind === 'tap' }
+}
+
+/**
+ * 状态机跑到哪了。控制器把它存在 ref 里，推进本身是下面那个纯函数。
+ * 拆成"纯状态 + 纯函数"是为了让整条推进逻辑不用渲染 React 就能测。
+ */
+export interface TutorialMachineState {
+  stepId: TutorialStepId
+  /** 这一步的 readyOn 都到齐了，提示已经出场。 */
+  ready: boolean
+  /** 还差哪几个 readyOn 没到。拷贝出来的，不会动到步骤表里那个数组。 */
+  pendingReady: readonly TutorialSignal[]
+}
+
+/** 刚进入某一步时的状态：readyOn 原样抄一份当待办清单。 */
+export function enterTutorialStep(stepId: TutorialStepId): TutorialMachineState {
+  return { stepId, ready: false, pendingReady: [...(tutorialStep(stepId).readyOn ?? [])] }
+}
+
+/**
+ * 把一批输入喂给状态机，能推几步推几步。
+ *
+ * 循环是必要的：一批事件（或一条信号）可能同时满足"这一步就绪"和"这一步走完"，
+ * 甚至连着满足下一步的就绪条件。上限取步骤表长度，防着数据写错时空转。
+ *
+ * 两条不显然的规矩：
+ *
+ * - **一次点击只推一步**。推走一步 tap 之后就把这一下点击划掉，后面的步骤看到的是
+ *   "没人点"。纯讲解的步骤有连着三步的（R2_REFRESH→R2_TOKEN→R2_DRAW），
+ *   而且它们 readyOn 为空、进入即就绪，不划掉的话一下点击会把三句话一口气翻完。
+ * - **没就绪就不看推进条件**。提示还没出场（多半在等一段全屏过场）时玩家点的那一下不算数。
+ */
+export function pumpTutorial(
+  state: TutorialMachineState,
+  context: TutorialSignalContext,
+): TutorialMachineState {
+  let current = state
+  let tapped = context.tapped
+  // 每往前进一步就是"刚进来"，计时归零：readyOn 的 delay 说的是进入这一步之后等多久。
+  let elapsedMs = context.elapsedMs
+  for (let guard = 0; guard < TUTORIAL_STEPS.length; guard += 1) {
+    const now: TutorialSignalContext = { ...context, tapped, elapsedMs }
+    if (!current.ready) {
+      const pendingReady = current.pendingReady.filter(
+        (signal) => !signalSatisfied(signal, now),
+      )
+      current = { ...current, pendingReady, ready: pendingReady.length === 0 }
+    }
+    if (!current.ready) return current
+
+    const move = tryAdvance(tutorialStep(current.stepId), now)
+    if (move === null) return current
+    if (move.tapConsumed) tapped = false
+    elapsedMs = 0
+    current = enterTutorialStep(move.next)
+  }
+  return current
 }

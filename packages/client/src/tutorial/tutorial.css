@@ -37,11 +37,27 @@
 }
 
 /*
+ * 「点任意处继续」的点击捕获层。
+ *
+ * 只在纯讲解那几步铺出来（Overlay 收到 onNext 时），铺满整块舞台。
+ * 那几步界面本来就锁死，玩家没有别的可点，所以整层吃掉指针事件不会挡到任何操作。
+ * z-index 压过压暗块、又在气泡之下：气泡里的「下一步」按钮不能被它盖住。
+ */
+.tutorial-overlay__catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/*
  * 提示气泡。位置由 JS 现算（贴着第一个洞放），这里只管长相。
  * 用纸面配色和对局界面的匾额保持一族；字号偏大，一句话一眼看完。
  */
 .tutorial-overlay__tip {
   position: absolute;
+  z-index: 2;
   margin: 0;
   padding: 16px 22px;
   box-sizing: border-box;
@@ -53,6 +69,36 @@
   line-height: 1.5;
   text-align: center;
   box-shadow: 0 10px 26px rgba(6, 10, 18, 0.45);
+}
+
+.tutorial-overlay__text {
+  margin: 0;
+}
+
+/*
+ * 「下一步」。和捕获层是两条同样的路：点它和点屏幕任意处效果一样，
+ * 留着这颗是为了把"要点一下才继续"这件事明说出来，也给键盘用户一个焦点。
+ * 气泡整层不吃指针事件，这颗要单独开。
+ */
+.tutorial-overlay__next {
+  display: block;
+  margin: 12px auto 0;
+  padding: 7px 20px;
+  border: 1px solid #b9a06a;
+  border-radius: 999px;
+  background: rgb(185 160 106 / 18%);
+  color: #4a3b22;
+  font-family: inherit;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.18s ease;
+}
+
+.tutorial-overlay__next:hover {
+  background: rgb(185 160 106 / 34%);
 }
 
 /*
@@ -242,6 +288,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tutorial-overlay__next,
   .tutorial-skip,
   .tutorial-skip__btn {
     transition-duration: 1ms;

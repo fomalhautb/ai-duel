@@ -20,7 +20,8 @@ import {
   TUTORIAL_PLAYER_OPENING_HAND,
   tutorialCardCost,
 } from '../src/tutorial/content'
-import { signalSatisfied } from '../src/tutorial/steps'
+import { enterTutorialStep, pumpTutorial, signalSatisfied } from '../src/tutorial/steps'
+import type { TutorialSignalContext } from '../src/tutorial/steps'
 
 const PLAYER = 0
 const FOE = 1
@@ -271,15 +272,22 @@ describe('步骤表的完成条件判定', () => {
     seenCues: new Set<'quiz-open'>(['quiz-open']),
     elapsedMs: 1200,
     events: [{ type: 'AI_DEPLOYED', player: 0, ai: { instanceId: 'x', cardId: 'gpt-2', owner: 0 } }],
+    tapped: false,
     playerSeat: PLAYER,
   } as const
+
+  it('tap 认这批输入里有没有玩家点的那一下', () => {
+    expect(signalSatisfied({ kind: 'tap' }, context)).toBe(false)
+    expect(signalSatisfied({ kind: 'tap' }, { ...context, tapped: true })).toBe(true)
+  })
 
   it('cue 只认本轮已经出现过的信号', () => {
     expect(signalSatisfied({ kind: 'cue', cue: 'quiz-open' }, context)).toBe(true)
     expect(signalSatisfied({ kind: 'cue', cue: 'quiz-closed' }, context)).toBe(false)
   })
 
-  it('delay 按就绪之后过了多久算', () => {
+  // delay 现在只出现在 readyOn 里（等一段没有收尾信号的演出），按进入这一步之后过了多久算。
+  it('delay 按进入这一步之后过了多久算', () => {
     expect(signalSatisfied({ kind: 'delay', ms: 1200 }, context)).toBe(true)
     expect(signalSatisfied({ kind: 'delay', ms: 1201 }, context)).toBe(false)
   })
@@ -293,5 +301,76 @@ describe('步骤表的完成条件判定', () => {
       signalSatisfied({ kind: 'event', event: { type: 'AI_DEPLOYED', by: 'foe' } }, context),
     ).toBe(false)
     expect(signalSatisfied({ kind: 'event', event: { type: 'GAME_OVER' } }, context)).toBe(false)
+  })
+})
+
+/**
+ * 讲解步骤的推进：全靠玩家点一下（steps.ts 的 `advance: tap()`）。
+ * 这里直接跑状态机本体 pumpTutorial，不渲染 React——控制器那层只是把它的结果落到 state 上。
+ */
+describe('讲解步骤靠点击推进', () => {
+  /** 一批"什么都没发生"的输入，用参数按需覆盖其中一两项。 */
+  function inputs(overrides: Partial<TutorialSignalContext> = {}): TutorialSignalContext {
+    return {
+      seenCues: new Set(),
+      elapsedMs: 0,
+      events: [],
+      tapped: false,
+      playerSeat: PLAYER,
+      ...overrides,
+    }
+  }
+
+  it('没点就不动，点了才走下一步', () => {
+    // 泵一次让提示出场（这一步没有 readyOn，进入即就绪），但没人点，所以还停在原地。
+    const idle = pumpTutorial(enterTutorialStep('TUTORIAL_R2_REFRESH'), inputs())
+    expect(idle.ready).toBe(true)
+    expect(idle.stepId).toBe('TUTORIAL_R2_REFRESH')
+
+    expect(pumpTutorial(idle, inputs({ tapped: true })).stepId).toBe('TUTORIAL_R2_TOKEN')
+  })
+
+  it('一次点击只推一步：连着三步讲解要点三下', () => {
+    // 这三步 readyOn 都是空的、进入即就绪，最容易被同一下点击一口气翻完。
+    let state = pumpTutorial(enterTutorialStep('TUTORIAL_R2_REFRESH'), inputs())
+    const visited = [state.stepId]
+    for (let i = 0; i < 3; i += 1) {
+      state = pumpTutorial(state, inputs({ tapped: true }))
+      visited.push(state.stepId)
+    }
+    expect(visited).toEqual([
+      'TUTORIAL_R2_REFRESH',
+      'TUTORIAL_R2_TOKEN',
+      'TUTORIAL_R2_DRAW',
+      // 第三下之后进入过渡态（放行对手脚本），它等的是引擎事件，不再吃点击。
+      'TUTORIAL_R2_FOE_PLAY',
+    ])
+  })
+
+  it('提示还没出场时点的那一下不算数', () => {
+    // R1_STAY 要等上场特效演完（readyOn 里的 delay(1600)）提示才出来。
+    const early = pumpTutorial(enterTutorialStep('TUTORIAL_R1_STAY'), inputs({ tapped: true }))
+    expect(early.ready).toBe(false)
+    expect(early.stepId).toBe('TUTORIAL_R1_STAY')
+
+    // 演出走完，提示出场——刚才那一下没被记着，还停在这一步等玩家重新点。
+    const shown = pumpTutorial(early, inputs({ elapsedMs: 1600 }))
+    expect(shown.ready).toBe(true)
+    expect(shown.stepId).toBe('TUTORIAL_R1_STAY')
+    expect(pumpTutorial(shown, inputs({ tapped: true })).stepId).toBe('TUTORIAL_R1_END_PLAY')
+  })
+
+  it('要玩家出牌的步骤不吃点击，只认引擎事件', () => {
+    const state = pumpTutorial(enterTutorialStep('TUTORIAL_R1_PLAY_AI'), inputs({ tapped: true }))
+    expect(state.stepId).toBe('TUTORIAL_R1_PLAY_AI')
+    const played = pumpTutorial(
+      state,
+      inputs({
+        events: [
+          { type: 'AI_DEPLOYED', player: PLAYER, ai: { instanceId: 'x', cardId: 'gpt-2', owner: PLAYER } },
+        ],
+      }),
+    )
+    expect(played.stepId).toBe('TUTORIAL_R1_STAY')
   })
 })

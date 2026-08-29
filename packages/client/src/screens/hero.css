@@ -388,6 +388,61 @@
   }
 }
 
+/*
+ * 技能还没实装的英雄（core 的 HeroCard.comingSoon）：整张卡常驻置灰，点不动。
+ *
+ * 不做 hover 才出现的提示——产品明确要求一眼就能看出哪几位选不了，
+ * 而且这一页在触屏上根本没有 hover 可用。指针交互（倾斜、上浮）在 HeroScreen 里就没挂，
+ * 这儿只补"看起来点不动"的部分：手型换回箭头，卡面褪成灰的。
+ *
+ * 褪色写在倾斜层而不是整颗按钮上，是为了让下面那条「即将加入」留在灰化之外——
+ * 它正是用来解释褪色的，自己也灰掉就白写了（同对战侧栏的 .battle__hero-used）。
+ * 观感也照那边取：opacity .62 + grayscale 85%，同一个产品里"不可用"该长一个样。
+ */
+.hero__card--soon {
+  cursor: default;
+}
+
+.hero__card--soon .hero__card-tilt {
+  opacity: 0.62;
+  filter: grayscale(85%);
+}
+
+/*
+ * 「即将加入」封条。
+ *
+ * 位置在卡面偏下（64%）：上面是人物的脸、最底下是卡面自带的名字牌，两处都不能压。
+ * 那一带正好是衣服和背景，压一条纸也不挡信息。
+ *
+ * 样式是这一页少见的浅色块：底下的卡已经灰了，再来一条米金细字会一起沉进去，
+ * 所以反过来做成一张暖白纸条 + 墨色字，是整张卡上唯一还有彩度的东西，扫一眼就找得到。
+ * 那 2 度的歪斜是让它像手贴上去的封条，正着放太像系统弹窗。
+ *
+ * 不吃指针事件：整颗按钮的点击已经在 JS 里挡掉了，但这条压在卡面上，
+ * 留着指针事件会让 hover 的落点在纸条内外来回跳。
+ */
+.hero__card-soon {
+  position: absolute;
+  top: 64%;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  padding: 0.42cqi 1.1cqi;
+  border: 0.06cqi solid rgb(58 46 32 / 45%);
+  border-radius: 0.25cqi;
+  background: linear-gradient(#f4ead3, #ddceac);
+  color: #2b2119;
+  font-size: 0.95cqi;
+  font-weight: 600;
+  /* 字距拉开是水墨牌匾的味道；同样大小的右侧留白由 text-indent 补回来，
+     否则最后一个字后面多出一格字距，整条字看着偏左。 */
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  white-space: nowrap;
+  line-height: 1;
+  box-shadow: 0 0.25cqi 0.6cqi rgb(4 8 14 / 45%);
+  pointer-events: none;
+}
+
 /* ============================================================
    确认按钮
    ============================================================ */
@@ -671,10 +726,14 @@
 }
 
 /*
- * 新手教程里被锁住的那六位（技能都写着「待实装」，见 HeroScreen 的 tutorial prop）。
+ * 新手教程里被暂时锁住的那六位（见 HeroScreen 的 tutorial prop）。
+ *
+ * 和上面 .hero__card--soon 那档是两回事：那是"技能还没实装"，长期灰着、还盖着封条；
+ * 这一档只在教程期间成立，教学一走完就没了，所以只去色、不加封条。
+ * 那三位 comingSoon 的英雄在教程里两档都吃，视觉上按封条那一档走。
  *
  * 去色 + 压暗到能看清是谁、但一眼看得出"这张不能选"；光标改成默认，不做出可点的样子。
- * 仍然是真按钮、也不加 disabled：点上去要能弹一句"其余几位还没实装"，
+ * 仍然是真按钮、也不加 disabled：点上去要能弹一句"先选高亮的这位"，
  * disabled 的按钮连 click 都不会触发（同 DeckScreen 里那些被挡下的操作）。
  * 悬停上浮由 JS 那侧照 data-locked 跳过——那段位移是 GSAP 写的行内 transform，CSS 压不住。
  */

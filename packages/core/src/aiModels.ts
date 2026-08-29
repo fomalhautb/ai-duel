@@ -245,3 +245,74 @@ export const PLAYABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
 export const UNAVAILABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
   (id) => AI_MODEL_CARDS[id]?.openrouter === null,
 )
+
+/**
+ * 同系列的升级链，每条按"从老到新"排。
+ *
+ * **不是另写一份名单，而是顺着每张卡的 `evolvesTo` 现串出来的**：链头是"没有任何卡指向它、
+ * 自己又指向别人"的那几张，从链头一路跟着 evolvesTo 走到头就是一条链。
+ * 这么做是因为同一份代际关系有两个读者——技能牌「鸡犬升天」直接读 `evolvesTo` 逐个进化，
+ * 英雄技能「精准检索」/「化繁为简」读这份链表升降级。写成两份迟早会对不上，
+ * 那时同一对卡在两条路径上会给出不同的下一代，谁都说不清哪个才算数。
+ *
+ * 升降级技能就是**把场上那个单位的 `cardId` 换成链上相邻的一张**，不另加任何数值修正：
+ * 答题表现本来就写在 script.ts 那张「题目 × 卡牌」的静态表里，换了卡自然就换了一整套答题结果，
+ * 引擎不必再理解"强了多少"。费用也不用重算——技能是免费换卡，不退不补（见 engine.ts 的 useHeroSkill）。
+ *
+ * 只有确实存在代际关系的四个系列会串出链来（GPT / Claude / DeepSeek / Kimi），
+ * 其余 8 张（Gemini / 通义千问 / 豆包 / GLM-5 / MiniMax / 腾讯元宝 / Grok / 文心一言）
+ * 不带 evolvesTo、也没人指向它们，指向它们的升降级一律被拒。
+ * 每张卡最多出现在一条链里、链内不重复，所以查上一代/下一代都是唯一答案。
+ *
+ * 链条**不避开 UNAVAILABLE_AI_CARD_IDS**：GPT-2 调不到模型、进不了牌组，
+ * 但珀金斯照样能把对面的 GPT-3.5 降成它——那两份名单管的是"玩家能不能把这张牌选进牌组"，
+ * 而答题结果眼下走 script.ts 那张静态表，18 张卡全都有词条，降成 GPT-2 一样答得出来。
+ * 不为此特判是有意的：链条按代际关系排就够了，多一条"跳过调不到的那张"的规则
+ * 只会让"降一代"这件事变得难以预期（对面看到的会是 GPT-3.5 直接掉成……什么？）。
+ * 将来真接上模型 API，再决定是给这两张配一个替身模型，还是那时才把它们从链上摘掉。
+ */
+export const AI_UPGRADE_CHAINS: readonly (readonly CardId[])[] = buildUpgradeChains()
+
+function buildUpgradeChains(): CardId[][] {
+  // 被别人指着的都不是链头。evolvesTo 里的每个值最多被一张卡指向（由测试守着），
+  // 所以"没被指过"就足以认出链头，不用再判环。
+  const pointedAt = new Set(
+    AI_MODEL_CARD_IDS.map((id) => AI_MODEL_CARDS[id]?.evolvesTo).filter(
+      (id): id is CardId => id !== undefined,
+    ),
+  )
+  const chains: CardId[][] = []
+  for (const head of AI_MODEL_CARD_IDS) {
+    if (pointedAt.has(head) || AI_MODEL_CARDS[head]?.evolvesTo === undefined) continue
+    const chain: CardId[] = [head]
+    // 一路跟着 evolvesTo 走到头。链上不会有环（collection 的测试守着"不指回自己"，
+    // 加上上面那条"每张最多被指一次"，环就无从形成）。
+    let next: CardId | undefined = AI_MODEL_CARDS[head]?.evolvesTo
+    while (next !== undefined) {
+      chain.push(next)
+      next = AI_MODEL_CARDS[next]?.evolvesTo
+    }
+    chains.push(chain)
+  }
+  return chains
+}
+
+/** 在升级链上按 step 找相邻的一张：+1 是下一代，-1 是上一代；不在链上或走出两端都是 null。 */
+function chainNeighbor(cardId: CardId, step: 1 | -1): CardId | null {
+  for (const chain of AI_UPGRADE_CHAINS) {
+    const index = chain.indexOf(cardId)
+    if (index < 0) continue
+    return chain[index + step] ?? null
+  }
+  return null
+}
+
+/** 这张 AI 牌升一级会变成谁。已经是链上最新的一代、或者根本没有同系列的其它代，都返回 null。 */
+export function upgradeTargetOf(cardId: CardId): CardId | null {
+  return chainNeighbor(cardId, 1)
+}
+
+/** 这张 AI 牌降一级会变成谁。已经是链上最早的一代、或者根本没有同系列的其它代，都返回 null。 */
+export function downgradeTargetOf(cardId: CardId): CardId | null {
+  return chainNeighbor(cardId, -1)
+}

@@ -82,10 +82,13 @@ export const TUTORIAL_CARDS = {
   /**
    * 第 2 轮"可以再派一张"时高亮的 AI，只留 GPT-2（1 费）这一张。
    *
-   * 收窄到一张是 Token 对账的硬要求，不是排版偏好：第 2 轮玩家最多花
-   * 复读机 4 + GPT-2 1 = 5 点，严格小于对手那一轮的 6 点，
-   * 于是无论玩家怎么操作都稳拿"消耗更少"那一分（对账见下面 TUTORIAL_FOE_PLAYS）。
-   * 再放进一张 2 费的就会打成 6 比 6 平手，第 2 轮的教学结论当场翻车。
+   * 收窄到一张是教学节奏上的选择：第 2 轮还处在"部分限制"（规格 §17），
+   * 一步只放行一张高亮的牌，玩家不用在这一步做取舍。豆包（2 费）明明买得起却压着不放行，
+   * 正好让"这一轮只放行这一张"看得见对照。
+   *
+   * 它**不再是 Token 对账的硬要求**：第 2 轮的那一分现在靠"复读机让对手答错、只有玩家答对"
+   * 拿到（见下面 tutorialAnswers），和双方各花多少 Token 无关。真要放宽到两张也不会翻车，
+   * 唯一要守的是每张都得在这一轮的额度内（6 点减去复读机的 4 点，也就是 2 费以内）。
    */
   optionalAi: ['gpt-2'] as CardId[],
 }
@@ -182,32 +185,33 @@ export const TUTORIAL_FOE_OPENING_HAND: CardId[] = FOE_DRAW_ORDER.slice(0, 5)
  * 费用对账（Token 上限每轮 +1，从 5 起）：3 ≤ 5、6 ≤ 6、4 ≤ 7，每一轮都付得起
  *（第 2 轮那 6 点正好花光当轮额度，是对手出得起的最贵一张）。
  *
- * 第 2 轮那 6 点是故意花的：它必须**严格大于**玩家在教学限制内可能的最大消耗
- *（复读机 4 + 唯一放行的 GPT-2 1 = 5），这样"双方同对就比 Token"那一分才稳稳属于玩家。
- * 下限那头也是稳的：玩家这一轮就算一张都不打（消耗 0），0 < 6 照样赢。
- * 换对手这一轮的牌就要重算这条不等式——只要它掉到 5 或以下，第 2 轮的教学结论就翻车。
+ * 换牌只要守住"这一轮付得起"这一条：三轮的胜负都不靠比 Token，
+ * 每一轮都是"只有玩家答对"（见下面 tutorialAnswers）。
+ * 第 2 轮特意让对手派一张**新的**贵 AI，是为了给玩家的复读机一个刚上场、还没被干扰过的目标。
  */
 export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['claude-fable-5'], ['grok']]
 
 /**
- * 预设答题结果的判据：**只看谁的 AI 和第几轮**，不看具体是哪张卡。
+ * 预设答题结果的判据：**只看是谁的 AI**，不看第几轮、也不看具体是哪张卡。
  *
  * 第 3 轮玩家可以自由出牌（见规格 §9），所以按卡查表是不成立的——
  * 玩家新派的任何一张 AI 都必须答对，这一分才跑不掉。
  *
- * - 第 1 轮：玩家全对、对手全错（minimax 被罚下）→ 只有一方答对，玩家 +1。
- * - 第 2 轮：双方全对 → 双方同对就比本轮消耗，玩家最多 5 点、对手 6 点，玩家更省，玩家 +1。
- * - 第 3 轮：玩家全对、对手全错 → 玩家 +1，3:0 收场。
+ * 三轮都是"玩家全对、对手全错"，于是每一轮都判成 `sole-correct`，玩家 1 → 2 → 3 收场：
  *
- * 第 2 轮那条和「复读机」的真实效果是对不上的：正式对局里被复读机干扰的 AI 本轮只会答
- * 「香蕉」、判错（见 core 的 script.ts），而这里被干扰的 claude-fable-5 照样答对，
- * 好把"双方同对就比 Token"这一课演出来，顺带给它第 3 轮答错埋个伏笔。
- * 教学局用的是这张写死的答案表、不走 core 的 scriptedAnswers，所以两边不会打架，
- * 但玩家看得出来——这一课要不要改成"干扰真的让对手答错"，是个还没定的产品问题。
+ * - 第 1 轮：对手的 minimax 答错被罚下，玩家学会"答错要下场"。
+ * - 第 2 轮：对手新派的 claude-fable-5 被玩家的复读机干扰，只会回答「香蕉」判错
+ *   （下面 tutorialAnswers 里那条干扰分支），玩家学会"技能真的会改结果"。
+ *   它也跟着被罚下，所以第 3 轮对手场上只剩新派的那一张。
+ * - 第 3 轮：对手的 grok 答错，玩家收下第 3 分。
+ *
+ * 「双方同对就比 Token」那一课**不在对局里演**：三轮都只有一方答对，排不进一个自然的平局，
+ * 硬凑一轮会让剧本变形（第 3 轮是放手轮，玩家花多少 Token 是不可控的）。
+ * 那条规则改成第 2 轮结算后的一句讲解（见 steps.ts 的 TUTORIAL_R2_TOKEN_RULE），
+ * 结算层本身也会把判定理由和双方消耗写出来。
  */
-function isCorrectFor(round: number, owner: PlayerId): boolean {
-  if (owner === TUTORIAL_PLAYER_SEAT) return true
-  return round === 2
+function isCorrectFor(owner: PlayerId): boolean {
+  return owner === TUTORIAL_PLAYER_SEAT
 }
 
 /**
@@ -227,8 +231,10 @@ interface ScriptedLine {
  *
  * 分两层：`lines` 给主线上真的会出现的那几张卡配一句有性格的话；
  * 其余情况（第 3 轮玩家随手派的卡、同一张卡换了个主人）走 `fallback` 的通用文案。
- * 之所以要判 `correct` 对不对得上：同一张卡在不同轮次、不同阵营的对错可能相反
+ * 之所以要判 `correct` 对不对得上：对错只看这个单位属于谁，同一张卡换个主人就反过来
  *（minimax 是对手第 1 轮的弃子，却也可能被玩家在第 3 轮派上场并答对）。
+ *
+ * 被复读机干扰的那个单位不查这张表，它说什么由 FIXED_ANSWER_LINE 定死。
  */
 const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<string, ScriptedLine> }> =
   {
@@ -263,7 +269,6 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
         },
         'gpt-2': { correct: true, answer: '没说', reasoning: '真没说。一个字都没说。' },
         doubao: { correct: true, answer: '判断不了', reasoning: '题目没有提到性别哦～不能乱猜的。' },
-        'claude-fable-5': { correct: true, answer: '无法判断', reasoning: '信息不足，不做推断。' },
       },
     },
     'tut-q-icecube': {
@@ -275,46 +280,75 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
         'gpt-3-5': { correct: true, answer: '不变', reasoning: '浮力那条定律刚好把它抵掉。' },
         'gpt-2': { correct: true, answer: '不变', reasoning: '不变。不变。真的不变。' },
         doubao: { correct: true, answer: '不会变', reasoning: '水面高度保持原样哒～' },
-        'claude-fable-5': {
-          correct: false,
-          answer: '会升高',
-          reasoning: '冰化成水体积增加，水面上升。',
-        },
         grok: { correct: false, answer: '会升高', reasoning: '当然升高，冰总不能凭空消失吧。' },
       },
     },
   }
 
 /**
+ * 被「复读机」干扰的那个 AI 这一轮说什么。
+ *
+ * 口径照抄 core 的 script.ts（正式对局里干扰的等效模拟）：题目是什么都只答「香蕉」，
+ * 所以一定判错。两边必须一致——玩家刚在卡面上读到"只能回答香蕉"，
+ * 教学局要是给出别的结果，这张牌当场就成了句空话。
+ */
+const FIXED_ANSWER_LINE: ScriptedLine = {
+  correct: false,
+  answer: '香蕉',
+  reasoning: '被复读机干扰，无论问什么都只会说香蕉。',
+}
+
+/**
  * 教学局的答题结果，接在 driver 的 answersFor 上（见 match/quizAutopilot.ts）。
  *
- * 轮次靠题目 id 反查：三道教学题按 `questions[round - 1]` 逐轮取，
- * 所以"第几道题"就是"第几轮"，不用再从外面把轮次传进来。
  * 传进来的题目不在教学题里说明 driver 装错了题库，直接抛错，别静默给个默认对错。
+ *
+ * 干扰单独判在最前面：这是教学第 2 轮那一分的来源，也是"技能真的会改结果"这一课的全部内容。
+ * 读的是引擎写在单位身上的 `interference` 标记，而不是"第 2 轮就当它被干扰了"——
+ * 玩家真把复读机打在谁身上，屏幕上就是谁开始说香蕉。
  */
 export function tutorialAnswers(
   question: Question,
   aiUnits: readonly AiInstance[],
 ): AnswerResult[] {
-  const round = TUTORIAL_QUESTIONS.findIndex((item) => item.id === question.id) + 1
-  if (round === 0) throw new Error(`不是教学题：${question.id}`)
+  if (!TUTORIAL_QUESTIONS.some((item) => item.id === question.id)) {
+    throw new Error(`不是教学题：${question.id}`)
+  }
   const table = ANSWER_LINES[question.id]
   if (table === undefined) throw new Error(`教学题缺少回答文案：${question.id}`)
 
   return aiUnits.map((ai) => {
-    const correct = isCorrectFor(round, ai.owner)
-    const line = table.lines[ai.cardId]
-    const picked =
-      line !== undefined && line.correct === correct
-        ? line
-        : table.fallback.find((item) => item.correct === correct)
+    const picked = pickLine(table, ai)
     return {
       instanceId: ai.instanceId,
-      correct,
-      answer: picked?.answer ?? '……',
-      reasoning: picked?.reasoning ?? '',
+      correct: picked.correct,
+      answer: picked.answer,
+      reasoning: picked.reasoning,
     }
   })
+}
+
+/**
+ * 挑这个单位这一题该说的那句话：先看干扰，再按卡查表，最后退回通用文案。
+ *
+ * 只认「复读机」这一种干扰是够用的：教学双方的牌组里只有它这一张干扰牌
+ *（对手一张技能牌都不出，玩家手里的另一张技能是无目标的「鸡犬升天」），
+ * 别的干扰在这局里出现不了。往教学牌组里加干扰牌就要在这里补一条。
+ */
+function pickLine(
+  table: { fallback: ScriptedLine[]; lines: Record<string, ScriptedLine> },
+  ai: AiInstance,
+): ScriptedLine {
+  if (ai.interference === 'fixed-answer') return FIXED_ANSWER_LINE
+  const correct = isCorrectFor(ai.owner)
+  const line = table.lines[ai.cardId]
+  if (line !== undefined && line.correct === correct) return line
+  // 查不到通用文案说明这张表漏了一档对错，那是数据错误，不该让玩家看到一行空白。
+  const fallback = table.fallback.find((item) => item.correct === correct)
+  if (fallback === undefined) {
+    throw new Error(`教学题 ${ai.cardId} 缺少 correct=${correct} 的通用文案`)
+  }
+  return fallback
 }
 
 /** 一张牌的费用，步骤表和测试都要按它算 Token，所以收成一处。 */

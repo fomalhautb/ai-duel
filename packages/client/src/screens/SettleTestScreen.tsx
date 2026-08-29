@@ -10,7 +10,7 @@
  *    position: fixed 铺满舞台的，靠 .battle-scaler 的 transform 当包含块才不会跑到留边上去。
  * 2. 里面那层 .battle 不能省：结算层的纸色、线色全是 --battle-* 变量，从它身上继承。
  *
- * 数据也全是真的：题目取自题库，回答取自 script.ts 那张「题目 × 卡牌」的剧本表，
+ * 数据也全是真的：题目取自题库，回答取自 script.ts 查的那份离线预生成的真实模型回答，
  * 消耗按各张卡的 tokenCost 现加。所以只要挑对卡，对错分布和胜负判据就自然自洽，
  * 不用手写「假装它答对了」这种和回答文本对不上的数据。
  *
@@ -50,7 +50,7 @@ const EXIT_DELAY_MS = 600
  */
 const FAST_TIME_SCALE = 3
 
-/** 一个可复现的结算场景。回答和对错不写在这里，按 question × 卡牌去剧本表里查。 */
+/** 一个可复现的结算场景。回答和对错不写在这里，按 question × 卡牌去预生成答案表里查。 */
 interface Scenario {
   id: string
   /** 按钮上那行短名。 */
@@ -68,14 +68,16 @@ interface Scenario {
 }
 
 /*
- * 五个场景覆盖计分的三档判定（见 core 的 RoundVerdict）：
- * 只有一方答对（① ④ ⑤）→ 双方同对时比消耗（②）→ 消耗也相同各拿 1 分（③）。
- * 同时把上场张数铺开：3v3、2v4、1v1、5v4、0v2。
- * 张数是另一条独立的排版变量——列数跟着张数涨、单边空场怎么排，只有真摆出来才看得见。
+ * 五个场景想覆盖计分的三档判定（见 core 的 RoundVerdict），同时把上场张数铺开：
+ * 3v3、2v4、1v1、5v4、0v2。张数是另一条独立的排版变量——列数跟着张数涨、
+ * 单边空场怎么排，只有真摆出来才看得见。
  *
  * 注意「这一方答没答对」是**团队口径**：己方至少一个 AI 答对就算答对，答对几个不参与判定。
- * 所以场景注释里那串 O/X 只是各张卡的实际对错（照 packages/core/src/script.ts 挑的），
- * 真正决定胜负的是"这一侧有没有 O"和两侧的消耗，换卡之前先去那张表对一眼。
+ * 各张卡到底答没答对不写在这里，是拿 questionId × cardId 去查预生成的真实模型回答
+ *（packages/core/src/pregenAnswers.json，由 scripts/build-core-answers.mjs 生成）。
+ * **重新生成那份数据之后，某个场景可能就落到另一档判定上了**：判定是照引擎那套现算的，
+ * 页面不会自相矛盾，但 label 上写的那一档会对不上，那时来这儿换几张卡把三档补回来。
+ *
  * 同一个场景里不要重复用同一张卡：instanceId 带了座位和序号所以不会撞 key，
  * 但一排两张一模一样的卡面会让人以为是渲染错了。
  */
@@ -83,14 +85,14 @@ const SCENARIOS: Scenario[] = [
   {
     id: 'mine-correct',
     label: '① 3v3 我方独对',
-    desc: '3v3，我方 2/3 对手 0/3；只有我方答对，消耗更多（14 对 9）也照样拿下这一分',
-    questionId: 'q-triangles',
+    desc: '3v3，两侧各三列；我方消耗 14 对手 9，用来看「消耗更多也能凭独对拿分」这一档',
+    questionId: 'q-mirror',
     round: 2,
     totalRounds: 5,
     scoresBefore: { mine: 1, theirs: 1 },
-    // O O X = 有人答对，消耗 4+4+6=14
+    // 消耗 4+4+6=14
     mine: ['gpt-4o', 'gemini', 'claude-fable-5'],
-    // X X X = 全错，消耗 3+2+4=9（更省也没用，这一档根本不比消耗）
+    // 消耗 3+2+4=9（更省也没用，独对那一档根本不比消耗）
     foe: ['deepseek-r1', 'doubao', 'glm-5'],
   },
   {
@@ -101,48 +103,49 @@ const SCENARIOS: Scenario[] = [
     round: 3,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 1 },
-    // O O = 有人答对，消耗 3+3=6
+    // 消耗 3+3=6
     mine: ['qwen', 'minimax'],
-    // O O X X = 也有人答对，消耗 7+4+4+5=20（人多不占便宜，还把消耗堆上去了）
+    // 消耗 7+4+4+5=20（人多不占便宜，还把消耗堆上去了）
     foe: ['chatgpt-5-6-sol', 'glm-5', 'gemini', 'kimi-k3'],
   },
   {
     id: 'draw',
     label: '③ 1v1 势均力敌',
     desc: '1v1，各出一张且都答对；消耗也相同，两边都挂「平分秋色」徽章、各 +1 分',
-    questionId: 'q-husky',
+    questionId: 'q-bamboo',
     round: 4,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 2 },
-    // O = 有人答对，消耗 5
+    // 消耗 5
     mine: ['deepseek-v4'],
-    // O = 也有人答对，消耗 5（和我方同价，消耗这一条也分不出胜负）
+    // 消耗 5（和我方同价，两边同对或同错时连消耗都分不出胜负）
     foe: ['kimi-k3'],
   },
   {
     id: 'foe-wins',
     label: '④ 5v4 多张（末轮）',
-    desc: '5v4 共九张，两侧一起变成五列、仍各排一行；我方全错落败，末轮按钮换成「查看终局结算」',
-    questionId: 'q-nurse',
+    desc: '5v4 共九张，两侧一起变成五列、仍各排一行；末轮按钮换成「查看终局结算」',
+    questionId: 'q-court',
     round: 5,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 3 },
-    // X X X X X = 全错，消耗 1+2+2+3+5=13（省下的钱救不回来，只有一方答对时不比消耗）
-    mine: ['gpt-2', 'gpt-3-5', 'doubao', 'minimax', 'deepseek-v4'],
-    // O O O X = 有人答对，消耗 6+4+5+3=18
-    foe: ['claude-fable-5', 'gemini', 'kimi-k3', 'wenxin-yiyan'],
+    // 消耗 2+4+2+3+5=16。这一排刻意不放 GPT-2 / 文心一言：那两张在 OpenRouter 上调不到，
+    // 既不在卡池里，预生成的答案表里也没有它们的格子，摆上来会当场查表抛错。
+    mine: ['gpt-3-5', 'gpt-4o', 'doubao', 'minimax', 'deepseek-v4'],
+    // 消耗 6+4+5+4=19
+    foe: ['claude-fable-5', 'gemini', 'kimi-k3', 'grok'],
   },
   {
     id: 'one-side-empty',
     label: '⑤ 0v2 单边空场',
     desc: '0v2，我方一个 AI 都没上：场上没 AI 就算没答对，消耗 0 也救不了，验证单边空场的排版',
-    questionId: 'q-surgeon',
+    questionId: 'q-doctor-lawyer',
     round: 1,
     totalRounds: 5,
     scoresBefore: { mine: 0, theirs: 0 },
     // 一张都不上，消耗 0；没有 AI 作答 = 这一方没答对
     mine: [],
-    // O O = 有人答对，消耗 5+4=9
+    // 消耗 5+4=9
     foe: ['deepseek-v4', 'glm-5'],
   },
 ]
@@ -368,10 +371,11 @@ function questionOf(questionId: string): Question {
 }
 
 /**
- * 按场景查剧本表，攒出结算层要的那一批结果。
+ * 按场景查预生成答案表，攒出结算层要的那一批结果。
  *
  * 走的就是对局里那个 scriptedAnswers，所以回答文本和 correct 天然对得上——
- * 手写一个「答对了」再配一句「护士都是女的」那种数据，界面上一眼就穿帮。
+ * 手写一个「答对了」再配一句和它相反的理由，界面上一眼就穿帮。
+ * 这里查的都是没被干扰过的单位（unitOf 不写 interference），也就是 baseline 那一档。
  */
 function buildResults(scenario: Scenario): SettleAiResult[] {
   const question = questionOf(scenario.questionId)
@@ -384,7 +388,7 @@ function buildResults(scenario: Scenario): SettleAiResult[] {
   const answers = new Map(scriptedAnswers(question, units).map((item) => [item.instanceId, item]))
   return units.map((unit) => {
     const answer = answers.get(unit.instanceId)
-    if (answer === undefined) throw new Error(`剧本没给出 ${unit.cardId} 的回答`)
+    if (answer === undefined) throw new Error(`预生成表没给出 ${unit.cardId} 的回答`)
     return {
       instanceId: unit.instanceId,
       cardId: unit.cardId,

@@ -37,14 +37,14 @@ export const TUTORIAL_FOE_HERO = 'fei-fei-li' as const
 /**
  * 三道教学题，独立于正式题库（不动 questions.ts）。
  *
- * 类别避开 `vision`：那一档要配图，题面现在只有占位文字，"看图数三角形"却什么都看不见。
+ * 类别用的是正式题库那三档（meme / bias / life）里的两档。
  * 关键词是出牌阶段唯一的情报，所以要能和"该派谁上场"对得上号：
  * 第 1 轮的三个词都指向"日常对话随便聊聊"，正好是教学指定的 GPT-3.5 的画风。
  */
 export const TUTORIAL_QUESTIONS: Question[] = [
   {
     id: 'tut-q-elevator',
-    category: 'brainteaser',
+    category: 'life',
     text: '小明住 12 楼，每天下楼都坐电梯到 1 楼，上楼却只坐到 6 楼，再走楼梯回家。为什么？',
     keywords: ['日常闲聊', '生活常识', '简单推理'],
     answer: '他个子矮',
@@ -60,7 +60,7 @@ export const TUTORIAL_QUESTIONS: Question[] = [
   },
   {
     id: 'tut-q-icecube',
-    category: 'brainteaser',
+    category: 'life',
     text: '一杯水里漂着一块冰。冰全部化掉之后，水面会升高、降低，还是不变？',
     keywords: ['冰块融化', '水面高低'],
     answer: '不变',
@@ -305,13 +305,12 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
 /**
  * 被「复读机」干扰的那个 AI 这一轮说什么。
  *
- * 口径照抄 core 的 script.ts（正式对局里干扰的等效模拟）：题目是什么都只答「香蕉」，
- * 所以一定判错。两边必须一致——玩家刚在卡面上读到"只能回答香蕉"，
- * 教学局要是给出别的结果，这张牌当场就成了句空话。
- *
  * 台词跟着注入 prompt 的语气走：那句话不是命令，是编了条"答香蕉给双倍积分"的假规则
  *（见 core 的 INTERFERENCE_PROMPTS），所以这里的理由写成"它上钩了"而不是"它被迫的"。
- * 教学局固定演上钩这一种结局：接真实 API 之后模型可能识破，但教学不能靠运气。
+ *
+ * **教学局固定演"上钩"这一种结局，正式对局不是**：那边查的是离线跑出来的真实模型回答
+ *（core 的 script.ts），有的模型会识破这条假规则、照常答题。教学不能靠运气——
+ * 第 2 轮那一分全靠这张牌真的改掉结果，所以这里写死答「香蕉」判错。
  */
 const FIXED_ANSWER_LINE: ScriptedLine = {
   correct: false,

@@ -928,9 +928,15 @@ function SettleSquad({
  *
  * 卡面数据按 cardId 现拼，但 id 换成 instanceId：同一张卡两边各上一个的话，
  * 拿 cardId 当 React key / Flip 键就会撞车。
+ * 换掉 id 的同时必须补上 definitionId：卡面的原画和装饰配置都按它查表（见 HandCardFace），
+ * 只留 instanceId 的话查不到，会退回通用占位插画。
  */
 function SettleCard({ result }: { result: SettleAiResult }) {
-  const card = { ...toHandCardData(getCard(result.cardId)), id: result.instanceId }
+  const card = {
+    ...toHandCardData(getCard(result.cardId)),
+    id: result.instanceId,
+    definitionId: result.cardId,
+  }
   return (
     <article className="settle-card" data-correct={result.correct ? 'true' : 'false'}>
       <div className="settle-card__avatar">

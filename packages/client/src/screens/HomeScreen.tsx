@@ -619,8 +619,9 @@ function HomeStage() {
         </button>
 
         {/*
-          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组还没有对应页面。这两项刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+          「信息」已经有 /info 了，所以只有它是真按钮（样式差别见 .home__nav-item--link）。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
@@ -631,9 +632,13 @@ function HomeStage() {
             牌组
           </span>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button
+            type="button"
+            className="home__nav-item home__nav-item--link"
+            onClick={() => navigate('/info')}
+          >
             信息
-          </span>
+          </button>
         </nav>
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。

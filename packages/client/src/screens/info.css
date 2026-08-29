@@ -1,0 +1,144 @@
+/* ============================================================
+   /info 关于本作页的私有样式
+   ------------------------------------------------------------
+   页面结构和首页同构：一张 16:9 背景图当舞台，舞台内的尺寸一律用 cqi
+   （1cqi = 舞台宽的 1%），所以整页只会等比缩放，没有断点。
+
+   字号只有三档：页面标题、框内作品名、其余全部（.info__line）。
+   加内容时直接用 .info__line，别再开新样式——这一页就这么点信息，
+   层级多了只会让人以为哪句更重要。
+
+   金框和三处星饰都在背景图里，这里只负责把文字摆进那些留白。
+   每个 top 值都对应图里一个实测位置，改之前先看 InfoScreen.tsx 的文件头。
+
+   页面私有类统一加 info- 前缀，避开 styles.css 里 .page、.battle 那些全站类。
+   ============================================================ */
+
+.info {
+  /* 两档金色都取自背景图：框线实测约 rgb(235 191 143)，
+     正文用它，只有标题和作品名提亮一档。 */
+  --info-ink: #e8c69f;
+  --info-ink-lit: #fbe6c4;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  /* 舞台之外的留边。取的是背景图四边的实测色 rgb(5 20 29)，
+     和图边缘一致，接缝才看不出来——这一页不像首页那样另做羽化，全靠颜色对齐。 */
+  background-color: #05141d;
+  user-select: none;
+}
+
+/* 舞台：宽高比锁死 1672:941（和首页、对局页同一张设计稿尺寸），
+   撑到视口能容下的最大一块。container-type 让内部的 cqi 有参照。 */
+.info__stage {
+  container-type: size;
+  position: relative;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+}
+
+.info__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---------- 返回 ---------- */
+
+/* 公共样式（styles.css 的 .ui-back）只管排版，定位、字号、颜色由使用方给。 */
+.info__back {
+  position: absolute;
+  top: 6.4%;
+  left: 5.2%;
+  color: var(--info-ink);
+  font-size: 1.6cqi;
+}
+.info__back:hover {
+  color: var(--info-ink-lit);
+}
+
+/* ---------- 页面标题 ---------- */
+
+/* 竖直中心落在 15%：背景图里那颗大星饰在 23%，标题要整个待在它上面。 */
+.info__title {
+  position: absolute;
+  top: 15%;
+  right: 0;
+  left: 0;
+  /* 收成刚好包住字：手绘滤镜的计算区域按盒子算（还要外扩 40%），
+     铺满舞台等于每次重绘都白算一圈两千多像素宽的噪声。 */
+  width: fit-content;
+  margin: 0 auto;
+  transform: translateY(-50%);
+  color: var(--info-ink-lit);
+  font-size: 5cqi;
+  /* 和首页大标题一样收到 500：字号大时 700 会显得笨。
+     中英两套字体都引了这一档（见 index.html），写出 300～700 会被浏览器拉成伪粗细。 */
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  /* 字距是往右加的，最后一个字右边会多出一格，整行看着偏左，减掉它。 */
+  text-indent: 0.08em;
+  line-height: 1;
+  /* 深色夜空底上，字要有一点厚度才浮得出来。 */
+  text-shadow:
+    0.18cqi 0.24cqi 0 rgb(4 12 18 / 70%),
+    0 0.5cqi 1.2cqi rgb(4 10 16 / 60%);
+  /* 和首页标题同一套手绘抖动（滤镜定义见 ui/HandDrawnFilterDefs.tsx）。 */
+  filter: url('#ai-duel-rough-frame');
+}
+
+/* ---------- 金框里的正文 ---------- */
+
+/*
+ * 上下边界是背景图定的：框顶在 27.6%（内框那道细线约 28.5%），
+ * 框内小花饰在 68.8%。留出余量取 30%～66.5%，整块内容在这个范围里居中。
+ * 左右收到 24%：框的内沿在 21%，再往里让一点，长行不会顶到框线上。
+ */
+.info__body {
+  position: absolute;
+  top: 30%;
+  right: 24%;
+  bottom: 33.5%;
+  left: 24%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* 正文两行之间的间距；作品名和它们的距离另外给（见 .info__lead）。 */
+  gap: 0.8cqi;
+  text-align: center;
+}
+
+.info__lead {
+  margin: 0 0 2.4cqi;
+  color: var(--info-ink-lit);
+  font-size: 2.7cqi;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+/* 除了标题和作品名，这一页所有文字都用这一档：框内两行、收尾那句都是它。 */
+.info__line {
+  margin: 0;
+  color: var(--info-ink);
+  font-size: 1.7cqi;
+  letter-spacing: 0.12em;
+  /* 字距往右加，末字右边多出一格，整行看着偏左，减掉它。 */
+  text-indent: 0.12em;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* 收尾那句只额外管定位：竖直中心 74.6%，背景图里左右两颗小星就在这个高度
+   （x 37.5% 和 62.5%），这句话正好落在它们中间。 */
+.info__thanks {
+  position: absolute;
+  top: 74.6%;
+  right: 0;
+  left: 0;
+  transform: translateY(-50%);
+}

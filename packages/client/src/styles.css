@@ -637,6 +637,17 @@ body,
   color: var(--home-ink-lit);
   text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
 }
+/* 真能点的那一项（现在只有「信息」）。它是 <button>，得把浏览器自带的边框、底色和
+   小一号的字全收回来，才和旁边两个 <span> 排在同一条基线上、看起来是同一排字。
+   font 用简写一次性覆盖 font-size / font-weight / line-height 那一整组——
+   .home__nav 上给的 2cqi 字号是继承来的，只改 font-family 补不回来。 */
+.home__nav-item--link {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
 
 .home__nav-dot {
   width: 1.1cqi;

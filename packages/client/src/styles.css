@@ -296,8 +296,8 @@ html {
  */
 .home__cast-panel {
   position: absolute;
-  width: 23cqi;
-  padding: 1.5cqi;
+  width: 25cqi;
+  padding: 1.35cqi 1.5cqi;
   border: 0.06cqi solid rgb(232 198 159 / 55%);
   border-radius: 0.4cqi;
   /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
@@ -368,7 +368,7 @@ html {
   display: block;
   margin-top: 0.6cqi;
   color: var(--home-ink-lit);
-  font-size: 2.2cqi;
+  font-size: 1.65cqi;
   line-height: 1.2;
 }
 
@@ -381,21 +381,34 @@ html {
   --home-flourish-star-size: 1.1cqi;
   --home-flourish-star-color: rgb(232 198 159 / 80%);
   justify-content: center;
-  margin: 0.8cqi 0;
+  margin: 0.65cqi 0;
 }
 
-.home__cast-panel-title {
+.home__cast-panel-section-label {
   display: block;
-  color: rgb(232 198 159 / 85%);
-  font-size: 1.15cqi;
-  letter-spacing: 0.12em;
+  color: var(--home-ink-lit);
+  font-size: 1.05cqi;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-align: left;
 }
 
-.home__cast-panel-blurb {
-  margin: 0.9cqi 0 0;
+.home__cast-panel-copy {
+  margin: 0.3cqi 0 0.7cqi;
   color: rgb(232 198 159 / 72%);
-  font-size: 1.25cqi;
-  line-height: 1.7;
+  font-size: 1.02cqi;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.home__cast-panel-role {
+  margin: 0.2cqi 0 0;
+  padding-top: 0.65cqi;
+  border-top: 0.06cqi solid rgb(232 198 159 / 25%);
+  color: rgb(232 198 159 / 82%);
+  font-size: 0.98cqi;
+  line-height: 1.55;
+  text-align: left;
 }
 
 /* top 配 translateY(-50%) 是让文字**行盒的中心**落在这个高度上，

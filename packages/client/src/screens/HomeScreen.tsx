@@ -109,9 +109,12 @@ interface CastMember {
   file: string
   name: string
   /** 人物经历的简介。 */
-  intro: string;  skillName: string;
+  intro: string
+  skillName: string
   /** 对局中的具体技能效果。 */
-  skillEffect: string;  /** 技能的使用定位。 */  role: string;
+  skillEffect: string
+  /** 技能的使用定位。 */
+  role: string
 }
 
 /**
@@ -135,43 +138,57 @@ const CAST: CastMember[] = [
     file: 'cast-left-back',
     name: '玛格丽特·汉密尔顿 Margaret Hamilton',
     intro: '领导阿波罗登月软件工程，以优先级与容错设计守住关键任务。',
-    skillName: '容错系统',    skillEffect: '己方 Agent 答错时，可免费换手牌中另一名 Agent 重答 1 次。',    role: '关键题的翻盘保险，避免一次失误直接出局。',
+    skillName: '容错系统',
+    skillEffect: '己方 Agent 答错时，可免费换手牌中另一名 Agent 重答 1 次。',
+    role: '关键题的翻盘保险，避免一次失误直接出局。',
   },
   {
     file: 'cast-left-officer',
     name: '格蕾丝·霍珀 Grace Hopper',
     intro: '编译器先驱，推动高级语言与现代调试文化发展。',
-    skillName: 'Debug',    skillEffect: '每局限 1 次：移除对手当前生效的 1 个技能效果。',    role: '专门拆解对手的增益、复活、晋级或资源优势。',
+    skillName: 'Debug',
+    skillEffect: '每局限 1 次：移除对手当前生效的 1 个技能效果。',
+    role: '专门拆解对手的增益、复活、晋级或资源优势。',
   },
   {
     file: 'cast-left-front',
     name: '李飞飞 Fei-Fei Li',
     intro: '推动建立 ImageNet，让 AI 开始系统学习“看懂”现实世界。',
-    skillName: '再看一眼',    skillEffect: '题目含图片、图表或视觉信息时，可保送 1 个 Agent 晋级。',    role: '视觉题王牌，优先应对读图、识图与图表分析。',
+    skillName: '再看一眼',
+    skillEffect: '题目含图片、图表或视觉信息时，可保送 1 个 Agent 晋级。',
+    role: '视觉题王牌，优先应对读图、识图与图表分析。',
   },
   {
     file: 'cast-right-glasses',
     name: '陈丹琦 Danqi Chen',
     intro: '推动开放域问答、信息检索与语言模型结合，让 AI 找到可靠答案。',
-    skillName: '精准检索',    skillEffect: '每局限 1 次：指定 1 个 Agent 免费升级 1 轮。',    role: '提前强化关键 Agent，建立知识与推理优势。',
+    skillName: '精准检索',
+    skillEffect: '每局限 1 次：指定 1 个 Agent 免费升级 1 轮。',
+    role: '提前强化关键 Agent，建立知识与推理优势。',
   },
   {
     file: 'cast-right-laugh',
     name: '梅拉妮·珀金斯 Melanie Perkins',
     intro: 'Canva 联合创始人，让专业设计工具变得人人都能快速上手。',
-    skillName: '化繁为简',    skillEffect: '每局限 1 次：指定 1 个 Agent 降级 1 轮。',    role: '压制对手的核心 Agent，打断其高等级组合。',
+    skillName: '化繁为简',
+    skillEffect: '每局限 1 次：指定 1 个 Agent 降级 1 轮。',
+    role: '压制对手的核心 Agent，打断其高等级组合。',
   },
   {
     file: 'cast-right-classic',
     name: '阿达·洛芙莱斯 Ada Lovelace',
     intro: '最早提出机器能按规则处理复杂信息，其算法被视为程序设计的起点。',
-    skillName: '第一算法',    skillEffect: '每局开始时，额外获得 2 个 Token。',    role: '开局经济优势，可更早选强 Agent 并保留调整空间。',
+    skillName: '第一算法',
+    skillEffect: '每局开始时，额外获得 2 个 Token。',
+    role: '开局经济优势，可更早选强 Agent 并保留调整空间。',
   },
   {
     file: 'cast-right-front',
     name: '米拉·穆拉蒂 Mira Murati',
     intro: '推动生成式 AI 产品化，将前沿模型转化为真实可用的工具。',
-    skillName: '快速部署',    skillEffect: '每局限 1 次：双方选定 Agent、题目揭晓前，可重选己方 Agent，只补 Token 差价。',    role: '阵容不匹配时临场换人，降低选错 Agent 的损失。',
+    skillName: '快速部署',
+    skillEffect: '每局限 1 次：双方选定 Agent、题目揭晓前，可重选己方 Agent，只补 Token 差价。',
+    role: '阵容不匹配时临场换人，降低选错 Agent 的损失。',
   },
 ]
 
@@ -198,9 +215,7 @@ const CAST_PANEL_HEAD_DROP = 4
  * 介绍卡片的估算高度，单位是舞台高的百分比。
  *
  * 卡片高度由内容撑开，CSS 量不到、JS 又要在渲染前就算好位置，所以只能估。
- * 按 styles.css 里的 .home__cast-panel 逐项加起来（上下内边距 3cqi + 标签 ≈1.3 + 姓名 ≈3.2
- * + 分隔线 2.7 + 身份 ≈1.6 + 介绍两行 ≈5.2）约 17cqi；舞台高是舞台宽的 941/1672，
- * 折算过来约 30%，这里取 32% 给三行介绍留一点余量。
+ * 按 styles.css 里的 .home__cast-panel 逐项加起来，人物、技能和定位文案约需舞台高度的 39%。
  * 换成明显更长的角色文案后要回来重估这个值。
  */
 const CAST_PANEL_HEIGHT = 39
@@ -714,8 +729,11 @@ function HomeStage() {
                 <Sparkle className="home__flourish-star" />
                 <i className="home__flourish-line home__flourish-line--right" />
               </span>
-              <span className="home__cast-panel-title">{member.title}</span>
-              <p className="home__cast-panel-blurb">{member.blurb}</p>
+              <span className="home__cast-panel-section-label">人物</span>
+              <p className="home__cast-panel-copy">{member.intro}</p>
+              <span className="home__cast-panel-section-label">技能 · {member.skillName}</span>
+              <p className="home__cast-panel-copy">{member.skillEffect}</p>
+              <p className="home__cast-panel-role">{member.role}</p>
             </aside>
           )
         })}
@@ -738,4 +756,3 @@ function Sparkle({ className }: { className: string }) {
     </svg>
   )
 }
-

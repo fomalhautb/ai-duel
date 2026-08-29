@@ -28,6 +28,42 @@
      .reveal-card 的宽高就是按它算的，改这里等于改那张卡的尺寸。
      侧栏英雄牌那条链路另调了一档（见 .reveal-clip--hero）：它的原位卡本来就大得多。 */
   --reveal-scale: 1.7;
+
+  /*
+   * 小字号阶梯。原来这些数是散在几百条规则里的硬编码 px，抽出来是为了能整档调：
+   * 触屏上整块画面被缩到四成左右（见 ui/useStageScale.ts），桌面上刚好的 12、13px
+   * 到了手机上只剩五个屏幕像素高，谁也读不出来。
+   *
+   * 阶梯本身只写"设计稿上的那个数 × --fs-scale"，于是移动档只要改 --fs-scale 一处，
+   * 整套小字一起放大，各档之间的相对关系不会走样（移动档见文件末尾的"移动端版式档"）。
+   * 名字带 -plus 的是半档（11.5 / 12.5 / 13.5），原样式里确实用到了这些半档。
+   *
+   * 只管 10～15px 这一段。再大的字（标题、比分、按钮）本来就看得清，
+   * 跟着放大反而会把定死的容器撑破。卡面和牌背那几条也刻意留着硬编码 px：
+   * 它们的排版钉死在 150×225 / 284×426 的卡尺寸里，字一大就溢出，
+   * 而卡要看清靠的是放大查看那条链路（--reveal-scale），不是把卡面上的字调大。
+   */
+  --fs-scale: 1;
+  --fs-xs: calc(10px * var(--fs-scale));
+  --fs-sm: calc(11px * var(--fs-scale));
+  --fs-sm-plus: calc(11.5px * var(--fs-scale));
+  --fs-md: calc(12px * var(--fs-scale));
+  --fs-md-plus: calc(12.5px * var(--fs-scale));
+  --fs-base: calc(13px * var(--fs-scale));
+  --fs-base-plus: calc(13.5px * var(--fs-scale));
+  --fs-lg: calc(14px * var(--fs-scale));
+  --fs-xl: calc(15px * var(--fs-scale));
+
+  /*
+   * 首页 / 英雄页 / 房间页那几页不是缩放层，而是用 cqi（容器宽的百分之一）直接排版，
+   * 所以正文档要单独有一套，但共用同一个 --fs-scale，移动档才是整站一起放大。
+   * 同样只收 1cqi 上下这一段正文，标题那些大号 cqi 不动。
+   */
+  --fs-cqi-xs: calc(0.95cqi * var(--fs-scale));
+  --fs-cqi-sm: calc(1cqi * var(--fs-scale));
+  --fs-cqi-md: calc(1.05cqi * var(--fs-scale));
+  --fs-cqi-md-plus: calc(1.1cqi * var(--fs-scale));
+  --fs-cqi-lg: calc(1.15cqi * var(--fs-scale));
 }
 
 * {
@@ -111,7 +147,7 @@ html {
 
 .page__muted {
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .page button {
@@ -121,7 +157,7 @@ html {
   border-radius: 8px;
   background: #161b22;
   color: #e5e7eb;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   cursor: pointer;
 }
 
@@ -1110,7 +1146,7 @@ html {
   background: rgb(14 21 36 / 90%);
   box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
   color: #ffeec5;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.08em;
   white-space: nowrap;
   pointer-events: none;
@@ -1671,10 +1707,12 @@ body:has(.battle) {
   --battle-navy: #253149;
   --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
   /* 顶栏高度。写成变量是因为不止排版要用：展示卡的裁剪层（.reveal-clip）也拿它当
-     "顶栏下沿"那条线，两处必须是同一个数。 */
+     "顶栏下沿"那条线，两处必须是同一个数。
+     触屏上另有一档更矮的（见文件末尾"移动端版式档"）。 */
   --battle-topbar-h: 72px;
   /* 左侧栏宽度。同样不止排版要用：两排扇形手牌的锚点（.hand-fan / .opponent-fan）
-     靠它让开侧栏、正对着战场居中，三处必须是同一个数。 */
+     靠它让开侧栏、正对着战场居中，三处必须是同一个数。
+     触屏上另有一档更窄的（见文件末尾"移动端版式档"）。 */
   --battle-side-w: 306px;
   display: grid;
   grid-template-rows: var(--battle-topbar-h) minmax(0, 1fr);
@@ -2543,7 +2581,7 @@ body:has(.battle) {
 .battle__next-plaque-eyebrow {
   position: relative;
   color: var(--battle-ink-muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.34em;
   /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
   text-indent: 0.34em;
@@ -2587,7 +2625,7 @@ body:has(.battle) {
   border-radius: 999px;
   background: rgb(255 252 244 / 55%);
   color: var(--battle-navy);
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
@@ -2708,13 +2746,13 @@ body:has(.battle) {
 }
 
 .battle__token-count-value {
-  font-size: 13px;
+  font-size: var(--fs-base);
   /* 等宽数字：从 10 掉到 9 时这一行不会跟着抖一下。 */
   font-variant-numeric: tabular-nums;
 }
 
 .battle__token-count-unit {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   opacity: 0.8;
 }
 
@@ -2775,7 +2813,7 @@ body:has(.battle) {
 /* 测试房里"对方没有手牌"那行字。 */
 .battle__foe-count {
   color: rgb(226 213 184 / 78%);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.1em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 50%);
 }
@@ -3029,7 +3067,7 @@ body:has(.battle) {
   box-shadow: 0 1px 4px rgb(6 12 24 / 45%);
   filter: url('#ai-duel-rough-compass');
   color: rgb(228 218 192 / 88%);
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 18px;
   letter-spacing: 0.1em;
   /* 字距会在最后一个字后面也留一份，text-indent 补回同样的量，文字才真的居中。 */
@@ -3041,7 +3079,7 @@ body:has(.battle) {
 .battle__midline-num {
   color: #c07a52;
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 /* ---------- 拒绝提示 ---------- */
@@ -3054,7 +3092,7 @@ body:has(.battle) {
   left: 0;
   z-index: 20;
   color: #ffb4a4;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
   text-align: center;
   text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
@@ -3109,7 +3147,7 @@ body:has(.battle) {
   border-radius: 999px;
   background: rgb(22 29 43 / 84%);
   box-shadow: 0 4px 18px rgb(4 9 19 / 38%);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.12em;
   opacity: 0;
   pointer-events: none;
@@ -3122,7 +3160,7 @@ body:has(.battle) {
 }
 
 .battle__drop-cue strong {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: 0.08em;
   opacity: 0.72;
@@ -3815,7 +3853,7 @@ body:has(.battle) {
   background: rgb(238 233 220 / 92%);
   color: #30313b;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.1em;
   cursor: pointer;
 }
@@ -3846,7 +3884,7 @@ body:has(.battle) {
 
 .battle-dev__row-label {
   min-width: 32px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -3854,7 +3892,7 @@ body:has(.battle) {
 .battle-dev__status {
   margin: 0;
   color: #30313b;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.5;
 }
 
@@ -3867,7 +3905,7 @@ body:has(.battle) {
   background: rgb(255 255 255 / 55%);
   color: inherit;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .battle-dev__btn {
@@ -3877,7 +3915,7 @@ body:has(.battle) {
   background: rgb(255 255 255 / 55%);
   color: inherit;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
   cursor: pointer;
 }
 
@@ -3895,7 +3933,7 @@ body:has(.battle) {
 .battle-dev__note {
   margin: 0;
   color: #6d6b61;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
 }
 
@@ -4010,7 +4048,7 @@ body:has(.battle) {
 
 .battle__targeting-text {
   color: #ffeec5;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.1em;
 }
 
@@ -4030,7 +4068,7 @@ body:has(.battle) {
   background: rgb(37 49 73 / 90%);
   color: #e7e1d4;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.1em;
   cursor: pointer;
 }
@@ -4113,7 +4151,7 @@ body:has(.battle) {
   border-radius: 999px;
   background: rgb(12 18 30 / 88%);
   color: #ffd98a;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
   pointer-events: none;
@@ -4582,7 +4620,7 @@ body:has(.battle) {
   /* 下划线用 border 而不是 text-decoration：只有 current 那档要，加粗和线宽好各调各的。 */
   border-bottom: 2px solid transparent;
   color: var(--battle-ink);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.08em;
 }
 
@@ -4604,7 +4642,7 @@ body:has(.battle) {
   border-radius: 999px;
   background: var(--battle-paper);
   color: var(--battle-ink-muted);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.12em;
   /* letter-spacing 在最后一个字后面也留一格，整块看着偏左，用同样的缩进补回来（全文件同此做法）。 */
   text-indent: 0.12em;
@@ -4675,7 +4713,7 @@ body:has(.battle) {
   align-items: center;
   margin: 0;
   color: #2f6b46;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.2em;
 }
 
@@ -4746,7 +4784,7 @@ body:has(.battle) {
 
 .settle__answer-label {
   color: #2f6b46;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.16em;
   text-indent: 0.16em;
 }
@@ -4768,7 +4806,7 @@ body:has(.battle) {
 .settle__answer-explain {
   margin: 0;
   color: var(--battle-ink-muted);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   line-height: 1.5;
   text-align: center;
 }
@@ -4841,7 +4879,7 @@ body:has(.battle) {
 }
 
 .settle__squad-correct {
-  font-size: 15px;
+  font-size: var(--fs-xl);
 }
 
 .settle__squad--mine .settle__squad-title,
@@ -4856,7 +4894,7 @@ body:has(.battle) {
 
 .settle__squad-sep {
   color: var(--battle-line-dark);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 /*
@@ -4870,7 +4908,7 @@ body:has(.battle) {
   border-radius: 4px;
   background: #2f6b46;
   color: var(--battle-paper);
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.1em;
   text-indent: 0.1em;
 }
@@ -5015,7 +5053,7 @@ body:has(.battle) {
   margin: 0;
   overflow: hidden;
   color: var(--battle-ink-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.5;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -5144,7 +5182,7 @@ body:has(.battle) {
 .settle__spend {
   margin: 0;
   color: var(--battle-ink-muted);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.04em;
 }
 
@@ -5211,7 +5249,7 @@ body:has(.battle) {
 
 .settle__confirm-note {
   color: var(--battle-ink-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.2;
   letter-spacing: 0.08em;
 }
@@ -5294,7 +5332,7 @@ body:has(.battle) {
 .gallery__lead {
   margin: 0 0 12px;
   color: var(--gallery-ink-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.6;
 }
 
@@ -5304,7 +5342,7 @@ body:has(.battle) {
   border-radius: 2px;
   background: transparent;
   color: var(--gallery-ink);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.12em;
   cursor: pointer;
 }
@@ -5321,7 +5359,7 @@ body:has(.battle) {
   margin: 0 0 6px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--gallery-line);
-  font-size: 15px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: 0.12em;
 }
@@ -5329,7 +5367,7 @@ body:has(.battle) {
 .gallery__section-note {
   margin: 0 0 12px;
   color: var(--gallery-ink-muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.6;
 }
 
@@ -5404,7 +5442,7 @@ body:has(.battle) {
 .gallery__art-name {
   margin-top: 4px;
   color: var(--gallery-ink-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .gallery__detail-title {
@@ -5448,12 +5486,12 @@ body:has(.battle) {
 .gallery__face-name {
   margin-top: 8px;
   color: var(--gallery-ink-muted);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .gallery__meta {
   margin: 24px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.7;
 }
 
@@ -5482,7 +5520,7 @@ body:has(.battle) {
   background: rgb(48 49 59 / 6%);
   color: var(--gallery-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.55;
   /* 长行自己横滚，不去撑宽整栏（配合 .gallery__detail 的 min-width: 0）。 */
   overflow-x: auto;
@@ -5683,7 +5721,7 @@ body:has(.battle) {
   /* 末字后面还留着一格字距，要收掉，整行的视觉中心才和上面的 loader 对得上。 */
   margin: 0 -0.32em 0 0;
   color: #9ca3af;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.32em;
 }
 
@@ -5721,7 +5759,7 @@ body:has(.battle) {
 .loader-demo__note {
   margin: 0 0 32px;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.7;
 }
 
@@ -5758,7 +5796,7 @@ body:has(.battle) {
 
 .loader-demo__label {
   color: #6b7280;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.08em;
   text-align: center;
 }
@@ -5775,7 +5813,7 @@ body:has(.battle) {
   border-radius: 8px;
   background: #161b22;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: var(--fs-base);
   cursor: pointer;
 }
 
@@ -5812,7 +5850,7 @@ body:has(.battle) {
 .dev-index__lead {
   margin: 0;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.8;
 }
 
@@ -5850,7 +5888,7 @@ body:has(.battle) {
 .dev-index__item-path {
   color: #6b7280;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.06em;
 }
 
@@ -5863,7 +5901,7 @@ body:has(.battle) {
 
 .dev-index__item-desc {
   color: #8b949e;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.7;
 }
 
@@ -5875,7 +5913,7 @@ body:has(.battle) {
   border-radius: 8px;
   background: #161b22;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: var(--fs-base);
   cursor: pointer;
 }
 
@@ -6024,7 +6062,7 @@ body:has(.battle) {
   border: 0;
   background: none;
   color: var(--ink-2, #6b6a5f);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
   text-decoration: underline;
   text-underline-offset: 4px;
@@ -6037,6 +6075,93 @@ body:has(.battle) {
     animation: none;
     transform: rotate(-45deg);
   }
+}
+
+/* ---------- 全屏提示（FullscreenPrompt） ---------- */
+
+/*
+ * 进对局时劝一句"要不要全屏"的那一层。什么时候弹、为什么可以永久跳过，
+ * 都在 ui/FullscreenPrompt.tsx 里。
+ *
+ * 纸面和排版整套照着上面的竖屏提示来：这两块是同一类东西（盖住全页的一句话加两颗按钮），
+ * 长得不一样反而像是两个系统的零件。
+ *
+ * z-index 比竖屏提示低一档：两层理论上会同时成立（竖屏 + 没全屏），
+ * 那时该先看到的是"请横屏"——横过来之后这一层还在，一点不耽误。
+ */
+.fs-prompt {
+  position: fixed;
+  z-index: 8900;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* 刘海屏的耳朵照着让开，同竖屏提示。 */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background-color: rgb(12 16 26 / 82%);
+}
+
+.fs-prompt__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(420px, 100%);
+  padding: 30px 30px 22px;
+  border: 1px solid var(--line-dark, #8a8270);
+  color: var(--ink, #2e2e38);
+  background-color: var(--paper, #f0ecdf);
+  box-shadow: 0 18px 48px rgb(6 10 20 / 45%);
+  text-align: center;
+}
+
+.fs-prompt__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.3em;
+}
+
+.fs-prompt__text {
+  margin: 0;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+/* 主要动作：墨色实心，和下面那行淡淡的「暂不」拉开层级。高度按触屏的 44px 起步。 */
+.fs-prompt__go {
+  min-height: 44px;
+  padding: 12px 28px;
+  border: 1px solid var(--ink, #2e2e38);
+  background-color: var(--ink, #2e2e38);
+  color: var(--paper, #f0ecdf);
+  font: inherit;
+  font-size: 17px;
+  letter-spacing: 0.25em;
+  text-indent: 0.25em;
+  cursor: pointer;
+}
+
+.fs-prompt__go:active {
+  /* 触屏没有 hover，按下去这一下就是唯一的反馈。 */
+  opacity: 0.82;
+}
+
+/* 出口做成一行淡淡的下划线字而不是按钮，免得和上面那颗抢注意力（同竖屏提示的「仍要继续」）。 */
+.fs-prompt__skip {
+  padding: 12px 16px;
+  border: 0;
+  background: none;
+  color: var(--ink-2, #6b6a5f);
+  font-size: var(--fs-lg);
+  letter-spacing: 0.1em;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
 }
 
 /* ---------- 结算界面调试页（/result） ---------- */
@@ -6081,7 +6206,7 @@ body:has(.battle) {
   background: rgb(37 49 73 / 90%);
   color: #e7e1d4;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   cursor: pointer;
 }
 
@@ -6094,7 +6219,7 @@ body:has(.battle) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .result-demo__field input {
@@ -6105,4 +6230,76 @@ body:has(.battle) {
   background: rgb(8 12 20 / 90%);
   color: #e7e1d4;
   font: inherit;
+}
+
+/* ============================================================
+   移动端版式档
+   ------------------------------------------------------------
+   触屏设备（手机、平板）专用的一档排版。判据是 pointer: coarse，
+   和 ui/fullscreen.ts、ui/OrientationNotice.tsx 用的是同一条：
+   它描述的是"主要指针设备很粗"，只有手指操作的设备为真；
+   按视口宽度判会把窄窗口的桌面用户一起卷进来，而他们本来就该拉宽窗口。
+
+   为什么需要这一档：全站是 1672×941 的死版式再整体等比缩放（见 ui/useStageScale.ts），
+   手机横屏下缩放系数只有 0.36～0.41。桌面上刚好的 12、13px 到了手机上是 5 个屏幕像素，
+   根本读不出来。所以这一档做的全是"把要读的东西放大"，排版结构一个字不改。
+
+   本块必须留在文件末尾：下面几条选择器和它们在上面的原始声明特异性相同，
+   同分时靠后的赢，挪到前面去会被原值盖掉。
+   ============================================================ */
+@media (pointer: coarse) {
+  :root {
+    /* 小字号整档放大两成。阶梯的定义和取舍见文件开头 :root 里的 --fs-scale。 */
+    --fs-scale: 1.2;
+  }
+
+  /*
+   * 顶栏和左侧栏各收一档，把腾出来的地方给战场和手牌。
+   * 字变大之后战场那一栏更挤，而这两块本来就是整块画面里最不需要看清的部分：
+   * 顶栏只有轮次和比分，侧栏是两张英雄牌（它自己会按面板重新量缩放，
+   * 见 MatchStage 的 useHeroCardScale，变窄只是画得小一点，不会溢出）。
+   *
+   * 这两个变量不止排版在用，改之前逐处核对过：
+   * - --battle-topbar-h：.battle 的网格行高、.battle__turn-plaque 的 top、
+   *   .reveal-clip 的 clip-path——三处都是直接读变量，跟着变。
+   *   fanMath 的 OPPONENT_FAN 注释里提到顶栏 72px，但它的 sink 取 0、不含顶栏这个数，
+   *   顶栏变矮只是让对手那排牌多露出 16px，不需要跟着改（见那边注释）。
+   * - --battle-side-w：.battle__layout 的网格列宽、.hand-fan 和 .opponent-fan 的锚点
+   *   ——三处都读变量。两排扇形能摊多宽是 JS 现量战场矩形算的
+   *  （battleStage 的 battleFieldWidth、HandFan 的 fanAreaWidth），没有写死 306 的地方。
+   */
+  .battle {
+    --battle-topbar-h: 56px;
+    --battle-side-w: 250px;
+  }
+
+  /*
+   * 放大查看那张卡再放大一档：1.7 倍在手机上只有 126 个屏幕像素宽，
+   * 和"点开看清楚"这件事差得远。卡面排版跟着整体 scale 走（见 .reveal-card__scale），
+   * 放大不会撑破任何东西。
+   *
+   * 上界是舞台高 941：卡心在 46%（y=433），2.2 倍时卡高 495、上沿落在 y=186，
+   * 还在顶栏（56）下方；下沿 680，字幕在 703，都进得来。英雄牌那档同理（2.9 倍：
+   * 上沿 107、字幕 781）。真正卡住的是顶栏那条线，不是屏幕，所以还有余量。
+   *
+   * 挂在 .battle-scaler 上而不是 :root：卡组页的放大查看是双栏排版，
+   * 左右两张卡的位置（39% / 61%）是按 1.7 倍的卡宽算死的，
+   * 改全局会把那一页的双栏挤到一起（见 screens/deck.css 里那段推导）。
+   */
+  .battle-scaler {
+    --reveal-scale: 2.2;
+  }
+
+  .battle-scaler .reveal-clip--hero {
+    --reveal-scale: 2.9;
+  }
+
+  /*
+   * 结算底板放宽一档。它是一张 3:2 的位图加几行绝对定位的文字，
+   * 位置全是百分比，宽度一改整块等比长大，没有需要跟着重算的数，也没有 GSAP 碰它。
+   * 1150 宽对应 767 高，仍然装得进 941 的舞台。
+   */
+  .battle__result-panel {
+    width: 1150px;
+  }
 }

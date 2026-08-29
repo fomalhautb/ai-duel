@@ -25,6 +25,7 @@ type FullscreenTarget = HTMLElement & {
 
 type FullscreenDoc = Document & {
   webkitFullscreenEnabled?: boolean
+  webkitFullscreenElement?: Element | null
 }
 
 /** 触屏设备。桌面浏览器有 F11，不需要我们插一脚，所以入口只对粗指针开放。 */
@@ -49,6 +50,33 @@ export function canGoFullscreen(): boolean {
   if (!enabled) return false
   const el = document.documentElement as FullscreenTarget
   return typeof el.requestFullscreen === 'function' || typeof el.webkitRequestFullscreen === 'function'
+}
+
+/**
+ * 现在是不是全屏。
+ *
+ * 判的是"有没有元素处于全屏"，不是"是不是我们这一层进的全屏"：玩家可能已经按过
+ * 浏览器自己的全屏入口，那时也不该再劝一遍（见 ui/FullscreenPrompt.tsx）。
+ * 带前缀的那份是给 iPad Safari 16.4 之前的老 WebKit 兜底，同上面的 FullscreenTarget。
+ */
+export function isFullscreen(): boolean {
+  if (typeof document === 'undefined') return false
+  const doc = document as FullscreenDoc
+  return (doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null) !== null
+}
+
+/**
+ * 全屏状态变化的订阅。两个事件名都接：老 WebKit 只发带前缀的那个。
+ * 返回退订函数。
+ */
+export function onFullscreenChange(listener: () => void): () => void {
+  if (typeof document === 'undefined') return () => {}
+  document.addEventListener('fullscreenchange', listener)
+  document.addEventListener('webkitfullscreenchange', listener)
+  return () => {
+    document.removeEventListener('fullscreenchange', listener)
+    document.removeEventListener('webkitfullscreenchange', listener)
+  }
 }
 
 /**

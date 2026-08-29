@@ -15,6 +15,7 @@ import { MatchStage } from '../ui/MatchStage'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { DevPanel } from '../dev/DevPanel'
 import { LoadingScreen } from '../ui/LoadingScreen'
+import { FullscreenPrompt } from '../ui/FullscreenPrompt'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { recordWin } from '../save/save'
@@ -83,6 +84,8 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
           </>
         }
       />
+      {/* 触屏进对局时劝一句全屏，自己判定要不要显示、按过「暂不」就永久不再弹。 */}
+      <FullscreenPrompt />
       {testMode ? <DevPanel driver={driver} /> : null}
     </>
   )

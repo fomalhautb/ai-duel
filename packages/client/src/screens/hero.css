@@ -139,7 +139,7 @@
   left: 3.09cqi;
   padding: 0.4cqi 0.5cqi;
   color: var(--hero-ink);
-  font-size: 1.15cqi;
+  font-size: var(--fs-cqi-lg);
   letter-spacing: 0.1em;
   transition: color 0.18s ease;
 }
@@ -593,7 +593,7 @@
 .hero__detail-en {
   margin: 0.4cqi 0 0;
   color: var(--hero-ink);
-  font-size: 1.05cqi;
+  font-size: var(--fs-cqi-md);
   font-weight: 300;
   letter-spacing: 0.08em;
 }
@@ -619,7 +619,7 @@
 
 .hero__detail-skill-text {
   margin: 0.6cqi 0 0;
-  font-size: 1.05cqi;
+  font-size: var(--fs-cqi-md);
   font-weight: 300;
   line-height: 1.7;
 }

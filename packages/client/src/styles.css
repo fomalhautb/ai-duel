@@ -938,7 +938,7 @@ html {
 
 /*
  * 问号分成两个元素：这里是**只管交互的透明热区**，看得见的圆章是下面的 .hand-fan__help-mark。
- * 两者都只长在技能牌上——AI 牌的背面是一张统一图案，翻过去什么也读不到，所以不给它翻面。
+ * 每张能翻面的牌上都有一套（AI 牌翻过去是技能详情，技能牌是效果说明）。
  *
  * 拆开是因为两者对翻面的要求正好相反：圆圈必须跟着卡翻过去（不然翻到背面它还端端正正
  * 贴在原处），而热区绝对不能翻——热区跟着转的话，牌一翻到背面按钮就转到了指针够不着的
@@ -1387,8 +1387,8 @@ html {
 }
 
 /*
- * 玩家自己手牌的背面容器：AI 牌铺整张统一美术图，技能牌在星象边框底图上印卡名和说明
- * （见下面的 --ai-art / --skill），英雄牌是默认的深色底加同一套文字。
+ * 玩家自己手牌的背面容器：AI 牌铺技能详情（ui/AiCardBack.tsx），技能牌在星象边框底图上
+ * 印卡名和说明（见下面的 --ai-art / --skill），英雄牌是默认的深色底加同一套文字。
  * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
  * .card-back-hidden。
  */
@@ -1423,22 +1423,14 @@ html {
 }
 
 /*
- * AI 牌的背面：沿用同一个背面容器，只让统一美术图完整铺满卡框。
+ * AI 牌的背面：沿用同一个背面容器，以保留翻面、高光和问号热区，
+ * 只把内边距去掉，让 AiCardBack 完整铺满卡框。
  *
- * AI 牌在手牌和卡组页里都不翻面了（背面只有这张统一图案，翻过去什么也读不到，
- * 见 ui/CardHelpMark.tsx 的使用方），所以这条现在只服务卡组页放大查看时
- * 右边那张背面大卡（DeckScreen 的 .deck-zoom-side）。
+ * 手牌、卡池格子、以及卡组页放大查看时右边那张背面大卡
+ *（DeckScreen 的 .deck-zoom-side）走的都是这一条。
  */
 .card-back--ai-art {
   padding: 0;
-}
-
-.card-back__art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  user-select: none;
 }
 
 /*
@@ -1484,7 +1476,7 @@ html {
  *
  * 对局手牌和卡组页的卡池卡 / 迷你卡共用这一份长相，位置、尺寸和显隐由各自的类名再补
  * （.hand-fan__help-mark / .deck-pool-card__help-mark / .deck-mini__help-mark）。
- * 只有技能牌会长出这枚章：AI 牌的背面是一张统一图案，翻过去什么也读不到。
+ * 每张能翻面的牌都长这枚章；卡组页里选不了的牌不翻面，也就不长（见 DeckScreen 的 flippable）。
  *
  * 配色照抄卡角上另一颗圆钮（卡组页的 .deck-circle）：同一张牌的两个角落上摆着的东西，
  * 不该一个是夜色米线、一个是天蓝描边。线条挂手绘抖动滤镜，和整套界面的笔触对齐。
@@ -5737,20 +5729,6 @@ body:has(.battle) {
 .gallery__card {
   width: var(--card-w);
   height: var(--card-h);
-}
-
-/*
- * AI 牌共用的 2:3 背面图与当前卡框同一比例，可以完整显示米白外边和中央纹样。
- * 圆角和阴影直接挂在图片上，避免米白边在深色详情区旁露出直角。
- */
-.gallery__card-back-art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 8px;
-  object-fit: cover;
-  box-shadow: 0 10px 24px rgb(0 0 0 / 32%);
-  user-select: none;
 }
 
 .gallery__face-name {

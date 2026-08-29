@@ -1,0 +1,105 @@
+.ai-card-back {
+  --card-ink: color-mix(in srgb, var(--card-accent) 30%, #302b25);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 5.34cqi;
+  container-type: inline-size;
+  font-family: inherit;
+  color: var(--card-ink);
+  isolation: isolate;
+}
+
+.ai-card-back__art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * 深蓝星图直接承载正面那档深墨色会看不清，所以用一块半透明纸面托住文字。
+ * 字色公式与 cardFaceOverlay.css 完全一致，主色也来自同一份 aiModelFace 配置。
+ */
+.ai-card-back__panel.grain {
+  position: absolute;
+  inset: 20% 12.5% 17%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 7cqi 7.5cqi 6.5cqi;
+  border: 0.8cqi solid color-mix(in srgb, var(--card-accent) 58%, #8d8067);
+  border-radius: 7cqi / 5cqi;
+  background:
+    linear-gradient(rgb(242 231 202 / 94%), rgb(226 211 176 / 94%)),
+    var(--vignette);
+  box-shadow:
+    inset 0 0 0 0.7cqi rgb(255 249 226 / 58%),
+    0 2cqi 5cqi rgb(3 7 13 / 32%);
+  text-align: center;
+}
+
+.ai-card-back__eyebrow {
+  color: color-mix(in srgb, var(--card-accent) 72%, #5a5143);
+  font-size: 5.2cqi;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1;
+}
+
+.ai-card-back__name {
+  margin-top: 3.6cqi;
+  font-size: 10.4cqi;
+  font-weight: 600;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.ai-card-back__divider {
+  position: relative;
+  width: 76%;
+  height: 0.7cqi;
+  margin: 5cqi 0 4.2cqi;
+  background: color-mix(in srgb, var(--card-accent) 58%, #8d8067);
+}
+
+.ai-card-back__divider::before,
+.ai-card-back__divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 2.8cqi;
+  height: 2.8cqi;
+  border: 0.65cqi solid currentcolor;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.ai-card-back__divider::before {
+  left: -5.2cqi;
+}
+
+.ai-card-back__divider::after {
+  right: -5.2cqi;
+}
+
+.ai-card-back__skill {
+  color: color-mix(in srgb, var(--card-accent) 82%, #332e27);
+  font-size: 8.5cqi;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+}
+
+.ai-card-back__effect {
+  margin: 4cqi 0 0;
+  font-size: 6.4cqi;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  text-wrap: pretty;
+}

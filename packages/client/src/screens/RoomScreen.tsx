@@ -42,6 +42,7 @@ import { LoadingScreen } from '../ui/LoadingScreen'
 import { BackButton } from '../ui/BackButton'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { useBackgroundMusic } from '../ui/backgroundMusic'
 import './room.css'
 
 gsap.registerPlugin(useGSAP)
@@ -136,6 +137,7 @@ export function RoomScreen() {
   const [input, setInput] = useState('')
   const [joining, setJoining] = useState(false)
   const [phase, setPhase] = useState<Phase>('lobby')
+  useBackgroundMusic(phase === 'deck' || phase === 'hero' ? 'cardsSelecting' : 'room')
   /**
    * 我在这次对局里是哪一方。null = 还没匹配上，也就是「预设模式」：
    * 玩家只是从大厅横幅点进来看看卡组 / 英雄，那一屏没有确认按钮，返回就回大厅接着等人。

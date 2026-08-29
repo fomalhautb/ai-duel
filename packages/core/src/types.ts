@@ -69,6 +69,10 @@ export interface AiCard extends CardBase {
   kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
+  /** AI 的专属技能名；正面铭牌和背面详情共用这一份。 */
+  skillName: string
+  /** AI 的专属技能效果；当前只用于卡背说明，规则实现仍由引擎单独接入。 */
+  skillText: string
   /**
    * 答题时去 OpenRouter 调的那个模型 id，`null` 表示 OpenRouter 上根本没有这个模型。
    *

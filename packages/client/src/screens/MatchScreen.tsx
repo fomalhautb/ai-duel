@@ -19,11 +19,13 @@ import { FullscreenPrompt } from '../ui/FullscreenPrompt'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { recordWin } from '../save/save'
+import { useBackgroundMusic } from '../ui/backgroundMusic'
 
 // 去牌组页再返回会重建 Match 组件，结算标记必须跟随 driver，而不是组件实例。
 const recordedMatches = new WeakSet<MatchDriver>()
 
 export function MatchScreen() {
+  useBackgroundMusic('match')
   const [, navigate] = useLocation()
   const { driver, testMode } = useMatchSession()
 

@@ -28,6 +28,7 @@ import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 import { ResultDemo } from './dev/ResultDemo'
 import { loadSave, saveHero } from './save/save'
+import { useBackgroundMusic } from './ui/backgroundMusic'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
@@ -94,11 +95,13 @@ export function App() {
  */
 function DeckRoute() {
   const [, navigate] = useLocation()
+  useBackgroundMusic('cardsSelecting')
   return <DeckScreen onConfirm={() => navigate('/')} onBack={() => navigate('/')} />
 }
 
 function HeroRoute() {
   const [, navigate] = useLocation()
+  useBackgroundMusic('cardsSelecting')
   return (
     <HeroScreen
       initialHeroId={loadSave().savedHero}

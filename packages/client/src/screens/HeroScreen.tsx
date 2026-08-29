@@ -76,8 +76,6 @@ const HEROES = [
       '她推动建立 ImageNet 大规模图像数据集，使 AI 首次能够系统学习“看懂现实世界”。她也是现代计算机视觉与以人为本 AI 的重要推动者。',
     skillName: '再看一眼',
     skillEffect: '当题目含有图片、图表或视觉信息时，可保送 1 个 Agent 进入下一轮。',
-    tacticalRole:
-      '视觉题王牌：遇到读图、识图、图表分析题时优先出场，直接把视觉理解转化为晋级优势。',
   },
   {
     id: 'danqi-chen',
@@ -87,8 +85,6 @@ const HEROES = [
       '中国青年女性 AI 学者，推动开放域问答、信息检索与语言模型结合，让 AI 不只会“生成”，还能从大量信息中找到可靠答案。',
     skillName: '精准检索',
     skillEffect: '每局限一次：指定 1 个 Agent 免费升级 1 轮。',
-    tacticalRole:
-      '知识成长型辅助：把关键 Agent 提前强化，适合在需要知识储备或推理深度的对局中建立优势。',
   },
   {
     id: 'melanie-perkins',
@@ -97,7 +93,6 @@ const HEROES = [
     profile: 'Canva 联合创始人。她把原本专业、昂贵、难用的设计软件，变成普通人也能快速上手的创作工具。',
     skillName: '化繁为简',
     skillEffect: '每局限一次：指定 1 个 Agent 降级 1 轮。',
-    tacticalRole: '节奏压制：削弱对手的核心 Agent，阻止其形成高等级、强能力组合。',
   },
   {
     id: 'mira-murati',
@@ -107,8 +102,6 @@ const HEROES = [
     skillName: '快速部署',
     skillEffect:
       '每局限一次：在双方 Agent 已经选择但题目尚未揭晓时，可重新选择己方 Agent；仅需支付新旧 Agent 的 Token 差额。',
-    tacticalRole:
-      '临场换人：发现己方阵容不适配题目时及时纠错，避免“选错 Agent 就整轮报废”。',
   },
   {
     id: 'ada-lovelace',
@@ -118,7 +111,6 @@ const HEROES = [
       '她最早提出机器不仅能计算数字，也能遵循规则处理更复杂的信息；其为分析机写下的算法，被视为程序设计思想的起点。',
     skillName: '第一算法',
     skillEffect: '每局开始时，额外获得 2 个 Token。',
-    tacticalRole: '经济发育型：开局就多一笔资源，可更早选强 Agent、保留更多调整空间。',
   },
   {
     id: 'margaret-hamilton',
@@ -128,7 +120,6 @@ const HEROES = [
       '她领导阿波罗登月任务的软件工程工作，设计的优先级与容错思想帮助系统在异常输入下仍能完成关键任务。',
     skillName: '容错系统',
     skillEffect: '当己方 Agent 作答失误时，可免费调用手牌中的另一名 Agent 重新作答 1 次。',
-    tacticalRole: '逆风翻盘保险：为关键题提供一次容错机会，降低单次失误直接出局的风险。',
   },
   {
     id: 'grace-hopper',
@@ -138,8 +129,6 @@ const HEROES = [
       '编译器先驱，推动高级程序语言发展；她让“人写的语言”更容易被机器理解，也奠定了现代调试文化。',
     skillName: 'Debug',
     skillEffect: '每局限一次：移除对手当前生效的 1 个技能效果。',
-    tacticalRole:
-      '反制与拆招：专门破解对手的增益、复活、晋级或资源优势，适合后手反打。',
   },
 ] as const
 
@@ -635,7 +624,6 @@ function HeroStage() {
                     <p className="hero__detail-skill-text">
                       <strong>{detailHero.skillName}</strong>：{detailHero.skillEffect}
                     </p>
-                    <p className="hero__detail-skill-text">{detailHero.tacticalRole}</p>
                   </div>
                 </div>
               </div>

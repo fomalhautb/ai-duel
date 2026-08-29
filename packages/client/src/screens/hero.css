@@ -584,14 +584,14 @@
 .hero__detail-skill-name {
   margin: 0;
   color: var(--hero-gold);
-  font-size: 1.35cqi;
+  font-size: 1.5cqi;
   font-weight: 600;
   line-height: 1;
 }
 
 .hero__detail-skill-text {
   margin: 0.6cqi 0 0;
-  font-size: 1.05cqi;
+  font-size: 1.2cqi;
   font-weight: 300;
   line-height: 1.7;
 }

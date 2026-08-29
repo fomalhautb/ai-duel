@@ -46,7 +46,6 @@ import type {
   GameState,
   HeroId,
   InstanceId,
-  InterferenceCardId,
   PlayerId,
   PlayerState,
   QuestionCategory,
@@ -76,6 +75,7 @@ import { RoundSettleLayer } from './RoundSettleLayer'
 import type { RoundSettle, SettleAiResult, SettleScore } from './RoundSettleLayer'
 import { boardTargetsOf, handTargetsOf } from './skillTargets'
 import type { SkillTargetMode } from './skillTargets'
+import { affectedCaptionOf, tileMarksOf } from './tileMarks'
 import { useStageScale } from './useStageScale'
 
 gsap.registerPlugin(useGSAP, Flip)
@@ -209,10 +209,13 @@ interface InspectTarget {
    */
   art: string | null
   /**
-   * 放大态卡下方那行字幕。
+   * 放大态卡下方那行字幕，没什么可说的就为 null，整行不渲染。
    *
-   * 只有英雄牌用得上：原画上没印技能，而"点开英雄牌看技能"正是这条链路存在的理由，
-   * 所以把「技能名：技能说明」补在卡下面。战场小卡的卡面自带说明，为 null。
+   * 两条链路各用它说一件卡面上写不下的事：
+   * - 英雄牌：原画上没印技能，而"点开英雄牌看技能"正是这条链路存在的理由，
+   *   所以把「技能名：技能说明」补在卡下面。
+   * - 战场小卡：卡面自带说明，但说不出这个单位本轮被哪几张技能牌影响过
+   *   （小卡上的角标只写状态，见 affectedCaptionOf）。
    */
   caption: string | null
 }
@@ -278,17 +281,6 @@ const DROP_MISS_TIPS: Record<Exclude<SkillTargetMode, 'own-hand-ai'>, string> = 
   'foe-ai': '松手要落在对方 AI 上',
   'own-ai': '松手要落在己方 AI 上',
   'own-affected-ai': '松手要落在己方被干扰的 AI 上',
-}
-
-/**
- * 场上单位身上那些「本轮」标记的角标文案。
- *
- * 干扰按种类分而不是笼统写「已干扰」：两种干扰这一轮的后果完全不同
- * （复读机必错、黑白颠倒把判定翻面），玩家要据此决定救哪一个。
- */
-const INTERFERENCE_MARKS: Record<InterferenceCardId, string> = {
-  'fixed-answer': '复读中',
-  'black-white-reversal': '已颠倒',
 }
 
 /**
@@ -1918,7 +1910,11 @@ function BattleField({
     return true
   }
 
-  /** 点战场小卡：把它放大到屏幕中央看清楚。 */
+  /**
+   * 点战场小卡：把它放大到屏幕中央看清楚。
+   * 卡下面那行字幕报本轮它被哪几张技能牌影响了——小卡上的角标只说得出状态，
+   * 说不出是谁干的（见 affectedCaptionOf）。
+   */
   const handleInspect = (ai: AiInstance) => {
     if (!canInspect()) return
     // 此刻这张小卡还是可见的（held 要等下一次渲染才为 true），正好当飞行起点。
@@ -1931,7 +1927,7 @@ function BattleField({
       flipId: ai.instanceId,
       source: 'tile',
       art: null,
-      caption: null,
+      caption: affectedCaptionOf(ai, state.players[ai.owner].shielded === true),
     })
   }
 
@@ -2466,7 +2462,8 @@ function BattleField({
         const clip = revealClipRef.current
         if (clip !== null) gsap.set(clip, { clipPath: 'none' })
 
-        // 技能字幕（只有英雄牌有）等卡快飞到位再淡上来，起飞那一刻就亮着的话，
+        // 卡下面那行字幕（英雄牌是技能说明，战场小卡是本轮受了哪些技能牌影响；
+        // 都没有可说的时它根本不渲染）等卡快飞到位再淡上来，起飞那一刻就亮着的话，
         // 字会先在半空中和飞行的卡各说各话。
         // fromTo 默认 immediateRender: true，所以哪怕带着 delay，隐藏也是这一帧就生效；
         // CSS 里不写初始 opacity，是为了万一这段没跑到，字幕仍然是看得见的那一档。
@@ -2712,6 +2709,7 @@ function BattleField({
                 <div className="battle__board-slot" key={ai.instanceId}>
                   <BoardTile
                     ai={ai}
+                    shielded={foe.shielded === true}
                     // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
                     // 查看那一路认的是 flipId：展示层现在也管侧栏英雄牌，那两张的键是拼出来的
                     // （见 heroFlipId），不是实例 id。
@@ -2757,6 +2755,7 @@ function BattleField({
                 <div className="battle__board-slot" key={ai.instanceId}>
                   <BoardTile
                     ai={ai}
+                    shielded={me.shielded === true}
                     held={inspecting?.flipId === ai.instanceId}
                     // 我方这一行也会亮：「保送」「玉净瓶」选的正是自己的 AI，
                     // 陈丹琦的「精准检索」挑的也是自家 Agent（见 isLegalTarget）。
@@ -3670,17 +3669,20 @@ function DeckPile({ side, count }: { side: DealSide; count: number }) {
  */
 function BoardTile({
   ai,
+  shielded,
   held,
   target,
   onActivate,
 }: {
   ai: AiInstance
+  /** 这个单位的主人本轮打过金钟罩。它罩的是整个人，只能从外面传进来（见 tileMarksOf）。 */
+  shielded: boolean
   held: boolean
   target: 'none' | 'drag' | 'pick'
   onActivate: () => void
 }) {
   const card = handCardOfAi(ai)
-  const marks = tileMarksOf(ai)
+  const marks = tileMarksOf(ai, shielded)
   const targetable = target !== 'none'
   const classes = ['battle__tile']
   if (held) classes.push('battle__tile--held')
@@ -3728,11 +3730,11 @@ function BoardTile({
           橙色是"可以打这里"的专用色，和上场追光那圈金色分得开。
           同样放在裁剪层外面，理由和上面那圈追光一样。 */}
       {targetable ? <div className="battle__tile-target-ring" aria-hidden="true" /> : null}
-      {/* 常驻角标，全部跟着快照里的状态走而不是靠动画残留：
-          干扰和「保送」既是记号，也解释了这张卡为什么不能再被某些技能选中；
+      {/* 常驻角标，全部跟着快照里的状态走而不是靠动画残留：本轮打在这个单位身上的每一张技能牌
+          都占一枚，它们既是记号，也解释了这张卡为什么不能再被某些技能选中；
           「已升级 / 已降级」则说明这张卡为什么和打出去时不是同一张脸。
           好几枚可能同时挂在一张卡上（被干扰的单位照样能被保送、被升降级），所以由容器排成一列。
-          具体挂哪几枚见 tileMarksOf。 */}
+          具体挂哪几枚见 ui/tileMarks.ts 的 tileMarksOf。 */}
       {marks.length === 0 ? null : (
         <div className="battle__tile-marks">
           {marks.map((mark) => (
@@ -3744,35 +3746,6 @@ function BoardTile({
       )}
     </div>
   )
-}
-
-/**
- * 这个单位现在该挂哪几枚常驻角标，按从上到下的顺序排。
- *
- * 先排两枚「本轮」标记（进下一轮会自己消失），再排跟着单位走的升降级标记，
- * 顺序固定是为了同时挂两三枚时不会跳来跳去。
- * 干扰按种类分开写而不是笼统写「已干扰」：两种干扰这一轮的后果完全不同
- * （复读机必错、黑白颠倒把判定翻面），玩家要据此决定救哪一个（见 INTERFERENCE_MARKS）。
- *
- * 干扰用角标的默认那档配色，保送和升降级各带一个修饰类（见 styles.css 的 .battle__tile-mark）。
- * levelShift 是净升降次数（升 +1 降 -1，见 core 的 AiInstance）：一方升、另一方又降回去
- * 会留下一个 0，那时这张卡的 cardId 已经变回原样，所以 0 不挂角标。
- */
-function tileMarksOf(ai: AiInstance): { text: string; className: string }[] {
-  const marks: { text: string; className: string }[] = []
-  if (ai.interference !== undefined) {
-    marks.push({ text: INTERFERENCE_MARKS[ai.interference], className: 'battle__tile-mark' })
-  }
-  if (ai.safePassed === true) {
-    marks.push({ text: '保送', className: 'battle__tile-mark battle__tile-mark--safe' })
-  }
-  const shift = ai.levelShift ?? 0
-  if (shift > 0) {
-    marks.push({ text: '已升级', className: 'battle__tile-mark battle__tile-mark--up' })
-  } else if (shift < 0) {
-    marks.push({ text: '已降级', className: 'battle__tile-mark battle__tile-mark--down' })
-  }
-  return marks
 }
 
 /**

@@ -22,7 +22,8 @@ import { DeckScreen } from './screens/DeckScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
-import { loadSave, saveDeck, saveHero } from './save/save'
+import { ResultDemo } from './dev/ResultDemo'
+import { loadSave, saveHero } from './save/save'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
@@ -56,6 +57,9 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
+            省得为了调结算版式真去打完一局。 */}
+        <Route path="/result" component={ResultDemo} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>
@@ -66,21 +70,14 @@ export function App() {
  * /deck 和 /hero 这两条路由是**独立入口**，留给视觉迭代：敲个短地址就能单独打开这一页调样式，
  * 不用先凑够两台机器匹配上。正式流程里的选卡组 / 选英雄不经过这里，它们是 RoomScreen 的两个阶段。
  *
- * 两个页面本身都是受控组件（不导航、不写存档），所以这两条薄包装负责把它们接上存档：
- * 进来用上次确认的选择预填，确认后落盘再回首页——存下来的东西下次匹配时会被 RoomScreen 预填走。
+ * 两个页面本身都是受控组件（不导航），所以这两条薄包装负责把它们接回首页。
+ *
+ * 两页的存档口径不一样：选牌页每改一张牌就自己写 save/deckStore.ts，所以这里确认时无事可做，
+ * 只管跳转；选英雄页不写存档，确认后由这里 saveHero，下次匹配时 RoomScreen 拿它预填。
  */
 function DeckRoute() {
   const [, navigate] = useLocation()
-  return (
-    <DeckScreen
-      initialDeck={loadSave().savedDeck}
-      onConfirm={(deck) => {
-        saveDeck(deck)
-        navigate('/')
-      }}
-      onBack={() => navigate('/')}
-    />
-  )
+  return <DeckScreen onConfirm={() => navigate('/')} onBack={() => navigate('/')} />
 }
 
 function HeroRoute() {

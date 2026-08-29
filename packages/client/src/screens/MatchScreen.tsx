@@ -12,6 +12,7 @@ import { useMatchSession } from '../match/MatchSession'
 import { useMatch } from '../match/useMatch'
 import type { MatchDriver } from '../match/driver'
 import { MatchStage } from '../ui/MatchStage'
+import { PlaqueButton } from '../ui/PlaqueButton'
 import { DevPanel } from '../dev/DevPanel'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
@@ -73,12 +74,12 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
         testMode={testMode}
         resultActions={
           <>
-            <button type="button" onClick={() => leave('/room')}>
+            <PlaqueButton type="button" onClick={() => leave('/room')}>
               再来一局
-            </button>
-            <button type="button" onClick={() => leave('/')}>
+            </PlaqueButton>
+            <PlaqueButton type="button" onClick={() => leave('/')}>
               回首页
-            </button>
+            </PlaqueButton>
           </>
         }
       />

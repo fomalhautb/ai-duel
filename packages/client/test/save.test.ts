@@ -7,8 +7,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, DECK_SIZE, INITIAL_COLLECTION, STARTER_DECK } from '@ai-duel/core'
-import { loadSave, recordWin, resetSave, saveDeck, saveHero } from '../src/save/save'
+import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
+import { loadSave, recordWin, resetSave, saveHero } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
 const SAVE_KEY = 'ai-duel-save-v6'
@@ -85,22 +85,18 @@ describe('本地存档', () => {
   it('重置存档回到初始收藏，localStorage 里的记录也被清掉', () => {
     recordWin()
     const reset = resetSave()
-    expect(reset).toEqual({
-      ownedCards: INITIAL_COLLECTION,
-      wins: 0,
-      savedDeck: null,
-      savedHero: null,
-    })
+    expect(reset).toEqual({ ownedCards: INITIAL_COLLECTION, wins: 0, savedHero: null })
     expect(localStorage.getItem(SAVE_KEY)).toBeNull()
   })
 
-  // 选卡组和选英雄是流程里先后两步，分开写入后都要能读回来。
-  it('确认过的牌组和英雄分别写入后都能读回来', () => {
-    saveDeck([...STARTER_DECK])
+  // 牌组归 deckStore 管，这份存档里只剩英雄这一个选择结果。
+  it('确认过的英雄写入后能读回来，收藏和胜场不受影响', () => {
+    const before = loadSave()
     saveHero('ada-lovelace')
     const save = loadSave()
-    expect(save.savedDeck).toEqual(STARTER_DECK)
     expect(save.savedHero).toBe('ada-lovelace')
+    expect(save.ownedCards).toEqual(before.ownedCards)
+    expect(save.wins).toBe(before.wins)
   })
 
   it('存档里的英雄不在英雄表里时读回 null', () => {
@@ -109,37 +105,9 @@ describe('本地存档', () => {
       JSON.stringify({
         ownedCards: [...INITIAL_COLLECTION],
         wins: 0,
-        savedDeck: null,
         savedHero: '没有这个英雄',
       }),
     )
     expect(loadSave().savedHero).toBeNull()
-  })
-
-  // 牌组是整体作废而不是过滤：残缺的牌组开不了局，读回 null 让玩家重选。
-  it('牌组含池外卡或张数不对时整个读回 null', () => {
-    const withUnknownCard = [...STARTER_DECK.slice(1), '卡池里已经没有的卡']
-    expect(withUnknownCard).toHaveLength(DECK_SIZE)
-    localStorage.setItem(
-      SAVE_KEY,
-      JSON.stringify({
-        ownedCards: [...INITIAL_COLLECTION],
-        wins: 0,
-        savedDeck: withUnknownCard,
-        savedHero: null,
-      }),
-    )
-    expect(loadSave().savedDeck).toBeNull()
-
-    localStorage.setItem(
-      SAVE_KEY,
-      JSON.stringify({
-        ownedCards: [...INITIAL_COLLECTION],
-        wins: 0,
-        savedDeck: STARTER_DECK.slice(1),
-        savedHero: null,
-      }),
-    )
-    expect(loadSave().savedDeck).toBeNull()
   })
 })

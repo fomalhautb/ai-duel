@@ -35,7 +35,7 @@ import { createHostDriver } from '../match/hostDriver'
 import { createGuestDriver } from '../match/guestDriver'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
-import { loadSave, saveDeck, saveHero } from '../save/save'
+import { loadSave, saveHero } from '../save/save'
 import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
@@ -302,8 +302,8 @@ export function RoomScreen() {
   }
 
   function handleDeckConfirm(deck: CardId[]): void {
-    // 两种模式都落盘：横幅预设的全部意义就是把选择提前存好，下次直接预填。
-    saveDeck(deck)
+    // 这里不用落盘：选牌页每加减一张就自己写 deckStore 了（见 DeckScreen 文件头），
+    // 下次进来的预填也是从那份存档来的。
     if (role === null) {
       setPhase('lobby')
       return
@@ -349,7 +349,6 @@ export function RoomScreen() {
   if (phase === 'deck') {
     return (
       <DeckScreen
-        initialDeck={loadSave().savedDeck}
         onConfirm={handleDeckConfirm}
         onBack={role === null ? () => setPhase('lobby') : undefined}
       />
@@ -485,7 +484,7 @@ function RoomStage({
         // 位移写在横幅内部的 .room__banner-lift 上，不是横幅按钮本身：按钮上挂着
         // transition: transform（给 :active 的下压用），GSAP 每帧写行内 transform 都会被这条
         // 140ms 过渡再插一遍，缓动曲线就不是这里写的那条了。父子各管一套 transform 就不冲突
-        // （同 hero.css 里 .hero__back 和箭头的分工）。
+        // （同公共返回按钮 .ui-back 和它箭头的分工，见 styles.css）。
         .from('.room__banner-lift', { opacity: 0, yPercent: 8, duration: 0.5, stagger: 0.08 }, 0.3)
         // 收尾装饰只淡入不位移：它就是一条线加一颗星，位移看不出来还占一份重排。
         .from('.room__foot', { opacity: 0, duration: 0.4 }, 0.6)

@@ -51,6 +51,7 @@ import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
 import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
+import { MatchResult } from './MatchResult'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
@@ -2440,19 +2441,11 @@ function BattleField({
       ) : null}
 
       {finished ? (
-        <div className="battle__result">
-          <div className="battle__result-panel">
-            <div className="battle__result-content">
-              <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
-              {view.status === 'aborted' ? null : (
-                <p className="battle__result-score">
-                  最终比分 <strong>{me.score} : {foe.score}</strong>
-                </p>
-              )}
-              <div className="battle__result-actions">{resultActions}</div>
-            </div>
-          </div>
-        </div>
+        <MatchResult
+          title={resultTitleOf(view, state, mySeat)}
+          score={view.status === 'aborted' ? null : { mine: me.score, foe: foe.score }}
+          actions={resultActions}
+        />
       ) : null}
 
       {/*

@@ -33,6 +33,7 @@ import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
+import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { attachCardTilt } from './cardTilt'
@@ -1136,16 +1137,22 @@ export function HandFan({
  * 画面前后是同一份排版，落位时不会突然换一套内容。
  *
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
- * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌，其余卡牌保留渐变信息层。
+ * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌；完整技能牌原画直接展示；
+ * 没有专属原画的卡继续使用渐变信息层。
  * Token 沿用原稿的展示数值，不改变当前答题制的出牌与胜负规则。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
   const face = card.kind === 'ai' ? AI_MODEL_FACE[definitionId] : undefined
+  const illustratedSkill = card.kind === 'skill' && isIllustratedSkillCard(definitionId)
   return (
-    <div className={`card-face card-face--${card.kind}`}>
-      {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
-          念一遍图名反而是噪音。draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+    <div
+      className={`card-face card-face--${card.kind}`}
+      role={illustratedSkill ? 'img' : undefined}
+      aria-label={illustratedSkill ? `${card.name}。${card.text}` : undefined}
+    >
+      {/* 普通插画的信息由文字层提供；完整技能牌的烘焙文字通过外层 aria-label 朗读。
+          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
       <img
         className="card-face__art"
         src={card.art ?? cardArtFor(definitionId)}
@@ -1154,15 +1161,15 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       />
       {face ? (
         <CardFaceOverlay cost={face.tokenCost} skillName={face.skillName} name={card.name} accent={face.accent} />
-      ) : (
-      <div className="card-face__body">
-        <div className="card-face__name">{card.name}</div>
-        <p className="card-face__text">{card.text}</p>
-        <div className="card-face__stats">
-          {/* AI 牌印模型名，技能牌和英雄牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
-          <span>{faceStamp(card)}</span>
+      ) : illustratedSkill ? null : (
+        <div className="card-face__body">
+          <div className="card-face__name">{card.name}</div>
+          <p className="card-face__text">{card.text}</p>
+          <div className="card-face__stats">
+            {/* AI 牌印模型名，技能牌和英雄牌印卡种：这一行的作用就是一眼分清场上站的是谁。 */}
+            <span>{faceStamp(card)}</span>
+          </div>
         </div>
-      </div>
       )}
       {/*
         跟着指针跑的微高光（落在指针的镜像位置，见 cardTilt.ts）。

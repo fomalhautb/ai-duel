@@ -7,6 +7,7 @@
  */
 
 import { AI_MODEL_ART } from './aiModelArt'
+import { SKILL_CARD_ART } from './skillCardArt'
 
 export const CARD_ART_PLACEHOLDERS = [
   '/cards/placeholder-1.webp',
@@ -41,5 +42,5 @@ export function placeholderArtFor(seed: string): string {
  * 预加载等的图和卡面真正显示的图就会对不上，玩家会先看到空白再看到图闪出来。
  */
 export function cardArtFor(cardId: string): string {
-  return AI_MODEL_ART[cardId] ?? placeholderArtFor(cardId)
+  return AI_MODEL_ART[cardId] ?? SKILL_CARD_ART[cardId] ?? placeholderArtFor(cardId)
 }

@@ -62,6 +62,7 @@ import type { MatchStageCue, MatchStageTutorial } from './matchStageTutorial'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
+import { playRandomUrgeSound, playSkillTargetingSound } from './soundEffects'
 import { cardBackText } from './cardText'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
@@ -1782,6 +1783,7 @@ function BattleField({
       // 这张牌本身留在扇形里，只是抬起来亮着（见 HandFanProps.castingId）。
       // 这里刻意不上演出锁：指令还没发出去，屏幕上也没有任何演出，
       // 冻手牌那件事由 targeting 自己喂给 handFrozen。
+      playSkillTargetingSound()
       setTargeting({ kind: 'skill-card', instanceId, cardId: card.id, mode })
       return
     }
@@ -2785,10 +2787,10 @@ function BattleField({
         </main>
 
         {/*
-          回合操作的三块：「下一题」牌匾、Token 细条、结束按钮。
+          回合操作的四块：「下一题」牌匾、Token 细条、催促按钮、结束按钮。
 
           它们原来挤在一条羊皮纸右侧栏里，现在拆开各自贴着屏幕边悬浮在战场上方
-          （牌匾右上吊着、细条贴最右缘居中、按钮落右下角，定位全在 styles.css 里）。
+          （牌匾右上吊着、细条贴最右缘居中、两颗按钮叠在右下角，定位全在 styles.css 里）。
           写成 .battle__layout 的绝对定位子元素而不是 fixed：基准框的上边沿正好是顶栏下沿，
           牌匾"从顶边吊下来"直接 top: 0 就行。
 
@@ -2802,6 +2804,11 @@ function BattleField({
         */}
         {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
         <TokenTrack tokens={me.tokens} max={me.tokenMax} />
+        <div className="battle__urge">
+          <PlaqueButton disabled={finished} onClick={playRandomUrgeSound}>
+            催一催
+          </PlaqueButton>
+        </div>
         {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
             三句都是四五个字，按钮宽度写死 184px 且 overflow: hidden，换文案撑不破框。 */}
         <div className="battle__end-turn">

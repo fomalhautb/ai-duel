@@ -33,6 +33,7 @@ import { MuteButton } from '../ui/MuteButton'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
+import { useBackgroundMusic } from '../ui/backgroundMusic'
 import { useAssetsProgress } from '../ui/preloadAssets'
 
 /**
@@ -45,6 +46,8 @@ type Phase = 'intro' | 'match' | 'interlude' | 'deck' | 'hero' | 'complete'
 const UNPLAYED_SCORE: TutorialScore = { mine: 0, foe: 0 }
 
 export function TutorialScreen() {
+  // 教程整条流程与匹配房共用同一曲目和全局音量，跨阶段不切歌。
+  useBackgroundMusic('room')
   const [, navigate] = useLocation()
   const [phase, setPhase] = useState<Phase>('intro')
   /** 教学对战的最终比分，完成页要显示（脚本正常走完是 3:0）。 */

@@ -14,6 +14,7 @@ import { HOME_ASSETS } from '../src/screens/HomeScreen'
 import { INFO_ASSETS } from '../src/screens/InfoScreen'
 import { ROOM_ASSETS } from '../src/screens/RoomScreen'
 import { TRACK_SOURCE } from '../src/ui/backgroundMusic'
+import { SOUND_EFFECT_SOURCE } from '../src/ui/soundEffects'
 
 /**
  * 预加载清单和 public/ 里实际的图必须一一对上。
@@ -143,19 +144,20 @@ describe('图片预加载清单', () => {
 })
 
 /**
- * 背景音乐不进预加载清单（边播边下），但同样怕改名和格式漂移，所以单独核一遍。
+ * 音频不进图片预加载清单，但同样怕改名和格式漂移，所以单独核一遍。
  */
-describe('背景音乐', () => {
+describe('音频资源', () => {
   const files = readdirSync(`${PUBLIC_DIR}/music`).sort()
 
-  it('四首曲子在 public/music/ 下都有对应文件', () => {
-    const listed = Object.values(TRACK_SOURCE).map((url) => url.replace('/music/', '')).sort()
+  it('背景音乐和音效在 public/music/ 下都有对应文件', () => {
+    const listed = [...new Set([...Object.values(TRACK_SOURCE), ...Object.values(SOUND_EFFECT_SOURCE)])]
+      .map((url) => url.replace('/music/', ''))
+      .sort()
     expect(files).toEqual(listed)
   })
 
-  it('public/music/ 下只有 m4a（mp3 都已转掉）', () => {
-    // 换/加曲目请跑 scripts/optimize-music.sh，别直接把 mp3 丢进来：
-    // 同样的听感 mp3 要大一倍，而 audio 元素是 preload='auto'，整首都会跟当前页面抢带宽。
+  it('public/music/ 下只有 m4a', () => {
+    // 新增音频先用 ffmpeg 转成 AAC；背景音乐还会 preload，保留原始 MP3 会额外抢带宽。
     expect(files.filter((name) => !name.endsWith('.m4a'))).toEqual([])
   })
 })

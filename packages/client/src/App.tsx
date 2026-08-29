@@ -31,12 +31,14 @@ import { LoadingBarDemo } from './dev/LoadingBarDemo'
 import { ResultDemo } from './dev/ResultDemo'
 import { loadSave, saveHero } from './save/save'
 import { useBackgroundMusic } from './ui/backgroundMusic'
+import { useGlobalButtonSound } from './ui/soundEffects'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
 
 export function App() {
   useBackgroundPreload()
+  useGlobalButtonSound()
 
   return (
     <MatchSessionProvider>

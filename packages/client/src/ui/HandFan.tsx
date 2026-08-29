@@ -48,6 +48,7 @@ import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { cardArtFor } from './cardArt'
+import { midFor } from './cardArtThumb'
 import { CardHelpMark } from './CardHelpMark'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
@@ -1640,8 +1641,18 @@ export function HandFan({
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)
             }}
-            onPointerEnter={() => handleEnter(card.id)}
-            onPointerLeave={() => handleLeave(card.id)}
+            /* 抬牌只给鼠标。触屏上手指划过手牌会一路发 enter，牌被一张张抬起来，
+               看着像自己选了一堆；而真正的触屏选牌是点一下（见 handleTap），
+               走的是 selectedId 那条路，和 hoverRef 无关，拦掉这里什么都不少。
+               判据用这次事件的 pointerType 而不是设备类型：带触屏的笔记本用鼠标时照常抬牌。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleEnter(card.id)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleLeave(card.id)
+            }}
             {...dragBindings}
             /*
             指针已经在牌上、却没抬起来的那些情况，全靠 move 补一次 hover：
@@ -1653,6 +1664,7 @@ export function HandFan({
           */
             onPointerMove={(event) => {
               dragBindings.onPointerMove(event)
+              if (event.pointerType !== 'mouse') return
               handleEnter(card.id)
             }}
           >
@@ -1810,10 +1822,16 @@ export function HandCardFace({ card }: { card: HandCardData }) {
       aria-label={illustratedSkill ? `${card.name}。${card.text}` : undefined}
     >
       {/* 普通插画的信息由文字层提供；完整技能牌的烘焙文字通过外层 aria-label 朗读。
-          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。
+
+          图一律过 midFor：这个组件是全站唯一画卡面的地方（手牌、战场小卡、强制展示、
+          回合结算、牌库放大查看都是它），而这些场合里卡最大也只到 524 个设备像素，
+          600 宽那一档全盖得住。铺原画（1024×1536）的话每张卡都要解码 157 万像素再降采样，
+          手机上是掉帧的主因之一。卡牌自带的外部图（card.art 可以是任意 URL）
+          midFor 会原样放行，不用在这儿判。 */}
       <img
         className="card-face__art"
-        src={card.art ?? cardArtFor(definitionId)}
+        src={midFor(card.art ?? cardArtFor(definitionId))}
         alt=""
         draggable={false}
       />

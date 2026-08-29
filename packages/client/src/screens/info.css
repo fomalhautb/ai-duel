@@ -87,7 +87,7 @@
     0.18cqi 0.24cqi 0 rgb(4 12 18 / 70%),
     0 0.5cqi 1.2cqi rgb(4 10 16 / 60%);
   /* 和首页标题同一套手绘抖动（滤镜定义见 ui/HandDrawnFilterDefs.tsx）。 */
-  filter: url('#ai-duel-rough-frame');
+  filter: var(--rough-frame);
 }
 
 /* ---------- 金框里的正文 ---------- */

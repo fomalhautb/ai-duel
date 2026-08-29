@@ -31,6 +31,9 @@ const VARIANTS: Variant[] = [
   { label: '纸色底 · 深色线 #2c2926', loader: { color: '#2c2926' }, paper: true },
 ]
 
+/** 演示用的进度，挑个不上不下的数好看清楚条走到哪儿。 */
+const DEMO_PERCENT = 62
+
 export function LoaderDemo() {
   const [, navigate] = useLocation()
 
@@ -38,7 +41,12 @@ export function LoaderDemo() {
     <div className="loader-demo">
       <section className="loader-demo__hero">
         <CardLoader />
-        <p className="page-loader__text">加载中…</p>
+        {/* 百分比和进度条照搬真实加载页（ui/LoadingScreen.tsx）的结构和 class，
+            只是这里的数值是写死的：这一屏是给人看观感的，不真的在加载东西。 */}
+        <p className="page-loader__text">加载中… {DEMO_PERCENT}%</p>
+        <div className="page-loader__bar">
+          <span className="page-loader__bar-fill" style={{ width: `${DEMO_PERCENT}%` }} />
+        </div>
       </section>
 
       <section>

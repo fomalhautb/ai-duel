@@ -29,6 +29,30 @@ const FRONT_SELECTOR = '[data-flip-face="front"]'
 const BACK_SELECTOR = '[data-flip-face="back"]'
 
 /**
+ * 「这一层现在需要三维」的标记，转到非 0 角度时挂上、转回正面时摘掉。
+ *
+ * 为什么要有：翻面层平时是 transform-style: flat 的，只有真的转起来才切成 preserve-3d
+ *（手牌那两层的规则见 styles.css 的 .hand-fan__tilt / .hand-fan__inner）。
+ * preserve-3d 会让浏览器没法把整棵子树拍平成一张位图——一张卡里十几个节点全都要单独合成，
+ * 一排五张手牌常驻开着就是几十层白烧。而三维只有翻面途中和停在背面时才真的用得上。
+ *
+ * 判据是**角度**而不是"补间在不在跑"：牌停在背面时补间早就结束了，但那一面正靠
+ * rotateY(180°) 立在三维里，这时候塌成平面会当场变成一张水平镜像的正面。
+ *
+ * 属性打在 inner 自己身上，由用到它的那一处样式自行决定还要不要连带开父层
+ *（手牌的 tilt 层就要，因为 perspective 挂在更上面的 slot 上、得穿过它传下来）。
+ * 这个函数是三处共用的（手牌、强制展示、抛硬币），不该越界去改调用方的父节点。
+ */
+const NEEDS_3D_ATTR = 'data-flip3d'
+
+/** 角度归一到 [0, 360) 之后离 0 还有没有距离——有就说明这一层正立在三维里。 */
+function syncNeeds3d(inner: HTMLElement, rotationY: number): void {
+  const angle = ((rotationY % 360) + 360) % 360
+  if (angle === 0) inner.removeAttribute(NEEDS_3D_ATTR)
+  else inner.setAttribute(NEEDS_3D_ATTR, 'on')
+}
+
+/**
  * 按 inner 当前的实际角度，硬切正反两面的 opacity。
  *
  * 读的是元素**当前的实际角度**而不是补间进度，所以翻过去和翻回来是同一套逻辑，
@@ -60,6 +84,8 @@ export function syncFlipFaces(inner: HTMLElement) {
  * 这里"定死"的角度只撑一帧。摆定角度本来就该压过正在跑的翻面。
  */
 export function setFlipAngle(inner: HTMLElement, rotationY: number) {
+  // 先开 3D 再写角度：反过来的话，"已经转到背面、但这一帧还是平的"会闪一下镜像的正面。
+  syncNeeds3d(inner, rotationY)
   gsap.set(inner, { rotationY, overwrite: true })
   syncFlipFaces(inner)
 }
@@ -71,6 +97,8 @@ export function setFlipAngle(inner: HTMLElement, rotationY: number) {
  * 漏一处那张牌就会卡在正反都显示的样子。
  */
 export function flipTo(inner: HTMLElement, rotationY: number, duration: number) {
+  // 整个翻面过程都需要三维，所以起手就开，不管终点是哪一面。
+  inner.setAttribute(NEEDS_3D_ATTR, 'on')
   gsap.to(inner, {
     rotationY,
     duration,
@@ -78,5 +106,10 @@ export function flipTo(inner: HTMLElement, rotationY: number, duration: number) 
     // 快速来回 hover 时，旧补间要被新补间干净地接管，不能各改各的。
     overwrite: 'auto',
     onUpdate: () => syncFlipFaces(inner),
+    // 转完了才按落点决定还要不要留着三维：停在背面要留，转回正面就摘。
+    //
+    // 被新补间接管时这个回调不会跑（GSAP 的 overwrite 直接杀掉旧补间），不用担心它抢着摘——
+    // 接管的那条补间起手又会把属性打上，最后由**它**的 onComplete 按真正的落点收尾。
+    onComplete: () => syncNeeds3d(inner, rotationY),
   })
 }

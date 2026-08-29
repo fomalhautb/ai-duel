@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { AI_CARD_BACK_ART } from './cardArt'
+import { midFor } from './cardArtThumb'
 import { AI_MODEL_FACE } from './aiModelFace'
 import './aiCardBack.css'
 
@@ -30,7 +31,10 @@ export function AiCardBack({ card }: { card: AiCardBackData }) {
       role="img"
       aria-label={`${card.name}。${skillName}：${skillText}`}
     >
-      <img className="ai-card-back__art" src={AI_CARD_BACK_ART} alt="" draggable={false} />
+      {/* 和 HandCardFace 一样过 midFor：这张卡背在手牌、卡池、图鉴里都只有 150×225 上下，
+          原画 1024×1536 铺上去是白解码。常量本身仍指原画，降档统一在显示处做
+          （预载清单也照同一个函数换算，见 ui/backgroundPreload.ts）。 */}
+      <img className="ai-card-back__art" src={midFor(AI_CARD_BACK_ART)} alt="" draggable={false} />
       <div className="ai-card-back__panel grain">
         <span className="ai-card-back__eyebrow">AI AGENT</span>
         <strong className="ai-card-back__name">{card.name}</strong>

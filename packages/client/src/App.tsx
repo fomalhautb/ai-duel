@@ -13,6 +13,7 @@ import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
 import { OrientationNotice } from './ui/OrientationNotice'
+import { FullscreenEntry } from './ui/FullscreenEntry'
 import { HandDrawnFilterDefs } from './ui/HandDrawnFilterDefs'
 import { MuteButton } from './ui/MuteButton'
 import { HomeScreen } from './screens/HomeScreen'
@@ -28,6 +29,7 @@ import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
+import { LoadingBarDemo } from './dev/LoadingBarDemo'
 import { ResultDemo } from './dev/ResultDemo'
 import { loadSave, saveHero } from './save/save'
 import { useBackgroundMusic } from './ui/backgroundMusic'
@@ -54,6 +56,9 @@ export function App() {
       <OrientationNotice />
       {/* 右上角常驻的静音按钮。放在路由外面，换页时不重挂、也不用每个界面自己画一颗。 */}
       <MuteButton />
+      {/* 手机上常驻的全屏入口：画面边上那颗小按钮，iOS 上还带一份「添加到主屏幕」引导。
+          和上面一样自己判定要不要显示，桌面上不出现。 */}
+      <FullscreenEntry />
       <Switch>
         <Route path="/" component={HomeScreen} />
         {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}
@@ -81,6 +86,10 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 加载进度条的调试页：手动拖百分比、自动模拟一遍、极端值对照，
+            还能挑一份真实素材清单绕开缓存真下一遍，看进度条在真实节奏下怎么走。
+            和上面的 /loader 分工：那里调 loader 动画本身，这里调它下面那条进度条。 */}
+        <Route path="/loading-bar" component={LoadingBarDemo} />
         {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
             按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
             不用打完整一局就能反复看那一整套动画。 */}

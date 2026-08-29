@@ -1142,7 +1142,17 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 它必须独立于上面两层——`scale` 混进 Flip 飞行那一层会被飞行补间覆盖掉，
 混进倾斜层则会被 cardTilt 每帧写的旋转覆盖掉。
 
-倾斜层和翻转层都要 `transform-style: preserve-3d`，否则翻转层会被压成一张平面图片再倾斜。
+倾斜层和翻转层要 `transform-style: preserve-3d`，否则翻转层会被压成一张平面图片再倾斜。
+但这两层平时是 `flat` 的，**只在真的用得上三维的那几秒才切过去**：`preserve-3d` 的含义是
+"别把这棵子树拍平"，于是一张卡里十几个节点浏览器一个都不能合并、全部各占一层，
+一排五张手牌常驻开着就是几十层白烧，而绝大多数时候手牌是静止摊在那儿的。
+开关有两个来源、各打各的属性，互不干涉所以不用引用计数：`ui/cardTilt.ts` 在开始跟随指针时
+往 slot 上打 `data-tilting`（和高光的 `data-glare` 同生共死），`ui/flipCard.ts` 按**角度是否为 0**
+往翻转层上打 `data-flip3d`——判角度而不是判"补间在不在跑"，是因为牌停在背面时补间早就结束了，
+可那一面正靠 `rotateY(180°)` 立着，这时候拍平会当场变成一张水平镜像的正面。
+两处都是先打属性、后写变换，落在同一个同步块里，不会出现"3D 还没开、角度已经写了"的那一帧。
+规则见 `styles.css` 里 `.hand-fan__inner` 后面那条。
+
 透视（`perspective`）加在最外层，对下面几层一起生效，不用逐层加。
 小卡的倾斜层同时承担裁剪（`overflow: hidden` + 圆角）：裁切边跟着卡一起转，
 放在不动的 `.battle__tile` 上的话，倾斜时卡角会被一条直边削掉。
@@ -1451,6 +1461,12 @@ packages/client/
     cardArt.ts                卡面插画的占位图，按 id 稳定分配（同一张卡永远同一张图）
     aiModelArt.ts             18 张具名 AI 牌各自的原画（public/cards/models/），按卡牌 id 查表；
                               查不到的卡才退回 cardArt.ts 的占位图
+    cardArtThumb.ts           把原画路径换成离线烤好的缩小版：thumbFor → 300 宽（牌库列表），
+                              midFor → 600 宽（**所有卡面**，HandCardFace 铺的就是它）。
+                              原画 1024×1536 在界面上已无使用场景——最大的一处（桌面手牌
+                              hover 放大到顶）也只要 524 个设备像素。两档由
+                              scripts/gen-card-thumbs.sh 烤出来；预载清单必须和显示处
+                              走同一个函数换算，档位一分家就等于没预载
     CardLoader.tsx            线框卡片加载动画，纯 CSS——要和 index.html 的首屏 loader 一模一样
     LoadingScreen.tsx         整屏加载页：CardLoader + 「加载中…」，界面等自己的图时顶在前面
     OrientationNotice.tsx     竖屏时盖住整页的「请横屏」提示（全站是 16:9 死版式，竖屏没法玩，

@@ -80,6 +80,26 @@ export function onFullscreenChange(listener: () => void): () => void {
 }
 
 /**
+ * 是不是从主屏幕图标启动的（「添加到主屏幕」之后的那种启动方式）。
+ *
+ * 这种启动方式没有地址栏和底栏，也就是 iOS 上唯一能拿到的"全屏"，
+ * 所以到了这里就不该再劝玩家去做全屏（见 ui/FullscreenEntry.tsx）。
+ *
+ * 两条判据分别对应两个平台：display-mode 是标准写法，安卓认，iOS 16.4 起也认；
+ * navigator.standalone 是 iOS 自己的老字段，老版本 iOS 上只有它。
+ */
+export function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false
+  const nav = navigator as Navigator & { standalone?: boolean }
+  if (nav.standalone === true) return true
+  if (typeof window.matchMedia !== 'function') return false
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches
+  )
+}
+
+/**
  * 能不能锁定横屏。
  *
  * 方法存在不等于调用会成功——桌面 Chrome 上它也在，但不在全屏里调用就直接 reject。

@@ -22,6 +22,7 @@ import { DeckScreen } from './screens/DeckScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
+import { ResultDemo } from './dev/ResultDemo'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
@@ -55,6 +56,9 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
+            省得为了调结算版式真去打完一局。 */}
+        <Route path="/result" component={ResultDemo} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

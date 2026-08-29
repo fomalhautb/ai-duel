@@ -165,3 +165,42 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
  * 从 AI_MODEL_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。
  */
 export const AI_MODEL_CARD_IDS: CardId[] = Object.keys(AI_MODEL_CARDS)
+
+/**
+ * 同系列的升级链，每条按"从老到新"排。
+ *
+ * 升降级技能（陈丹琦的「精准检索」、梅拉妮·珀金斯的「化繁为简」）就是**把场上那个单位的
+ * `cardId` 换成链上相邻的一张**，不另加任何数值修正：
+ * 答题表现本来就写在 script.ts 那张「题目 × 卡牌」的静态表里，换了卡自然就换了一整套答题结果，
+ * 引擎不必再理解"强了多少"。费用也不用重算——技能是免费换卡，不退不补（见 engine.ts 的 useHeroSkill）。
+ *
+ * 只有确实存在代际关系的四个系列进表，其余 8 张（Gemini / 通义千问 / 豆包 / GLM-5 /
+ * MiniMax / 腾讯元宝 / Grok / 文心一言）在卡池里各自只有一代，指向它们的升降级一律被拒。
+ * 每张卡最多出现在一条链里、链内不重复，所以查上一代/下一代都是唯一答案。
+ */
+export const AI_UPGRADE_CHAINS: readonly (readonly CardId[])[] = [
+  ['gpt-2', 'gpt-3-5', 'gpt-4o', 'chatgpt-5-6-sol'],
+  ['claude-5-sonnet', 'claude-fable-5'],
+  ['deepseek-r1', 'deepseek-v4'],
+  ['kimi-k2-6', 'kimi-k3'],
+]
+
+/** 在升级链上按 step 找相邻的一张：+1 是下一代，-1 是上一代；不在链上或走出两端都是 null。 */
+function chainNeighbor(cardId: CardId, step: 1 | -1): CardId | null {
+  for (const chain of AI_UPGRADE_CHAINS) {
+    const index = chain.indexOf(cardId)
+    if (index < 0) continue
+    return chain[index + step] ?? null
+  }
+  return null
+}
+
+/** 这张 AI 牌升一级会变成谁。已经是链上最新的一代、或者根本没有同系列的其它代，都返回 null。 */
+export function upgradeTargetOf(cardId: CardId): CardId | null {
+  return chainNeighbor(cardId, 1)
+}
+
+/** 这张 AI 牌降一级会变成谁。已经是链上最早的一代、或者根本没有同系列的其它代，都返回 null。 */
+export function downgradeTargetOf(cardId: CardId): CardId | null {
+  return chainNeighbor(cardId, -1)
+}

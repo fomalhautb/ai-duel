@@ -49,7 +49,14 @@ function parseSave(raw: string): SaveData | null {
   if (owned.length === 0) return null
 
   // 英雄表也可能改名或删人，对不上就当没选过。
-  const heroValid = typeof savedHero === 'string' && savedHero in HEROES
+  // 技能还没实装的几位（core 里标着 comingSoon）同样按无效处理：选英雄界面已经把她们置灰禁选，
+  // 存档里留着的话，下次进流程预填的就是一位现在选不了的英雄，对局里也确实没有技能效果。
+  // 用 Object.hasOwn 而不是 `in`：`in` 连原型链一起查，手改过的存档写个 "toString"
+  // 也会判成有效，接着 HEROES[savedHero] 取到的是 Object 原型上的东西，一路带进对局。
+  const heroValid =
+    typeof savedHero === 'string' &&
+    Object.hasOwn(HEROES, savedHero) &&
+    !HEROES[savedHero].comingSoon
 
   // 基础收藏始终可用，存档只决定额外解锁的卡；换英雄不会清掉胜场。
   return {

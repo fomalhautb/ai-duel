@@ -8,6 +8,11 @@
  *
  * 界面照着一张 1920×1080 的设计稿复原：hover 上浮 / 倾斜、点开看技能详情都做全了。
  *
+ * 技能还没实装的几位（core 的 HeroCard.comingSoon）在卡阵上是置灰 + 常驻「即将加入」的：
+ * 点不开详情、也选不中，指针交互整套都不挂。她们仍然照原位渲染成一张 .hero__card——
+ * 入场动画和 hover 绑定是按 DOM 下标去对 HERO_LIST 的（见下面 cards.forEach），
+ * 少渲染一张就会让后面所有卡对错人。
+ *
  * 做法和首页同源（见 HomeScreen.tsx 文件头）：一个 1672:941 的固定宽高比舞台塞进视口居中，
  * 舞台内所有尺寸写成 cqi（1cqi = 舞台宽的 1%），窗口怎么变都只是整体等比缩放，不写断点。
  * 根节点带 .grain（定义在 src/ui/paper/paper.css）把舞台之外的留边铺成纸；
@@ -73,11 +78,14 @@ const FIRST_ROW_COUNT = 4
 const HERO_ROWS = [HERO_LIST.slice(0, FIRST_ROW_COUNT), HERO_LIST.slice(FIRST_ROW_COUNT)]
 
 /**
- * 没有预填英雄时的兜底。
+ * 没有预填英雄时的兜底：排在最前面的那位**可选**英雄。
+ *
+ * 不能直接取 HERO_LIST[0]——第一位现在正好是 comingSoon 的李飞飞，点都点不开，
+ * 拿她兜底等于让「确认英雄」交出一位玩家根本选不了的人。
  * 选中在页面上没有任何标记（金框和光环都撤了），这份默认值只是给「确认英雄」兜个底。
- * `!` 是给 noUncheckedIndexedAccess 让路——表是写死的七位，第一位一定在。
+ * `!` 是给 noUncheckedIndexedAccess 让路——七位里至少有一位已实装（引擎的默认英雄就在其中）。
  */
-const DEFAULT_HERO_ID: HeroId = HERO_LIST[0]!.id
+const DEFAULT_HERO_ID: HeroId = HERO_LIST.find((hero) => !hero.comingSoon)!.id
 
 /**
  * 这一页要用到的全部图片：背景 + 七张人物卡。加载完之前不上场（见下面的 HeroScreen）。
@@ -131,7 +139,13 @@ export function HeroScreen(props: HeroScreenProps) {
 }
 
 function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
-  const [selectedId, setSelectedId] = useState<HeroId>(initialHeroId ?? DEFAULT_HERO_ID)
+  /*
+   * 预填的英雄要是 comingSoon 就当没预填。存档那一层已经把她们滤成 null 了（见 save/save.ts），
+   * 这里再挡一道是因为 initialHeroId 是外面传进来的，将来多一个不走存档的调用方也不会漏。
+   */
+  const [selectedId, setSelectedId] = useState<HeroId>(
+    initialHeroId !== null && !HEROES[initialHeroId].comingSoon ? initialHeroId : DEFAULT_HERO_ID,
+  )
   const rootRef = useRef<HTMLDivElement>(null)
   /**
    * 每张卡的按钮节点。两处要用：详情飞回时拿它当落点，关闭详情后把焦点还给它。
@@ -207,6 +221,15 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
         // 卡片是照 HERO_ROWS 铺的，DOM 顺序和 HERO_LIST 一一对应，所以按下标取得到同一位。
         const hero = HERO_LIST[index]
         if (lift === undefined || lift === null || hero === undefined) return
+
+        /*
+         * 技能没实装的那几位：一套指针交互都不挂——不跟指针倾斜、hover 也不上浮。
+         * 卡面本来就灰着、还压着一条「即将加入」（见 hero.css），再动起来就成了"看着能点"。
+         *
+         * 只跳过绑定，不把她们从 cards 里剔出去：上面那段入场动画和这里的下标都靠
+         * 「DOM 顺序 == HERO_LIST 顺序」，剔一张后面全部对错人。
+         */
+        if (hero.comingSoon === true) return
 
         // 倾斜写在最里面那层（.hero__card-tilt）：上浮 / pop 归下面几条补间写在 lift 上，
         // 一层 transform 只许一个人写，理由见 ui/cardTilt.ts 开头。
@@ -525,41 +548,67 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
         <div className="hero__grid" inert={detailId !== null}>
           {HERO_ROWS.map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
-              {row.map((hero) => (
-                <button
-                  key={hero.id}
-                  type="button"
-                  className={`hero__card${hero.id === detailId ? ' is-zoomed' : ''}`}
-                  // 不写 aria-pressed：选中在页面上已经没有任何可见标记了，读屏念「已按下」
-                  // 反而和眼睛看到的对不上。这颗按钮的实际行为是「打开这位英雄的技能详情」，
-                  // 所以标题写成那句，再用 haspopup 说明点下去会弹出一个对话框。
-                  aria-label={`查看 ${hero.name} 的技能`}
-                  aria-haspopup="dialog"
-                  ref={(node) => {
-                    if (node === null) cardsRef.current.delete(hero.id)
-                    else cardsRef.current.set(hero.id, node)
-                  }}
-                  onClick={(event) => openHero(hero.id, event.currentTarget)}
-                >
-                  <span className="hero__card-lift">
-                    {/* 倾斜和圆角裁剪都在这一层，高光跟着一起被裁（见 hero.css）。 */}
-                    {/* data-flip-id 是 Flip 的配对键：起点（这一层）和详情里那张大卡
-                        根本不是同一个节点，只有这个属性对得上，Flip 才会把两者当成
-                        同一张卡来补间。缺了它 Flip.from 什么都不做，卡就是硬切过去的。 */}
-                    <span className="hero__card-tilt" data-flip-id={`hero-card-${hero.id}`}>
-                      <img
-                        className="hero__card-img"
-                        src={`/hero/card-${hero.id}.webp`}
-                        alt={hero.name}
-                        draggable={false}
-                      />
-                      {/* 跟着指针跑的那块反光，样式和手牌共用 .card-glare（styles.css）。 */}
-                      <span className="card-glare" />
+              {row.map((hero) => {
+                /* 技能还没实装的一位：置灰、点不动。指针交互在上面那段 useGSAP 里一并跳过。 */
+                const soon = hero.comingSoon === true
+                return (
+                  <button
+                    key={hero.id}
+                    type="button"
+                    className={`hero__card${soon ? ' hero__card--soon' : ''}${
+                      hero.id === detailId ? ' is-zoomed' : ''
+                    }`}
+                    // 不写 aria-pressed：选中在页面上已经没有任何可见标记了，读屏念「已按下」
+                    // 反而和眼睛看到的对不上。这颗按钮的实际行为是「打开这位英雄的技能详情」，
+                    // 所以标题写成那句，再用 haspopup 说明点下去会弹出一个对话框。
+                    // 置灰的那几张点下去什么都不会发生，所以 haspopup 要撤掉，
+                    // 名字也换成一句把原因说清楚的——卡面上那条「即将加入」是纯视觉的。
+                    aria-label={
+                      soon ? `${hero.name}：技能即将加入，暂不可选` : `查看 ${hero.name} 的技能`
+                    }
+                    // 用 aria-disabled + data-disabled 而不是真的 disabled，同选牌页那颗加号
+                    // （见 DeckScreen 的 .deck-circle--add）：真禁用的按钮连焦点都进不去，
+                    // 读屏用户就只能靠 Tab 跳过一张莫名消失的卡去猜发生了什么。
+                    aria-disabled={soon || undefined}
+                    data-disabled={soon ? 'true' : undefined}
+                    aria-haspopup={soon ? undefined : 'dialog'}
+                    ref={(node) => {
+                      if (node === null) cardsRef.current.delete(hero.id)
+                      else cardsRef.current.set(hero.id, node)
+                    }}
+                    onClick={(event) => {
+                      if (soon) return
+                      openHero(hero.id, event.currentTarget)
+                    }}
+                  >
+                    <span className="hero__card-lift">
+                      {/* 倾斜和圆角裁剪都在这一层，高光跟着一起被裁（见 hero.css）。 */}
+                      {/* data-flip-id 是 Flip 的配对键：起点（这一层）和详情里那张大卡
+                          根本不是同一个节点，只有这个属性对得上，Flip 才会把两者当成
+                          同一张卡来补间。缺了它 Flip.from 什么都不做，卡就是硬切过去的。 */}
+                      <span className="hero__card-tilt" data-flip-id={`hero-card-${hero.id}`}>
+                        <img
+                          className="hero__card-img"
+                          src={`/hero/card-${hero.id}.webp`}
+                          alt={hero.name}
+                          draggable={false}
+                        />
+                        {/* 跟着指针跑的那块反光，样式和手牌共用 .card-glare（styles.css）。
+                            置灰的卡没挂倾斜，这一层永远是 opacity: 0，留着只是让两种卡结构一致。 */}
+                        <span className="card-glare" />
+                      </span>
+                      {/* 提示条和「即将加入」互斥：一张卡要么点得开、要么点不开，
+                          同时挂两条只会互相打架（提示条还是 hover 才出现的）。
+                          标签放在灰化层之外，自己不跟着褪色——它正是用来解释褪色的。 */}
+                      {soon ? (
+                        <span className="hero__card-soon">即将加入</span>
+                      ) : (
+                        <span className="hero__card-hint">点击查看技能</span>
+                      )}
                     </span>
-                    <span className="hero__card-hint">点击查看技能</span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           ))}
         </div>
@@ -603,11 +652,11 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
                   <h2 className="hero__detail-name">{detailHero.name}</h2>
                   <p className="hero__detail-en">{detailHero.enName}</p>
                   <div className="hero__detail-rule" />
-                  {/* 分隔线下面两块：人物简介和技能。
+                  {/* 分隔线下面三块：人物简介、技能、定位。
                       core 里每位英雄只有一个技能（HeroCard 的 skillName / skillText），
                       设计稿上那两栏的第二栏就用人物简介填——总好过编一个不存在的第二技能。
-                      七位里眼下只有格蕾丝·霍珀的技能真接进了引擎，其余六位的 skillText
-                      自己写着「待实装」，照实显示即可。 */}
+                      能点开详情的都是技能已实装的英雄（comingSoon 的几位在卡阵上就点不动），
+                      所以这里写的技能效果都是真会结算的。 */}
                   <div className="hero__detail-skill">
                     <h3 className="hero__detail-skill-name">人物简介</h3>
                     <p className="hero__detail-skill-text">{detailHero.text}</p>
@@ -616,6 +665,15 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
                     <h3 className="hero__detail-skill-name">{detailHero.skillName}</h3>
                     <p className="hero__detail-skill-text">{detailHero.skillText}</p>
                   </div>
+                  {/* 定位（这位英雄适合什么样的打法）。技能说的是「怎么结算」，这一条说的是
+                      「什么时候该选他」，所以紧跟在技能后面。
+                      没写 roleText 的英雄整块不渲染：留一个空标题比不显示更让人以为是加载坏了。 */}
+                  {detailHero.roleText === undefined ? null : (
+                    <div className="hero__detail-skill">
+                      <h3 className="hero__detail-skill-name">定位</h3>
+                      <p className="hero__detail-skill-text">{detailHero.roleText}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 

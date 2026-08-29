@@ -24,10 +24,11 @@ describe('牌组页卡池', () => {
     expect(counted).toBe(CARD_POOL.length)
   })
 
-  it('24 张设计稿技能卡都在卡池里，而且一张都不要目标', () => {
+  it('24 张技能卡都在卡池里，只有「复读机」要选目标', () => {
     // 这批牌从"只有设计稿的展示数据"转正成了真卡（core 的 SKILL_DESIGN_CARDS），
-    // 所以它们必须满足卡池的全部约束：取得到定义、算技能牌、不要求选目标。
-    // 最后一条尤其要守：填了 target，引擎就会逼玩家点一个目标，而点完什么都不会发生。
+    // 所以它们必须满足卡池的全部约束：取得到定义、算技能牌。
+    // target 那条尤其要守：效果还没接进引擎的牌一旦填了 target，引擎就会逼玩家点一个目标，
+    // 而点完什么都不会发生。「复读机」是唯一的例外，它命中会真的给目标盖上 interfered。
     const pool = new Set<string>(CARD_POOL)
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
     for (const cardId of SKILL_DESIGN_CARD_IDS) {
@@ -35,7 +36,7 @@ describe('牌组页卡池', () => {
       const card = getCard(cardId)
       // 这一句既是"必须是技能牌"那条断言，也顺带把类型收窄到 SkillCard，下面才读得到 target。
       if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)
-      expect(card.target).toBeUndefined()
+      expect(card.target).toBe(cardId === 'fixed-answer' ? 'foe-ai' : undefined)
     }
   })
 })

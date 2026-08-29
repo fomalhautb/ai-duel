@@ -119,7 +119,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
   答错才罚下进弃牌堆。它的 `model` 字段（GPT / Claude / …）只印在卡面上，引擎不读。
 - `SkillCard`（`kind: 'skill'`）打出后直接进弃牌堆。多数只有卡面和亮相动画；
   卡面标了 `target` 的要在打出时指定目标，现在只有一档 `'foe-ai'`
-  ——对方场上一个 `interfered` 不为 true 的 AI（第一张是「必须回答」）。
+  ——对方场上一个 `interfered` 不为 true 的 AI（眼下只有「复读机」一张）。
   该填不填、目标不在对面场上、或者目标已经被干扰过，都会被 `COMMAND_REJECTED` 挡回去；
   没有 `target` 的卡带上 `targetInstanceId` 则直接忽略。
 - `HeroCard`（`kind: 'hero'`）是开局前选的英雄牌，每方一张，**不进牌组也不进手牌**：
@@ -132,7 +132,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 `CARDS` / `getCard` 也只收这两类；`Card = HandCard | HeroCard` 只给"泛指一张卡"的展示代码用
 （卡面渲染、图鉴、背面文案）。
 
-**Token。** 进牌组的两类牌都有 `tokenCost`（AI 牌 1~7、技能牌 1~2），
+**Token。** 进牌组的两类牌都有 `tokenCost`（AI 牌 1~7、技能牌 1~10），
 `PlayerState` 上一对 `tokens` / `tokenMax` 记这一轮的剩余和上限：
 开局各 `INITIAL_TOKEN_MAX`（4 点），双方确认结算、真的进下一轮时
 `tokenMax += TOKEN_MAX_GROWTH`（2 点）并把 `tokens` 补满——**省下来的不跨轮累积**，
@@ -160,7 +160,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 如果对手 `hero === 'grace-hopper'` 且技能没用过，就把标志置上并追发一条 `SKILL_CANCELED`
 （顺序不能反，客户端要先演牌再演抵消）。
 **"会不会被抵消"必须先算、效果写在"没被抵消"的那条分支里**：
-「必须回答」的效果（给目标盖 `interfered`）就是这么挂上去的，被抵消时一个标记都不留，
+「复读机」的效果（给目标盖 `interfered`）就是这么挂上去的，被抵消时一个标记都不留，
 否则会出现"技能被抵消了，那个 AI 却再也不能被干扰"的自相矛盾局面。
 新技能牌加效果时照这个位置写，否则 Debug 只剩一层动画。
 被抵消的那次出牌事件里仍然带着 `targetInstanceId`：牌确实是冲着那个 AI 打出去的，
@@ -204,9 +204,9 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 和引擎一样，core 里不允许有副作用，这样这个函数可以被直接断言。
 实际的随机数和存档读写都在客户端（见 5.9）。
 
-眼下卡池是 18 张 AI 牌加两张技能牌，示例牌组把它们全用上了，`INITIAL_COLLECTION` 因此暂时等于整个卡池，
+眼下卡池是 18 张 AI 牌加 24 张技能牌，`INITIAL_COLLECTION` 把它们全解锁了、因此等于整个卡池，
 `drawNewCard` 恒返回 `null`——赢一局只涨胜场，抽不到新卡。这条链路是通的，
-等卡池扩到超出示例牌组会自动重新生效，不需要改代码。
+等卡池扩到超出这份收藏会自动重新生效，不需要改代码。
 
 ### 3.6 调试指令
 
@@ -966,6 +966,7 @@ packages/core/
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
   src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
   src/aiModels.ts             18 张具名 AI 牌的定义，被 cards.ts 并进 CARDS；默认牌组 = 这 18 张 + 2 张技能牌
+  src/skillCards.ts           24 张技能牌的定义，同样被 cards.ts 并进 CARDS；一张卡对一张原画
   src/heroes.ts               英雄牌数据 + 查表（不进牌组，和卡牌是两张表）；
                               名单已定 7 位，技能设计好一位才进表，眼下只有格蕾丝·霍珀
                               （卡面素材在 assets/人物卡简介/，未接入构建）
@@ -1129,7 +1130,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
   面板上另有一个「替对方确认本轮」：结算要双方都确认才推进，而测试房对面座位上没有人，
   不补这一条就永远停在"等待对方确认"。
 - **Token 资源**：第 1 轮上限 4 点，每答完一题补满并 +2，省下的不跨轮累积。
-  出牌按卡面 `tokenCost` 扣（AI 牌 1~7、技能牌 1~2），不够就被引擎拒掉；
+  出牌按卡面 `tokenCost` 扣（AI 牌 1~7、技能牌 1~10），不够就被引擎拒掉；
   手牌里买不起的那几张会压暗、拖不动，点一下弹「Token 不够」。
 - 存档 v5（收藏 + 胜场）。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
@@ -1138,15 +1139,15 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 1. **接真实模型 API**——答题结果现在是 `script.ts` 里写死的固定剧本，
    换的时候只动 autopilot 里那一次调用（见 4.5）。
-2. **技能牌的效果**——「必须回答」已经有完整的选目标交互和命中动画，
+2. **技能牌的效果**——「复读机」已经有完整的选目标交互和命中动画，
    但命中只是把目标标成「已干扰」（挡住二次干扰 + 挂个角标），还不影响答题；
-   其余技能牌打出去只有卡面和亮相动画。真效果要等接上模型 API（第 1 条）之后
+   其余 23 张技能牌打出去只有卡面和亮相动画。真效果要等接上模型 API（第 1 条）之后
    在拼 Prompt 那一步生效。动手时注意：效果必须写在"没被英雄技能抵消"的那条分支里
-   （见 3.4 的 Debug，「必须回答」的 `interfered` 就是这么挂的）。
+   （见 3.4 的 Debug，「复读机」的 `interfered` 就是这么挂的）。
 3. **选英雄界面和其余 6 位英雄**——英雄技能机制已有第一版（格蕾丝·霍珀的 Debug，见 3.4），
    但开局没有选英雄这一步（`PlayerSetup.hero` 的口子已经开好，界面和联机协议还没接），
    名单里另外 6 位的技能也还没设计，设计好一位才进 `core/src/heroes.ts`。
-4. **补卡池和题库**——卡池是 18 张 AI 牌 + 2 张技能牌，题库 5 道占位题
+4. **补卡池和题库**——卡池是 18 张 AI 牌 + 24 张技能牌，题库 5 道占位题
    （也就是一局固定 5 轮），视觉测试那两道的图还没有，题面先用文字描述顶着。
    卡池扩容顺带让赢局抽卡重新生效（`INITIAL_COLLECTION` 现在等于整个卡池，见 3.5）。
 5. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。

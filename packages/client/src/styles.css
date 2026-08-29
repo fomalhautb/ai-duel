@@ -714,11 +714,14 @@ body,
  * 演出期间（牌在飞、在落地、展示层演着）不能出现这种遮挡，靠的不是层级而是不让 hover 发生
  * ——HandFan 的 frozen 会把整排手牌冻住（见 HandFanProps.frozen）。
  */
+/* 锚点让开左侧栏，只占战场那一栏：扇形是以锚点中线为对称轴摊开的，
+   锚点铺满整个舞台的话整排牌会偏到侧栏那边去，看着不对着牌桌。
+   变量兜个 0px，是给"手牌被搬到别的页面上单独用"留的退路（那种场景没有 .battle 这一层）。 */
 .hand-fan {
   position: fixed;
-  left: 0;
+  left: var(--battle-side-w, 0px);
   bottom: 0;
-  width: 100%;
+  width: calc(100% - var(--battle-side-w, 0px));
   height: 0;
   z-index: 20;
   pointer-events: none;
@@ -1012,12 +1015,16 @@ body,
  *
  * 旋转让这一层成了层叠上下文，所以 z-index: 20 是它整体相对页面的层级：
  * 比顶栏（70）低，顶栏会把最上面一截牌压住，这正是设计要的遮挡量。
+ *
+ * 左右和 .hand-fan 完全一样让开左侧栏：两排牌的中线必须是同一条，
+ * 上下一对照就看得出来对没对齐。rotate(180deg) 的变换原点是这个盒子的中心，
+ * 盒子挪了、镜像的轴也跟着挪，里面那套坐标数学照旧不用改。
  */
 .opponent-fan {
   position: fixed;
   top: 0;
-  left: 0;
-  width: 100%;
+  left: var(--battle-side-w, 0px);
+  width: calc(100% - var(--battle-side-w, 0px));
   height: 0;
   z-index: 20;
   pointer-events: none;
@@ -1448,6 +1455,9 @@ body:has(.battle) {
   /* 顶栏高度。写成变量是因为不止排版要用：展示卡的裁剪层（.reveal-clip）也拿它当
      "顶栏下沿"那条线，两处必须是同一个数。 */
   --battle-topbar-h: 72px;
+  /* 左侧栏宽度。同样不止排版要用：两排扇形手牌的锚点（.hand-fan / .opponent-fan）
+     靠它让开侧栏、正对着战场居中，三处必须是同一个数。 */
+  --battle-side-w: 306px;
   display: grid;
   grid-template-rows: var(--battle-topbar-h) minmax(0, 1fr);
   height: 100%;
@@ -1736,12 +1746,21 @@ body:has(.battle) {
 
 /* ---------- 主战场与侧栏 ---------- */
 
+/*
+ * 只剩左栏和战场两列：右边那条羊皮纸侧栏已经拆了，原来挤在里面的三块
+ *（「下一题」牌匾、Token 细条、结束按钮）改成各自悬浮在战场上方，
+ * 定位见下面的 .battle__next-plaque / .battle__token-rail / .battle__end-turn。
+ * 腾出来的 207px 全归战场。
+ *
+ * position: relative 是给那三块当定位基准的。这里刻意不写 z-index：加了就成层叠上下文，
+ * 飞行卡内联的 zIndex 60 / 1200 会被关在这一层里（同 .battle__board 上面那段的顾虑）。
+ * 基准选它而不是 .battle 根，是因为它的上边沿正好是顶栏下沿，牌匾"从顶边吊下来"
+ * 直接写 top: 0 就行，不用再减一次顶栏高度。
+ */
 .battle__layout {
+  position: relative;
   display: grid;
-  /* 左栏 306px 照旧。右栏原来是 311px，收到它的 2/3（311 × 2/3 ≈ 207）：
-     那边现在只放一块「下一题」牌匾、一排 Token 星星和结束按钮，不需要那么宽，
-     省下的 104px 全归中栏，战场能多喘一口气。中栏剩 1159，远超它 420 的下限。 */
-  grid-template-columns: 306px minmax(420px, 1fr) 207px;
+  grid-template-columns: var(--battle-side-w) minmax(420px, 1fr);
   min-width: 0;
   min-height: 0;
 }
@@ -1762,16 +1781,13 @@ body:has(.battle) {
   box-shadow: 5px 0 12px rgb(14 20 35 / 16%);
 }
 
-.battle__sidebar--right {
-  box-shadow: -5px 0 12px rgb(14 20 35 / 16%);
-}
-
-.battle__sidebar--left::after,
-.battle__sidebar--right::after {
+/* 侧栏和战场之间那条竖描边。 */
+.battle__sidebar--left::after {
   content: '';
   position: absolute;
   z-index: 3;
   top: 0;
+  right: 0;
   bottom: 0;
   width: 1px;
   background: var(--battle-line-dark);
@@ -1779,41 +1795,103 @@ body:has(.battle) {
   pointer-events: none;
 }
 
-.battle__sidebar--left::after {
-  right: 0;
-}
-
-.battle__sidebar--right::after {
-  left: 0;
-}
-
-/* 右侧栏内容：牌匾吊在最上面，Token 和结束按钮成一组落在底部——Token 讲的是
-   "这一轮还能出多少牌"，和「结束出牌」是同一件事的两半，摆在一起才读得成一句话。
-   牌匾和 Token 之间那截空白由 .battle__tokens 的 margin-top: auto 撑开，
-   所以 gap 实际只作用在 Token 和按钮之间：60px 正好是一个按钮的高度，
-   两块既算一组，又不至于挤到一起。
-   左右只留 10px：侧栏收窄到 207px 之后，宽度基本都得让给那排星星和结束按钮。 */
-.battle__sidebar-frame--actions .ornate-frame__content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 60px;
-  padding: 16px 10px 64px;
+/*
+ * 右下角的「结束出牌」。
+ *
+ * 只做定位，按钮长什么样在下面几条里改。
+ *
+ * 按钮左边沿落在 x=1456，这条线同时也是手牌扇形能摊到的右界：
+ * 扇形以锚点中线（x=989）为轴对称摊开，可用宽度就是按"中线到这条线"算的，
+ * 于是牌再多，最外侧那张也只伸到 1456 − EDGE_MARGIN = 1440，钻不到按钮底下
+ *（推导见 HandFan 的 fanAreaWidth）。
+ * 挪这颗按钮等于改扇形能摊多宽，改之前先看那边。
+ */
+.battle__end-turn {
+  position: absolute;
+  right: 32px;
+  bottom: 32px;
+  z-index: 30;
 }
 
 /*
- * 侧栏收窄之后的结束按钮。
+ * 纸白匾额，配色和右上角那块「下一题」牌匾同一套（--battle-paper-shade 那档纸色配墨蓝字）：
+ * 这三块悬浮 UI 得读起来像一路的东西，一颗墨蓝按钮夹在两块纸匾中间会显得是另一个系统的零件。
  *
- * 原来那套（宽 min(224px, 100%)、24px 字、左右 30px 内边距）在 207px 的栏里放不下最长的
- * 那句「等待对方…」：五个字连字距要 125px，加上内边距就超过可用的 187px，
- * 而按钮是 overflow: hidden，超出的部分会被直接切掉。所以这里整体缩一档。
+ * 三个 --plaque-* 变量是 .plaque-button 留的接口，SVG 框线直接跟着变，不用改结构。
+ * 选择器都多带一级 .battle__end-turn：默认那套墨蓝配色写在 .plaque-button 的
+ * :hover / :disabled 上（一类一伪类，和"两个类"特异性相同，而它们在本文件里更靠后），
+ * 不多带一级的话各状态会跳回墨蓝。
+ * /hero 页那颗确认键是同样的思路，见 screens/hero.css 的 .hero__confirm。
+ *
+ * 尺寸也整体比默认小一档：默认那套（宽 min(224px, 100%)、24px 字、左右 30px 内边距）
+ * 会顶到手牌头上，而且按钮是 overflow: hidden，文案超出的部分会被直接切掉。
+ * 184px 是按最长的那句「等待对方…」算的：五个字连字距约 120px，加两侧 14px 内边距还富余。
  */
-.battle__sidebar-frame--actions .plaque-button {
+.battle__end-turn .plaque-button {
+  --plaque-fill: var(--battle-paper-shade);
+  --plaque-edge: var(--battle-line-dark);
+  --plaque-line: rgb(120 100 66 / 55%);
+  color: var(--battle-navy);
+  /* 底纹的混合模式从 screen 换成 multiply：screen 是给墨蓝底提亮用的，
+     铺在纸色上等于全白，纹理一点都留不下。这一套和侧栏纸面（.battle__sidebar）是同一种。 */
+  background-image:
+    radial-gradient(ellipse at 50% 32%, rgb(255 255 255 / 45%), rgb(129 111 75 / 14%) 100%),
+    var(--battle-grain);
+  background-blend-mode: normal, multiply;
+  width: 184px;
   height: 60px;
   padding: 0 14px;
   font-size: 20px;
   letter-spacing: 0.2em;
   text-indent: 0.2em;
+}
+
+/* 覆盖层那两道内阴影原本是配墨蓝底的，压在纸面上会糊成一块脏影子：高光提亮、暗部换成暖褐。 */
+.battle__end-turn .plaque-button::before {
+  background: linear-gradient(to bottom, rgb(255 255 255 / 45%), transparent 38%);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 55%),
+    inset 0 -7px 9px rgb(112 96 62 / 22%);
+}
+
+/* 四角短线和那两颗星在 .plaque-button 里是写死的浅灰（配墨蓝底的）；
+   换成纸面之后要压深一档，否则几乎看不见。同 /hero 页那颗确认键的处理。 */
+.battle__end-turn .plaque-button__corner {
+  stroke: rgb(120 100 66 / 45%);
+}
+
+.battle__end-turn .plaque-button__spark {
+  fill: #a08c68;
+}
+
+/* hover 再亮一档，字跟着压深：纸面上"变亮"才读得出是活的。 */
+.battle__end-turn .plaque-button:hover {
+  --plaque-fill: #f2ead7;
+  --plaque-line: rgb(120 100 66 / 78%);
+  color: #1b2434;
+}
+
+/*
+ * 不可点的样子。底色留在纸白系（三块悬浮 UI 是一套），靠另外三件事说"点不动"：
+ * 纸色褪到发灰、字和框线一起掉一大档对比、整块再去掉大半饱和度。
+ * 可点时字/底对比约 10:1，这里只剩约 2.4:1，一眼就能分开。
+ *
+ * 必须排在上面那条 :hover 后面：两条特异性相同，同分时靠后的赢，
+ * 反过来写的话指针扫过灰按钮会把它点亮。
+ */
+.battle__end-turn .plaque-button:disabled {
+  --plaque-fill: #ded9cd;
+  --plaque-edge: #a09c90;
+  --plaque-line: rgb(150 145 132 / 50%);
+  color: #8b8a84;
+  cursor: not-allowed;
+  filter: saturate(0.3) brightness(0.98);
+}
+
+/* 灰下去之后连按下的高光也一并收掉，免得看着还有反馈。 */
+.battle__end-turn .plaque-button:disabled::before {
+  background: none;
+  box-shadow: inset 0 -5px 8px rgb(112 96 62 / 14%);
 }
 
 /*
@@ -2104,28 +2182,45 @@ body:has(.battle) {
 }
 
 /*
- * ---------- 右侧栏：「下一题」牌匾 ----------
+ * ---------- 「下一题」牌匾 ----------
  *
- * 一块吊在侧栏顶上的繁复小匾，图形全部由 SVG 画出来（见 MatchStage 的 NextQuestionPlaque
+ * 一块吊在右上角的繁复小匾，图形全部由 SVG 画出来（见 MatchStage 的 NextQuestionPlaque
  * 和那一批 PLAQUE_* 路径常量），没有切图。
  *
  * 匾体尺寸写死成 168×118，和 SVG 的 viewBox 一比一：这里刻意**不**用 preserveAspectRatio: none
  * 去拉伸——四角卷草和菱形冠饰一被非等比拉伸就会歪成椭圆，而整个战场本来就在一块
  * 固定 1672×941 的舞台里等比缩放（见 .battle-scaler），尺寸写死不会有适配问题。
  */
+/*
+ * 吊在右上角的「下一题」牌匾。
+ *
+ * 以 .battle__layout 为基准贴着 top: 0，也就是从顶栏下沿吊下来。
+ * 它的左边沿在 x=1448，而对手倒扇形（z-index 20）摊到最开时右端到 x≈1498，
+ * 所以对手手牌多的时候这块匾会压住那一侧最外面一两张牌背。这是接受的：
+ * 那一侧本来就是扇形最外缘、信息量最低的位置，而手牌张数在左侧栏的玩家面板上另有一份。
+ *
+ * z-index 30 是原来右侧栏的层级，正好夹在手牌（20）之上、飞行卡（内联 60 / 1200）
+ * 和顶栏（70）之下：匾要盖住牌背，但不该挡住正在飞的卡和结算层。
+ * 不吃指针事件，免得挡住底下牌背的 hover。
+ */
 .battle__next-plaque {
+  position: absolute;
+  top: 0;
+  right: 56px;
+  z-index: 30;
   display: flex;
-  flex: none;
   flex-direction: column;
   align-items: center;
   width: 168px;
+  pointer-events: none;
 }
 
-/* 两根挂绳。一个容器加两个伪元素，比两个空 span 省 DOM（回合牌匾那边同样的写法）。 */
+/* 两根挂绳。一个容器加两个伪元素，比两个空 span 省 DOM（回合牌匾那边同样的写法）。
+   26px 比原来在侧栏里时长一截：现在绳子是真从屏幕顶边垂下来的，太短看着像贴上去的。 */
 .battle__next-plaque-cords {
   position: relative;
   width: 100%;
-  height: 14px;
+  height: 26px;
 }
 
 .battle__next-plaque-cords::before,
@@ -2245,65 +2340,129 @@ body:has(.battle) {
 }
 
 /*
- * ---------- 右侧栏：Token 星星 ----------
+ * ---------- Token 细条 ----------
  *
  * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
  * 星星本身就是站点图标那颗（见 MatchStage 的 TOKEN_STAR_PATH）。
  */
-/* 星星在上、数字那行压在底下当落款；星星本身是从下往上烧的（见 MatchStage 的 TokenTrack）。
-   margin-top: auto 把牌匾和它之间的空白全吃掉，整块沉到底下和结束按钮成一组。 */
-.battle__tokens {
+
+/*
+ * 贴着屏幕最右缘的一条细板，星星竖着单列排在里面，数字那行压在底下当落款。
+ *
+ * 高度写死 470px（设计稿高 941 的一半），不随 Token 数变：这一条是常驻的读数条，
+ * 高度跟着数量伸缩的话每答完一题整条就长一截，边上的战场看着也跟着抖。
+ * 星星那一列在里面居中，多出来的空间留白。
+ *
+ * z-index 同牌匾，理由见 .battle__next-plaque。它落在 x≈1628 往右，
+ * 手牌扇形右端最远也只到 1440，两边够不着。
+ *
+ * 纸白实底，和牌匾、结束按钮同一套纸面（做法照抄 .battle__sidebar：噪点 multiply 压在纸色上）。
+ * 早先试过半透明底，战场花纹从底下透出来，星星贴在上面认不清是亮是灭。
+ */
+.battle__token-rail {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 30;
   display: flex;
-  flex: none;
   flex-direction: column;
-  gap: 10px;
   align-items: center;
-  margin-top: auto;
+  justify-content: center;
+  gap: 10px;
+  width: 44px;
+  height: 470px;
+  padding: 14px 0 12px;
+  transform: translateY(-50%);
+  border: 1px solid var(--battle-line-dark);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  background-color: var(--battle-paper);
+  background-image:
+    radial-gradient(ellipse at 50% 38%, rgb(255 255 255 / 25%), rgb(129 111 75 / 12%) 100%),
+    var(--battle-grain);
+  background-blend-mode: normal, multiply;
+  box-shadow: -5px 0 14px rgb(14 20 35 / 30%);
 }
 
 /*
- * 按列摆：grid-auto-flow: column 加上写死的行数，DOM 顺序就是"左列从上往下填满、再填右列"。
- * 行数由 JS 传（--token-rows）：上限每轮都在涨，CSS 自己算不出来。
- * 上限 8 点以内只有一列，这时行数就等于上限，auto-flow 也就只排得出一列。
+ * 星星那一列。永远单列，不换列：换列的话"从下往上烧"就断成两段，读不出剩几点。
+ * Token 多了只压间距，间距由 JS 算好写进 --token-gap（见 MatchStage 的 TokenTrack）。
  */
-.battle__token-grid {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(var(--token-rows), auto);
-  gap: 7px 16px;
-  justify-items: center;
+.battle__token-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+
+/* 间距走 margin 而不是 gap：挤到一定程度 --token-gap 会是负数，让星星互相压边，
+   而 gap 不收负值。 */
+.battle__token-stack > * + * {
+  margin-top: var(--token-gap, 8px);
 }
 
 /*
  * 一颗星星。滤镜链的顺序是有讲究的：先用手绘滤镜把星芒抖歪，辉光再照着抖歪之后的形状发，
  * 反过来写的话辉光是照原图算的，会和星星错开一圈。
  *
- * 辉光是静态的两层，没有动画：十几颗星星一起挂 filter 只在渲染时算一次，
+ * 辉光是静态的几层，没有动画：十几颗星星一起挂 filter 只在渲染时算一次，
  * 真让它们呼吸起来就是每帧十几次离屏滤镜。
+ *
+ * 那圈深褐描边同时干两件事：星星压边叠在一起时分开彼此（没有它就糊成一片认不出有几颗），
+ * 以及把亮态从纸底上拎出来——金色 #f5b95c 和纸色 #eee9dc 明度只差 1.4 倍，
+ * 光靠填充色在纸上几乎浮不出来，那圈深边才是让人看清"这里有颗星"的东西。
+ * paint-order: stroke 把描边画在填充下面，描边只往外扩，不会啃掉星芒本身的形状。
+ * 星芒画在 100×100 的 viewBox 里、显示成 30px，所以 stroke-width: 5 上屏约 1.5px。
  */
 .battle__token-star {
+  flex: none;
   width: 30px;
   height: 30px;
   fill: #f5b95c;
-  filter: url('#ai-duel-rough-icon') drop-shadow(0 0 3px rgb(245 185 92 / 85%))
-    drop-shadow(0 0 9px rgb(232 158 47 / 55%));
+  stroke: #5b4a20;
+  stroke-width: 5;
+  paint-order: stroke;
+  filter: url('#ai-duel-rough-icon') drop-shadow(0 1px 2px rgb(90 72 30 / 45%))
+    drop-shadow(0 0 3px rgb(245 185 92 / 85%)) drop-shadow(0 0 9px rgb(232 158 47 / 55%));
 }
 
-/* 花掉的那几点：退成纸面上的一道浅灰印子，不发光，但照样抖。 */
+/*
+ * 花掉的那几点：退成纸面上一道灰印子，不发光，但照样抖，描边也照留——
+ * 灭掉的星星之间一样会压边。
+ *
+ * 颜色比原来那档（#b6b0a0 配 0.5 透明）深了不少：原来是配深色底试的，
+ * 挪到纸白底上算下来只剩约 1.2:1，等于看不见。现在混出来约 2:1，是"在但已经灭了"的分寸。
+ */
 .battle__token-star[data-spent] {
-  fill: #b6b0a0;
-  opacity: 0.5;
+  fill: #8b8578;
+  stroke: #6f6a5e;
+  opacity: 0.7;
   filter: url('#ai-duel-rough-icon');
 }
 
+/* 落款分两行：细条只有 44px 宽，「12/12 token」一行放不下。 */
 .battle__token-count {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
   /* 和星星同一种抖法：这一行紧挨着星星，用别的 seed 反而看得出是两套东西。 */
   filter: url('#ai-duel-rough-icon');
   color: var(--battle-ink-muted);
-  font-size: 17px;
-  letter-spacing: 0.06em;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+}
+
+.battle__token-count-value {
+  font-size: 13px;
   /* 等宽数字：从 10 掉到 9 时这一行不会跟着抖一下。 */
   font-variant-numeric: tabular-nums;
+}
+
+.battle__token-count-unit {
+  font-size: 10px;
+  opacity: 0.8;
 }
 
 /* 战场背景图：public/battle/battle-bg.webp，1672×941。

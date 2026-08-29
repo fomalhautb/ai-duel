@@ -2884,36 +2884,6 @@ body:has(.battle) {
 }
 
 /*
- * 匾体下面那排关键词标签。
- *
- * 摆在匾外面而不是匾里：匾体是固定的 168×118 画稿，两三个词塞进去必然顶破框线
- *（见 MatchStage 的 NextQuestionPlaque）。侧栏只有 207px 宽，所以允许换行，
- * 一行放不下就自然折成两行。
- */
-.battle__next-keywords {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
-  width: 100%;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* 一枚关键词：浅色纸面小药丸，比类别名低一档，别和匾上那行大字抢视线。 */
-.battle__next-keyword {
-  padding: 2px 8px;
-  border: 1px solid rgb(37 49 73 / 22%);
-  border-radius: 999px;
-  background: rgb(255 252 244 / 55%);
-  color: var(--battle-navy);
-  font-size: var(--fs-md);
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-/*
  * ---------- Token 细条 ----------
  *
  * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
@@ -7062,8 +7032,6 @@ body:has(.battle) {
    * 匾内那行眉批「下一题」单独按回 15px：外面已经整块放大一半，它再照旧吃移动档的
    * --fs-md（12 × 1.6 = 19.2px）就是放了两遍，会长到和题型一样大，匾上两行字分不出主次。
    * 15 : 20 和设计稿的 12 : 20 接近，经这一层 1.5 倍再经舞台缩放，落到手机屏幕上约 9px。
-   * 匾外那排关键词不按回去：它们是每轮真要读的信息，也不受匾体框线约束，
-   * 19.2px 经 1.5 倍之后落到屏幕上约 12px，正是想要的。
    *
    * 眉批得写成绝对值，不能在这一层把 --fs-scale 调小了事：--fs-md 那串 calc 是写在
    * :root 上的，var(--fs-scale) 在**声明它的那个元素**上就代换完了，

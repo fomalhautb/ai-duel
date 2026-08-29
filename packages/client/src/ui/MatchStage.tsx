@@ -2600,7 +2600,7 @@ function BattleField({
   }, [])
 
   const finished = view.status === 'finished' || view.status === 'aborted'
-  // 出牌阶段公开的两样情报：题目类别和关键词。题面全文要等 QUESTION_REVEALED 才揭晓。
+  // 牌匾在出牌阶段只展示题目类别；题面全文要等 QUESTION_REVEALED 才揭晓。
   const nextQuestion = state.questions[state.round - 1]
   const category = nextQuestion?.category
 
@@ -2789,7 +2789,7 @@ function BattleField({
           写成 .battle__layout 的绝对定位子元素而不是 fixed：基准框的上边沿正好是顶栏下沿，
           牌匾"从顶边吊下来"直接 top: 0 就行。
 
-          教程的三个语义锚点（keywordPanel / tokenCounter / endTurnButton）就落在这三块上，
+          教程的三个语义锚点（questionCategoryPanel / tokenCounter / endTurnButton）就落在这三块上，
           拆散之后各自成了独立元素，挖洞高亮反而比原来圈住整条侧栏更准。
         */}
 
@@ -2797,9 +2797,7 @@ function BattleField({
           终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
           最后一题的类别，看着像还有一题要考。
         */}
-        {finished || category === undefined ? null : (
-          <NextQuestionPlaque category={category} keywords={nextQuestion?.keywords ?? []} />
-        )}
+        {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
         <TokenTrack tokens={me.tokens} max={me.tokenMax} />
         {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
             三句都是四五个字，按钮宽度写死 184px 且 overflow: hidden，换文案撑不破框。 */}
@@ -3331,26 +3329,17 @@ const TOKEN_GAP_MIN = -18
 /**
  * 右上角吊着的那块「下一题」牌匾。
  *
- * 只报类别和关键词，不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
- * 关键词是出牌阶段唯一的具体情报（见 core 的 Question.keywords），
- * 「根据关键词决定派谁上场」这条核心玩法全靠它，所以它挂在匾外面而不是塞进匾里
- * ——匾体是固定的 168×118 画稿，塞两三个词进去必然撑破框线。
+ * 只报类别不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
  *
  * 整块匾是画出来的而不是一张切图：类别名有三个字也有五个字（见 ui/labels.ts），
  * 位图就得为每种长度各出一张，而且换一版题库分类就要重新导出。
  * 框线走 SVG 才好套手绘滤镜——直接给 div 加 border 再 filter，里面的字会跟着抖歪
  *（PlaqueButton 和回合牌匾同理，见各自的 __frame）。
  */
-function NextQuestionPlaque({
-  category,
-  keywords,
-}: {
-  category: QuestionCategory
-  keywords: string[]
-}) {
+function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
   return (
     // data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/steps.ts）。
-    <div className="battle__next-plaque" data-tutorial-anchor="keywordPanel">
+    <div className="battle__next-plaque" data-tutorial-anchor="questionCategoryPanel">
       {/* 两根挂绳，让匾看着是吊在侧栏顶上的。一个容器加两个伪元素，比两个空 span 省 DOM。 */}
       <span className="battle__next-plaque-cords" aria-hidden="true" />
       <div className="battle__next-plaque-body">
@@ -3378,16 +3367,6 @@ function NextQuestionPlaque({
         <span className="battle__next-plaque-eyebrow">下一题</span>
         <span className="battle__next-plaque-title">{QUESTION_CATEGORY_LABELS[category]}</span>
       </div>
-      {/* 关键词挂在匾体下面，一枚一个小标签。题库万一没配关键词就整块不渲染，不留空行。 */}
-      {keywords.length === 0 ? null : (
-        <ul className="battle__next-keywords">
-          {keywords.map((keyword) => (
-            <li key={keyword} className="battle__next-keyword">
-              {keyword}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

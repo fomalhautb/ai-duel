@@ -59,7 +59,7 @@ export type TutorialStepId =
 export type TutorialAnchorName =
   | 'endTurnButton'
   | 'tokenCounter'
-  | 'keywordPanel'
+  | 'questionCategoryPanel'
   | 'scoreBoard'
   | 'hand'
   | 'battlefieldMine'
@@ -169,8 +169,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // ---------- 第 1 轮：最基本的出牌循环（规格 §5） ----------
   {
     id: 'TUTORIAL_R1_KEYWORD',
-    instruction: '正式题目还没揭晓。先根据关键词判断该派谁上场。',
-    highlight: [anchor('keywordPanel')],
+    instruction: '正式题目还没揭晓。先根据题型判断该派谁上场。',
+    highlight: [anchor('questionCategoryPanel')],
     advance: tap(),
     next: 'TUTORIAL_R1_PLAY_AI',
   },

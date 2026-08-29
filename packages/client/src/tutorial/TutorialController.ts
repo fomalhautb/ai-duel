@@ -64,6 +64,14 @@ function playableInstanceId(player: PlayerState | null, cardId: CardId): string 
   return instance.instanceId
 }
 
+/**
+ * readyOn 等信号的兜底时限：超过这么久还没等齐就强行让提示出场。
+ *
+ * 取值要盖得住这里最长的那一段演出（答题揭晓层从立起到退场约 4~5 秒，加上后面
+ * 一串轮次横幅约 3 秒），又不至于让真出问题时的等待长到玩家以为界面死了。
+ */
+const READY_TIMEOUT_MS = 12000
+
 /** 局面还没到手时的空手牌。写成常量是为了别每次渲染都造个新数组，白白让下面的 useMemo 重算。 */
 const EMPTY_HAND: PlayerState['hand'] = []
 
@@ -89,8 +97,10 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
    */
   const stepIdRef = useRef<TutorialStepId>(TUTORIAL_FIRST_STEP)
   const readyRef = useRef(false)
-  /** 这一步还差哪几个 readyOn 信号没到。 */
-  const pendingReadyRef = useRef<TutorialSignal[]>(tutorialStep(TUTORIAL_FIRST_STEP).readyOn ?? [])
+  /** 这一步还差哪几个 readyOn 信号没到。拷一份，别拿步骤表里那个数组当可变状态用。 */
+  const pendingReadyRef = useRef<TutorialSignal[]>([
+    ...(tutorialStep(TUTORIAL_FIRST_STEP).readyOn ?? []),
+  ])
   /**
    * 本轮已经出现过的舞台信号，每轮 ROUND_STARTED 清空一次。
    * 记着而不是只认"刚到的那条"的理由见 steps.ts 的 TutorialSignalContext.seenCues。
@@ -175,12 +185,36 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
     [pump],
   )
 
-  // readyOn 里的 delay：到点了再喊一次 pump，由它按 elapsedMs 判定。
+  // 挂载后先泵一次：第一步的 readyOn 要是空的（进入即就绪），没人喊它就永远起不来。
   useEffect(() => {
-    const ms = longestDelay(tutorialStep(stepId).readyOn ?? [])
-    if (ms === null || readyRef.current) return
-    const timer = setTimeout(() => pump([]), ms)
-    return () => clearTimeout(timer)
+    pump([])
+  }, [pump])
+
+  /**
+   * readyOn 的两条定时器：
+   *
+   * - delay 那几个到点了喊一次 pump，由它按 elapsedMs 判定；
+   * - 另外挂一条兜底：等了 READY_TIMEOUT_MS 还没等到信号就强行就绪。
+   *   readyOn 等的全是舞台演出信号，而演出可能因为各种边角情况没跑到收尾
+   *  （比如技能命中那一段找不到目标格子，就不会有 'skill-hit'）。
+   *   等不到信号最坏也只是提示晚出来、或者压在过场上，总好过整段教程冻死。
+   */
+  useEffect(() => {
+    const signals = tutorialStep(stepId).readyOn ?? []
+    if (signals.length === 0 || readyRef.current) return
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const ms = longestDelay(signals)
+    if (ms !== null) timers.push(setTimeout(() => pump([]), ms))
+    timers.push(
+      setTimeout(() => {
+        if (readyRef.current) return
+        pendingReadyRef.current = []
+        pump([])
+      }, READY_TIMEOUT_MS),
+    )
+    return () => {
+      for (const timer of timers) clearTimeout(timer)
+    }
   }, [stepId, pump])
 
   // advance 是 delay 的那些步：提示出场之后停够时间就走下一步。
@@ -189,9 +223,14 @@ export function useTutorialController(driver: TutorialDriver): TutorialControlle
     const step = tutorialStep(stepId)
     if (step.advance?.kind !== 'delay' || step.next === null) return
     const next = step.next
-    const timer = setTimeout(() => enterStep(next), step.advance.ms)
+    const timer = setTimeout(() => {
+      enterStep(next)
+      // 进完新的一步必须再泵一次：不泵的话，readyOn 为空（进入即就绪）的下一步永远不会就绪，
+      // 因为 enterStep 只改状态、就绪判定全在 pump 里。整条链会卡在这一步上。
+      pump([])
+    }, step.advance.ms)
     return () => clearTimeout(timer)
-  }, [stepId, ready, enterStep])
+  }, [stepId, ready, enterStep, pump])
 
   // 弱引导（规格 §9）：第 3 轮长时间没操作才轻微高亮，不压暗也不弹规则说明。
   useEffect(() => {

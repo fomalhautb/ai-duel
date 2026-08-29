@@ -168,6 +168,24 @@ describe('教学对战剧本', () => {
     expect(round2?.scores).toEqual([2, 0])
   })
 
+  it('挡住对手脚本：放行之前它一张牌都不出', () => {
+    const run = start()
+    flush()
+    // 教程在讲提示的时候会把对手挡下来（第 2 轮对手先手，不挡的话它的出牌演出会盖住引导）。
+    run.driver.setFoeHold(true)
+    play(run.driver, TUTORIAL_CARDS.firstAi)
+    endPlay(run.driver)
+    flush()
+    expect(stateOf(run.driver).players[FOE].board).toEqual([])
+    expect(stateOf(run.driver).phase).toBe('play')
+
+    run.driver.setFoeHold(false)
+    flush()
+    // 放行之后它把整轮补完：出牌 → 结束出牌 → 答题结算 → 第 2 轮又轮到它先手。
+    expect(stateOf(run.driver).round).toBe(2)
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-v4'])
+  })
+
   it('第 3 轮什么都不打直接结束：场上的老 AI 照样答对，3:0 收场', () => {
     const run = start()
     playThroughRoundOne(run)

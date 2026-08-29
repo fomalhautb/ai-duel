@@ -36,19 +36,16 @@ describe('阵营归堆', () => {
     ])
   })
 
-  it('剩下的按名单进「国产通用」，没上名单的进「其他」', () => {
-    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'cn')).toEqual([
+  it('不属于上面四家的单张模型全部兜底进「其他」', () => {
+    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'other')).toEqual([
+      'gemini',
       'qwen',
       'doubao',
       'glm-5',
       'minimax',
       'yuanbao',
-      'wenxin-yiyan',
-    ])
-    // gemini 和 grok 不属于上面任何一家，也不是国产，兜底到「其他」。
-    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'other')).toEqual([
-      'gemini',
       'grok',
+      'wenxin-yiyan',
     ])
   })
 })

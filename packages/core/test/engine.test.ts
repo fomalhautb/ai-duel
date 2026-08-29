@@ -4,11 +4,13 @@ import {
   createGame,
   execute,
   getCard,
+  INITIAL_TOKEN_MAX,
   other,
   QUESTION_POOL,
   scriptedAnswers,
   STARTER_DECK,
   STARTING_HAND_SIZE,
+  TOKEN_MAX_GROWTH,
 } from '../src/index'
 import type {
   AnswerResult,
@@ -158,17 +160,18 @@ describe('开局', () => {
 })
 
 describe('出牌阶段', () => {
-  it('一轮里想出几张出几张：AI 牌上场，技能牌进弃牌堆', () => {
-    const game = newGame({ deck0: [...deckOf('gpt-3-5', 6), ...deckOf('placeholder-skill', 6)] })
-    const hand = game.state.players[0].hand
+  it('Token 够就想出几张出几张：AI 牌上场，技能牌进弃牌堆', () => {
+    // 两种牌都只要 1 点，第 1 轮的 4 点正好买得下起手 5 张里的 4 张。
+    const game = newGame({ deck0: [...deckOf('gpt-2', 6), ...deckOf('placeholder-skill', 6)] })
+    const affordable = game.state.players[0].hand.slice(0, INITIAL_TOKEN_MAX)
     const result = run(
       game.state,
-      hand.map((card) => ({ type: 'PLAY_CARD', player: 0, instanceId: card.instanceId })),
+      affordable.map((card) => ({ type: 'PLAY_CARD', player: 0, instanceId: card.instanceId })),
     )
 
     const player = result.state.players[0]
-    expect(player.hand).toHaveLength(0)
-    expect(player.board.length + player.discard.length).toBe(STARTING_HAND_SIZE)
+    expect(player.hand).toHaveLength(STARTING_HAND_SIZE - INITIAL_TOKEN_MAX)
+    expect(player.board.length + player.discard.length).toBe(INITIAL_TOKEN_MAX)
     // 出牌不推进阶段，出完还是自己在出。
     expect(result.state.activePlayer).toBe(0)
     expect(result.state.phase).toBe('play')
@@ -239,7 +242,9 @@ describe('要选目标的技能牌', () => {
   function foeHasAis() {
     const game = newGame({
       deck0: deckOf('skill-must-answer'),
-      deck1: deckOf('gpt-3-5'),
+      // 乙用 1 点的 GPT-2 摆场：两个 AI 只花 2 点，第 1 轮的 4 点还剩得下一张
+      // 「必须回答」（2 点），下面那条"替对方打出"的用例才有额度可用。
+      deck1: deckOf('gpt-2'),
       hero0: null,
       hero1: null,
     })
@@ -464,6 +469,122 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
     })
     expect(board(second_.state, 1)[0]!.interfered).toBe(true)
     expect(second_.events.map((e) => e.type)).toEqual(['SKILL_PLAYED'])
+  })
+})
+
+describe('Token', () => {
+  it('开局双方各拿满第 1 轮的额度', () => {
+    const game = newGame()
+    for (const player of game.state.players) {
+      expect(player.tokenMax).toBe(INITIAL_TOKEN_MAX)
+      expect(player.tokens).toBe(INITIAL_TOKEN_MAX)
+    }
+  })
+
+  it('出牌按卡面费用扣，扣的是打出方自己的额度', () => {
+    // GPT-3.5 是 2 点，第 1 轮 4 点打一张还剩 2 点。
+    const game = newGame({ deck0: deckOf('gpt-3-5') })
+    const card = handCard(game.state, 0, 'gpt-3-5')
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: card.instanceId,
+    })
+
+    expect(result.state.players[0].tokens).toBe(INITIAL_TOKEN_MAX - getCard('gpt-3-5').tokenCost)
+    expect(result.state.players[0].tokenMax).toBe(INITIAL_TOKEN_MAX)
+    // 对方的额度一点没动。
+    expect(result.state.players[1].tokens).toBe(INITIAL_TOKEN_MAX)
+  })
+
+  it('剩余 Token 不够时被拒，状态原样返回', () => {
+    // ChatGPT 5.6 Sol 要 7 点，第 1 轮只有 4 点，怎么都打不出。
+    const game = newGame({ deck0: deckOf('chatgpt-5-6-sol') })
+    const card = handCard(game.state, 0, 'chatgpt-5-6-sol')
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: card.instanceId,
+    })
+
+    expect(result.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 7 点，只剩 4 点' },
+    ])
+    expect(result.state).toBe(game.state)
+  })
+
+  it('费用不够的技能牌连目标都不用挑就被拒', () => {
+    // 校验顺序：费用在选目标之前，不然玩家会挑完目标才被告知打不起。
+    const game = newGame({ deck0: deckOf('skill-must-answer'), deck1: deckOf('gpt-2') })
+    const spent = run(game.state, [
+      // 先用 4 点买两张 GPT-2（各 1 点）＋ 一张「必须回答」（2 点），把额度花光。
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-2' },
+      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-2' },
+    ]).state
+    const gpts = spent.players[0].hand.filter((c) => c.cardId === 'gpt-2')
+    const drained = run(
+      spent,
+      gpts.map((c): Command => ({ type: 'PLAY_CARD', player: 0, instanceId: c.instanceId })),
+    ).state
+    expect(drained.players[0].tokens).toBe(2)
+
+    // 还剩 2 点，刚好够一张「必须回答」；先打掉一张把额度清零。
+    const skills = drained.players[0].hand.filter((c) => c.cardId === 'skill-must-answer')
+    const foeAi = run(drained, [
+      { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: handCard(drained, 1, 'gpt-2').instanceId },
+    ]).state
+    const used = execute(foeAi, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skills[0]!.instanceId,
+      targetInstanceId: board(foeAi, 1)[0]!.instanceId,
+    }).state
+    expect(used.players[0].tokens).toBe(0)
+
+    // 这一张连目标都没给，但报的是费用不够——费用那道闸排在前面。
+    const result = execute(used, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: skills[1]!.instanceId,
+    })
+    expect(result.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 2 点，只剩 0 点' },
+    ])
+  })
+
+  it('每轮结算后补满并抬高上限，省下的不跨轮累积', () => {
+    const game = newGame({ deck0: deckOf('gpt-3-5'), deck1: deckOf('gpt-3-5') })
+    // 甲花掉 2 点，乙一点没花——下一轮两边一样满。
+    const played = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: handCard(game.state, 0, 'gpt-3-5').instanceId,
+    }).state
+    const quiz = toQuiz(played)
+    const next = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+
+    expect(next.round).toBe(2)
+    for (const player of next.players) {
+      expect(player.tokenMax).toBe(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
+      expect(player.tokens).toBe(player.tokenMax)
+    }
+  })
+
+  it('上限逐轮线性增长，一局打完涨到 4 + 2 × (轮数 - 1)', () => {
+    let state = newGame().state
+    const maxes: number[] = []
+    while (state.phase !== 'finished') {
+      if (state.phase === 'play') {
+        maxes.push(state.players[0].tokenMax)
+        state = toQuiz(state)
+      } else {
+        state = execute(state, { type: 'SUBMIT_ANSWERS', results: answersFor(state) }).state
+      }
+    }
+    expect(maxes).toEqual(
+      maxes.map((_, index) => INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH * index),
+    )
+    expect(maxes).toHaveLength(state.totalRounds)
   })
 })
 
@@ -715,6 +836,8 @@ describe('胜负', () => {
           // 要选目标的技能牌得照客户端那样挑一个对方还没被干扰的 AI。
           // 挑不到就跳过这张牌：硬打会被引擎拒掉，而这个用例要求整局一条 COMMAND_REJECTED 都没有。
           const definition = getCard(card.cardId)
+          // Token 不够的牌同样跳过，理由同上。客户端那边这些牌是画成灰的、根本拖不动。
+          if (definition.tokenCost > state.players[seat].tokens) continue
           const target =
             definition.kind === 'skill' && definition.target === 'foe-ai'
               ? state.players[other(seat)].board.find((a) => a.interfered !== true)

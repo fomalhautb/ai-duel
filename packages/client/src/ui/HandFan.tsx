@@ -26,9 +26,11 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
+ * 「这一张打不起」是另一条线：传 tokens 之后逐张按卡面费用判，只压暗那几张，
+ * 见 HandFanProps.tokens。
  */
 
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
@@ -83,6 +85,13 @@ export interface HandCardData {
   text: string
   /** 翻到背面时展示的补充说明。 */
   backText: string
+  /**
+   * 打出这张牌要花的 Token，卡面左上角那枚费用章画的就是它。
+   *
+   * 数值来自 core 的卡牌定义，不在客户端另存一份（见 ui/aiModelFace.ts 的说明）。
+   * 英雄牌没有费用这回事，所以它是可选的。
+   */
+  tokenCost?: number
   /** 卡面插画地址；不填时按定义 id 查找原画，其余卡牌使用占位图。 */
   art?: string
 }
@@ -171,6 +180,16 @@ export interface HandFanProps {
    * 两者的时间尺度不一样，理由见 HandLockReason。
    */
   lockReason?: HandLockReason | null
+  /**
+   * 这一轮还剩多少 Token。费用（HandCardData.tokenCost）超过它的牌单独画成"打不起"：
+   * 卡面压暗、拖不动也点不出，按一下摇个头并弹一句「Token 不够」。
+   *
+   * 和 lockReason 那种"整排一起锁"是两回事，两者可以同时成立：轮到自己出牌时整排是亮的，
+   * 但最贵的那一两张仍可能打不出。判断逐张做，其余的牌照常能拖。
+   *
+   * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，图鉴也没有额度可言）。
+   */
+  tokens?: number | null
   /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
@@ -285,6 +304,8 @@ const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
   'foe-turn': '对方出牌中',
   quiz: 'AI 答题中',
 }
+/** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
+const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
@@ -358,6 +379,7 @@ export function HandFan({
   returnZoneRef,
   onPlay,
   disabled = false,
+  tokens = null,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -370,6 +392,20 @@ export function HandFan({
    * 光靠约定的话，哪天有人只给 lockReason 就会得到一排画成灰墨态、却照样拖得动的牌。
    */
   const effectiveDisabled = disabled || lockReason !== null
+  /**
+   * 这一轮买不起的那几张牌的 id。
+   *
+   * 用 Set 而不是每处现算：canDrag 和渲染两条路都要问同一个问题，
+   * 而 tokens 一变（每出一张牌都会变）整排都要重判一次。
+   */
+  const unaffordable = useMemo(() => {
+    const ids = new Set<string>()
+    if (tokens === null) return ids
+    for (const card of cards) {
+      if (card.tokenCost !== undefined && card.tokenCost > tokens) ids.add(card.id)
+    }
+    return ids
+  }, [cards, tokens])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -671,7 +707,7 @@ export function HandFan({
   /**
    * 把小字提示挪到某张牌正上方，淡入停一会儿再淡出。
    *
-   * 文案在这里现写而不是交给 JSX 跟着 lockReason 渲染：淡出还要跑 0.25s，
+   * 文案由调用方在按下那一刻传进来，而不是交给 JSX 跟着 lockReason 渲染：淡出还要跑 0.25s，
    * 锁要是正好在这段时间里换了（对方回合 → 答题）或者解开了，React 会当场把字换掉甚至清空，
    * 玩家眼睁睁看着一句自己没点出来过的话在那儿淡出。写死在触发那一刻，淡出的就是那句话。
    *
@@ -682,11 +718,11 @@ export function HandFan({
    * 居中和"贴着牌顶往上长"交给 GSAP 的 xPercent / yPercent，不写 CSS 的 translate：
    * GSAP 接管 transform 时会往内联样式里写 translate: none，把独立变换属性压死。
    */
-  const showLockTip = contextSafe((slot: HTMLElement, reason: HandLockReason) => {
+  const showLockTip = contextSafe((slot: HTMLElement, text: string) => {
     const tip = lockTipRef.current
     const root = rootRef.current
     if (tip === null || root === null) return
-    tip.textContent = LOCK_TIP_TEXT[reason]
+    tip.textContent = text
     const slotRect = slot.getBoundingClientRect()
     const rootRect = root.getBoundingClientRect()
     const { scale } = battleStageMetrics()
@@ -710,7 +746,8 @@ export function HandFan({
   })
 
   /**
-   * 出不了牌的时候按了一下手牌（useCardDrag 那边被 enabled 挡掉的那记按下）。
+   * 出不了牌的时候按了一下手牌：摇个头，再按需在牌顶弹一句为什么。
+   * 两种情况共用——整排锁着（轮到对方、AI 在答题），或者只有这一张打不起。
    *
    * 反馈在组件内部做完，不上抛给父组件：父组件既不知道牌摆在哪，也没有理由为一次
    * "什么都没发生"的点击重渲染整排手牌。
@@ -718,9 +755,9 @@ export function HandFan({
    * 摇头做在 tilt 层的 z 轴 rotation 上：那一层现有的 quickTo 只写 rotationX / rotationY，
    * z 轴空着；slot 层的扇形摆位和 hover 放大则完全不碰，摇完牌还停在原处。
    * frozen 期间不摇（屏幕上正演着别的东西，再抖一下只是添乱），但小字提示照给——
-   * 只要 lockReason 非空，玩家就该知道现在在等什么。
+   * 只要有话要说，玩家就该知道现在是怎么回事。tip 传 null 表示只摇头不说话。
    */
-  const handleLockedPress = contextSafe((id: string) => {
+  const refusePlay = contextSafe((id: string, tip: string | null) => {
     const slot = slotsRef.current.get(id)
     if (slot === undefined) return
     const tilt = slot.querySelector<HTMLElement>('.hand-fan__tilt')
@@ -737,8 +774,12 @@ export function HandFan({
         ease: 'power2.out',
       })
     }
-    if (lockReason !== null) showLockTip(slot, lockReason)
+    if (tip !== null) showLockTip(slot, tip)
   })
+
+  /** 整排锁着的时候按下了某张牌（被 useCardDrag 的 enabled 挡掉的那一记）。 */
+  const handleLockedPress = (id: string) =>
+    refusePlay(id, lockReason === null ? null : LOCK_TIP_TEXT[lockReason])
 
   /** 解锁那一下整排牌的回弹，从左到右挨个来。传进来的是每张牌的 tilt 层，顺序即扇形从左到右。 */
   const playWake = contextSafe((tilts: HTMLElement[]) => {
@@ -897,8 +938,17 @@ export function HandFan({
     dragScale: slotScale(DRAG_SCALE),
     // 问号热区上按下不算抓牌，它只管翻面。
     ignoreSelector: '.hand-fan__help',
-    // 已经打出、正在等父组件受理的牌不能再抓起来（防重复出牌）。
-    canDrag: (id) => !playedRef.current.has(id),
+    // 两道各自的闸：已经打出、正在等父组件受理的牌不能再抓（防重复出牌），
+    // 这一轮买不起的牌也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
+    // canDrag 挡掉的按下不会走 onLockedPress（见 UseCardDragOptions 那边的说明）。
+    canDrag: (id) => {
+      if (playedRef.current.has(id)) return false
+      if (unaffordable.has(id)) {
+        refusePlay(id, UNAFFORDABLE_TIP_TEXT)
+        return false
+      }
+      return true
+    },
     onDragStart: handleDragStart,
     onDrop: handleDrop,
     // 落在别处（包括拖回手牌上方）、拖到一半被 disabled、被浏览器中断，都是取消，一律回扇形。
@@ -1034,6 +1084,10 @@ export function HandFan({
             key={card.id}
             className="hand-fan__slot"
             data-flip-id={card.id}
+            /* 这一轮的 Token 买不起这张牌：只画成压暗 + 禁止光标，位置和层级一概不动
+               （CSS 里只写 filter 和 cursor，都是 GSAP 碰不到的属性，见 [data-locked] 那段）。
+               拖不动点不出那件事归上面 canDrag 管，不写在 CSS 里。 */
+            data-unaffordable={unaffordable.has(card.id) ? 'true' : undefined}
             ref={(el) => {
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)
@@ -1137,11 +1191,14 @@ export function HandFan({
  *
  * 插画是**整张卡面**级别的竖版图（自带装饰边框），所以它铺满整张卡当底，
  * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌，其余卡牌保留渐变信息层。
- * Token 沿用原稿的展示数值，不改变当前答题制的出牌与胜负规则。
+ * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
+ * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
+  // 两样缺一不可：非具名 AI 查不到装饰配置，英雄牌没有费用，任缺一样都退回下面的渐变信息层。
   const face = card.kind === 'ai' ? AI_MODEL_FACE[definitionId] : undefined
+  const cost = card.tokenCost
   return (
     <div className={`card-face card-face--${card.kind}`}>
       {/* alt 留空：插画只是气氛，卡上的信息读屏能从下面的文字节点全部拿到，
@@ -1152,8 +1209,8 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         alt=""
         draggable={false}
       />
-      {face ? (
-        <CardFaceOverlay cost={face.tokenCost} skillName={face.skillName} name={card.name} accent={face.accent} />
+      {face !== undefined && cost !== undefined ? (
+        <CardFaceOverlay cost={cost} skillName={face.skillName} name={card.name} accent={face.accent} />
       ) : (
       <div className="card-face__body">
         <div className="card-face__name">{card.name}</div>

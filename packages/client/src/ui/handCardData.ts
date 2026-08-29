@@ -24,6 +24,7 @@ export function toHandCardData(card: Card): HandCardData {
     name: card.name,
     text: card.text,
     backText: cardBackText(card),
+    tokenCost: card.tokenCost,
   }
   if (card.kind === 'ai') {
     return { ...base, kind: 'ai', model: card.model }

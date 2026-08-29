@@ -140,6 +140,21 @@ export interface HeroCard {
   skillName: string
   /** 技能效果的说明文案。 */
   skillText: string
+  /**
+   * 技能只有设计稿、**规则引擎尚未实装**，选英雄界面要把这位置灰禁选。
+   *
+   * 和技能牌的 `plannedEffect` 同一个路子（见 SkillCard）：skillText 写的是定案的效果，
+   * 但选了他打起来就是没技能，所以宁可先不让选，也别让玩家以为技能会生效。
+   * 哪天这一位接进引擎，就把这个字段删掉。
+   */
+  comingSoon?: boolean
+  /**
+   * 这位英雄在对局里的定位（"经济发育型"、"节奏压制"……），选英雄界面的详情面板展示。
+   *
+   * 和 skillText 分开：那一条说的是技能**怎么结算**，这一条说的是**该什么时候选他**。
+   * 只有已实装的英雄才写，comingSoon 的几位不写——定位得等技能真打起来才谈得上。
+   */
+  roleText?: string
 }
 
 /** 牌组、手牌、弃牌堆里唯二可能出现的牌。 */
@@ -160,7 +175,7 @@ export interface CardInstance {
 
 /**
  * 场上的 AI 单位。
- * 除了身份三件套，只有一个被干扰标记；
+ * 除了身份三件套，只有一个被干扰标记和一个升降级角标；
  * 之后要加"上场后被增益/削弱"的数值时再往这里拷贝卡面数值。
  */
 export interface AiInstance {
@@ -175,6 +190,16 @@ export interface AiInstance {
    * 写成可选字段，没被干扰过的单位就不带这一项，JSON 深拷贝和联机转发都少一份冗余。
    */
   interfered?: boolean
+  /**
+   * 净升降级次数：每被升一级 +1、降一级 -1。
+   *
+   * **纯粹给 UI 画角标用**（战场小卡上那个「↑1」之类的标记）。
+   * 能力变化不靠它：升降级当场就把 `cardId` 换成了同系列的另一张卡（见 aiModels.ts 的升级链），
+   * 费用、卡面、答题表现全部跟着新卡走，引擎不会再去读这个数。
+   * 同样写成可选字段，没被升降过的单位不带这一项。
+   * 一方升、另一方又降回去的话这里会留下一个 0（字段不删），界面把 0 当作"没有角标"处理。
+   */
+  levelShift?: number
 }
 
 /** 一次答题的结果，由房主/本地 driver 生成后喂进引擎。 */
@@ -261,9 +286,13 @@ export interface PlayerState {
   /**
    * 英雄技能这一局用掉了没有。
    *
-   * 现在只有格蕾丝·霍珀的 Debug 是"每局一次"，所以一个布尔够用；
+   * 已实装的技能都是"每局一次"，所以一个布尔够用；
    * 将来有"每若干轮一次"的技能时再换成记轮次的字段。
    * 一个 GameState 的生命周期就是一局，createGame 重新建状态时它天然回到 false。
+   *
+   * 被动技能（格蕾丝·霍珀的 Debug）由引擎自己在触发时置上，主动技能
+   * （陈丹琦、梅拉妮·珀金斯）由玩家发 USE_HERO_SKILL 置上。
+   * 阿达·洛芙莱斯的 Token 上限加成是开局就算进数值的，不占这个标志。
    */
   heroSkillUsed: boolean
 }
@@ -331,6 +360,16 @@ export type Command =
     }
   /** 结束本方出牌：先手发就轮到后手，后手发就进答题阶段。 */
   | { type: 'END_PLAY'; player: PlayerId }
+  /**
+   * 发动主动英雄技能，指定场上一个 AI 单位。
+   *
+   * 只有"每局一次、指定一个目标"的那两位能发：陈丹琦把**己方**一个 AI 升一级、
+   * 梅拉妮·珀金斯把**对方**一个 AI 降一级（目标在哪一侧由英雄决定，指令本身不带方向）。
+   * 其余英雄发这条一律被拒——霍珀是被动、剩下三位还没实装。
+   *
+   * 只能在自己的出牌轮发动，但**完全免费**：不扣 Token，也不结束出牌轮，发动完还能接着出牌。
+   */
+  | { type: 'USE_HERO_SKILL'; player: PlayerId; targetInstanceId: InstanceId }
   /**
    * 提交本轮全场 AI 的答题结果。
    * 玩家不发这条指令，由房主/本地 driver 在进入答题阶段后自动生成并发出
@@ -419,6 +458,24 @@ export type GameEvent =
       cardId: CardId
       /** 被抵消的那张牌的实例 id，和它的 SKILL_PLAYED 是同一个，客户端要靠它对上号。 */
       instanceId: InstanceId
+    }
+  /**
+   * 主动英雄技能发动了：场上某个 AI 被换成同系列的另一代。
+   *
+   * `player` 是发动技能的一方；目标不一定是他自己的单位——升级打己方、降级打对方，
+   * 看 `direction` 才知道该去谁的战场上找那个格子。
+   *
+   * 前后两张卡都报出来，客户端才能把"这张脸换成那张脸"演出来：
+   * 新快照里只剩换完的 `cardId`，旧的那张查不回来了。
+   */
+  | {
+      type: 'HERO_SKILL_USED'
+      player: PlayerId
+      heroId: HeroId
+      targetInstanceId: InstanceId
+      fromCardId: CardId
+      toCardId: CardId
+      direction: 'upgrade' | 'downgrade'
     }
   /** 进入答题阶段，全屏揭晓题目和正确答案。 */
   | { type: 'QUESTION_REVEALED'; question: Question }

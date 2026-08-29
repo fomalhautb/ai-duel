@@ -6,6 +6,7 @@ import { uniformInt } from 'pure-rand/distribution/uniformInt'
 // mersenne 的种子扩散做得干净，连续种子的首个输出实测就是均匀且互不相关的。
 import { mersenne } from 'pure-rand/generator/mersenne'
 import type { RandomGenerator } from 'pure-rand/types/RandomGenerator'
+import { downgradeTargetOf, upgradeTargetOf } from './aiModels'
 import { CARDS, getCard } from './cards'
 import { QUESTION_POOL } from './questions'
 import type {
@@ -65,6 +66,16 @@ export const TOKEN_MAX_GROWTH = 1
  * 题库出完仍未分出的兜底也在那里：总分高者胜，相同才是 'draw'。
  */
 export const WIN_TARGET = 3
+
+/**
+ * 阿达·洛芙莱斯的「第一算法」给自己加多少 Token 上限。
+ *
+ * 只在开局加这一次就够贯穿整局：confirmRound 走的是 `tokenMax += TOKEN_MAX_GROWTH` 的增量逻辑，
+ * 加高的起点会一路带下去（第 1 轮 7、第 2 轮 8、第 3 轮 9……恒比对手多 2）。
+ * 这是**有意的「全程上限 +2」**，不是只加第一轮，改成每轮重算反而会把技能削掉。
+ * 一局最短 3 轮（先到 WIN_TARGET 分），所以这 +2 差不多等于白送一张中费 AI 牌，分量不小。
+ */
+export const ADA_TOKEN_MAX_BONUS = 2
 
 /** 没指定英雄时用谁。留一个兜底是为了让「不关心英雄」的调用方（大多是测试）能少写一个字段。 */
 const DEFAULT_HERO: HeroId = 'grace-hopper'
@@ -130,23 +141,26 @@ export function createGame(setup: GameSetup): ExecuteResult {
       cardId,
       owner: id,
     }))
+    // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
+    // 英雄初始化不碰 rng，所以加了它也不影响下面抛硬币/洗牌那串随机数的顺序。
+    const hero = config.hero === undefined ? DEFAULT_HERO : config.hero
+    // 阿达·洛芙莱斯的「第一算法」是开局就算进数值的被动，不占 heroSkillUsed 那个标志。
+    const tokenMax = INITIAL_TOKEN_MAX + (hero === 'ada-lovelace' ? ADA_TOKEN_MAX_BONUS : 0)
     return {
       id,
       name: config.name,
       score: 0,
-      // 开局就是满的：第 1 轮双方各 INITIAL_TOKEN_MAX 点，
+      // 开局就是满的：第 1 轮双方各 INITIAL_TOKEN_MAX 点（阿达再加 ADA_TOKEN_MAX_BONUS），
       // 之后每轮补满并涨 TOKEN_MAX_GROWTH（见 confirmRound 那段）。
-      tokens: INITIAL_TOKEN_MAX,
-      tokenMax: INITIAL_TOKEN_MAX,
+      tokens: tokenMax,
+      tokenMax,
       spentThisRound: 0,
       aiPlayedThisRound: false,
       hand: [],
       deck: setup.noShuffle === true ? deck : shuffle(deck, rng),
       board: [],
       discard: [],
-      // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
-      // 英雄初始化不碰 rng，所以加了它也不影响下面抛硬币/洗牌那串随机数的顺序。
-      hero: config.hero === undefined ? DEFAULT_HERO : config.hero,
+      hero,
       heroSkillUsed: false,
     }
   }
@@ -211,6 +225,11 @@ export function execute(state: GameState, command: Command): ExecuteResult {
       if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
       if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
       return endPlay(state)
+    case 'USE_HERO_SKILL':
+      // 和出牌同一道门槛：只能在自己的出牌轮发动。技能本身免费，也不会结束这一轮出牌。
+      if (state.phase !== 'play') return reject(state, '现在不是出牌阶段')
+      if (command.player !== state.activePlayer) return reject(state, '还没轮到你出牌')
+      return useHeroSkill(state, command.player, command.targetInstanceId)
     case 'SUBMIT_ANSWERS':
       if (state.phase !== 'quiz') return reject(state, '现在不是答题阶段')
       return submitAnswers(state, command.results)
@@ -341,6 +360,77 @@ function playCard(
     }
   }
   return { state: next, events }
+}
+
+/**
+ * 发动主动英雄技能：把场上一个 AI 换成同系列的上一代或下一代。
+ *
+ * 两位英雄共用这一条路径，升还是降、目标该在哪一侧，全由英雄自己决定，指令里不带方向：
+ * 陈丹琦「精准检索」升**己方**一个，梅拉妮·珀金斯「化繁为简」降**对方**一个。
+ *
+ * 完全免费：不扣 tokens、不记 spentThisRound，也不结束出牌轮——发动完照样接着出牌或 END_PLAY。
+ * 不记消耗这一点会影响胜负：同对同错时比的就是本轮 spentThisRound（见 submitAnswers），
+ * 发动技能不会让自己在那条决胜线上吃亏。
+ * 也不占 aiPlayedThisRound：换掉场上单位的卡面不等于又派了一张新 AI。
+ * 每局只能发一次，用掉就置上 heroSkillUsed。
+ */
+function useHeroSkill(
+  state: GameState,
+  playerId: PlayerId,
+  targetInstanceId: InstanceId,
+): ExecuteResult {
+  const next = clone(state)
+  const player = next.players[playerId]
+  const hero = player.hero
+  // 只有这两位的技能是"指定一个 AI 升/降级"。霍珀的 Debug 是被动（在 playCard 里触发），
+  // 其余几位还没实装（见 heroes.ts 的 comingSoon），发这条指令一律拒绝。
+  // hero === null 这半边是给类型收窄用的：没英雄时 direction 本来就是 null。
+  const direction: 'upgrade' | 'downgrade' | null =
+    hero === 'danqi-chen' ? 'upgrade' : hero === 'melanie-perkins' ? 'downgrade' : null
+  if (hero === null || direction === null) return reject(state, '你的英雄没有可发动的技能')
+  if (player.heroSkillUsed) return reject(state, '英雄技能这一局已经用过了')
+
+  // 升级只能打自己场上、降级只能打对面场上。选错边和目标压根不存在报同一句：
+  // 对玩家来说这两种都是"这个格子不能选"。
+  const ownerId = direction === 'upgrade' ? playerId : other(playerId)
+  const target = next.players[ownerId].board.find((a) => a.instanceId === targetInstanceId)
+  if (target === undefined) {
+    return reject(
+      state,
+      direction === 'upgrade' ? '目标必须是你场上的 AI' : '目标必须是对方场上的 AI',
+    )
+  }
+
+  const fromCardId = target.cardId
+  const toCardId =
+    direction === 'upgrade' ? upgradeTargetOf(fromCardId) : downgradeTargetOf(fromCardId)
+  // 链顶、链底，以及压根不在任何升级链上的那 8 张，都到头了（见 aiModels.ts 的 AI_UPGRADE_CHAINS）。
+  if (toCardId === null) {
+    return reject(
+      state,
+      direction === 'upgrade' ? '这个 AI 没有可升级的下一代' : '这个 AI 没有可降级的上一代',
+    )
+  }
+
+  // 换掉 cardId 就是这个技能的全部效果：费用、卡面、答题剧本全部跟着新卡走。
+  // interfered 原样留着——被干扰和升降级是两码事，同一个单位身上互不影响。
+  target.cardId = toCardId
+  target.levelShift = (target.levelShift ?? 0) + (direction === 'upgrade' ? 1 : -1)
+  player.heroSkillUsed = true
+  return {
+    state: next,
+    events: [
+      {
+        type: 'HERO_SKILL_USED',
+        player: playerId,
+        heroId: hero,
+        targetInstanceId,
+        fromCardId,
+        toCardId,
+        direction,
+      },
+    ],
+  }
 }
 
 /** 结束本方出牌：先手发就轮到后手，后手发就进答题阶段。 */

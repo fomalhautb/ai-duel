@@ -7,19 +7,21 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, INITIAL_TOKEN_MAX, TOKEN_MAX_GROWTH, getCard } from '@ai-duel/core'
+import { CARD_POOL, HEROES, INITIAL_TOKEN_MAX, TOKEN_MAX_GROWTH, getCard } from '@ai-duel/core'
 import type { CardId, GameEvent, GameState, InstanceId } from '@ai-duel/core'
 import { createTutorialDriver } from '../src/match/tutorialDriver'
 import type { TutorialDriver } from '../src/match/tutorialDriver'
 import {
   TUTORIAL_CARDS,
   TUTORIAL_FOE_DECK,
+  TUTORIAL_FOE_HERO,
   TUTORIAL_FOE_OPENING_HAND,
   TUTORIAL_FOE_PLAYS,
   TUTORIAL_PLAYER_DECK,
   TUTORIAL_PLAYER_OPENING_HAND,
   tutorialCardCost,
 } from '../src/tutorial/content'
+import { TUTORIAL_HERO } from '../src/tutorial/heroSteps'
 import { enterTutorialStep, pumpTutorial, signalSatisfied } from '../src/tutorial/steps'
 import type { TutorialSignalContext } from '../src/tutorial/steps'
 
@@ -252,6 +254,20 @@ describe('教学内容自检', () => {
         expect(CARD_POOL, `${cardId} 不在卡池里`).toContain(cardId)
       }
     }
+  })
+
+  // 教学局的每一步都是照脚本对好的，对手身上多一条会生效的技能就可能把它顶歪
+  // （霍珀的 Debug 会抵消玩家第 2 轮那张教学技能牌，阿达的 +2 会让下面那本 Token 账对不上）。
+  // 挑一位 comingSoon 的英雄就等于"这一位在引擎里什么都不做"，是最省心的做法；
+  // 等这三位陆续实装、这条测试再也找不到人选时，得回来给教学局另想一个不干扰脚本的对手。
+  it('教学对手的英雄技能没有实装，不会掺和进脚本', () => {
+    expect(HEROES[TUTORIAL_FOE_HERO].comingSoon).toBe(true)
+  })
+
+  // 反过来的一半：教程说"英雄自带独特技能"，引导玩家去选的那位必须真有技能，
+  // 而且不能是被选英雄页置灰的那三位之一——引导层的高亮会正好圈在一张点不开的卡上。
+  it('教程引导玩家选的英雄技能已实装，选英雄页不会把她置灰', () => {
+    expect(HEROES[TUTORIAL_HERO].comingSoon).toBeUndefined()
   })
 
   it('起手 5 张正好是教学点名要用的那几张', () => {

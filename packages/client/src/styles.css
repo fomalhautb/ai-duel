@@ -2316,12 +2316,64 @@ body:has(.battle) {
 }
 
 /*
- * 这张英雄牌此刻由展示层代管（玩家正放大查看它）：卡和角标一起让出来，
+ * 发动主动英雄技能的按钮，压在我方英雄牌的左下角（只有陈丹琦和梅拉妮·珀金斯有，
+ * 见 MatchStage 的 heroSkillButton）。按钮上印的就是技能名。
+ *
+ * 三样东西压在同一张卡上，各占一角、互不重叠：「技能已用」角标在左上（技能一发完这颗按钮
+ * 就整个撤掉，两者不会同时出现，但位置仍旧分开，免得日后加别的角标撞上）、
+ * 卡堆在右下、这颗按钮在左下。左右两边的内缩量抄的是卡堆那份，两个角看起来才是对称的。
+ * max-width 收在卡宽的 62%，右边给卡堆（0.28 卡宽）留足余地，技能名再长也顶不到它。
+ *
+ * 配色是「已干扰」那套角标的放大版（藏青底 + 金字 + 金边）：它压在一张深色原画上，
+ * 纸白匾额那一套（结束出牌按钮）在这儿会糊成一块白斑。
+ * z-index 2 压在卡面（无 z-index）和卡堆（1）之上；三者不重叠，写出来只是把顺序说死。
+ *
+ * 选目标态下它会被全屏压暗层（z-index 75）盖住并变暗，点它等于点空白 = 取消，
+ * 这正是想要的：那时该点的是战场上的格子。
+ */
+.battle__hero-skill {
+  position: absolute;
+  bottom: calc(var(--hero-card-h) * 0.035);
+  left: calc(var(--hero-card-w) * 0.045);
+  z-index: 2;
+  max-width: calc(var(--hero-card-w) * 0.62);
+  padding: 5px 12px;
+  overflow: hidden;
+  border: 1px solid rgb(255 196 96 / 60%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--battle-navy) 88%, transparent);
+  box-shadow: 0 2px 8px rgb(10 14 24 / 45%);
+  color: #ffd98a;
+  font-size: max(11px, calc(var(--hero-card-w) * 0.052));
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.battle__hero-skill:hover:enabled {
+  border-color: #ffd98a;
+  background: color-mix(in srgb, var(--battle-navy) 96%, transparent);
+  color: #fff0c8;
+}
+
+/* 灰下去的两种情况（不是我的出牌轮 / 场上没有打得着的单位）看起来是同一档：
+   都是"现在按不了"，玩家不需要按钮再多说什么，真按下去也不会有反应。 */
+.battle__hero-skill:disabled {
+  border-color: rgb(226 213 184 / 28%);
+  background: color-mix(in srgb, var(--battle-navy) 55%, transparent);
+  color: rgb(226 213 184 / 55%);
+  cursor: not-allowed;
+}
+
+/*
+ * 这张英雄牌此刻由展示层代管（玩家正放大查看它）：卡、角标和技能按钮一起让出来，
  * 免得屏幕中央和侧栏同时出现两张一模一样的卡。同战场小卡的 .battle__tile--held。
  * 卡堆不藏——它跟这次查看没关系，藏了反而像侧栏缺了一块。
  */
 .battle__hero--held .battle__hero-card,
-.battle__hero--held .battle__hero-used {
+.battle__hero--held .battle__hero-used,
+.battle__hero--held .battle__hero-skill {
   visibility: hidden;
 }
 
@@ -4139,13 +4191,31 @@ body:has(.battle) {
 }
 
 /*
- * 「已干扰」角标：被干扰技能命中过的 AI 常驻挂着它，说明这张卡不能再被选中。
- * 不吃指针事件，免得挡住小卡自己的点击热区；同样放在裁剪层外面，不跟着卡一起倾斜。
+ * 常驻角标那一列，从小卡左上角往下排。
+ *
+ * 排成一列而不是各自绝对定位：「已干扰」和「已升级 / 已降级」会同时挂在一张卡上
+ *（被干扰过的单位照样能被英雄技能升降级），摞在同一个角上就糊成一团。
+ * 一列最多两枚，两行加起来约 34px，小卡有 165px 高（--tile-h），压不到卡面下半截的名字和费用。
+ *
+ * 整列不吃指针事件，免得挡住小卡自己的点击热区；和上场追光、目标描边一样放在
+ * 裁剪层（overflow: hidden）外面，不跟着卡一起倾斜。
  */
-.battle__tile-mark {
+.battle__tile-marks {
   position: absolute;
   top: 5px;
   left: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  pointer-events: none;
+}
+
+/*
+ * 一枚角标。三种共用同一个药丸底，只换文字和描边的颜色，让"被干扰 / 变强了 / 变弱了"
+ * 一眼分得开——三行字都只有三个字，光靠读字要在小卡上眯眼看半天。
+ */
+.battle__tile-mark {
   padding: 2px 7px;
   border: 1px solid rgb(255 196 96 / 60%);
   border-radius: 999px;
@@ -4154,7 +4224,22 @@ body:has(.battle) {
   font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-shadow: 0 1px 2px rgb(0 0 0 / 60%);
-  pointer-events: none;
+}
+
+/*
+ * 升降级这两档是整个战场上仅有的冷色，专门留给它们：
+ * 橙色（.battle__tile-target-ring）已经是"可以打这里"的专用色，金色则是上场追光和
+ * 「已干扰」在用，再拿暖色分这两枚就分不出来了。绿＝变强、灰蓝＝变弱是通用读法。
+ * 「已干扰」不写修饰类，它就是上面那份底色。
+ */
+.battle__tile-mark--up {
+  border-color: rgb(169 220 184 / 55%);
+  color: #a9dcb8;
+}
+
+.battle__tile-mark--down {
+  border-color: rgb(183 195 216 / 45%);
+  color: #b7c3d8;
 }
 
 /* ---------- 屏幕中央的展示层 ---------- */

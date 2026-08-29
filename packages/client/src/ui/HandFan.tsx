@@ -1,14 +1,22 @@
 /**
  * 炉石式扇形手牌：纯 DOM + GSAP，没有画布。
  *
- * 组件只管"一排牌怎么摆、怎么 hover、怎么拖"，不关心牌从哪来、打出去之后发生什么。
- * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者直接点一下
- * （按下、原地松手，没有拖动过阈值）——两条路殊途同归，都在松手那一刻喊一声 onPlay，
- * 组件自己不区分是哪种触发的。打出的卡要飞到哪个容器由父组件决定
+ * 组件只管"一排牌怎么摆、怎么抬、怎么拖"，不关心牌从哪来、打出去之后发生什么。
+ * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者原地轻点一下
+ * （按下松开，没走过拖拽阈值）。两条路最后都是喊一声 onPlay，组件自己不区分是哪种触发的，
+ * 只把是哪一种（via: 'drag' | 'tap'）一起报上去。打出的卡要飞到哪个容器由父组件决定
  * （见 MatchStage 里的 Flip 用法），因为跨容器的 FLIP 必须由同时看得见
  * "手牌"和"战场"的那一层来做。
  *
- * 只面向电脑浏览器 + 鼠标：拖拽走原生 pointer 事件，不做触屏和多指适配。
+ * 鼠标和触屏共用同一套指针事件，只有四处按 pointerType 分开，都写在各自的代码旁边：
+ *
+ * 1. **轻点的后果不同**（见 handleTap）：鼠标点一下就打出；触屏点一下只是把牌**选中**，
+ *    牌抬起放大、顶上冒出一颗「打出」，再点那颗才真的打出。手指划过屏幕太容易蹭出一次点击，
+ *    而出牌不可撤销，所以触屏多一步确认；鼠标点哪儿是哪儿，多一步只是拖慢节奏。
+ * 2. 触屏按住即抬起放大——不用特意做，浏览器在按下时就发 pointerenter。
+ * 3. 触屏拖拽时把牌抬到手指上方，免得手指盖住卡面（见 dragTargetOf 和 TOUCH_DRAG_LIFT）。
+ * 4. 卡面的倾斜跟随和高光在触屏上整个关掉（见 ui/cardTilt.ts），问号从"移入翻面"
+ *    换成"点一下翻面"（见 handleHelpToggle）。
  *
  * 一张牌的 transform 拆成三层，每层只管一件事（详见下面 JSX 里的注释）：
  * slot 管扇形摆位和拖拽跟随（x / y / rotation / scale），
@@ -35,7 +43,7 @@
  * 见 HandFanProps.tokens。
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
@@ -43,6 +51,7 @@ import { AI_CARD_BACK_ART, cardArtFor } from './cardArt'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
 import { CardFaceOverlay } from './CardFaceOverlay'
+import { PlaqueButton } from './PlaqueButton'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -103,11 +112,14 @@ export interface HandCardData {
 }
 
 /**
- * 这次出牌是怎么触发的：拖进落点区松手，还是原地点了一下。
+ * 这次出牌是怎么触发的：拖进落点区松手，还是点出来的（鼠标轻点 / 触屏选中后点「打出」）。
  *
  * 组件自己不区分这两条路（对它来说都是"打出去了"），但父组件可能要区分：
- * 要选目标的技能牌拖出去是"松手落在谁身上就打谁"，点一下则是进选目标态等玩家再点一次。
- * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪。
+ * 要选目标的技能牌拖出去是"松手落在谁身上就打谁"，点出来则是进选目标态等玩家再点一次。
+ * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪；
+ * 'tap' 那条路牌还停在扇形里被抬起的位置，一步都没挪过。
+ * 触屏那颗「打出」不单开一档 via：对父组件来说它和鼠标轻点是同一件事，
+ * 多一档只会让每个判 via 的地方都要多写一个分支。
  */
 export type CardPlayVia = 'drag' | 'tap'
 
@@ -143,7 +155,7 @@ export interface HandFanProps {
    */
   returnZoneRef?: RefObject<HTMLElement | null>
   /**
-   * 玩家打出了某张牌（拖进落点区松手，或者原地点一下）。父组件负责把这张牌从手牌里移走。
+   * 玩家打出了某张牌（拖进落点区松手，或者点出来的）。父组件负责把这张牌从手牌里移走。
    *
    * 同步受理（当场改手牌数组）的话最省心：这张牌立刻从 DOM 里消失，什么都不用管。
    *
@@ -322,6 +334,20 @@ const LEAVE_DELAY_MS = 50
  * 10° 是看着调出来的：再小几乎看不出"卡在跟着手动"，再大卡面的透视就开始明显变形。
  */
 const HOVER_TILT_DEG = 10
+
+/**
+ * 触屏拖拽时把牌整体往上抬多少（舞台内像素），让手指托在卡的下边缘而不是压在卡脸上。
+ *
+ * 取"拖拽尺寸下的半张卡高"，也就是手指正好落在卡的下沿：再少一点手指就开始盖住卡面，
+ * 再多一点牌会飘得离手太远、瞄准全靠猜。鼠标不抬——光标只有几个像素，挡不住什么。
+ *
+ * 抬起来之后有一处连带影响要知道：落点判定看的是**指针**在不在战场矩形里
+ * （useCardDrag 那边），而选目标的命中判定看的是**牌自己的中心**（MatchStage 的 dropTargetOf）。
+ * 于是触屏上"手指还在战场里、牌已经压在对手那张小卡上"是正常状态，也正是想要的——
+ * 玩家瞄的是牌，不是自己的指尖。战场落点区下沿离屏幕底边还有 250px（--battle-hand-zone-h），
+ * 比这里抬的距离宽裕，手指够得进去。
+ */
+const TOUCH_DRAG_LIFT = (DRAG_SCALE * CARD_HEIGHT) / 2
 
 /**
  * 选目标期间，除正在施放的那张之外整排手牌压到这个不透明度。
@@ -521,6 +547,16 @@ export function HandFan({
   const lockTipTimerRef = useRef<number | null>(null)
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
   const hoverRef = useRef<string | null>(null)
+  /**
+   * 触屏轻点选中的那张牌：它一直保持抬起放大，顶上挂着一颗「打出」，点了才真出牌。
+   * 鼠标那条路点一下就直接打出，永远不会走到这里，所以桌面上这一份恒为 null。
+   *
+   * 这一份不能像 hover 那样只放 ref——按钮是要渲染出来的，得有 state 来触发重渲染。
+   * 同时又必须留一份 ref：applyLayout 常常是上一次渲染留下的闭包（理由见 frozenRef），
+   * 读 state 会读到过期的值。两份永远一起改，统一走 setSelected。
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedIdRef = useRef<string | null>(null)
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
   const placedRef = useRef(new Set<string>())
   /**
@@ -674,6 +710,13 @@ export function HandFan({
       // 注意 reflow 也会被 resize 触发，所以这里不能把整份记录一股脑清空：
       // 拖一下窗口就把防重复的记录抹掉，同一张牌会被打出两次。
       if (hoverRef.current !== null && !ids.has(hoverRef.current)) hoverRef.current = null
+      // 选中的那张牌离开了手牌（打出去了、或者被测试面板弃掉了）：选中状态跟着作废，
+      // 否则那颗「打出」会挂在一张已经不存在的牌的位置上。
+      // 这里直接写两份而不是调 setSelected：重排本来就正在进行，不用再触发一次。
+      if (selectedIdRef.current !== null && !ids.has(selectedIdRef.current)) {
+        selectedIdRef.current = null
+        setSelectedId(null)
+      }
       for (const id of placedRef.current) if (!ids.has(id)) placedRef.current.delete(id)
       for (const id of playedRef.current) if (!ids.has(id)) playedRef.current.delete(id)
       // 还没起飞就离开手牌的（憋着发牌时被测试面板弃掉了）：补间得亲手掐掉，
@@ -709,7 +752,10 @@ export function HandFan({
     // 冻结期间一律按"没有 hover"排布。下面那个 frozen 的 layout effect 会把 hoverRef 清掉，
     // 但重排的入口不止一处（resize、手牌增减都会走到这里），冻结和清空之间隔着一次提交；
     // 中间这次重排要是照旧读 hoverRef，就会把那张牌又补间回放大位。
-    const hoveredId = frozenRef.current ? null : hoverRef.current
+    // 选中的那张牌即便指针早就离开也要一直抬着：它顶上挂着「打出」，落回扇形就点不到了。
+    // hover 排在前面不会和选中打架——指针进到别的牌上时 handleEnter 会先把选中清掉，
+    // 所以这两份最多只可能同时指着同一张牌。
+    const hoveredId = frozenRef.current ? null : (hoverRef.current ?? selectedIdRef.current)
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
     // 邻牌要让到 hover 那张牌放大后的轮廓之外；放大不改 x，所以让位量只跟基准位有关，
     // 全部在 neighborPushes 里按几何算好。
@@ -921,6 +967,20 @@ export function HandFan({
   }
 
   /**
+   * 换掉当前选中的那张牌（传 null 就是取消选中），顺手重排一次。
+   *
+   * ref 和 state 一起写：排布读 ref（applyLayout 常是上一次渲染的闭包），按钮的渲染读 state。
+   * 重排走 layoutRef 而不是直接调 applyLayout，理由同 returnToFan——
+   * 这个函数也会在事件回调之外被调到（几个 effect、document 上那个"点别处取消"的监听）。
+   */
+  const setSelected = (id: string | null) => {
+    if (selectedIdRef.current === id) return
+    selectedIdRef.current = id
+    setSelectedId(id)
+    layoutRef.current('hover')
+  }
+
+  /**
    * 发牌进场演完之前一律不动 hover 状态。
    *
    * 发牌期间父组件只给 disabled、不给 frozen（frozen 一变就要重排，重排会亲手掐掉
@@ -950,6 +1010,13 @@ export function HandFan({
     if (dealAnimating()) return
     cancelLeaveTimer()
     if (hoverRef.current === id) return
+    // 指针进到另一张牌上 = 玩家改主意了，上一张的选中（连同那颗「打出」）当场作废。
+    // 不然屏幕上会同时有两张抬起来的牌，而按钮还挂在其中一张的头上。
+    // 直接写两份不走 setSelected：下面紧接着就要重排，不用为它单独再排一次。
+    if (selectedIdRef.current !== null && selectedIdRef.current !== id) {
+      selectedIdRef.current = null
+      setSelectedId(null)
+    }
     hoverRef.current = id
     applyLayout('hover')
   })
@@ -983,6 +1050,25 @@ export function HandFan({
   const handleHelpLeave = contextSafe((id: string) => {
     const inner = innerOf(id)
     if (inner) flipTo(inner, 0, 0.4)
+  })
+
+  /**
+   * 触屏点一下问号：正面翻过去，再点一下翻回来。
+   *
+   * 触屏没有 hover 可用——按下发 pointerenter、抬手发 pointerleave，照着 hover 那套做
+   * 就成了"按住才看得见背面"，手一松就翻回正面，字都没读完。所以这边改成点一次翻一次。
+   * 翻回来另有一条兜底：牌不再被抬起时 applyLayout 会把它转正（见那里），
+   * 所以取消选中、或者指针挪到别的牌上，都不会留下一张背面朝上的牌。
+   *
+   * 判"现在是哪一面"读的是元素当前的实际角度，和 flipTo 内部的口径一致：
+   * 翻到一半再点也能接着往回转，不用另记一份状态。
+   */
+  const handleHelpToggle = contextSafe((id: string) => {
+    if (frozenRef.current) return
+    const inner = innerOf(id)
+    if (inner === null) return
+    const facingBack = Number(gsap.getProperty(inner, 'rotationY')) >= 90
+    flipTo(inner, facingBack ? 0 : 180, 0.4)
   })
 
   const clearLockTipTimer = () => {
@@ -1098,7 +1184,7 @@ export function HandFan({
    * 指针给的 clientX / clientY 却是缩放之后的屏幕像素。不换算的话窗口一旦不是设计尺寸，
    * 牌就会离光标越来越远（换算口径见 ui/battleStage.ts）。
    */
-  const dragTargetOf = (clientX: number, clientY: number) => {
+  const dragTargetOf = (clientX: number, clientY: number, drag: CardDragInfo) => {
     const metrics = battleStageMetrics()
     const point = toStagePoint(clientX, clientY, metrics)
     const anchor = rootRef.current?.getBoundingClientRect()
@@ -1115,9 +1201,12 @@ export function HandFan({
       anchor === undefined || anchor.width === 0
         ? battleStageWidth() / 2
         : (anchor.left + anchor.width / 2 - metrics.left) / metrics.scale
+    // 触屏再往上抬半张卡：手指本身有一指宽，压在卡中心就把要看的东西全挡住了，
+    // 抬完手指托在卡的下沿，牌整个露在指尖上方（推导和连带影响见 TOUCH_DRAG_LIFT）。
+    const lift = drag.pointerType === 'mouse' ? 0 : TOUCH_DRAG_LIFT
     return {
       x: point.x - originX,
-      y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2,
+      y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2 - lift,
     }
   }
 
@@ -1137,6 +1226,10 @@ export function HandFan({
   const handleDragStart = (drag: CardDragInfo) => {
     // 先告诉父组件"这张牌被拖起来了"：要选目标的技能牌一离手，场上的合法目标就该亮起来。
     onDragStateChange?.(drag.id)
+    // 选中态和拖拽是两条互斥的出牌路：牌已经在手上了，那颗「打出」没有存在的意义，
+    // 留着还会跟着牌一起满屏飞。直接写两份不走 setSelected：这个函数末尾本来就要重排一次。
+    selectedIdRef.current = null
+    setSelectedId(null)
     // hover 的放大补间和延迟缩回都得让位，不然它们会和拖拽姿态抢同一批属性。
     cancelLeaveTimer()
     // 清掉 hover 还顺手关掉了这张牌的倾斜跟随：attachCardTilt 的 enabled 回调判的就是
@@ -1180,8 +1273,13 @@ export function HandFan({
    * （闭包里的 disabled 是松手那一刻的旧值，父组件是在 onPlay 里才改的），
    * 之后由 disabled 关掉时的 layout effect 接手决定送不送回去。
    *
-   * settle 只有拖拽那条路要开：牌被挪到落点上了，得补间回扇形；
-   * 点击那条路压根没挪过 slot，原地就是正确位置。
+   * settle 问的是"这次出牌有没有把牌挪离它在扇形里该在的位置"，三个调用点各自回答：
+   *
+   * - 拖拽：牌停在松手的落点上，要 true；
+   * - 触屏那颗「打出」：牌被抬起放大着，而且这时它已经进了 playedRef、排布会整个跳过它，
+   *   没人替它回位，也要 true。触屏尤其不能省——那边没有 pointerleave，
+   *   指望玩家挪一下指针把牌"蹭"回去是不成立的；
+   * - 鼠标轻点：slot 一步没挪过（还停在 hover 抬起的位置，指针也还压在上面），false。
    */
   const restoreIfRejected = (id: string, settle: boolean) => {
     requestAnimationFrame(() => {
@@ -1211,17 +1309,45 @@ export function HandFan({
   }
 
   /**
-   * 按下之后原地松手（没走过拖拽阈值），等价于直接打出这张牌——不用真的拖进战场。
+   * 真正把一张牌打出去。鼠标轻点和触屏那颗「打出」共用这一段。
    *
-   * 这时 slot 还停在点击前的扇形/hover 位置，onPlay 里查 DOM 拿到的就是这个位置当飞行起点，
-   * 不需要专门归位，也不存在"落在别处"的取消场景。
-   * disabled 期间走不到这里：useCardDrag 那边已经挡掉了。
+   * 顺序是有讲究的——先记进 playedRef（防重复），再清选中态，最后才 onPlay：
+   * 清选中态会重排一次，而这时这张牌已经在 playedRef 里，排布会把它整个跳过（见 laid 那里），
+   * 于是它一动不动地留在原处，正好当父组件 Flip 飞行的起点；同排其余的牌趁这一下先合拢。
+   * 反过来先 onPlay 的话，父组件在回调里同步改的状态会先带来一次重渲染，
+   * 那颗按钮多留一帧，看着像点了没反应。没有选中态时 setSelected 直接返回，不多排一次。
+   *
+   * 这里不判 disabled / frozen：两条调用路各自已经挡过了（鼠标那条由 useCardDrag 的 enabled 挡，
+   * 按钮那条根本不会被渲染出来）。
    */
-  const handleTap = (id: string) => {
+  const playCard = (id: string, settle: boolean) => {
     if (playedRef.current.has(id)) return
     playedRef.current.add(id)
+    setSelected(null)
     onPlay(id, 'tap')
-    restoreIfRejected(id, false)
+    restoreIfRejected(id, settle)
+  }
+
+  /**
+   * 按下之后原地松手（没走过拖拽阈值）。**鼠标和触屏在这里分道扬镳**，出牌这条路上仅此一处：
+   *
+   * - 鼠标：直接打出。光标是尖的、点哪儿是哪儿，误点概率低，再插一步确认只是拖慢节奏。
+   * - 触屏：只是**选中**——牌抬起放大不再落回去，顶上冒出一颗「打出」，点那颗才真出牌。
+   *   手指划过屏幕太容易在牌上蹭出一次点击，而出牌不可撤销，这一步确认是必须的。
+   *   再点一次同一张就是取消选中：手指已经在这张牌上了，想收回来最顺手的就是再点一下。
+   *
+   * 判据用这次按下的 pointerType 而不是设备类型：带触屏的笔记本用鼠标时走的仍是鼠标那条。
+   * disabled / frozen 期间两条都走不到：useCardDrag 那边已经挡掉了。
+   */
+  const handleTap = (id: string, drag: CardDragInfo) => {
+    // 鼠标那条不用 settle：slot 一步没挪过（还停在 hover 抬起的位置），原地就是正确位置。
+    if (drag.pointerType === 'mouse') {
+      playCard(id, false)
+      return
+    }
+    // 已经打出、正在等父组件受理的牌不该再被选中：那颗按钮会让人以为还能再打一次。
+    if (playedRef.current.has(id)) return
+    setSelected(selectedIdRef.current === id ? null : id)
   }
 
   /**
@@ -1243,8 +1369,9 @@ export function HandFan({
     targetOf: dragTargetOf,
     // slot 的盒子已经按 HOVER_SCALE 放大过了，写给 GSAP 的 scale 得折算回去（见 slotScale）。
     dragScale: slotScale(DRAG_SCALE),
-    // 问号热区上按下不算抓牌，它只管翻面。
-    ignoreSelector: '.hand-fan__help',
+    // 这两块小控件上按下都不算抓牌：问号只管翻面，「打出」只管出牌。
+    // 不排掉的话，按在按钮上会先起一次拖拽/选中，click 还没来选中态就被自己翻掉了。
+    ignoreSelector: '.hand-fan__help, .hand-fan__play',
     // 两道各自的闸：已经打出、正在等父组件受理的牌不能再抓（防重复出牌），
     // 这一轮买不起的牌也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
     // canDrag 挡掉的按下不会走 onLockedPress（见 UseCardDragOptions 那边的说明）。
@@ -1279,7 +1406,12 @@ export function HandFan({
    */
   useLayoutEffect(() => {
     disabledRef.current = effectiveDisabled
-    if (effectiveDisabled) return
+    if (effectiveDisabled) {
+      // 现在出不了牌了（轮到对方、正在发牌、指令发出去等回包…）：那颗「打出」点了也没用，
+      // 选中态一起收掉，牌落回扇形。等能出牌了玩家再点一次就是了。
+      setSelected(null)
+      return
+    }
     for (const id of playedRef.current) {
       // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
       // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
@@ -1311,9 +1443,13 @@ export function HandFan({
     if (!frozen) return
     cancelLeaveTimer()
     const hovered = hoverRef.current
-    if (hovered === null) return
+    const selected = selectedIdRef.current
+    if (hovered === null && selected === null) return
     hoverRef.current = null
-    tiltsRef.current.get(hovered)?.reset()
+    selectedIdRef.current = null
+    setSelectedId(null)
+    // 倾斜只有被 hover 的那张才挂着；靠选中抬起来的那张指针早就不在上面，没有倾斜要收。
+    if (hovered !== null) tiltsRef.current.get(hovered)?.reset()
     layoutRef.current('hover')
   }, [frozen])
 
@@ -1329,8 +1465,31 @@ export function HandFan({
   useLayoutEffect(() => {
     cancelLeaveTimer()
     hoverRef.current = null
+    // 选中态也一起清：这张牌已经打出去了（正在等玩家指目标），它顶上不该还挂着一颗「打出」。
+    selectedIdRef.current = null
+    setSelectedId(null)
     layoutRef.current('hover')
   }, [castingId])
+
+  /**
+   * 选中期间点到手牌以外的任何地方 = 取消选中。
+   *
+   * 触屏上这是唯一顺手的"我不打了"：手指没有 hover，牌只要不落回去就会一直举在那儿。
+   * 挂在 document 上而不是某块遮罩上——选中态刻意不压暗也不拦指针（玩家常常要一边举着牌
+   * 一边看战场），所以根本没有一块现成的层能接这一下。
+   * 用 pointerdown 而不是 click：按下那一刻就该收，等 click 的话手指按住不放期间牌还举着。
+   * 只在真选中了什么的时候才挂监听，平时 document 上什么都不留。
+   */
+  useEffect(() => {
+    if (selectedId === null) return
+    const onOutsidePress = (event: PointerEvent) => {
+      const root = rootRef.current
+      if (root !== null && event.target instanceof Node && root.contains(event.target)) return
+      setSelected(null)
+    }
+    document.addEventListener('pointerdown', onOutsidePress)
+    return () => document.removeEventListener('pointerdown', onOutsidePress)
+  }, [selectedId])
 
   /** 上一次的 dealHold，用来认出"憋着的发牌被放开"这一个瞬间（React 不给上一次的 props）。 */
   const prevDealHoldRef = useRef(dealHold)
@@ -1510,10 +1669,40 @@ export function HandFan({
                 type="button"
                 className="hand-fan__help"
                 aria-label="查看卡牌详情"
-                onPointerEnter={() => handleHelpEnter(card.id)}
-                onPointerLeave={() => handleHelpLeave(card.id)}
+                /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
+                   理由见 handleHelpToggle。 */
+                onPointerEnter={(event) => {
+                  if (event.pointerType !== 'mouse') return
+                  handleHelpEnter(card.id)
+                }}
+                onPointerLeave={(event) => {
+                  if (event.pointerType !== 'mouse') return
+                  handleHelpLeave(card.id)
+                }}
+                onPointerUp={(event) => {
+                  if (event.pointerType === 'mouse') return
+                  handleHelpToggle(card.id)
+                }}
               />
             </div>
+            {/*
+              触屏轻点选中之后，浮在牌顶上方的「打出」。鼠标点一下就直接打出，
+              永远不会有牌处在选中态，所以桌面上这一段一次都不会渲染。
+
+              只有"这张牌被选中"且"现在真能出牌"时才渲染：锁上的那一刻选中态会被
+              effectiveDisabled 那个 effect 清掉，这里再判一次是防两者差一帧——
+              渲染的时机永远比 effect 早一拍。
+
+              挂在 slot 里而不是整排共用一个（像 lock-tip 那样现算位置）：slot 就是这张牌，
+              牌抬起来、被推开、跟着窗口缩放，按钮全都自动跟着走，一行定位代码都不用写。
+              放在倾斜层**外面**是必须的：那一层有 zoom（见 CSS），按钮会跟着被放大 1.9 倍。
+              这时 slot 的 scale 正好是 1（被抬起的牌就是放大到顶那一档），所以按钮是原尺寸。
+            */}
+            {selectedId === card.id && !effectiveDisabled && !frozen ? (
+              <PlaqueButton className="hand-fan__play" onClick={() => playCard(card.id, true)}>
+                打出
+              </PlaqueButton>
+            ) : null}
           </div>
         )
       })}

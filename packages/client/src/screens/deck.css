@@ -61,7 +61,7 @@
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
   z-index: 1;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(100vw, 100dvh * 1672 / 941);
   aspect-ratio: 1672 / 941;
 
   /* --battle-grain 的作用域补丁，同 design.css 里那段。
@@ -189,13 +189,22 @@
  */
 .deck-back {
   flex: none;
-  padding: 0;
+  /* 抬一层：hover 时箭头会往左挪出按钮的盒子，不抬的话它按文档顺序排在后面的
+     花饰、标题之后画，谁在它上面就把探出去的那截箭头盖掉。 */
+  position: relative;
+  z-index: 1;
+  /* 左边留出箭头 hover 时要挪的那 0.26em，再用等量负外边距把按钮拉回原位：
+     位置看起来没变，但箭头始终待在按钮自己的盒子里。 */
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
   border: 0;
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 14px;
-  letter-spacing: 0.14em;
+  /* 和 /hero、/room 的返回按钮一样大：那两页写的是 1.15cqi（舞台宽的 1.15%），
+     本页舞台是定死的 1672px 设计宽，换算过来就是 19px。 */
+  font-size: 19px;
+  letter-spacing: 0.1em;
   cursor: pointer;
   transition: color 0.16s ease;
 }
@@ -539,6 +548,18 @@
   border-radius: calc(8px * var(--deck-pool-scale));
   perspective: calc(1000px * var(--deck-pool-scale));
   cursor: pointer;
+  /*
+   * 触屏上"竖着滑 = 滚卡池，横着拖 = 把牌拖进右边的牌组面板"。
+   *
+   * 不能写 touch-action: none：卡池是一整块滚动区（见 .deck-grid），格子铺满整个可视区，
+   * 手指落点几乎必然在某张牌上，写成 none 就等于整个卡池滚不动了。
+   * 也不能不写：默认值下手指一动浏览器就当成滚动，把拖拽整个收走（只补一发 pointercancel），
+   * 牌一次都拖不出去。pan-y 把两件事按方向分开，正好对上这一页的两种手势——
+   * 卡池和牌组面板是左右并排的，"加入 / 移除"本来就是横向动作。
+   * 竖着起手的拖拽会被浏览器接管，useCardDrag 收到 pointercancel 后按取消处理，牌回原位；
+   * 那种情况下玩家还可以用卡面上的 ⊕ / ⊖ 圆钮，不会没路可走。
+   */
+  touch-action: pan-y;
 }
 
 /*
@@ -950,6 +971,64 @@
 .deck-slot:hover .deck-circle--remove,
 .deck-circle--remove:focus-visible {
   opacity: 1;
+}
+
+/*
+ * 触屏上没有 hover，上面那条规则永远不成立——「×」就永远是透明的，
+ * 牌加进牌组之后再也拿不出来（横拖移除那条路也不是人人想得到）。所以粗指针下常驻显示。
+ * 二十个叉一起亮确实吵，但"点不到"比"有点吵"严重得多。
+ *
+ * 顺带把两颗圆钮都放大一档：28 / 20 是照鼠标指针定的，而这一页整个还要再按视口缩一次
+ * （手机横屏大约缩到一半），指尖根本按不中。位置跟着往外挪，圆钮才不会盖掉更多插画。
+ */
+@media (pointer: coarse) {
+  .deck-circle--add {
+    top: 5px;
+    left: 5px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .deck-circle--remove {
+    top: -8px;
+    right: -8px;
+    width: 28px;
+    height: 28px;
+    opacity: 1;
+  }
+
+  /*
+   * 问号同理：它的显隐挂在 .deck-pool-card:hover / .deck-slot:hover 上，触屏永远等不到，
+   * 于是"翻到背面看效果"这件事在手机上整个消失。粗指针下常驻显示。
+   * 热区再放大一圈（26 → 34、迷你卡 20 → 26），圆圈本身不动——热区是全透明的，变大看不出来。
+   * 再大就要开始抢卡面了：从卡的右上角起手拖牌是常事。
+   */
+  .deck-pool-card .deck-help,
+  .deck-slot .deck-help {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .deck-pool-card__help-mark,
+  .deck-mini__help-mark {
+    opacity: 1;
+  }
+
+  /* 这两条要多带一级父类：热区的基准尺寸（.deck-help / .deck-help--mini）写在本文件更靠后，
+     单类对单类同分时靠后的赢，不带父类的话这里改的宽高一个都落不下去。 */
+  .deck-pool-card .deck-help {
+    top: 3px;
+    right: 3px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .deck-slot .deck-help--mini {
+    top: 1px;
+    right: 1px;
+    width: 26px;
+    height: 26px;
+  }
 }
 
 .deck-circle--remove:hover {
@@ -1591,6 +1670,8 @@
   inset: 0;
   perspective: calc(1000px * var(--deck-mini-scale));
   cursor: pointer;
+  /* 同 .deck-pool-card：竖滑滚格子区，横拖把这份牌拖出面板（= 移除）。理由见那里。 */
+  touch-action: pan-y;
 }
 
 /* 下面四层和卡池卡一一对应（__tilt / __inner / __face / 缩放层），每层为什么单独存在
@@ -1906,7 +1987,11 @@
    底下是压暗的遮罩，所以字要浅色，不能沿用顶栏那颗的墨色。 */
 .deck-zoom-side__back {
   flex: none;
-  padding: 0;
+  /* 同 .deck-back：抬一层，左侧再留出箭头 hover 的位移量。 */
+  position: relative;
+  z-index: 1;
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
   border: 0;
   background: none;
   color: rgb(239 233 216 / 78%);

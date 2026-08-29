@@ -28,6 +28,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { battleStageMetrics, battleStageWidth, toStagePoint } from './battleStage'
 import { CardBackHidden } from './CardBackHidden'
 import type { HandCardData } from './HandFan'
 import { CARD_HEIGHT, CARD_WIDTH, LAYOUT_DUR, OPPONENT_FAN, fanTransform } from './fanMath'
@@ -59,8 +60,8 @@ const HOVER_DUR = 0.22
 /**
  * 拿不到对方卡堆位置（或玩家要求减少动效）时的退路：新牌先在基准位再"沉"这么多，再滑进来。
  * 和玩家手牌用同一个量，两边抽牌的观感才是一套的。
- * 缩到 0.64 之后卡只剩 144 高，而基准位已经贴着视口顶边（sink 为 0），
- * 再沉 140 时整张牌的最低点还在视口顶边上方约 5px，连顶栏都不用帮忙挡，起点必然看不见。
+ * 缩到 0.64 之后卡只剩 144 高，而基准位已经贴着舞台顶边（sink 为 0），
+ * 再沉 140 时整张牌的最低点还在舞台顶边上方约 5px，连顶栏都不用帮忙挡，起点必然看不见。
  */
 const ENTER_OFFSET = 140
 /** 开局那几张牌依次起飞的间隔（秒）。和玩家手牌同一个值，两边发牌的节奏才是一套的。 */
@@ -70,25 +71,31 @@ const DEAL_STAGGER = 0.12
 type LayoutMode = 'hover' | 'reflow'
 
 /**
- * 把对方卡堆在屏幕上的位置换算成 slot 的起始变换（发牌飞行的起点）。
+ * 把对方卡堆的位置换算成 slot 的起始变换（发牌飞行的起点）。
  *
- * 整个锚点容器转了 180°，所以屏幕方向和 slot 坐标是**反**的：
- * slot 原点（锚点底边中点，转过来就是屏幕上锚点那条线的中点）往右是 x 减小、往下是 y 减小。
+ * 整个锚点容器转了 180°，所以画面上的方向和 slot 坐标是**反**的：
+ * slot 原点（锚点底边中点，转过来就是画面上锚点那条线的中点）往右是 x 减小、往下是 y 减小。
  * 变换原点仍是卡的底边中点，按 s 缩放之后卡心落在原点"上方" s × 卡高 / 2 处，
- * 转过来正好是屏幕上的下方，所以那一段要**加**回去（玩家手牌那边是减）。
- * anchorTop 是锚点那条线在视口里的 y（.opponent-fan 现在贴着视口顶边，也就是 0，
- * 但仍然现量一次，免得哪天它挪了位置这里跟着算错）。
+ * 转过来正好是画面上的下方，所以那一段要**加**回去（玩家手牌那边是减）。
  *
- * 旋转归零：屏幕上看这是"倒过来的"，可它此刻整个藏在左侧栏（z-index 30）后面，
+ * 两个入参都是 getBoundingClientRect 量的**视口**矩形（缩放之后的屏幕像素），
+ * 要过一次 toStagePoint 才换成舞台内坐标，写给 GSAP 的 x / y / scale 全是舞台内像素
+ *（口径见 ui/battleStage.ts）。原点取现量的锚点矩形而不是"舞台顶边"那个理论值，
+ * 理由和玩家手牌那份一样：slot 的 x / y 本来就是锚点局部坐标，照锚点当场在哪儿算才不会错。
+ * 锚点自己那个 rotate(180deg) 不影响它的矩形（高度为 0、绕自身中心转）。
+ *
+ * 旋转归零：画面上看这是"倒过来的"，可它此刻整个藏在左侧栏（z-index 30）后面，
  * 而这排牌画的又是正反几乎对称的隐藏牌背，飞出来时看不出朝向变过。
  * 换成从 180° 转到扇形角的话，整段飞行会多出一次没人要的翻滚。
  */
-function dealStartVars(origin: DOMRect, anchorTop: number): gsap.TweenVars {
-  const root = document.documentElement
-  const shown = origin.width / CARD_WIDTH
+function dealStartVars(origin: DOMRect, anchor: DOMRect): gsap.TweenVars {
+  const metrics = battleStageMetrics()
+  const center = toStagePoint(origin.left + origin.width / 2, origin.top + origin.height / 2, metrics)
+  const base = toStagePoint(anchor.left + anchor.width / 2, anchor.top, metrics)
+  const shown = origin.width / metrics.scale / CARD_WIDTH
   return {
-    x: root.clientWidth / 2 - (origin.left + origin.width / 2),
-    y: anchorTop - (origin.top + origin.height / 2) + (shown * CARD_HEIGHT) / 2,
+    x: base.x - center.x,
+    y: base.y - center.y + (shown * CARD_HEIGHT) / 2,
     rotation: 0,
     scale: shown,
   }
@@ -158,16 +165,21 @@ export function OpponentFan({
   }
 
   const applyLayout = (mode: LayoutMode) => {
-    // 锚点 .opponent-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），别混用 innerWidth。
-    // 这排牌可以按整个视口宽摊开：它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
+    // 锚点 .opponent-fan 是 fixed + width: 100%。对局页里 .battle-scaler 带着 transform，
+    // fixed 的包含块因此是舞台那 1672×941 的盒子，这排牌就按整个舞台宽摊开：
+    // 它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
     //（玩家那边量的是战场中栏，见 HandFan 的 fanAreaWidth）。
-    const viewportWidth = document.documentElement.clientWidth
+    const stageWidth = battleStageWidth()
     const count = cards.length
     // 减少动效时不做发牌飞行：新牌退回原来那段"从基准位外沉、淡入"，也不排队错开。
     const reduce = prefersReducedMotion()
-    const dealOrigin = reduce ? null : (dealOriginRef.current?.() ?? null)
-    // 锚点转过 180° 之后 x / y 的方向都反了，起点换算要用到它在视口里的那条线。
-    const anchorTop = rootRef.current?.getBoundingClientRect().top ?? 0
+    const dealOriginRect = reduce ? null : (dealOriginRef.current?.() ?? null)
+    // 起点要按锚点当场的位置算（见 dealStartVars），量不到锚点就不飞。
+    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
+    const dealStart =
+      dealOriginRect === null || anchorRect === null
+        ? null
+        : dealStartVars(dealOriginRect, anchorRect)
     /** 这一轮排上队的新牌数；攒到最后统一报一次。 */
     let dealAdded = 0
     /** 这一轮真正安排起飞的第几张，决定各自的 stagger 延迟。 */
@@ -191,7 +203,7 @@ export function OpponentFan({
       const slot = slotsRef.current.get(card.id)
       if (!slot) return
 
-      const base = fanTransform(index, count, viewportWidth, OPPONENT_FAN)
+      const base = fanTransform(index, count, stageWidth, OPPONENT_FAN)
       // 牌心间距跟着卡面一起收紧。缩放是以每张牌自己的底边中点为原点做的，只缩卡面不动 x，
       // 相邻两张之间就会平白多出空隙，一排牌从"叠在手里"散成"排在架子上"；乘上同一个系数，
       // 重叠比例才和缩放前一样。只有 x 乘：rotation 和 y（sink + 下垂）保持原样，
@@ -202,16 +214,16 @@ export function OpponentFan({
         placedRef.current.add(card.id)
         dealQueueRef.current.add(card.id)
         dealAdded += 1
-        // 拿得到卡堆位置就从那儿起飞，拿不到就退回原来的"先退到视口外再滑进来"。
+        // 拿得到卡堆位置就从那儿起飞，拿不到就退回原来的"先退到舞台外再滑进来"。
         // 从卡堆起飞的那张一开始就是不透明的：起点在左侧栏里，而侧栏（z-index 30）
         // 压在这排牌（20）之上，牌是从侧栏后面滑出来的，本来就看不见。
         // 淡入那条路用 opacity 而不是 autoAlpha：autoAlpha 会把 visibility 也改掉，
         // 万一补间被打断，牌就会一直是隐藏的。
         gsap.set(slot, {
           transformOrigin: '50% 100%',
-          ...(dealOrigin === null
+          ...(dealStart === null
             ? { x, y: base.y + ENTER_OFFSET, rotation: base.rotation, scale: CARD_SCALE, opacity: 0 }
-            : { ...dealStartVars(dealOrigin, anchorTop), opacity: 1 }),
+            : { ...dealStart, opacity: 1 }),
         })
       }
 
@@ -229,7 +241,7 @@ export function OpponentFan({
         if (scheduled !== undefined) {
           scheduled.kill()
           dealTweensRef.current.delete(card.id)
-          if (dealOrigin !== null) gsap.set(slot, dealStartVars(dealOrigin, anchorTop))
+          if (dealStart !== null) gsap.set(slot, dealStart)
         }
         return
       }

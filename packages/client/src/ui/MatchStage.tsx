@@ -39,6 +39,7 @@ import type {
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
+import { battleStageMetrics } from './battleStage'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
@@ -279,29 +280,51 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
   // 下面那个组件的一整套 hook 都要求 state 存在，所以拆成两个组件而不是在中间早退。
   if (view.state === null) {
     return (
-      <div className="battle battle--waiting">
-        <HandDrawnFilterDefs />
-        <BattleTopBar />
-        <div className="battle__waiting">
-          <p className="battle__waiting-text">
-            {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
-          </p>
-          {view.status === 'aborted' ? (
-            <div className="battle__result-actions">{resultActions}</div>
-          ) : null}
+      <BattleFrame>
+        <div className="battle battle--waiting">
+          <HandDrawnFilterDefs />
+          <BattleTopBar />
+          <div className="battle__waiting">
+            <p className="battle__waiting-text">
+              {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
+            </p>
+            {view.status === 'aborted' ? (
+              <div className="battle__result-actions">{resultActions}</div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </BattleFrame>
     )
   }
 
   return (
-    <BattleField
-      driver={driver}
-      view={view}
-      state={view.state}
-      testMode={testMode}
-      resultActions={resultActions}
-    />
+    <BattleFrame>
+      <BattleField
+        driver={driver}
+        view={view}
+        state={view.state}
+        testMode={testMode}
+        resultActions={resultActions}
+      />
+    </BattleFrame>
+  )
+}
+
+/**
+ * 16:9 舞台外壳：把整个对局界面锁进设计稿的比例里，窗口太宽留左右边、太窄留上下边。
+ *
+ * 三层各管一件事（样式和取舍见 styles.css 里"对局界面的 16:9 舞台"）：
+ * .battle-frame 铺留边并把舞台居中，.battle-stage 定下 16:9 的那块地方，
+ * .battle-scaler 永远是 1672×941 的盒子、再整体缩到舞台大小。
+ * 等待页和正式对局都要套上：它们共用同一套写死像素的排版，也共用 .battle 的顶栏。
+ */
+function BattleFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="battle-frame">
+      <div className="battle-stage">
+        <div className="battle-scaler">{children}</div>
+      </div>
+    </div>
   )
 }
 
@@ -1310,6 +1333,9 @@ function BattleField({
     const card = slot.getBoundingClientRect()
     const cx = card.left + card.width / 2
     const cy = card.top + card.height / 2
+    // 下面全程在视口坐标里比矩形，本来不用换算；只有 TARGET_SNAP 这个放宽量是照舞台内像素
+    // 定的，得跟着舞台一起缩，否则窗口越小，这圈"擦边也算命中"的余量在画面上就越大。
+    const snap = TARGET_SNAP * battleStageMetrics().scale
 
     // 先在**整行**里找最近的那张（不是只在合法目标里找），最后才看它能不能打：
     // 只挑合法的话，松手在一张已干扰的小卡上会打中旁边那张，玩家眼里就是"我明明放在它身上"。
@@ -1318,8 +1344,8 @@ function BattleField({
       const tile = tileOf(boardRef, ai.instanceId)
       if (tile === null) continue
       const rect = tile.getBoundingClientRect()
-      if (cx < rect.left - TARGET_SNAP || cx > rect.right + TARGET_SNAP) continue
-      if (cy < rect.top - TARGET_SNAP || cy > rect.bottom + TARGET_SNAP) continue
+      if (cx < rect.left - snap || cx > rect.right + snap) continue
+      if (cy < rect.top - snap || cy > rect.bottom + snap) continue
       // 放宽之后相邻两张小卡的判定区会重叠，取牌心最近的那张，和肉眼看到的一致。
       const distance = Math.hypot(
         cx - (rect.left + rect.right) / 2,
@@ -2461,7 +2487,11 @@ function heroFlipId(playerId: PlayerId): string {
  * 某一侧卡堆最上面那张牌此刻在屏幕上的位置，交给两排扇形当发牌飞行的起点。
  *
  * 侧栏还没挂上时返回 null，那时两排扇形会退回原来的"从基准位下方淡入"（见 HandFanProps）。
- * 每次要摆新牌时现查一次，不缓存：卡堆大小跟着侧栏走，窗口一变位置就变了。
+ * 每次要摆新牌时现查一次，不缓存：窗口一变，16:9 舞台的缩放就变，这个矩形跟着变。
+ *
+ * 返回的是 getBoundingClientRect 的**视口**矩形（缩放之后的屏幕像素），
+ * 换算成舞台内坐标是两排扇形自己的事（各自的 dealStartVars，口径见 ui/battleStage.ts）：
+ * 那两处还要照各自的坐标系翻方向，换算没法在这里一次做完。
  */
 function dealOriginOf(side: DealSide): DOMRect | null {
   const node = document.querySelector<HTMLElement>(
@@ -2483,10 +2513,13 @@ function dealOriginOf(side: DealSide): DOMRect | null {
 function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): void {
   const from = node.getBoundingClientRect()
   const to = tile.getBoundingClientRect()
+  // 位移要除以舞台缩放：两个 rect 量到的是缩放之后的屏幕像素，而 GSAP 的 x / y 写的是
+  // 舞台内像素（口径见 ui/battleStage.ts）。scale 是纯比值，两个宽度相除时自然抵消，不用管。
+  const { scale } = battleStageMetrics()
   gsap.to(node, {
     // 变换原点在正中，所以只要把两个矩形的中心对上，缩放多少都不影响落点。
-    x: `+=${to.left + to.width / 2 - (from.left + from.width / 2)}`,
-    y: `+=${to.top + to.height / 2 - (from.top + from.height / 2)}`,
+    x: `+=${(to.left + to.width / 2 - (from.left + from.width / 2)) / scale}`,
+    y: `+=${(to.top + to.height / 2 - (from.top + from.height / 2)) / scale}`,
     scale: from.width === 0 ? 1 : to.width / from.width,
     autoAlpha: 0,
     duration: SKILL_FLIGHT_DUR,
@@ -2587,10 +2620,15 @@ function PlayerPanel({
  * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面那个盒子按缩小后的尺寸占位，
  * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
  *
- * 系数直接写在 DOM 节点的 style 上、不走 React state：面板高度跟着视口高度变，
- * 走 state 的话拖一下窗口就要重渲染整个对局界面。这个变量只喂给 CSS 的宽高和 scale，
- * 而 GSAP 从头到尾不碰这几个元素的 transform，两边不会抢同一个属性。
- * CSS 那边给了默认值，所以第一帧量出来之前也不会画成 0。
+ * 系数直接写在 DOM 节点的 style 上、不走 React state：走 state 的话每量一次都要重渲染
+ * 整个对局界面。这个变量只喂给 CSS 的宽高和 scale，而 GSAP 从头到尾不碰这几个元素的
+ * transform，两边不会抢同一个属性。CSS 那边给了默认值，所以第一帧量出来之前也不会画成 0。
+ *
+ * 对局界面现在锁在 16:9 舞台里（见 styles.css 的"对局界面的 16:9 舞台"），面板尺寸恒定，
+ * 这一段实际上只会在挂载时算一次。仍然留着 ResizeObserver 而不是写死一个数：
+ * 量出来的口径不依赖"侧栏多宽、内边距多少"，改版式时这里不用跟着手工对表。
+ * clientWidth / clientHeight 量的是**布局**尺寸，祖先身上那个 transform: scale() 不影响它，
+ * 拿到的已经是舞台内像素，和 CARD_WIDTH / CARD_HEIGHT 同一套口径，不需要再过 battleStage 换算。
  */
 function useHeroCardScale(ref: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {

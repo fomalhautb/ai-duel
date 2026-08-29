@@ -202,7 +202,7 @@
 }
 
 .room__back:focus-visible {
-  outline: 2px solid var(--room-ink-lit);
+  outline: 0.12cqi solid var(--room-ink-lit);
   outline-offset: 0.2cqi;
 }
 
@@ -527,7 +527,7 @@
   position: relative;
   width: 0.65cqi;
   height: 0.65cqi;
-  border: 1px solid currentcolor;
+  border: 0.06cqi solid currentcolor;
   border-radius: 50%;
   flex: none;
   animation: room-dot-breathe 2s ease-in-out infinite;

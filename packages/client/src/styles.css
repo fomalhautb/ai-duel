@@ -247,7 +247,7 @@ body,
   position: absolute;
   width: 23cqi;
   padding: 1.5cqi;
-  border: 1px solid rgb(232 198 159 / 55%);
+  border: 0.06cqi solid rgb(232 198 159 / 55%);
   border-radius: 0.4cqi;
   /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
   background: linear-gradient(to bottom, rgb(24 31 40 / 94%), rgb(18 23 31 / 92%));
@@ -281,7 +281,7 @@ body,
   content: '';
   position: absolute;
   inset: 0.35cqi;
-  border: 1px solid rgb(232 198 159 / 30%);
+  border: 0.06cqi solid rgb(232 198 159 / 30%);
   border-radius: 0.2cqi;
 }
 
@@ -406,7 +406,7 @@ body,
 /* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
 .home__flourish-line {
   width: var(--home-flourish-line-w, 5.4cqi);
-  height: 1px;
+  height: 0.06cqi;
   background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
@@ -566,7 +566,7 @@ body,
 }
 
 .home__start:focus-visible {
-  outline: 2px solid var(--home-ink);
+  outline: 0.12cqi solid var(--home-ink);
   outline-offset: 0.4cqi;
 }
 

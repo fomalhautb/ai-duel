@@ -129,8 +129,8 @@ describe('教学对战剧本', () => {
     expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual([
       'claude-fable-5',
     ])
+    // 这一轮只打技能牌：教程不放行增派 AI（见 TUTORIAL_CARDS.optionalAi）。
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
-    play(run.driver, 'gpt-2')
     endPlay(run.driver)
     flush()
     confirmRound(run.driver)
@@ -160,7 +160,7 @@ describe('教学对战剧本', () => {
     ])
   })
 
-  it('第 2 轮只打技能、不增派：仍然靠 Token 更省拿下这一分', () => {
+  it('第 2 轮只打技能（教程不放行增派）：靠 Token 更省拿下这一分', () => {
     const run = start()
     playThroughRoundOne(run)
     play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
@@ -169,23 +169,8 @@ describe('教学对战剧本', () => {
 
     const round2 = scoredEvents(run.events)[1]
     expect(round2?.verdict).toBe('fewer-tokens')
-    // 只花了复读机那 4 点，对手 6 点。
+    // 教学限制下玩家这一轮只有这一条路：复读机 4 点，对手 6 点。
     expect(round2?.spent).toEqual([tutorialCardCost(TUTORIAL_CARDS.skill), 6])
-    expect(round2?.scores).toEqual([2, 0])
-  })
-
-  it('第 2 轮增派 GPT-2：消耗 5 点，这一分照样是玩家的', () => {
-    const run = start()
-    playThroughRoundOne(run)
-    play(run.driver, TUTORIAL_CARDS.skill, foeAiId(run.driver))
-    play(run.driver, 'gpt-2')
-    endPlay(run.driver)
-    flush()
-
-    // 这是玩家在教学限制内花得最多的一条路：4 + 1 = 5，仍旧严格少于对手的 6。
-    const round2 = scoredEvents(run.events)[1]
-    expect(round2?.verdict).toBe('fewer-tokens')
-    expect(round2?.spent).toEqual([5, 6])
     expect(round2?.scores).toEqual([2, 0])
   })
 
@@ -256,29 +241,17 @@ describe('教学内容自检', () => {
     }
   })
 
-  // 「即将上线」的技能牌不进 CARD_POOL。教学牌组混进一张的话，第 3 轮玩家可以自由出牌
-  // （步骤表那一步 playableCards 是 null），还没开放的牌就被打上了牌桌。
+  // 教学牌组必须整副都在 CARD_POOL 里，没有例外：第 3 轮玩家可以自由出牌
+  // （步骤表那一步 playableCards 是 null），混进一张卡池外的牌——「即将上线」的技能牌，
+  // 或者 GPT-2、文心一言那种调不到模型的 AI——玩家就能把它打上牌桌，
+  // 学完回到牌组页却发现那张是灰的、自己拼不出这副牌。
   // core 不校验牌组内容，教学 driver 也直接把这两副牌塞给引擎，所以只有这条测试守着。
-  //
-  // GPT-2 是唯一的例外，写死在这里而不是放宽成"AI 牌随便放"：它同样不在卡池里
-  //（OpenRouter 调不到 GPT-2，见 core 的 UNAVAILABLE_AI_CARD_IDS），但教学第 2 轮的
-  // Token 对账要一张 1 费 AI，而全卡池只有它是 1 费（见 TUTORIAL_CARDS.optionalAi）。
-  // 教学局的答案是预设的、不调模型，所以它在这里能照常工作。
-  const TUTORIAL_ONLY = new Set<CardId>(['gpt-2'])
-
-  it('教学双方牌组里的每张牌都在已开放的卡池里（GPT-2 除外）', () => {
+  it('教学双方牌组里的每张牌都在已开放的卡池里', () => {
     for (const deck of [TUTORIAL_PLAYER_DECK, TUTORIAL_FOE_DECK]) {
       for (const cardId of deck) {
-        if (TUTORIAL_ONLY.has(cardId)) continue
         expect(CARD_POOL, `${cardId} 不在卡池里`).toContain(cardId)
       }
     }
-  })
-
-  it('那张例外只出现在玩家牌组里，且只有一份', () => {
-    // 对手按脚本出牌，不需要它；多放一份也只会让"第 2 轮只放行这一张"变得难对账。
-    expect(TUTORIAL_PLAYER_DECK.filter((id) => id === 'gpt-2')).toHaveLength(1)
-    expect(TUTORIAL_FOE_DECK).not.toContain('gpt-2')
   })
 
   it('起手 5 张正好是教学点名要用的那几张', () => {
@@ -304,8 +277,10 @@ describe('教学内容自检', () => {
   })
 
   it('第 2 轮玩家怎么选都比对手省 Token，掉不进「消耗相同」那一档', () => {
+    // 玩家这一轮最贵的一条路：复读机 + optionalAi 里最贵的那张。
+    // optionalAi 现在是空的，最贵的那条路就是只打复读机（4 点）。
     const optionalCosts = TUTORIAL_CARDS.optionalAi.map(tutorialCardCost)
-    const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(...optionalCosts)
+    const playerMax = tutorialCardCost(TUTORIAL_CARDS.skill) + Math.max(0, ...optionalCosts)
     const foeSpend = (TUTORIAL_FOE_PLAYS[1] ?? []).reduce(
       (sum, cardId) => sum + tutorialCardCost(cardId),
       0,
@@ -315,15 +290,19 @@ describe('教学内容自检', () => {
     expect(playerMax).toBeLessThanOrEqual(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
   })
 
-  it('第 2 轮可选增派的只有 GPT-2 这一张低费 AI', () => {
-    // 收窄到一张是 Token 对账的硬要求（见 TUTORIAL_CARDS.optionalAi）：
-    // 再放进一张 2 费的，玩家最多就花到 6 点，和对手打平，第 2 轮的教学结论当场翻车。
-    expect(TUTORIAL_CARDS.optionalAi).toEqual(['gpt-2'])
-    for (const cardId of TUTORIAL_CARDS.optionalAi) {
-      const card = getCard(cardId)
-      expect(card.kind).toBe('ai')
-      expect(card.tokenCost).toBeLessThanOrEqual(2)
-    }
+  it('第 2 轮一张增派的 AI 都不放行', () => {
+    // 空名单是 Token 对账逼出来的（见 TUTORIAL_CARDS.optionalAi）：复读机占掉 4 点，
+    // 而卡池里最便宜的 AI 是 2 费，放进来玩家就花到 6 点、和对手打平，第 2 轮的结论翻车。
+    // 这里连带守住"卡池里确实没有 1 费 AI"——哪天有了，这条测试会红，提醒把它填回 optionalAi。
+    expect(TUTORIAL_CARDS.optionalAi).toEqual([])
+    const cheapestAi = Math.min(
+      ...CARD_POOL.map(getCard)
+        .filter((card) => card.kind === 'ai')
+        .map((card) => card.tokenCost),
+    )
+    expect(cheapestAi + tutorialCardCost(TUTORIAL_CARDS.skill)).toBeGreaterThanOrEqual(
+      INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH,
+    )
   })
 })
 

@@ -31,6 +31,8 @@ export type TutorialStepId =
   | 'TUTORIAL_R1_REVEAL'
   /** 拆出来的过渡态：放行对手脚本，等它出完牌进答题。 */
   | 'TUTORIAL_R1_FOE_PLAY'
+  /** 对手最后一张牌已经落场，等玩家确认后才结束出牌并进入答题。 */
+  | 'TUTORIAL_R1_FOE_DONE'
   | 'TUTORIAL_R1_ANSWER'
   | 'TUTORIAL_R1_SCORE'
   | 'TUTORIAL_R2_REFRESH'
@@ -219,12 +221,22 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'TUTORIAL_R1_FOE_PLAY',
     instruction: null,
     releaseFoe: true,
-    advance: cue('quiz-open'),
+    // 最后一张牌落场就先把对手脚本挡住，别让它紧接着结束出牌、直接盖出答题层。
+    advance: onEvent('AI_DEPLOYED', 'foe'),
+    next: 'TUTORIAL_R1_FOE_DONE',
+  },
+  {
+    id: 'TUTORIAL_R1_FOE_DONE',
+    instruction: '对方已经打完这一轮的牌，双方出牌结束。接下来，场上的 AI 将进入答题环节。',
+    highlight: [anchor('battlefieldMine'), anchor('battlefieldFoe')],
+    advance: tap(),
     next: 'TUTORIAL_R1_ANSWER',
   },
   {
     id: 'TUTORIAL_R1_ANSWER',
     instruction: null,
+    // 玩家确认后重新放开脚本：对手这时只剩「结束出牌」，发出后才会进入答题。
+    releaseFoe: true,
     advance: cue('quiz-rows-done'),
     next: 'TUTORIAL_R1_SCORE',
   },

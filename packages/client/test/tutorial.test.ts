@@ -227,6 +227,33 @@ describe('教学对战剧本', () => {
     expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['deepseek-r1'])
   })
 
+  it('第 1 轮对手最后一张牌落场后可以暂停，玩家确认后才进入答题', () => {
+    const run = start()
+    // 教程控制器收到对手落场事件时，会同步关上这道闸并显示确认提示。
+    run.driver.onEvents((batch) => {
+      run.events.push(...batch)
+      if (batch.some((event) => event.type === 'AI_DEPLOYED' && event.player === FOE)) {
+        run.driver.setFoeHold(true)
+      }
+    })
+
+    flush()
+    play(run.driver, TUTORIAL_CARDS.firstAi)
+    endPlay(run.driver)
+    flush()
+
+    expect(stateOf(run.driver).phase).toBe('play')
+    expect(stateOf(run.driver).activePlayer).toBe(FOE)
+    expect(stateOf(run.driver).players[FOE].board.map((ai) => ai.cardId)).toEqual(['gpt-4o'])
+    expect(run.events.some((event) => event.type === 'QUESTION_REVEALED')).toBe(false)
+
+    // 玩家点完提示后，控制器重新放开脚本；对手结束出牌，答题才真正开始。
+    run.driver.setFoeHold(false)
+    flush()
+    expect(run.events.some((event) => event.type === 'QUESTION_REVEALED')).toBe(true)
+    expect(stateOf(run.driver).phase).toBe('settle')
+  })
+
   it('第 3 轮什么都不打直接结束：场上的老 AI 照样答对，3:0 收场', () => {
     const run = start()
     playThroughRoundOne(run)
@@ -496,6 +523,23 @@ describe('讲解步骤靠点击推进', () => {
     expect(shown.ready).toBe(true)
     expect(shown.stepId).toBe('TUTORIAL_R1_STAY')
     expect(pumpTutorial(shown, inputs({ tapped: true })).stepId).toBe('TUTORIAL_R1_END_PLAY')
+  })
+
+  it('第 1 轮对手最后一张牌落场后，必须再点一下才放行答题', () => {
+    const deployed: GameEvent = {
+      type: 'AI_DEPLOYED',
+      player: FOE,
+      ai: { instanceId: 'foe-ai', cardId: 'gpt-4o', owner: FOE },
+    }
+    const paused = pumpTutorial(
+      enterTutorialStep('TUTORIAL_R1_FOE_PLAY'),
+      inputs({ events: [deployed] }),
+    )
+
+    expect(paused.ready).toBe(true)
+    expect(paused.stepId).toBe('TUTORIAL_R1_FOE_DONE')
+    expect(pumpTutorial(paused, inputs()).stepId).toBe('TUTORIAL_R1_FOE_DONE')
+    expect(pumpTutorial(paused, inputs({ tapped: true })).stepId).toBe('TUTORIAL_R1_ANSWER')
   })
 
   it('要玩家出牌的步骤不吃点击，只认引擎事件', () => {

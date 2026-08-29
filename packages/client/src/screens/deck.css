@@ -1007,14 +1007,16 @@
     opacity: 1;
   }
 
-  .deck-help {
+  /* 这两条要多带一级父类：热区的基准尺寸（.deck-help / .deck-help--mini）写在本文件更靠后，
+     单类对单类同分时靠后的赢，不带父类的话这里改的宽高一个都落不下去。 */
+  .deck-pool-card .deck-help {
     top: 3px;
     right: 3px;
     width: 34px;
     height: 34px;
   }
 
-  .deck-help--mini {
+  .deck-slot .deck-help--mini {
     top: 1px;
     right: 1px;
     width: 26px;

@@ -21,7 +21,12 @@
  */
 
 import { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject,
+} from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
@@ -36,6 +41,7 @@ import type {
   PlayerId,
   PlayerState,
   Question,
+  QuestionCategory,
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
@@ -2143,7 +2149,7 @@ function BattleField({
         </aside>
 
         <main className={`battle__battlefield${testMode ? ' battle__battlefield--test' : ''}`}>
-          {testMode ? <FoeHand hand={foe.hand} onPlay={playForFoe} /> : null}
+          {testMode ? <FoeHand hand={foe.hand} tokens={foe.tokens} onPlay={playForFoe} /> : null}
 
           {/* data-picking 只管一件事：拖着干扰技能时把「松手 放到场上」那颗提示药丸收起来
               ——这张牌不是往场上放的，得松手在某张小卡身上。落点区的边框高亮照常亮着。
@@ -2234,19 +2240,12 @@ function BattleField({
 
         <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
-            <div className="battle__turn">
-              {/*
-                只报类别不报题面：题目全文要到答题阶段才揭晓，这里是"下一题考什么方向"。
-                终局后没有下一题了，整行不渲染——state.round 停在最后一轮，
-                照常渲染的话会一直挂着最后一题的类别，看着像还有一题要考。
-              */}
-              {finished || category === undefined ? null : (
-                <span className="battle__turn-next">
-                  下一题：{QUESTION_CATEGORY_LABELS[category]}
-                </span>
-              )}
-              <span className="battle__turn-who">{statusTextOf(view, state, mySeat)}</span>
-            </div>
+            {/*
+              终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
+              最后一题的类别，看着像还有一题要考。
+            */}
+            {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
+            <TokenTrack tokens={me.tokens} max={me.tokenMax} />
             {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
                 三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
                 换文案撑不破框。 */}
@@ -2323,6 +2322,9 @@ function BattleField({
         returnZoneRef={returnZoneRef}
         onPlay={handlePlay}
         disabled={actionsLocked}
+        // 这一轮的额度买不起的牌单独压暗、拖不动，免得拖到一半才被引擎回一句 Token 不够。
+        // 轮到对方时这几张同样是打不起的，压暗叠在灰墨态上不冲突（两边写的属性不一样）。
+        tokens={me.tokens}
         frozen={handFrozen}
         lockReason={handLockReason}
         // 选目标态下这张牌留在扇形里抬起来亮着，整排其余的压暗（不接指针那件事归 frozen，
@@ -2630,14 +2632,6 @@ function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): 
   })
 }
 
-/** 右侧栏那行状态提示：现在该干什么。 */
-function statusTextOf(view: MatchView, state: GameState, mySeat: PlayerId): string {
-  if (view.status !== 'playing') return '对局结束'
-  if (state.phase === 'quiz') return '场上 AI 答题中…'
-  if (state.activePlayer === mySeat) return '轮到你出牌'
-  return `${state.players[state.activePlayer].name} 出牌中…`
-}
-
 /**
  * 战场中线小匾上跟在回合数后面的那半句：现在轮到谁。
  *
@@ -2656,6 +2650,153 @@ function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): str
   if (view.status === 'aborted') return view.abortReason ?? '对局中断'
   if (state.winner === 'draw') return '平局'
   return state.winner === mySeat ? '你赢了' : '你输了'
+}
+
+/**
+ * 「下一题」牌匾的全部图形，画在 168×118 的坐标系里（就是匾体的设计尺寸）。
+ *
+ * 三道框线由外到内依次收紧 5px 和 9px，越靠里越细，这是「繁复」看着有层次的关键：
+ * 只画一道线的话不管加多少卷草都还是一块普通的圆角牌子。
+ */
+const PLAQUE_OUTLINE =
+  'M22 6H146C155 6 162 13 162 22V96C162 105 155 112 146 112H22C13 112 6 105 6 96V22C6 13 13 6 22 6Z'
+const PLAQUE_MID =
+  'M25 11H143C151 11 157 17 157 25V93C157 101 151 107 143 107H25C17 107 11 101 11 93V25C11 17 17 11 25 11Z'
+const PLAQUE_INNER =
+  'M28 15H140C147 15 153 21 153 28V90C153 97 147 103 140 103H28C21 103 15 97 15 90V28C15 21 21 15 28 15Z'
+
+/** 四个角的卷草：只画左上角这一份，另外三个靠下面的镜像变换摆出来。 */
+const PLAQUE_CORNER_ARC = 'M18 34C18 25 25 18 34 18'
+const PLAQUE_CORNER_LEAF = 'M23 31C25 25 29 22 34 23C30 26 26 30 24 34Z'
+
+/**
+ * 把左上角那份卷草分别摆到四个角。
+ *
+ * 用镜像而不是旋转：旋转会让卷草的卷曲方向绕着圈走，四个角看起来像在转风车；
+ * 镜像出来的是左右上下对称，才是牌匾该有的样子。
+ * 第一项是不动的左上角，写成 translate(0,0) 而不是省略，是为了拿它当 React 的 key。
+ */
+const PLAQUE_CORNER_TRANSFORMS = [
+  'translate(0,0)',
+  'translate(168,0) scale(-1,1)',
+  'translate(0,118) scale(1,-1)',
+  'translate(168,118) scale(-1,-1)',
+]
+
+/** 上下正中骑在框线上的冠饰：一颗菱形宝石加两撇卷须。填充和描边分开画，卷须才不会被填成楔形。 */
+const PLAQUE_CREST_GEM = 'M84 0L89.5 6L84 12L78.5 6Z'
+const PLAQUE_CREST_WING = 'M66 6C71 1 76.5 2 78 6M102 6C97 1 91.5 2 90 6'
+
+/** 左右两侧腰线上的小菱形铆钉，正好骑在外框线上。 */
+const PLAQUE_SIDE_STUDS = 'M6 53L10 59L6 65L2 59ZM162 53L166 59L162 65L158 59Z'
+
+/**
+ * Token 那颗四芒星，和站点图标（public/favicon.svg）是同一份路径。
+ * 尖端留了 1 单位宽的平口而不是收成一个点，缩小之后边缘才不会被抗锯齿抹掉。
+ */
+const TOKEN_STAR_PATH =
+  'M49.5 4L50.5 4L57 43L96 49.5L96 50.5L57 57L50.5 96L49.5 96L43 57L4 50.5L4 49.5L43 43Z'
+
+/**
+ * Token 上限到几点为止还排成一列。
+ *
+ * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列，
+ * 正好对上"上限每轮 +2"的节奏：第 3 轮 8 点是一列的最后一轮，第 4 轮 10 点起变两列。
+ *
+ * 两列是目前的上限。题库现在 5 道题（也就是一局 5 轮），最后一轮上限 12 点、折成 6 行，
+ * 侧栏还很宽裕；题库要是扩到十几道，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
+ */
+const TOKEN_SINGLE_COLUMN_MAX = 8
+
+/**
+ * 右侧栏顶上那块「下一题」牌匾。
+ *
+ * 只报类别不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
+ *
+ * 整块匾是画出来的而不是一张切图：类别名有三个字也有五个字（见 ui/labels.ts），
+ * 位图就得为每种长度各出一张，而且换一版题库分类就要重新导出。
+ * 框线走 SVG 才好套手绘滤镜——直接给 div 加 border 再 filter，里面的字会跟着抖歪
+ *（PlaqueButton 和回合牌匾同理，见各自的 __frame）。
+ */
+function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
+  return (
+    <div className="battle__next-plaque">
+      {/* 两根挂绳，让匾看着是吊在侧栏顶上的。一个容器加两个伪元素，比两个空 span 省 DOM。 */}
+      <span className="battle__next-plaque-cords" aria-hidden="true" />
+      <div className="battle__next-plaque-body">
+        <svg className="battle__next-plaque-art" viewBox="0 0 168 118" aria-hidden="true">
+          <path className="battle__next-plaque-paper" d={PLAQUE_OUTLINE} />
+          <path className="battle__next-plaque-rim" d={PLAQUE_OUTLINE} />
+          <path className="battle__next-plaque-rim battle__next-plaque-rim--thin" d={PLAQUE_MID} />
+          <path className="battle__next-plaque-rim battle__next-plaque-rim--hair" d={PLAQUE_INNER} />
+          {/* 四个角的卷草各画一份，靠镜像变换摆位：同一段路径写四遍太长，也容易改漏其中一个。 */}
+          {PLAQUE_CORNER_TRANSFORMS.map((transform) => (
+            <g key={transform} className="battle__next-plaque-scroll" transform={transform}>
+              <path className="battle__next-plaque-scroll-arc" d={PLAQUE_CORNER_ARC} />
+              <path className="battle__next-plaque-scroll-leaf" d={PLAQUE_CORNER_LEAF} />
+            </g>
+          ))}
+          {/* 上下中央那颗骑在框线上的菱形冠饰，同样靠镜像摆下面那颗。 */}
+          {['translate(0,0)', 'translate(0,118) scale(1,-1)'].map((transform) => (
+            <g key={transform} className="battle__next-plaque-crest" transform={transform}>
+              <path className="battle__next-plaque-crest-gem" d={PLAQUE_CREST_GEM} />
+              <path className="battle__next-plaque-crest-wing" d={PLAQUE_CREST_WING} />
+            </g>
+          ))}
+          <path className="battle__next-plaque-stud" d={PLAQUE_SIDE_STUDS} />
+        </svg>
+        <span className="battle__next-plaque-eyebrow">下一题</span>
+        <span className="battle__next-plaque-title">{QUESTION_CATEGORY_LABELS[category]}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 剩余 Token：一颗四芒星＝一点，发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
+ *
+ * 星星**从下往上**烧：最底下那颗是第 1 点，越往上编号越大，花钱是从顶上往下灭的，
+ * 像一格格烧下去的蜡烛。数字那行照旧压在星星底下，当这一块的落款。
+ *
+ * 上限 8 点以内排成一列，超过折成两列——上限每轮 +2（见 core 的 TOKEN_MAX_GROWTH），
+ * 一局打到后面有十几点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
+ */
+function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
+  const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
+  return (
+    <div className="battle__tokens">
+      <div className="battle__token-grid" style={{ '--token-rows': rows } as CSSProperties}>
+        {Array.from({ length: max }, (_, index) => {
+          // index 是格子号，DOM 顺序就是视觉顺序：左列从上到下，再右列
+          //（CSS 那边 grid-auto-flow: column）。Token 却是从下往上数的，
+          // 所以这里把格子号翻译成"它是这一列自下而上的第几点"。
+          const column = Math.floor(index / rows)
+          const point = column * rows + (rows - 1 - (index % rows))
+          return <TokenStar key={point} spent={point >= tokens} />
+        })}
+      </div>
+      <span className="battle__token-count">
+        {tokens}/{max} token
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 一颗 Token。图形就是站点图标那颗四芒星（public/favicon.svg），只按状态换色。
+ * 整排星星都不进无障碍树：底下那行「7/12 token」已经把同一件事说全了。
+ */
+function TokenStar({ spent }: { spent: boolean }) {
+  return (
+    <svg
+      className="battle__token-star"
+      data-spent={spent ? 'true' : undefined}
+      viewBox="0 0 100 100"
+      aria-hidden="true"
+    >
+      <path d={TOKEN_STAR_PATH} />
+    </svg>
+  )
 }
 
 /**
@@ -2892,9 +3033,12 @@ function BoardTile({
  */
 function FoeHand({
   hand,
+  tokens,
   onPlay,
 }: {
   hand: readonly CardInstance[]
+  /** 对方这一轮还剩多少 Token。买不起的牌压暗，免得点了半天只收到一句"Token 不够"。 */
+  tokens: number
   onPlay: (instance: CardInstance) => void
 }) {
   return (
@@ -2906,6 +3050,8 @@ function FoeHand({
           className="battle__foe-card"
           // 强制展示是一次跨容器的 FLIP，这张牌打出去时就是从这个位置起飞的（见 startReveal）。
           data-flip-id={instance.instanceId}
+          // 只是压暗，不拦点击：测试房本来就是拿来试各种被拒场景的。
+          data-unaffordable={getCard(instance.cardId).tokenCost > tokens ? 'true' : undefined}
           title="点一下替对方打出这张牌"
           onPointerDown={() => onPlay(instance)}
         >
@@ -2927,7 +3073,14 @@ function handCardOfInstance(instance: CardInstance): HandCardData {
 function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
   // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
-  const base = { id: card.id, definitionId: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
+  const base = {
+    id: card.id,
+    definitionId: card.id,
+    name: card.name,
+    text: card.text,
+    backText: cardBackText(card),
+    tokenCost: card.tokenCost,
+  }
   if (card.kind === 'ai') {
     return { ...base, kind: 'ai', model: card.model }
   }

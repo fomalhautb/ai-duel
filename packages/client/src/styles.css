@@ -942,6 +942,26 @@ body,
 }
 
 /*
+ * 这一轮的 Token 买不起的那张牌（data-unaffordable 由 HandFan 逐张打上）。
+ *
+ * 和整排灰墨态是两条线，可以同时成立（自己回合里整排是亮的，只有最贵的那张打不起），
+ * 所以这里只挑 [data-locked] 没写过的属性：褪色打在 .card-face 上、位移一概不碰。
+ * hover 抬起来时**不**恢复本色，这一点和灰墨态相反：那边是"轮不到你，但你能看"，
+ * 这边是"看清楚了也打不出"，抬起来还压着灰才说得通。
+ */
+.hand-fan__slot[data-unaffordable] .card-face {
+  filter: grayscale(0.6) brightness(0.72) contrast(0.95);
+  transition: filter 0.3s ease;
+}
+
+/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不起的那张让路——它还抓在手上。
+   （实际走不到：费用只在自己出牌时才会变，而那一刻手上没有正在拖的牌。留着是为了
+   和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
+.hand-fan__slot[data-unaffordable]:not([data-dragging]) {
+  cursor: not-allowed;
+}
+
+/*
  * 点一张出不了的牌时，浮在牌顶上方的小字提示。整排共用一个节点，位置由 JS 现算
  * （见 HandFan 的 showLockTip），所以这里不写 left / top。
  *
@@ -973,7 +993,8 @@ body,
   /* 下沉和褪色本身还留着（它们是状态，不是动效），只是不再补间。
      摇头和解锁回弹那两段 GSAP 动画由 HandFan 自己让路（见那边的 prefersReducedMotion）。 */
   .hand-fan,
-  .hand-fan__face {
+  .hand-fan__face,
+  .hand-fan__slot[data-unaffordable] .card-face {
     transition-duration: 1ms;
   }
 }
@@ -1660,9 +1681,10 @@ body:has(.battle) {
 
 .battle__layout {
   display: grid;
-  /* 原来是 clamp(210px, 18.3vw, 306px) / clamp(225px, 18.6vw, 316px)：
-     按设计宽 1672 算出来分别是 306 和 311，中栏剩 1055，远超它 420 的下限。 */
-  grid-template-columns: 306px minmax(420px, 1fr) 311px;
+  /* 左栏 306px 照旧。右栏原来是 311px，收到它的 2/3（311 × 2/3 ≈ 207）：
+     那边现在只放一块「下一题」牌匾、一排 Token 星星和结束按钮，不需要那么宽，
+     省下的 104px 全归中栏，战场能多喘一口气。中栏剩 1159，远超它 420 的下限。 */
+  grid-template-columns: 306px minmax(420px, 1fr) 207px;
   min-width: 0;
   min-height: 0;
 }
@@ -1708,13 +1730,33 @@ body:has(.battle) {
   left: 0;
 }
 
+/* 右侧栏内容：牌匾吊在最上面，Token 和结束按钮成一组落在底部——Token 讲的是
+   "这一轮还能出多少牌"，和「结束出牌」是同一件事的两半，摆在一起才读得成一句话。
+   牌匾和 Token 之间那截空白由 .battle__tokens 的 margin-top: auto 撑开，
+   所以 gap 实际只作用在 Token 和按钮之间：60px 正好是一个按钮的高度，
+   两块既算一组，又不至于挤到一起。
+   左右只留 10px：侧栏收窄到 207px 之后，宽度基本都得让给那排星星和结束按钮。 */
 .battle__sidebar-frame--actions .ornate-frame__content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 18px;
-  padding: 32px 16px 94px;
+  gap: 60px;
+  padding: 16px 10px 64px;
+}
+
+/*
+ * 侧栏收窄之后的结束按钮。
+ *
+ * 原来那套（宽 min(224px, 100%)、24px 字、左右 30px 内边距）在 207px 的栏里放不下最长的
+ * 那句「等待对方…」：五个字连字距要 125px，加上内边距就超过可用的 187px，
+ * 而按钮是 overflow: hidden，超出的部分会被直接切掉。所以这里整体缩一档。
+ */
+.battle__sidebar-frame--actions .plaque-button {
+  height: 60px;
+  padding: 0 14px;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
 }
 
 /*
@@ -2004,27 +2046,207 @@ body:has(.battle) {
   color: #b03a2e;
 }
 
-/* 右侧栏上半块：下一题类别、状态行，自上而下一列。
-   轮次和比分不放这儿，顶栏正中已经有一份。 */
-.battle__turn {
+/*
+ * ---------- 右侧栏：「下一题」牌匾 ----------
+ *
+ * 一块吊在侧栏顶上的繁复小匾，图形全部由 SVG 画出来（见 MatchStage 的 NextQuestionPlaque
+ * 和那一批 PLAQUE_* 路径常量），没有切图。
+ *
+ * 匾体尺寸写死成 168×118，和 SVG 的 viewBox 一比一：这里刻意**不**用 preserveAspectRatio: none
+ * 去拉伸——四角卷草和菱形冠饰一被非等比拉伸就会歪成椭圆，而整个战场本来就在一块
+ * 固定 1672×941 的舞台里等比缩放（见 .battle-scaler），尺寸写死不会有适配问题。
+ */
+.battle__next-plaque {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 168px;
+}
+
+/* 两根挂绳。一个容器加两个伪元素，比两个空 span 省 DOM（回合牌匾那边同样的写法）。 */
+.battle__next-plaque-cords {
+  position: relative;
+  width: 100%;
+  height: 14px;
+}
+
+.battle__next-plaque-cords::before,
+.battle__next-plaque-cords::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--battle-line-dark);
+}
+
+.battle__next-plaque-cords::before {
+  left: 42px;
+}
+
+.battle__next-plaque-cords::after {
+  right: 42px;
+}
+
+.battle__next-plaque-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  margin-top: auto;
-  text-align: center;
+  justify-content: center;
+  gap: 6px;
+  width: 168px;
+  height: 118px;
 }
 
-.battle__turn-next {
-  color: var(--battle-ink);
-  font-size: 14px;
-  letter-spacing: 0.06em;
+/* 图形层铺满匾体，文字压在它上面（下面两条各自的 position: relative）。 */
+.battle__next-plaque-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 手绘滤镜只套在图形上，不套文字：一起套的话字会跟着抖歪
+     （PlaqueButton 和回合牌匾同理，见各自的 __frame）。 */
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
 }
 
-.battle__turn-who {
+/* 匾面底纸。比侧栏底色深一档，匾才浮得出来。 */
+.battle__next-plaque-paper {
+  fill: var(--battle-paper-shade);
+  stroke: none;
+}
+
+.battle__next-plaque-rim {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.6;
+}
+
+/* 由外到内越来越细，三道线才有层次；最里面那道还退了一档颜色。 */
+.battle__next-plaque-rim--thin {
+  stroke-width: 1;
+}
+
+.battle__next-plaque-rim--hair {
+  stroke: var(--battle-line);
+  stroke-width: 0.7;
+}
+
+.battle__next-plaque-scroll-arc {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+  opacity: 0.8;
+}
+
+.battle__next-plaque-scroll-leaf {
+  fill: var(--battle-line-dark);
+  stroke: none;
+  opacity: 0.72;
+}
+
+.battle__next-plaque-crest-gem {
+  fill: var(--battle-paper-shade);
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.4;
+}
+
+.battle__next-plaque-crest-wing {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+}
+
+.battle__next-plaque-stud {
+  fill: var(--battle-paper-shade);
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+}
+
+.battle__next-plaque-eyebrow {
+  position: relative;
   color: var(--battle-ink-muted);
-  font-size: 14px;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
+  text-indent: 0.34em;
+}
+
+.battle__next-plaque-title {
+  position: relative;
+  color: var(--battle-navy);
+  font-size: 20px;
+  font-weight: 600;
+  /* 最长的「脑筋急转弯」是五个字：20px 字配 0.03em 字距约 103px，而匾内最里面那道框线
+     围出来的可用宽度是 138px（见 PLAQUE_INNER），两边各留 17px 才不顶到线上。
+     换更长的类别名（ui/labels.ts）要回来重算这两个数。 */
+  letter-spacing: 0.03em;
+  text-indent: 0.03em;
+  white-space: nowrap;
+}
+
+/*
+ * ---------- 右侧栏：Token 星星 ----------
+ *
+ * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
+ * 星星本身就是站点图标那颗（见 MatchStage 的 TOKEN_STAR_PATH）。
+ */
+/* 星星在上、数字那行压在底下当落款；星星本身是从下往上烧的（见 MatchStage 的 TokenTrack）。
+   margin-top: auto 把牌匾和它之间的空白全吃掉，整块沉到底下和结束按钮成一组。 */
+.battle__tokens {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  margin-top: auto;
+}
+
+/*
+ * 按列摆：grid-auto-flow: column 加上写死的行数，DOM 顺序就是"左列从上往下填满、再填右列"。
+ * 行数由 JS 传（--token-rows）：上限每轮都在涨，CSS 自己算不出来。
+ * 上限 8 点以内只有一列，这时行数就等于上限，auto-flow 也就只排得出一列。
+ */
+.battle__token-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(var(--token-rows), auto);
+  gap: 7px 16px;
+  justify-items: center;
+}
+
+/*
+ * 一颗星星。滤镜链的顺序是有讲究的：先用手绘滤镜把星芒抖歪，辉光再照着抖歪之后的形状发，
+ * 反过来写的话辉光是照原图算的，会和星星错开一圈。
+ *
+ * 辉光是静态的两层，没有动画：十几颗星星一起挂 filter 只在渲染时算一次，
+ * 真让它们呼吸起来就是每帧十几次离屏滤镜。
+ */
+.battle__token-star {
+  width: 30px;
+  height: 30px;
+  fill: #f5b95c;
+  filter: url('#ai-duel-rough-icon') drop-shadow(0 0 3px rgb(245 185 92 / 85%))
+    drop-shadow(0 0 9px rgb(232 158 47 / 55%));
+}
+
+/* 花掉的那几点：退成纸面上的一道浅灰印子，不发光，但照样抖。 */
+.battle__token-star[data-spent] {
+  fill: #b6b0a0;
+  opacity: 0.5;
+  filter: url('#ai-duel-rough-icon');
+}
+
+.battle__token-count {
+  /* 和星星同一种抖法：这一行紧挨着星星，用别的 seed 反而看得出是两套东西。 */
+  filter: url('#ai-duel-rough-icon');
+  color: var(--battle-ink-muted);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  /* 等宽数字：从 10 掉到 9 时这一行不会跟着抖一下。 */
+  font-variant-numeric: tabular-nums;
 }
 
 /* 战场背景图：public/battle/battle-bg.webp，1672×941。
@@ -2106,6 +2328,12 @@ body:has(.battle) {
 
 .battle__foe-card:hover {
   transform: translateY(-5px);
+}
+
+/* 测试房：对方这一轮的 Token 买不起的牌。只压暗不拦点击——测试房本来就是拿来试
+   各种被拒场景的，点下去照样会收到引擎那句「Token 不够」。 */
+.battle__foe-card[data-unaffordable] {
+  filter: grayscale(0.6) brightness(0.72);
 }
 
 .battle__foe-card-inner {

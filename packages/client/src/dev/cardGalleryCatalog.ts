@@ -16,7 +16,16 @@ export const GALLERY_AI_CARDS: AiCard[] = Object.values(CARDS).filter(
  */
 export const GALLERY_SKILL_CARDS: SkillCard[] = DECK_DEMO_CARDS.filter(
   (card) => card.kind === 'skill',
-).map(({ id, name, text }) => ({ kind: 'skill', id, name, text }))
+).map(({ id, name, text }) => ({
+  kind: 'skill',
+  id,
+  name,
+  text,
+  // 费用还没定：这 24 张没进规则引擎，图鉴也不画费用章（那一层只给具名 AI 用，
+  // 见 HandCardFace），补个占位值纯粹是为了凑齐 SkillCard 的形状。
+  // 真正定价要和"整体迁入 core"一起做，别在这儿编数字。
+  tokenCost: 1,
+}))
 
 export const GALLERY_DECK_CARDS: Card[] = [...GALLERY_AI_CARDS, ...GALLERY_SKILL_CARDS]
 export const GALLERY_ALL_CARDS: Card[] = [...GALLERY_HERO_CARDS, ...GALLERY_DECK_CARDS]

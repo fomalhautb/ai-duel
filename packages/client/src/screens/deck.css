@@ -181,6 +181,20 @@
 }
 
 /*
+ * 页眉右端的静音钮。这一行是 flex，靠 margin-left: auto 把它顶到最右边，
+ * 不用另写绝对定位。align-self 单独居中：整行按基线对齐，方块没有基线可言。
+ *
+ * 这一页在 .deck-scaler 里按设计稿的 1672×941 排版再整体缩放，所以尺寸写 px 就行，
+ * 不像 /hero、/room 那几页要用 cqi。
+ */
+.deck-mute {
+  --mute-size: 34px;
+  align-self: center;
+  margin-left: auto;
+  color: var(--ink, #2e2e38);
+}
+
+/*
  * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头长什么样、怎么摆、
  * hover 时箭头往左挪、整颗套手绘抖动）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
  * 箭头的描边取 currentColor，所以下面这行 color 一改，箭头跟着变成纸面上的墨色。

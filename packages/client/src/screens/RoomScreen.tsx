@@ -40,6 +40,7 @@ import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { useAssetsProgress } from '../ui/preloadAssets'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
 import './room.css'
@@ -534,6 +535,9 @@ function RoomStage({
     <div className="room grain on-dark" ref={rootRef}>
       <div className="room__stage">
         <img className="room__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
+
+        {/* 静音钮摆右上角，和左上角的返回对角（位置见 room.css 的 .room__mute）。 */}
+        <MuteButton className="room__mute" />
 
         {/* 位置和配色留在 room.css 的 .room__back 里，箭头和排版由公共组件管。
             这一页的箭头就是公共组件那套比例的出处（见 styles.css 的「可复用返回按钮」）。 */}

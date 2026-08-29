@@ -44,6 +44,7 @@ import { Flip } from 'gsap/Flip'
 import { HEROES } from '@ai-duel/core'
 import type { HeroId } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { useAssetsProgress } from '../ui/preloadAssets'
@@ -594,6 +595,9 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
     <div className="hero grain on-dark" ref={rootRef}>
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
+
+        {/* 静音钮摆右上角，和左上角的返回对角（位置见 hero.css 的 .hero__mute）。 */}
+        <MuteButton className="hero__mute" />
 
         {/* 位置和配色留在 hero.css 的 .hero__back 里，箭头和文字的排版由公共组件管。
             详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。

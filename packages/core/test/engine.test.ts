@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
+// 直接读数据文件对账：断言"取到了表里哪一档"，不依赖各档答案长什么样。
+import pregenAnswers from '../src/pregenAnswers.json'
 import {
-  CARDS,
   createGame,
   execute,
   getCard,
   INITIAL_TOKEN_MAX,
   other,
+  PLAYABLE_AI_CARD_IDS,
   QUESTION_POOL,
   ROUND_DRAW_SIZE,
   scriptedAnswers,
@@ -601,9 +603,15 @@ describe('要选目标的技能牌', () => {
       targetInstanceId: target.instanceId,
     })
 
-    expect(board(result.state, 1)[0]).toEqual({ ...target, interfered: true })
+    // interferedBy 记的是哪张牌干的：答题时靠它选预生成回答的变体。
+    expect(board(result.state, 1)[0]).toEqual({
+      ...target,
+      interfered: true,
+      interferedBy: 'fixed-answer',
+    })
     // 只标中选的那一个，同排另一个不受影响。
     expect(board(result.state, 1)[1]!.interfered).toBeUndefined()
+    expect(board(result.state, 1)[1]!.interferedBy).toBeUndefined()
     // 技能牌自己照常进弃牌堆。
     expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([skill.instanceId])
     expect(result.events).toEqual([
@@ -1574,7 +1582,7 @@ describe('胜负', () => {
     ])
   })
 
-  it('用剧本从头打到尾能正常收场', () => {
+  it('用预生成回答从头打到尾能正常收场', () => {
     let state = newGame().state
     const events: GameEvent[] = []
     // 每一步只推进一小格，步数上限纯粹是防死循环，正常远用不满。
@@ -1613,7 +1621,7 @@ describe('胜负', () => {
         state = confirmed.state
         events.push(...confirmed.events)
       } else {
-        // driver 就是这么干的：拿本轮题目和场上全部 AI 去查剧本，再把结果喂回引擎。
+        // driver 就是这么干的：拿本轮题目和场上全部 AI 去查预生成答案表，再把结果喂回引擎。
         const question = state.questions[state.round - 1]!
         const aiUnits = [...state.players[0].board, ...state.players[1].board]
         const scored = execute(state, {
@@ -1973,12 +1981,12 @@ describe('英雄技能：Debug（格蕾丝·霍珀）', () => {
   })
 })
 
-describe('题库与剧本', () => {
+describe('题库与预生成回答', () => {
   it('题库覆盖三个类别，且题目 id 不重复', () => {
     const ids = QUESTION_POOL.map((q) => q.id)
     expect(new Set(ids).size).toBe(ids.length)
     expect(new Set(QUESTION_POOL.map((q) => q.category))).toEqual(
-      new Set(['bias', 'vision', 'brainteaser']),
+      new Set(['meme', 'bias', 'life']),
     )
     expect(
       QUESTION_POOL.every(
@@ -1987,26 +1995,62 @@ describe('题库与剧本', () => {
     ).toBe(true)
   })
 
-  it('保留用户点名的那道脑筋急转弯原文', () => {
+  it('保留用户点名的那道梗题原文', () => {
     expect(QUESTION_POOL.map((q) => q.text)).toContain(
-      '我要去洗车，洗车店离我五十米，我应该走过去还是开车去',
+      '我想去洗车，洗车店离我家50米，我该开车去还是走过去？',
     )
   })
 
-  it('剧本覆盖全部题目 × 全部 AI 牌', () => {
-    const aiCards = Object.values(CARDS).filter((c) => c.kind === 'ai')
-    expect(aiCards.length).toBeGreaterThan(0)
+  /**
+   * 只守「能上场的那 16 张」：GPT-2 和文心一言在 OpenRouter 上调不到，
+   * 既进不了卡池也没跑过预生成，答案表里本来就没有它们的格子（见 aiModels 的 PLAYABLE_AI_CARD_IDS）。
+   * 三个变体都要查一遍：干扰牌会把 AI 切到另一档回答上，缺哪一档都是对局中途抛错。
+   */
+  it('预生成回答覆盖全部题目 × 全部可上场 AI 牌 × 三档干扰', () => {
+    expect(PLAYABLE_AI_CARD_IDS.length).toBeGreaterThan(0)
+    // undefined = 没被干扰；另外两张是眼下仅有的两张会换上下文的干扰牌。
+    const interferences = [undefined, 'fixed-answer', 'black-white-reversal']
     for (const question of QUESTION_POOL) {
-      for (const card of aiCards) {
-        const [answer] = scriptedAnswers(question, [
-          { instanceId: 'x', cardId: card.id, owner: 0 },
-        ])
-        expect(answer!.instanceId).toBe('x')
-        expect(answer!.answer.length).toBeGreaterThan(0)
-        expect(answer!.reasoning.length).toBeGreaterThan(0)
-        expect(typeof answer!.correct).toBe('boolean')
+      for (const cardId of PLAYABLE_AI_CARD_IDS) {
+        for (const by of interferences) {
+          const [answer] = scriptedAnswers(question, [
+            { instanceId: 'x', cardId, owner: 0, ...(by === undefined ? {} : { interferedBy: by }) },
+          ])
+          expect(answer!.instanceId).toBe('x')
+          expect(answer!.answer.length).toBeGreaterThan(0)
+          // reasoning 允许是空串：模型只给了结论、或者被截断在结论里时就没有理由那一段。
+          expect(typeof answer!.reasoning).toBe('string')
+          expect(typeof answer!.correct).toBe('boolean')
+        }
       }
     }
+  })
+
+  /**
+   * 断言的是"取到了表里哪一档"，不是"三档答案互不相同"：
+   * 复读机塞的是诱饵不是命令，模型不上钩时那一档跑出来的回答可以和 baseline 一字不差
+   *（q-dante 就有这样的卡），拿"必然不同"当断言会被真实数据打脸。
+   */
+  it('同一张卡被不同干扰牌打中时取到对应那一档的回答', () => {
+    const question = QUESTION_POOL[0]!
+    const CARD = 'gpt-4o'
+    const read = (by?: CardId) =>
+      scriptedAnswers(question, [
+        { instanceId: 'x', cardId: CARD, owner: 0, ...(by === undefined ? {} : { interferedBy: by }) },
+      ])[0]!
+    // JSON 模块的推断类型是照文件当前内容长出来的字面量类型，用变量当 key 索引不了，
+    // 所以先放宽成「三级字符串表」再查。
+    const data = pregenAnswers as Record<
+      string,
+      Record<string, Record<string, { answer: string; reasoning: string; correct: boolean }>>
+    >
+    const table = data[question.id]![CARD]!
+
+    expect(read('fixed-answer').answer).toBe(table['banana-bribe']!.answer)
+    expect(read('black-white-reversal').answer).toBe(table['black-white-reversal']!.answer)
+    expect(read().answer).toBe(table.baseline!.answer)
+    // 没实装换上下文的干扰牌（哪天再接进来）落回 baseline，而不是查不到格子抛错。
+    expect(read('topic-drift')).toEqual(read())
   })
 
   it('按传入顺序返回，每张卡对同一道题的结果稳定不变', () => {
@@ -2020,7 +2064,7 @@ describe('题库与剧本', () => {
     expect(scriptedAnswers(question, aiUnits)).toEqual(first)
   })
 
-  it('剧本里没有的卡直接抛错，暴露数据没补齐', () => {
+  it('答案表里没有的卡直接抛错，暴露数据没补齐', () => {
     expect(() =>
       scriptedAnswers(QUESTION_POOL[0]!, [{ instanceId: 'x', cardId: '没这张卡', owner: 0 }]),
     ).toThrow()

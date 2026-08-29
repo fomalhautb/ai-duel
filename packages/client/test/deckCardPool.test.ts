@@ -29,11 +29,12 @@ describe('牌组页卡池', () => {
     expect(counted).toBe(CARD_POOL.length)
   })
 
-  it('开放的 9 张技能卡都在卡池里，只有「复读机」要选目标', () => {
+  it('开放的 9 张技能卡都在卡池里，只有那两张干扰牌要选目标', () => {
     // 这批牌从"只有设计稿的展示数据"转正成了真卡（core 的 SKILL_DESIGN_CARDS），
     // 所以它们必须满足卡池的全部约束：取得到定义、算技能牌。
     // target 那条尤其要守：效果还没接进引擎的牌一旦填了 target，引擎就会逼玩家点一个目标，
-    // 而点完什么都不会发生。「复读机」是唯一的例外，它命中会真的给目标盖上 interfered。
+    // 而点完什么都不会发生。「复读机」和「黑白颠倒」是仅有的例外：它们命中会真的给目标盖上
+    // interfered，并且换掉那个 AI 答题时用的上下文。
     const pool = new Set<string>(CARD_POOL)
     expect(OPEN_SKILL_CARD_IDS).toHaveLength(9)
     for (const cardId of OPEN_SKILL_CARD_IDS) {
@@ -41,7 +42,8 @@ describe('牌组页卡池', () => {
       const card = getCard(cardId)
       // 这一句既是"必须是技能牌"那条断言，也顺带把类型收窄到 SkillCard，下面才读得到 target。
       if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)
-      expect(card.target).toBe(cardId === 'fixed-answer' ? 'foe-ai' : undefined)
+      const interferes = cardId === 'fixed-answer' || cardId === 'black-white-reversal'
+      expect(card.target).toBe(interferes ? 'foe-ai' : undefined)
     }
   })
 

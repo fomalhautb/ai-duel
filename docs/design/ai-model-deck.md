@@ -19,8 +19,9 @@ AI 里 GPT-2 和文心一言 OpenRouter 上调不到模型（见下一节），�
 ## 卡面上没有数值
 
 本迭代的胜负只看答题对错，不使用费用和攻防（见 core 的 `types.ts`）。卡面恢复原设计的 Token 圆章和技能铭牌；Token 数值只用于展示，不参与扣费或胜负计算，见 [卡面图层](./card-face-overlay.md)。
-模型之间的差别全部落在 `packages/core/src/script.ts` 那张「题目 × 卡牌」的剧本表里：
-谁擅长看图、谁容易掉进语言陷阱，都是刻意排的，玩家才有「这轮该派谁上」的选择。
+模型之间的差别全部落在 `packages/core/src/pregenAnswers.json` 那张「题目 × 卡牌 × 干扰变体」的
+预生成答案表里：谁掉进哪个语言陷阱、谁会被技能牌带偏，都是这些模型真跑出来的结果，
+玩家才有「这轮该派谁上」的选择。
 卡名和文案是玩梗，不代表这些模型的真实表现。
 
 ## 两张调不到模型的 AI 牌
@@ -65,7 +66,8 @@ AI 里 GPT-2 和文心一言 OpenRouter 上调不到模型（见下一节），�
 - `packages/core/src/aiModels.ts`：18 张 AI 牌的定义，含各自的 OpenRouter 模型 id。
 - `packages/core/src/cards.ts`：全部卡牌定义与默认牌组。
 - `packages/core/src/collection.ts`：基础收藏与抽卡池。
-- `packages/core/src/script.ts`：题目 × 卡牌的答题剧本（加卡就要补这张表，有测试守着）。
+- `packages/core/src/script.ts`：按题目 × 卡牌 × 干扰变体查预生成答案（数据在同目录的
+  `pregenAnswers.json`，由 `scripts/build-core-answers.mjs` 生成；加卡就要重跑生成，有测试守着）。
 - `packages/client/src/ui/aiModelArt.ts`：卡牌 id → 原画路径；查不到才退回占位图（`ui/cardArt.ts`）。
 - `packages/client/public/cards/models/`：原画资源。
 

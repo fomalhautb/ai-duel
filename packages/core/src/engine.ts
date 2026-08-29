@@ -311,9 +311,14 @@ function playCard(
     const foe = next.players[other(playerId)]
     const canceledBy: HeroId | null =
       foe.hero === 'grace-hopper' && !foe.heroSkillUsed ? foe.hero : null
-    // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰，战场小卡上也会挂个角标。
-    // 它不影响答题——真正往 AI 上下文里塞话的效果还没做。
-    if (canceledBy === null && target !== undefined) target.interfered = true
+    // 干扰类技能的全部效果就是这一下：目标从此不能再被干扰、战场小卡上挂个角标，
+    // 答题时也换成这张牌对应的那一档预生成回答（见 script.ts）。
+    // interferedBy 记的就是"哪张牌干的"：复读机和黑白颠倒往上下文里塞的话不一样，
+    // 光有 interfered 这个布尔选不出该取哪一档。被抵消时两个字段都不留。
+    if (canceledBy === null && target !== undefined) {
+      target.interfered = true
+      target.interferedBy = card.id
+    }
 
     // 带上 instanceId 不是结算需要，是给客户端定位用的：技能牌打出后就进弃牌堆，
     // 客户端只能靠这个 id 在出牌方的手牌里找到起飞的那张，播"飞到中央亮相"的动画。

@@ -102,7 +102,7 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('技能牌一共 24 张，只有「复读机」要选目标', () => {
+  it('技能牌一共 24 张，只有那两张干扰牌要选目标', () => {
     // 早期那两张（placeholder-skill / skill-must-answer）已经删掉：占位技能没有卡面原画，
     // 而「必须回答」的功能整个挪到了同样效果的「复读机」上。守着别有人把旧 id 又捡回来。
     const skills = Object.values(CARDS).filter((card) => card.kind === 'skill')
@@ -113,7 +113,9 @@ describe('卡池与初始收藏', () => {
       expect(INITIAL_COLLECTION).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }
+    // 顺序照 SKILL_DESIGN_CARDS 的键序：黑白颠倒排在复读机前面。
     expect(skills.filter((card) => card.target !== undefined).map((card) => card.id)).toEqual([
+      'black-white-reversal',
       'fixed-answer',
     ])
   })

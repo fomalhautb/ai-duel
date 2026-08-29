@@ -235,11 +235,14 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 哪天有了"上场后被增益/削弱"的数值，再把卡面数值拷贝一份到实例上。
 
 **题库和答题结果。** `src/questions.ts` 是题库（`QUESTION_POOL`），每道题带类别
-（`bias` 偏见测试 / `vision` 视觉测试 / `brainteaser` 脑筋急转弯）、题面、正确答案 `answer`
+（`meme` 梗题 / `bias` 刻板印象 / `life` 生活类）、题面、正确答案 `answer`
 和一句 `explanation`。答案和说明拆成两个字段是排版逼出来的：结算界面把 `answer` 当大字标题排，
 写成整句会挤成两三行，"为什么是这个答案"归 `explanation` 那行小字。
-`src/script.ts` 的 `scriptedAnswers(question, aiUnits)` 是一张写死的
-「题目 × AI 牌 → 对错 + 回答 + 理由」静态表，纯函数、确定性。
+`src/script.ts` 的 `scriptedAnswers(question, aiUnits)` 查的是 `src/pregenAnswers.json`：
+一张「题目 × AI 牌 × 干扰变体 → 对错 + 回答 + 理由」的静态表，纯函数、确定性。
+表里装的是**真实模型回答**——离线用 OpenRouter 跑完存下来的（生成 `scripts/pregen-answers.mjs`、
+判卷 `scripts/judge-answers.mjs`、合成 `scripts/build-core-answers.mjs`），
+所以对局里不联网也不会失败。变体那一维对应场上那个 AI 被哪张干扰牌打中（见 `AiInstance.interferedBy`）。
 它不是引擎的一部分：答题结果由 `SUBMIT_ANSWERS` 指令从外面喂进来（为什么这么分见 4.5）。
 一条 `AnswerResult` 是 `{ instanceId, correct, answer, reasoning }`，
 `answer` 同样是短语、`reasoning` 是两行以内的理由，正好对上结算卡里那一大一小两行。
@@ -421,8 +424,9 @@ Token 补满、进下一轮。所以自动驾驶这一层只管交卷，不管�
 联机客人的那次确认走的还是现成的 `match:command` 通道：和出牌指令一模一样地转给房主执行，
 新局面再跟着 `match:sync` 回来。转发器只认消息信封、不认指令类型，服务端一行都不用改。
 
-现在结果来自 core 的固定剧本 `scriptedAnswers`（见 3.4）。**将来接真实模型 API，
-只需要换掉 autopilot 里对它的那一次调用**——`SUBMIT_ANSWERS` 和 `AnswerResult` 的形状、
+现在结果来自 core 的 `scriptedAnswers`，也就是那份离线预生成的真实模型回答（见 3.4）。
+**将来改成对局中途实时调模型 API，只需要换掉 autopilot 里对它的那一次调用**——
+`SUBMIT_ANSWERS` 和 `AnswerResult` 的形状、
 引擎的时序、界面的动画都不用动。这个分法就是为了那一天准备的：
 把"要联网、会失败、要等"的那一步整个挡在引擎外面。
 
@@ -1164,7 +1168,8 @@ packages/core/
                               （卡面素材在 assets/人物卡简介/，未接入构建）
   src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/questions.ts            题库：题目数量决定一局打几轮
-  src/script.ts               固定剧本：题目 × AI 牌 → 对错 + 回答 + 理由（将来换成真实 API）
+  src/script.ts               查表：题目 × AI 牌 × 干扰变体 → 对错 + 回答 + 理由
+  src/pregenAnswers.json      上面那张表的数据，由 scripts/build-core-answers.mjs 生成，手改无效
   src/engine.ts               createGame / execute
   test/                       Vitest
 packages/client/
@@ -1371,13 +1376,12 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 **还没做的**，按建议顺序：
 
-1. **接真实模型 API**——答题结果现在是 `script.ts` 里写死的固定剧本，
-   换的时候只动 autopilot 里那一次调用（见 4.5）。
-2. **技能牌的效果**——「复读机」已经有完整的选目标交互和命中动画，
-   但命中只是把目标标成「已干扰」（挡住二次干扰 + 挂个角标），还不影响答题；
-   其余 23 张技能牌打出去只有卡面和亮相动画。真效果要等接上模型 API（第 1 条）之后
-   在拼 Prompt 那一步生效。动手时注意：效果必须写在"没被英雄技能抵消"的那条分支里
-   （见 3.4 的 Debug，「复读机」的 `interfered` 就是这么挂的）。
+1. **对局中途实时调模型 API**——答题结果现在是离线预生成的（`script.ts` 查表），
+   换成实时调用的话只动 autopilot 里那一次调用（见 4.5）。
+2. **其余技能牌的效果**——「复读机」和「黑白颠倒」已经全通：选目标交互、命中动画，
+   命中后目标换成对应那一档预生成回答。其余 22 张技能牌打出去只有卡面和亮相动画。
+   动手时注意：效果必须写在"没被英雄技能抵消"的那条分支里
+   （见 3.4 的 Debug，`interfered` / `interferedBy` 就是这么挂的）。
 3. **选英雄界面和其余 6 位英雄**——英雄技能机制已有第一版（格蕾丝·霍珀的 Debug，见 3.4），
    但开局没有选英雄这一步（`PlayerSetup.hero` 的口子已经开好，界面和联机协议还没接），
    名单里另外 6 位的技能也还没设计，设计好一位才进 `core/src/heroes.ts`。

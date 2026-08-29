@@ -31,14 +31,14 @@ export const TUTORIAL_FOE_HERO = 'fei-fei-li' as const
 /**
  * 三道教学题，独立于正式题库（不动 questions.ts）。
  *
- * 类别避开 `vision`：那一档要配图，题面现在只有占位文字，"看图数三角形"却什么都看不见。
+ * 类别用的是正式题库那三档（meme / bias / life）里的两档。
  * 关键词是出牌阶段唯一的情报，所以要能和"该派谁上场"对得上号：
  * 第 1 轮的三个词都指向"日常对话随便聊聊"，正好是教学指定的 GPT-3.5 的画风。
  */
 export const TUTORIAL_QUESTIONS: Question[] = [
   {
     id: 'tut-q-elevator',
-    category: 'brainteaser',
+    category: 'life',
     text: '小明住 12 楼，每天下楼都坐电梯到 1 楼，上楼却只坐到 6 楼，再走楼梯回家。为什么？',
     keywords: ['日常闲聊', '生活常识', '简单推理'],
     answer: '他个子矮',
@@ -54,7 +54,7 @@ export const TUTORIAL_QUESTIONS: Question[] = [
   },
   {
     id: 'tut-q-icecube',
-    category: 'brainteaser',
+    category: 'life',
     text: '一杯水里漂着一块冰。冰全部化掉之后，水面会升高、降低，还是不变？',
     keywords: ['冰块融化', '水面高低'],
     answer: '不变',
@@ -74,8 +74,8 @@ export const TUTORIAL_CARDS = {
   /**
    * 第 2 轮的教学技能牌：「复读机」（4 费，要选对方一个还没被干扰过的 AI 当目标）。
    *
-   * 这是 24 张技能牌里**唯一**接进规则引擎的一张（其余只有卡面，打出即进弃牌堆，
-   * 见 core 的 skillCards.ts）。教学要演"技能打在谁身上"，就只能用它。
+   * 这是 24 张技能牌里接进规则引擎的两张之一（另一张是「黑白颠倒」，其余只有卡面，
+   * 打出即进弃牌堆，见 core 的 skillCards.ts）。教学要演"技能打在谁身上"，就得用这两张里的一张。
    */
   skill: 'fixed-answer' as CardId,
   /**

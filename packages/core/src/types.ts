@@ -17,9 +17,9 @@ export type InstanceId = string
 
 /** 题目类别。界面右侧常驻的「下一题：XX」显示的就是它。 */
 export type QuestionCategory =
-  | 'bias' // 偏见测试
-  | 'vision' // 视觉测试
-  | 'brainteaser' // 脑筋急转弯
+  | 'meme' // 梗题：谐音、断句、望文生义那一类
+  | 'bias' // 刻板印象：题面故意不给关键信息，看模型会不会自己补一个
+  | 'life' // 生活类：日常场景里的常识和空间想象
 
 export interface Question {
   id: string
@@ -29,7 +29,7 @@ export interface Question {
    * 从题面提炼的几个关键词，出牌阶段就公开（题面本身要等双方出完牌才揭晓）。
    *
    * 它是出牌阶段唯一的情报：玩家只能靠这几个词猜这道题考什么方向、该派哪张 AI 上场。
-   * 所以词要指向题目的**考点**（「数三角形」「性别判断」），不要泄题也不要写成同义复述。
+   * 所以词要指向题目的**考点**（「谐音梗」「性别判断」），不要泄题也不要写成同义复述。
    */
   keywords: string[]
   /**
@@ -81,7 +81,8 @@ export interface AiCard extends CardBase {
 
 /**
  * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有「复读机」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ * 本迭代只有「复读机」和「黑白颠倒」有实际结算（把目标标成已干扰、并换掉它答题时的上下文），
+ * 其余只有卡面和动画。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'
@@ -170,11 +171,19 @@ export interface AiInstance {
   /**
    * 被干扰类技能命中过。
    *
-   * 本迭代它只管两件事：这个 AI 不能再被第二张干扰技能选中，以及战场小卡上挂一个「已干扰」角标。
-   * **不影响答题**——真正往上下文里塞话的效果还没做。
+   * 三件事跟着它走：这个 AI 不能再被第二张干扰技能选中、战场小卡上挂一个「已干扰」角标，
+   * 以及答题时换一份预生成的回答（真正查表用的是下面的 interferedBy）。
    * 写成可选字段，没被干扰过的单位就不带这一项，JSON 深拷贝和联机转发都少一份冗余。
    */
   interfered?: boolean
+  /**
+   * 是被哪张干扰牌打中的。
+   *
+   * 答题时靠它选预生成答案的变体（见 script.ts）：复读机和黑白颠倒往上下文里塞的话不一样，
+   * 光有 `interfered` 这个布尔分不出该取哪一档。
+   * 和 `interfered` 一起写、一起不写；被英雄技能抵消的那一下两个都不留。
+   */
+  interferedBy?: CardId
 }
 
 /** 一次答题的结果，由房主/本地 driver 生成后喂进引擎。 */
@@ -334,7 +343,7 @@ export type Command =
   /**
    * 提交本轮全场 AI 的答题结果。
    * 玩家不发这条指令，由房主/本地 driver 在进入答题阶段后自动生成并发出
-   * （现在结果来自 script.ts 的固定剧本，将来换成调 AI API，指令形状不变）。
+   * （结果来自 script.ts 查的那份离线预生成的真实模型回答）。
    */
   | { type: 'SUBMIT_ANSWERS'; results: AnswerResult[] }
   /**

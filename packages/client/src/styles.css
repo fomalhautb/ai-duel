@@ -24,8 +24,9 @@
   --tile-w: 110px;
   --tile-h: 165px;
   --tile-scale: 0.733333;
-  /* 强制展示时那张大卡的放大倍数：150×225 × 1.7 = 255×382.5。
-     和下面 .reveal-card 的宽高是同一组数，改一处必须改另一处，否则起飞那一帧会跳变。 */
+  /* 展示层那张大卡的放大倍数：150×225 × 1.7 = 255×382.5。
+     .reveal-card 的宽高就是按它算的，改这里等于改那张卡的尺寸。
+     侧栏英雄牌那条链路另调了一档（见 .reveal-clip--hero）：它的原位卡本来就大得多。 */
   --reveal-scale: 1.7;
 }
 
@@ -1703,104 +1704,291 @@ body:has(.battle) {
   padding: 32px 16px 94px;
 }
 
-/* 上下两块玩家面板（上=对方、下=我方）平分左侧栏。 */
+/*
+ * 上下两块玩家面板（上=对方、下=我方）平分左侧栏，中间夹一条分界线。
+ *
+ * 内边距收到"刚好躲开雕花框四角"那一档：角上那组装饰（.ornate-frame__corner）从边缘算起
+ * 占到 44px，里面那颗菱形大致在 6～33px 之间。英雄牌是把整块面板填满的（见 useHeroCardScale），
+ * 所以上下留 40px 之后，最上面那张卡的顶边落在 y=40，正好压在菱形下面、不会切到装饰；
+ * 左右两侧的框线在 6px / 11px，20px 的内边距离它还有一截。
+ * 再想让卡变大就只能往角上挤了，别动这几个数。
+ *
+ * 中间那行是 auto：分界线自己多高就占多高，剩下的两块 1fr 平分。
+ * gap 16 × 2 加上分界线那 10px，两张卡之间隔开 42px——分得开，又只从每张卡身上
+ * 拿走十几个像素（固定舞台下卡是 249×373）。
+ */
 .battle__sidebar-frame--players .ornate-frame__content {
   display: grid;
-  grid-template-rows: 1fr 1fr;
-  gap: 14px;
-  padding: 26px 20px;
+  grid-template-rows: 1fr auto 1fr;
+  gap: 16px;
+  padding: 40px 20px;
 }
 
 /*
- * 一块玩家面板：最左边一张小英雄牌，中间名字和牌数，右边那个大数字是累计得分。
+ * 两块玩家面板之间的分界线：一条两头淡出的细线，中间压一颗小菱形。
  *
- * 英雄那一列跨两行，没有英雄时（hero 为 null）整个格子不渲染，
- * grid 会让后面两列自己顶上去，不用为这种情况另写一套模板。
+ * 画法照雕花框来（同一支笔：--battle-line-dark 的细线 + 手绘抖动滤镜 #ai-duel-rough-frame，
+ * 菱形是 .ornate-frame__corner::after 那颗的同款）。刻意只有这么点分量：
+ * 它要说的只是"上下是两个人"，再重就会把两张原画压下去。
+ * 滤镜由 HandDrawnFilterDefs 提供，只有对局界面挂了它——这条线也只在对局界面用。
+ */
+.battle__player-divider {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 10px;
+}
+
+.battle__player-divider-line {
+  position: absolute;
+  right: 6px;
+  left: 6px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgb(119 116 101 / 0%),
+    var(--battle-line-dark) 20%,
+    var(--battle-line-dark) 80%,
+    rgb(119 116 101 / 0%)
+  );
+  filter: url('#ai-duel-rough-frame');
+}
+
+/* 菱形排在细线后面，靠不透明底色把线从中间截断——两头淡出加中间这一颗，看着才像一件装饰。 */
+.battle__player-divider-gem {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--battle-line-dark);
+  background: var(--battle-paper);
+  transform: rotate(45deg);
+}
+
+/*
+ * 一块玩家面板：一张填满整块的英雄牌，卡堆压在卡面一角，别的什么都不画。
+ *
+ * 面板自己只负责"给英雄牌划一块地方"，尺寸完全由上面那张 1fr / 1fr 的网格定死，
+ * 和里面画了什么无关——MatchStage 的 useHeroCardScale 量的就是这块，
+ * 量完把缩放系数写成 --hero-card-scale，所以这里不能让内容反过来撑大面板
+ *（min-width / min-height 归零就是为了这个），否则 ResizeObserver 会来回震荡。
+ *
+ * 刻意不画边框和底色：这一块本来就整个被一张卡占满，再套一层框只会把卡挤小。
  */
 .battle__player-panel {
+  /*
+   * 英雄牌的缩放系数，由 MatchStage 的 useHeroCardScale 量出来后写成同名的内联样式盖掉。
+   * 必须声明在**这个**元素上：内联样式只压得住同一个元素上的规则，
+   * 写到下面 .battle__hero 上的话反倒会把继承下来的那份挡住（自己身上的声明优先于继承）。
+   * 这里的值只是第一帧还没量到时的兜底，别拿它当准数。
+   */
+  --hero-card-scale: 0.5;
+
+  position: relative;
   display: grid;
-  grid-template-areas:
-    'hero name score'
-    'hero piles score';
-  grid-template-columns: auto 1fr auto;
-  align-content: center;
-  gap: 2px 12px;
-  padding: 14px 16px;
-  border: 1px solid rgb(119 116 101 / 45%);
-  border-radius: 4px;
-  background: rgb(255 255 255 / 26%);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
 }
 
 /*
- * 侧栏里的小英雄牌。
+ * 英雄牌那一块：宽高就是 150×225 按 --hero-card-scale 换算出来的尺寸，2:3 恒定。
+ * 系数取的是"2:3 填满整块面板"，所以固定舞台下这张卡差不多就是面板本身那么大。
  *
- * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面这个盒子按换算后的尺寸占位，
  * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ *（换成原画之后卡面里其实只有一张图，这条路留着是给没配图、退回文字卡面的英雄用的。）
+ * --hero-card-scale 从 .battle__player-panel 继承下来（见那里），这一层不许再声明一遍。
  */
 .battle__hero {
-  --hero-card-w: 62px;
-  --hero-card-h: 93px;
-  /* 62 / 150 = 0.413333，卡面高 225 × 0.413333 ≈ 93，和上面那对宽高对得上。 */
-  --hero-card-scale: 0.413333;
+  --hero-card-w: calc(var(--card-w) * var(--hero-card-scale));
+  --hero-card-h: calc(var(--card-h) * var(--hero-card-scale));
 
-  grid-area: hero;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  align-self: center;
+  position: relative;
+  width: var(--hero-card-w);
+  height: var(--hero-card-h);
 }
 
 .battle__hero-card {
-  width: var(--hero-card-w);
-  height: var(--hero-card-h);
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(20 24 34 / 26%);
+  cursor: pointer;
 }
 
-/* 里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。 */
-.battle__hero-card > * {
+/*
+ * 退回文字卡面时，里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。
+ * 只挑 .card-face，不写成 `> *`：原画那张 <img> 是另一套铺法（见下面），
+ * 被这条规则套上 scale 会缩成一小块。
+ */
+.battle__hero-card > .card-face {
   width: var(--card-w);
   height: var(--card-h);
   transform: scale(var(--hero-card-scale));
   transform-origin: top left;
 }
 
-/* 卡下面那行技能名。技能用掉之后变成「Debug 已用」，配合整块置灰。 */
-.battle__hero-tag {
-  max-width: calc(var(--hero-card-w) + 16px);
-  color: var(--battle-ink-muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-align: center;
+/*
+ * 英雄原画（768×1152，2:3），铺满整张卡。名字和英文名已经画在图里，不再叠任何文字。
+ * 比例和卡槽一致，object-fit: cover 只是防素材万一换了比例时糊成拉伸。
+ */
+.battle__hero-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-/* 技能已经用掉：整块褪色，一眼看出这一局指望不上它了。 */
-.battle__hero--used {
-  opacity: 0.55;
+/* 技能已经用掉：卡面褪色，一眼看出这一局指望不上它了。原因由下面那枚角标点明。 */
+.battle__hero-card--used {
+  opacity: 0.62;
   filter: grayscale(85%);
 }
 
-.battle__player-name {
-  grid-area: name;
-  color: var(--battle-ink);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+/*
+ * 「技能已用」角标。放在卡面盒子外边，所以不跟着一起褪色——
+ * 它正是用来解释褪色的，自己也灰掉就白写了。
+ */
+.battle__hero-used {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 6px;
+  border-radius: 6px 0 6px 0;
+  background: color-mix(in srgb, var(--battle-navy) 82%, transparent);
+  color: #f2ece0;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.085));
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-.battle__player-score {
-  grid-area: score;
-  align-self: center;
-  color: var(--battle-navy);
-  font-size: 38px;
+/*
+ * 这张英雄牌此刻由展示层代管（玩家正放大查看它）：卡和角标一起让出来，
+ * 免得屏幕中央和侧栏同时出现两张一模一样的卡。同战场小卡的 .battle__tile--held。
+ * 卡堆不藏——它跟这次查看没关系，藏了反而像侧栏缺了一块。
+ */
+.battle__hero--held .battle__hero-card,
+.battle__hero--held .battle__hero-used {
+  visibility: hidden;
+}
+
+/*
+ * 卡堆：几张错位叠着的牌背，整个压在英雄牌上。
+ *
+ * 我方（下面那块）在卡的右下角，对方（上面那块）在右上角，上下镜像——两块面板本来就是
+ * 照战场那条中线对称摆的，卡堆跟着镜像，两边的"自己的牌从自己那头飞出来"才对得上。
+ * 换边只改 top / bottom，右边距共用，两侧到卡边的距离必然一样。
+ *
+ * 完全不往卡外探：卡现在填满整块面板（见 useHeroCardScale），往外探一点就顶到雕花框上了。
+ * 宽度按英雄牌折算，整块跟着卡一起大小；那个像素下限是防哪天卡变小——
+ * 固定舞台下吃不到，但一摞牌缩成几个像素就看不出是牌了。
+ */
+.battle__deck {
+  --deck-w: max(24px, calc(var(--hero-card-w) * 0.28));
+  --deck-h: calc(var(--deck-w) * 1.5);
+
+  position: absolute;
+  right: calc(var(--hero-card-w) * 0.045);
+  bottom: calc(var(--hero-card-h) * 0.035);
+  width: var(--deck-w);
+  height: var(--deck-h);
+  /* 压在英雄牌之上。同层里的兄弟节点，给个正数就够，不用建新的层叠上下文。 */
+  z-index: 1;
+  /*
+   * 卡堆整个盖在英雄牌上，不放开指针事件的话，卡面被它压住的那一块就点不开放大查看了。
+   * 卡堆本身没有任何交互，只是画出来 + 给发牌动画当起飞点量位置，
+   * 而 getBoundingClientRect 不受这条影响。
+   */
+  pointer-events: none;
+}
+
+/* 对方那摞挪到右上角。高度是写死的，再留着 bottom 就成了过约束（浏览器会挑一个忽略），
+   显式写 auto 免得日后读的人以为这块是被 top / bottom 一起撑出来的。 */
+.battle__deck[data-deck-side='foe'] {
+  top: calc(var(--hero-card-h) * 0.035);
+  bottom: auto;
+}
+
+/* 底下两张只画厚度，不带任何牌面信息；越靠后越往左上错开，看着像一摞没码齐的牌。 */
+.battle__deck-stack {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 45%, transparent);
+  border-radius: 3px;
+  background: var(--battle-paper-shade);
+  box-shadow: 0 2px 5px rgb(10 14 24 / 32%);
+}
+
+.battle__deck-stack--far {
+  transform: translate(-5px, -5px) rotate(-4deg);
+}
+
+.battle__deck-stack--near {
+  transform: translate(-2.5px, -2.5px) rotate(-1.8deg);
+}
+
+/*
+ * 最上面那张，也是发牌飞行的起点：两排扇形量的就是这个盒子的位置和宽度
+ *（见 MatchStage 的 dealOriginOf）。所以它必须是真实尺寸、不带任何变换的一块。
+ *
+ * 素面：一层极淡的中间提亮渐变加边框，只交代"这是一张牌"。
+ * 刻意不用对手手牌那张带纹章和纸纹的隐藏牌背（.card-back-hidden）——
+ * 那些花纹会和压在正中的大数字抢眼。改这里不影响 .opponent-fan 那边，两处现在各画各的。
+ */
+.battle__deck-top {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 58%, transparent);
+  border-radius: 3px;
+  background-color: var(--battle-paper-shade);
+  background-image: radial-gradient(ellipse at 50% 40%, var(--battle-paper), transparent 82%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 60%),
+    0 3px 8px rgb(6 10 20 / 40%);
+}
+
+/*
+ * 剩余张数：一个压在最上面那张牌背正中间的大数字。
+ *
+ * 铺满整个卡堆盒子再居中，而不是自己算偏移——盒子和最上面那张牌（.battle__deck-top）
+ * 是同一个矩形，所以居中就是"正正压在牌面中间"。
+ * 字号取牌高的三分之一（固定舞台下约 35px）：隔着屏幕一眼就能读，又不至于把整张牌塞满。
+ * 等宽数字让张数从两位跳到一位时数字不会左右晃。
+ *
+ * 颜色走项目的暖色系：以纸张 token 里的金 --c-gold 为底，兑一份 --battle-ink 压暗，
+ * 得到一个能压在浅色牌面上的古铜金，比原来的藏青更贴原画那套调子。
+ *（--c-gold 定义在 ui/paper/paper.css 的 :root，main.tsx 全局引入，这里取得到；
+ * 仍写了兜底值，万一那张表被挪走也不会掉成默认黑色。）
+ * 外面描一圈浅纸色的边（四向 text-shadow 拼的，比 -webkit-text-stroke + paint-order 稳），
+ * 再补一层柔和的暖褐投影把字从牌面上托起来。描边宽度跟着字号走，卡堆变小时不会糊成一团。
+ *
+ * 张数为 0 时变红：牌堆空了之后每轮补牌都是白抽一次（引擎的 drawCards 直接返回），
+ * 这件事画面上没有别的地方说得出来。
+ */
+.battle__deck-count {
+  --deck-count-edge: max(1px, calc(var(--deck-h) * 0.022));
+
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--c-gold, #d9a441) 58%, var(--battle-ink));
+  font-size: calc(var(--deck-h) / 3);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  text-shadow:
+    calc(var(--deck-count-edge) * -1) calc(var(--deck-count-edge) * -1) 0 rgb(246 240 226 / 95%),
+    var(--deck-count-edge) calc(var(--deck-count-edge) * -1) 0 rgb(246 240 226 / 95%),
+    calc(var(--deck-count-edge) * -1) var(--deck-count-edge) 0 rgb(246 240 226 / 95%),
+    var(--deck-count-edge) var(--deck-count-edge) 0 rgb(246 240 226 / 95%),
+    0 calc(var(--deck-count-edge) * 1.5) calc(var(--deck-count-edge) * 2.5) rgb(74 52 24 / 40%);
 }
 
-.battle__player-piles {
-  grid-area: piles;
-  color: var(--battle-ink-muted);
-  font-size: 12px;
+.battle__deck-count--empty {
+  color: #b03a2e;
 }
 
 /* 右侧栏上半块：下一题类别、状态行，自上而下一列。
@@ -3197,7 +3385,19 @@ body:has(.battle) {
 }
 
 /*
- * 屏幕中央那张放大的展示卡：150×225 的 1.7 倍。
+ * 放大英雄牌时把倍率调高一档。
+ *
+ * 默认那 1.7 倍是照手牌（150×225）定的，而侧栏那张英雄牌本身就有 259×389——
+ * 按 1.7 飞到中央反而比原位还小一点，"点开放大"就成了一句空话。
+ * 调到 2.2 倍是 330×495，比侧栏那张明显大一圈，卡底到字幕也还留得下地方。
+ * 写在裁剪层而不是 .reveal-card 上：字幕是卡的兄弟节点，它的位置也按这个倍率算。
+ */
+.reveal-clip--hero {
+  --reveal-scale: 2.2;
+}
+
+/*
+ * 屏幕中央那张放大的展示卡：150×225 按 --reveal-scale 放大（默认 1.7 倍，英雄牌那档见上面）。
  *
  * 定位用 left/top + 负 margin，**不能**用 transform: translate(-50%, -50%)——
  * 这个元素的 transform 归 Flip 飞行和呼吸浮动管，写在这里会被它们整个覆盖掉，
@@ -3256,6 +3456,52 @@ body:has(.battle) {
   height: var(--card-h);
   transform: scale(var(--reveal-scale));
   transform-origin: top left;
+}
+
+/*
+ * 英雄原画放大之后就是这张图本身（2:3，768×1152），铺满整面即可——
+ * 它不像文字卡面那样有一套照 150×225 写死的排版，用不着上面那层缩放。
+ * 圆角继承 .reveal-card__face：那一层的投影是照它的圆角画的，这里画成直角会露出四个角。
+ */
+.reveal-card__art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/*
+ * 放大态卡下方那行技能字幕，眼下只有英雄牌用（原画上没印技能，见 MatchStage 的 handleInspectHero）。
+ *
+ * 定位挂在裁剪层上，跟着展示卡的那套数走：卡的中心在 46%、高 --card-h × --reveal-scale，
+ * 所以卡底就是 46% + 半高，再往下留一口气。
+ * 左右铺满、内容居中，不用 translateX(-50%)——省得和 GSAP 可能写到这个元素上的 transform 打架。
+ * 淡入由 MatchStage 那段 Flip 的同一批补间管，这里不写初始 opacity：万一那段没跑到，
+ * 字幕就是直接可见，总好过永远不出现。
+ */
+.reveal-caption {
+  position: absolute;
+  top: calc(46% + var(--card-h) * var(--reveal-scale) / 2 + 22px);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.reveal-caption__text {
+  display: inline-block;
+  max-width: 640px;
+  padding: 10px 20px;
+  border: 1px solid rgb(255 233 190 / 22%);
+  border-radius: 8px;
+  background: rgb(16 20 30 / 72%);
+  color: #f3ecdc;
+  font-size: 20px;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
 }
 
 /* ---------- 全屏过场：抛硬币 / 答题揭晓 / 英雄技能抵消 ---------- */
@@ -3552,6 +3798,10 @@ body:has(.battle) {
  * 再由 .battle-scaler 整体等比缩放（见"对局界面的 16:9 舞台"那段），
  * 内部尺寸永远是设计稿上那一套，窗口再小也只是缩得更小，断点已经没有意义，故删除。
  * 需要为极小窗口单独调版式的话，条件要写成对舞台的容器查询，而不是对视口的媒体查询。
+ *
+ * 侧栏那两张英雄牌同理：它们的大小是 ResizeObserver 量面板算出来的（见 MatchStage 的
+ * useHeroCardScale），量到的永远是设计尺寸下那块 266×401 的面板，窗口大小不参与，
+ * 所以也不需要为小窗口另开一档内边距。
  */
 
 /* ---------- 卡牌图鉴页（/card） ---------- */

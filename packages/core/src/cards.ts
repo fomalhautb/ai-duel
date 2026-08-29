@@ -47,7 +47,8 @@ export function getCard(cardId: CardId): HandCard {
  * 一副默认牌组就能把两条出牌链路都摸到。20 这个总数由 collection 的测试守着，
  * 想再加牌就得挤掉一张。
  *
- * 一局最多摸 5（起手）+ 4（第 2~5 轮各 1 张）= 9 张，20 张管够，不会抽空。
+ * 一局最多摸 5（起手）+ 8（第 2~5 轮各 2 张，见 engine.ts 的 ROUND_DRAW_SIZE）= 13 张，
+ * 20 张管够，不会抽空。
  *
  * 只用 `INITIAL_COLLECTION` 里的卡，否则新玩家会拿到自己还没解锁的卡；
  * 这条约束由 collection 的测试守着（这里不 import collection.ts，

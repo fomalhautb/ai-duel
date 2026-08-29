@@ -14,17 +14,18 @@
  * `.battle-scaler` 有 transform，是个层叠上下文，挂在外面的话 1000 会盖到 1100 上去。
  * 同一个 transform 也让这里的 `position: fixed` 以舞台为包含块，所以下面所有坐标
  * 都写**舞台内坐标**（1672×941 那套），量到的视口矩形要先过一次 battleStage 的换算。
+ *
+ * 组牌页（`.deck-scaler`）走的是同一套：它带同一个 `stage-scaler` 类，换算完全一致。
+ * 选英雄页没有缩放层——那一页的排版是 cqi，不做整体 scale——这时 battleStage 那几个函数
+ * 自动退回"没有舞台"的口径（原点是视口左上角、scale 为 1、尺寸取视口），
+ * 所以下面的舞台尺寸必须现查而不是用常量，否则在那一页会按 1672×941 去铺压暗块。
  */
 
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import {
-  BATTLE_STAGE_HEIGHT,
-  BATTLE_STAGE_WIDTH,
-  battleStageMetrics,
-} from '../ui/battleStage'
+import { battleStageHeight, battleStageMetrics, battleStageWidth } from '../ui/battleStage'
 import { prefersReducedMotion } from '../ui/reducedMotion'
 import { dimRects } from './overlayGeometry'
 import type { OverlayRect } from './overlayGeometry'
@@ -51,9 +52,20 @@ export interface TutorialOverlayProps {
   active: boolean
 }
 
+/** 舞台尺寸（舞台内坐标）。有缩放层时是设计稿尺寸，没有时就是视口尺寸。 */
+interface StageSize {
+  w: number
+  h: number
+}
+
 export function TutorialOverlay({ instruction, selectors, dim, active }: TutorialOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [holes, setHoles] = useState<OverlayRect[]>([])
+  /**
+   * 舞台多大也要跟着量：压暗块铺的是"舞台减去洞"，而选英雄页没有缩放层，
+   * 那一页的舞台尺寸就是视口尺寸，会随窗口变。初值随便给，第一帧就会被量准。
+   */
+  const [stage, setStage] = useState<StageSize>({ w: 0, h: 0 })
 
   /**
    * 每帧量一次目标的位置。
@@ -73,6 +85,7 @@ export function TutorialOverlay({ instruction, selectors, dim, active }: Tutoria
     const measure = () => {
       handle = requestAnimationFrame(measure)
       const metrics = battleStageMetrics()
+      const size: StageSize = { w: battleStageWidth(), h: battleStageHeight() }
       const next: OverlayRect[] = []
       for (const selector of selectors) {
         const node = document.querySelector<HTMLElement>(selector)
@@ -86,9 +99,13 @@ export function TutorialOverlay({ instruction, selectors, dim, active }: Tutoria
           h: rect.height / metrics.scale + HOLE_PADDING * 2,
         })
       }
-      const signature = next.map((r) => `${r.x | 0},${r.y | 0},${r.w | 0},${r.h | 0}`).join('|')
+      const signature = [
+        `${size.w | 0}x${size.h | 0}`,
+        ...next.map((r) => `${r.x | 0},${r.y | 0},${r.w | 0},${r.h | 0}`),
+      ].join('|')
       if (signature === last) return
       last = signature
+      setStage(size)
       setHoles(next)
     }
 
@@ -97,8 +114,8 @@ export function TutorialOverlay({ instruction, selectors, dim, active }: Tutoria
     // selectors 每次渲染都是新数组，所以按内容比：内容没变就不该重启这条 rAF。
   }, [active, selectors.join('|')])
 
-  const shades = active && dim ? dimRects(holes, BATTLE_STAGE_WIDTH, BATTLE_STAGE_HEIGHT) : []
-  const tip = active && instruction ? tipPosition(holes) : null
+  const shades = active && dim ? dimRects(holes, stage.w, stage.h) : []
+  const tip = active && instruction ? tipPosition(holes, stage) : null
 
   /**
    * 描边的呼吸。只补间 opacity，位置归 React 的行内样式管，两边不抢同一个属性。
@@ -187,18 +204,18 @@ function rectStyle(rect: OverlayRect): CSSProperties {
  * 一个洞都没有时摆在舞台上方居中（那种步骤只压暗、不指具体元素）。
  * 最后统一夹回舞台内，靠边的目标不会把气泡挤出画面。
  */
-function tipPosition(holes: readonly OverlayRect[]): { x: number; y: number } {
+function tipPosition(holes: readonly OverlayRect[], stage: StageSize): { x: number; y: number } {
   const anchor = holes[0]
   if (anchor === undefined) {
-    return { x: (BATTLE_STAGE_WIDTH - TIP_WIDTH) / 2, y: BATTLE_STAGE_HEIGHT * 0.18 }
+    return { x: (stage.w - TIP_WIDTH) / 2, y: stage.h * 0.18 }
   }
   const centerY = anchor.y + anchor.h / 2
-  const below = centerY < BATTLE_STAGE_HEIGHT / 2
+  const below = centerY < stage.h / 2
   const rawY = below ? anchor.y + anchor.h + TIP_GAP : anchor.y - TIP_GAP - TIP_HEIGHT_GUESS
   const rawX = anchor.x + anchor.w / 2 - TIP_WIDTH / 2
   return {
-    x: clamp(rawX, TIP_MARGIN, BATTLE_STAGE_WIDTH - TIP_WIDTH - TIP_MARGIN),
-    y: clamp(rawY, TIP_MARGIN, BATTLE_STAGE_HEIGHT - TIP_HEIGHT_GUESS - TIP_MARGIN),
+    x: clamp(rawX, TIP_MARGIN, stage.w - TIP_WIDTH - TIP_MARGIN),
+    y: clamp(rawY, TIP_MARGIN, stage.h - TIP_HEIGHT_GUESS - TIP_MARGIN),
   }
 }
 

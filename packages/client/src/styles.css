@@ -895,7 +895,7 @@ body,
 /* ---------- 出不了牌时的手牌（灰墨态） ---------- */
 
 /*
- * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题）。
+ * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题、正在发牌）。
  * 值就是那个原因，现在只当开关用，样式不分档。
  *
  * 这一整套刻意只走 CSS，而且只挑 GSAP 碰不到的属性：

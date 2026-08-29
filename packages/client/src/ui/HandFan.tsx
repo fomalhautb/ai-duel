@@ -105,12 +105,16 @@ export type CardPlayVia = 'drag' | 'tap'
 /**
  * 手牌被锁住的原因，也就是"为什么现在出不了牌"。
  *
- * 只收那些会持续一整段时间、玩家会盯着看的等待（轮到对方、AI 在答题），
+ * 只收那些会持续一整段时间、玩家会盯着看的等待（轮到对方、AI 在答题、正在发牌），
  * 不收 disabled 里那些一闪而过的瞬态锁（等回包、牌正在飞、展示层演着）——
  * 那些锁在自己回合里也会反复开关，跟着它们把整排手牌染灰再恢复就是在闪。
- * 判据由父组件给（见 MatchStage 的 waitingForFoe / quizWait）。
+ * 判据由父组件给（见 MatchStage 的 waitingForFoe / quizWait / dealing）。
+ *
+ * 'deal' 比另外两档短（开局约 1 秒、每轮补牌约半秒），但它不是瞬态锁：
+ * 发牌是强制过场，一轮只发生一次，而且时机固定——开局那次从挂载就亮着，
+ * 每轮那次直接从 'quiz' 接过来（灰墨态一路不断，落地才一起解开），不会一闪一闪。
  */
-export type HandLockReason = 'foe-turn' | 'quiz'
+export type HandLockReason = 'foe-turn' | 'quiz' | 'deal'
 
 export interface HandFanProps {
   cards: HandCardData[]
@@ -168,8 +172,8 @@ export interface HandFanProps {
    */
   frozen?: boolean
   /**
-   * 现在出不了牌是因为"在等一段别人的流程"（轮到对方、AI 在答题），非空即进入灰墨态：
-   * 整排下沉褪色、光标收回箭头、点一下会摇头并弹一条小字提示。
+   * 现在出不了牌是因为"在等一段流程走完"（轮到对方、AI 在答题、正在发牌），
+   * 非空即进入灰墨态：整排下沉褪色、光标收回箭头、点一下会摇头并弹一条小字提示。
    *
    * 传了 lockReason 就等于同时传了 disabled：组件内部把两者并起来用，不指望调用方
    * 记得两个都给——否则漏给 disabled 就会得到一排画成灰墨态、却照样拖得动的牌。
@@ -207,8 +211,9 @@ export interface HandFanProps {
   /**
    * 为 true 时新牌先压在卡堆上不动，变回 false 才依次飞出去。
    *
-   * 只给开局用：抛硬币过场是一整层盖住屏幕的遮罩（z-index 1100），
-   * 这时候发牌等于发给遮罩看，玩家一张都瞧不见。
+   * 给"屏幕正被一整层全屏过场（z-index 1100）盖着"的时刻用，这时候发牌等于发给遮罩看，
+   * 玩家一张都瞧不见。现在有两处：开局等抛硬币演完、每轮结算的补牌等答题揭晓层退场
+   *（见 MatchStage 的 dealHeld）。
    */
   dealHold?: boolean
   /**
@@ -218,6 +223,17 @@ export interface HandFanProps {
    *（见 MatchStage 的 dealPending）。不关心这件事的调用方不传即可。
    */
   onDealPendingChange?: (count: number) => void
+  /**
+   * "进场动画还没全部落地"这件事变了（只在变化沿通知，不是每帧报）。
+   *
+   * 和上面那个 onDealPendingChange 是**两个不同的信号**，别混：那个在牌起飞的瞬间就销账
+   *（卡堆上的数字必须那时候减），而这个要等最后一张真的落进扇形槽位才变回 false。
+   * 父组件拿它锁住整段发牌期间的操作（见 MatchStage 的 dealBusy / actionsLocked）——
+   * 牌还在半空中时就能出牌的话，手牌会一边飞一边被打出去。
+   *
+   * 被 dealHold 压着的牌也算 busy：牌已经进了 cards、只是还没开始演。
+   */
+  onDealBusyChange?: (busy: boolean) => void
 }
 
 /**
@@ -326,6 +342,7 @@ const LOCK_TIP_HOLD_MS = 1100
 const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
   'foe-turn': '对方出牌中',
   quiz: 'AI 答题中',
+  deal: '发牌中…',
 }
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
@@ -381,7 +398,8 @@ function fanAreaWidth(): number {
  *
  * 原点取**现量的锚点矩形**，而不是"舞台底边中点"那个理论值：.hand-fan 自己身上有一份
  * CSS transform——灰墨态那一下整排下沉 12px（见 styles.css 的 [data-locked]）。
- * 拿理论值算的话，轮到对方出牌时整排正好沉着，牌的起飞点会比卡堆低 12px。
+ * 拿理论值算的话，牌的起飞点会比卡堆低 12px；而发牌本身就是一档灰墨态
+ *（lockReason 的 'deal'），整段飞行里整排一直是沉着的，这一笔必然踩上。
  * 而 slot 的 x / y 本来就是锚点局部坐标（fanTransform 算出来的也是），
  * 照锚点当场在哪儿来算，无论锚点被谁挪过都对得上。
  *
@@ -442,6 +460,7 @@ export function HandFan({
   getDealOrigin,
   dealHold = false,
   onDealPendingChange,
+  onDealBusyChange,
 }: HandFanProps) {
   /**
    * 组件内部真正用的"出不了牌"：lockReason 非空自带禁用，不指望调用方另外把 disabled 也打开。
@@ -486,8 +505,13 @@ export function HandFan({
   const castingIdRef = useRef(castingId)
   castingIdRef.current = castingId
   /**
-   * 发牌那三个 prop 的最新值。理由同 frozenRef：applyLayout 常常是上一次渲染留下的闭包，
-   * 而 dealHold 变化时 cards 没变、闭包不会刷新；两个回调则会被延迟很久才调到。
+   * 发牌那几个 prop 的最新值。理由同 frozenRef：applyLayout 常常是上一次渲染留下的闭包，
+   * 而 dealHold 变化时 cards 没变、闭包不会刷新；几个回调则会被延迟很久才调到。
+   *
+   * dealHoldRef 必须在**渲染期间**就写好（不能挪进 effect）：父组件是把 dealHold 和新手牌
+   * 放在同一次提交里送过来的（回合末补牌就是这样），而下面那个 useGSAP 是 layout effect，
+   * 它跑 applyLayout 时读的就是这一份。写进 passive effect 的话它会晚一步，
+   * applyLayout 拿到的还是上一次的 false，牌会在遮罩后面白飞一趟。
    */
   const dealHoldRef = useRef(dealHold)
   dealHoldRef.current = dealHold
@@ -495,6 +519,8 @@ export function HandFan({
   dealOriginRef.current = getDealOrigin
   const dealPendingRef = useRef(onDealPendingChange)
   dealPendingRef.current = onDealPendingChange
+  const dealBusyRef = useRef(onDealBusyChange)
+  dealBusyRef.current = onDealBusyChange
   /**
    * 还压在卡堆上、没起飞的新牌。进场时加进来，补间真的开跑（或者这张牌离开手牌）时移走，
    * size 就是报给父组件的张数。
@@ -508,11 +534,34 @@ export function HandFan({
    * 把已经摆回扇形的牌又拽回卡堆。
    */
   const dealTweensRef = useRef(new Map<string, gsap.core.Tween>())
+  /**
+   * 进场动画还没演完的牌（含还压在卡堆上等放行的）。
+   *
+   * 和 dealQueueRef 的分界线不一样，两份都要留着：那一份在牌**起飞**时就销账
+   *（卡堆上的数字得那时候减），这一份要等牌真的**落位**才销账，父组件靠它锁操作。
+   */
+  const dealBusySetRef = useRef(new Set<string>())
+  /** 上一次报给父组件的 busy，用来只在变化沿通知（不然每次布局都会白惊动一次）。 */
+  const dealBusyReportedRef = useRef(false)
   /** 给 resize 监听和延迟回位用：它们要拿到最新一次渲染的布局函数。 */
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
   /** 把"还压着几张"报给父组件。没人关心时什么都不做。 */
   const reportDealPending = () => dealPendingRef.current?.(dealQueueRef.current.size)
+
+  /** 把"进场动画演完没有"报给父组件，只在变化沿报一次。 */
+  const reportDealBusy = () => {
+    const busy = dealBusySetRef.current.size > 0
+    if (busy === dealBusyReportedRef.current) return
+    dealBusyReportedRef.current = busy
+    dealBusyRef.current?.(busy)
+  }
+
+  /** 这张牌的进场动画演完了（或者不会再演了）。重复调用是安全的。 */
+  const finishDealBusy = (id: string) => {
+    if (!dealBusySetRef.current.delete(id)) return
+    reportDealBusy()
+  }
 
   /**
    * 这张牌不再压在卡堆上了：起飞（进场补间开跑）时调一次，牌被打出去/被弃掉时也调一次。
@@ -607,6 +656,11 @@ export function HandFan({
     )
     const count = laid.length
 
+    // 只有会被排布到的牌才可能有进场补间在跑；离开手牌、被拖起来、已经打出去等结果的牌
+    // 这一轮不会拿到任何补间，也就再没有谁替它们销账，留在账上会把父组件的锁挂死。
+    const laidIds = new Set(laid.map((card) => card.id))
+    for (const id of dealBusySetRef.current) if (!laidIds.has(id)) dealBusySetRef.current.delete(id)
+
     // 冻结期间一律按"没有 hover"排布。下面那个 frozen 的 layout effect 会把 hoverRef 清掉，
     // 但重排的入口不止一处（resize、手牌增减都会走到这里），冻结和清空之间隔着一次提交；
     // 中间这次重排要是照旧读 hoverRef，就会把那张牌又补间回放大位。
@@ -618,7 +672,11 @@ export function HandFan({
 
     laid.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
-      if (!slot) return
+      if (!slot) {
+        // 没有节点就没有补间，也就不会有 onComplete 来销账；不在这儿清掉的话锁会一直挂着。
+        finishDealBusy(card.id)
+        return
+      }
 
       const base = fanTransform(index, count, areaWidth, PLAYER_FAN)
       const isCasting = card.id === casting
@@ -629,6 +687,7 @@ export function HandFan({
       if (isNew) {
         placedRef.current.add(card.id)
         dealQueueRef.current.add(card.id)
+        dealBusySetRef.current.add(card.id)
         dealAdded += 1
         // 拿得到卡堆位置就从那儿起飞，拿不到退回原来的"从基准位下方淡入"。
         //
@@ -653,9 +712,10 @@ export function HandFan({
       /** 这张牌还在发牌队里：要么正压着卡堆等放行，要么这一轮该给它排一次起飞。 */
       const dealing = dealQueueRef.current.has(card.id)
       if (dealing && dealHoldRef.current) {
-        // 过场（开局抛硬币）还盖着屏幕，这张牌先原地压在卡堆上，这一轮不给它任何补间。
-        // 上一轮万一已经排过起飞——开局事件比第一次布局晚一拍到，就会这样——
-        // 那条补间还没跑过，得亲手掐掉并把牌退回卡堆位，否则它会在过场演着的时候自己跑起来。
+        // 全屏过场（开局抛硬币 / 回合末的答题揭晓）还盖着屏幕，这张牌先原地压在卡堆上，
+        // 这一轮不给它任何补间。上一轮万一已经排过起飞——开局事件比第一次布局晚一拍到，
+        // 就会这样——那条补间还没跑过，得亲手掐掉并把牌退回卡堆位，
+        // 否则它会在过场演着的时候自己跑起来。
         const scheduled = dealTweensRef.current.get(card.id)
         if (scheduled !== undefined) {
           scheduled.kill()
@@ -702,6 +762,10 @@ export function HandFan({
         // 起飞才算离开卡堆：延迟那段时间里牌还压在堆上，数字不能提前减。
         vars.onStart = () => finishDeal(card.id)
       }
+      // 进场还没落地的牌：这条补间跑完就算落地了。收尾要挂在**每一条**补间上，不能只挂进场那条——
+      // 飞到一半来一次重排（hover、resize、手牌增减）时，旧补间会被 overwrite: 'auto' 掐掉，
+      // 它的 onComplete 再也不会跑，账只能由接管它的这条新补间来销，否则父组件的锁永远解不开。
+      if (dealBusySetRef.current.has(card.id)) vars.onComplete = () => finishDealBusy(card.id)
       const tween = gsap.to(slot, vars)
       if (dealing) dealTweensRef.current.set(card.id, tween)
 
@@ -721,6 +785,8 @@ export function HandFan({
 
     // 新排上队的牌攒到这儿一次报完：一张一张报的话，开局那 5 张会白白惊动父组件 5 次。
     if (dealAdded > 0) reportDealPending()
+    // busy 是个布尔，上面加加减减完统一看一眼变没变（reportDealBusy 自己只在变化沿通知）。
+    reportDealBusy()
   }
 
   /**
@@ -784,6 +850,10 @@ export function HandFan({
         for (const tween of dealTweensRef.current.values()) tween.kill()
         dealTweensRef.current.clear()
         dealQueueRef.current.clear()
+        // busy 反过来必须报最后一次：父组件拿它锁着操作，只卸载这一排扇形（对局还在）时
+        // 不报的话锁就永远挂在那儿了。父组件也在卸载的话这一次 setState 是空转，无害。
+        dealBusySetRef.current.clear()
+        reportDealBusy()
       }
     },
     { scope: rootRef, dependencies: [cards] },
@@ -805,6 +875,24 @@ export function HandFan({
     leaveTimerRef.current = null
   }
 
+  /**
+   * 发牌进场演完之前一律不动 hover 状态。
+   *
+   * 发牌期间父组件只给 disabled、不给 frozen（frozen 一变就要重排，重排会亲手掐掉
+   * 正在飞的进场补间），所以上面那道 frozenRef 的闸拦不住 hover。而 hover 会调
+   * applyLayout('hover')，那一下正好把发牌搅烂：正在飞的牌被改判成放大姿态，半空里弹一下；
+   * 还在等 stagger 的牌被 kill 重排，dealSeq 从头数，剩下几张的延迟一起塌掉，
+   * duration 也被压成更短的 HOVER_DUR。
+   *
+   * 以前碰不到是因为发牌全程藏在全屏过场后面，指针够不着；现在发牌特意等到过场退场才飞，
+   * 而揭晓层退场那一瞬玩家的鼠标往往正落回手牌区，扇形重排也会把牌滑到静止的光标底下，
+   * 两种都会实打实地发出 pointerenter。
+   *
+   * 落地之后不主动补一次抬牌：浏览器不会为"指针原本就停在那儿"补发 pointerenter，
+   * 玩家动一下鼠标就恢复了，和 frozen 关掉时的处理是同一个口径。
+   */
+  const dealAnimating = () => dealBusySetRef.current.size > 0
+
   const handleEnter = contextSafe((id: string) => {
     // 只要鼠标还按着（不管进没进入拖拽，所以判的是 pressedId 而不是 draggingId）就不接 hover：
     // 指针被 capture 之后，各浏览器发不发、什么时候发边界事件并不统一，
@@ -814,6 +902,7 @@ export function HandFan({
     // 冻结期间连抬牌都不接（见 frozen）。注意不能靠 pressedId 那道闸代劳：
     // 冻结时 useCardDrag 在 pointerdown 就返回了，pressedId 恒为 null，那道闸形同虚设。
     if (frozenRef.current) return
+    if (dealAnimating()) return
     cancelLeaveTimer()
     if (hoverRef.current === id) return
     hoverRef.current = id
@@ -823,6 +912,9 @@ export function HandFan({
   const handleLeave = contextSafe((id: string) => {
     // 同 handleEnter：按着的时候一律不动 hover 状态。
     if (cardDrag.pressedId() !== null) return
+    // 同 handleEnter：发牌演完之前不动 hover。这里也要挡——进场那一下没被受理，
+    // 对应的 leave 再去排一次缩回补间就是凭空多出来一次重排。
+    if (dealAnimating()) return
     if (hoverRef.current !== id) return
     cancelLeaveTimer()
     leaveTimerRef.current = window.setTimeout(() => {
@@ -905,10 +997,15 @@ export function HandFan({
    * z 轴空着；slot 层的扇形摆位和 hover 放大则完全不碰，摇完牌还停在原处。
    * frozen 期间不摇（屏幕上正演着别的东西，再抖一下只是添乱），但小字提示照给——
    * 只要 lockReason 非空，玩家就该知道现在在等什么。
+   *
+   * 唯一整个跳过的是"这张牌自己还在飞"：小字提示的位置是按牌当场的矩形算死的，
+   * 牌接着飞走，那句话就孤零零地停在半路上；对一张正在飞的牌摇头也不知道在摇什么。
+   * 只看被按的这一张——同一次发牌里先落地的那几张已经停稳了，照常给反馈。
    */
   const handleLockedPress = contextSafe((id: string) => {
     const slot = slotsRef.current.get(id)
     if (slot === undefined) return
+    if (dealBusySetRef.current.has(id)) return
     const tilt = slot.querySelector<HTMLElement>('.hand-fan__tilt')
     if (tilt !== null && !frozen && !prefersReducedMotion()) {
       gsap.to(tilt, {
@@ -1164,11 +1261,16 @@ export function HandFan({
   /** 上一次的 dealHold，用来认出"憋着的发牌被放开"这一个瞬间（React 不给上一次的 props）。 */
   const prevDealHoldRef = useRef(dealHold)
   /**
-   * 开局的抛硬币演完了：重排一次，把压在卡堆上的那几张牌依次放出去。
+   * 盖着屏幕的那层过场演完了（开局是抛硬币，回合末是答题揭晓）：
+   * 重排一次，把压在卡堆上的那几张牌依次放出去。
    *
    * 只在这个值真的变了才动手。挂载那一次不用管：useGSAP 的回调已经跑过一遍布局，
    * 这里再跑一次只会把刚排好的进场补间掐掉重排一遍，白忙一趟。
    * 用 layout effect 而不是 useEffect：起飞和这一帧一起发生，不会先空一帧再开始飞。
+   *
+   * 反方向（false → true）也会走到这里再排一次，同样是必要的：回合末那次 hold 和新手牌
+   * 是同一次提交送来的，上面 useGSAP 那一遍已经按 dealHold 压住了，这里只是白排一遍；
+   * 但万一父组件分两次提交送过来（先来牌、后来 hold），就靠这一遍把已经排出去的进场补间收回。
    */
   useLayoutEffect(() => {
     if (prevDealHoldRef.current === dealHold) return
@@ -1181,18 +1283,25 @@ export function HandFan({
   /**
    * 锁一变就收掉小字提示；从"锁着"变成"解开"时再让整排牌醒一下。
    *
-   * 提示说的是"现在在等什么"，等的事情一换（对方回合 → 答题）它就过期了，
+   * 提示说的是"现在在等什么"，等的事情一换（对方回合 → 答题 → 发牌）它就过期了，
    * 留在屏幕上会指向一件已经结束的事。
    *
    * 醒一下是从左到右挨个轻弹，只为把"能出牌了"这件事送进余光里——玩家这段时间多半在看战场，
    * 手牌那排恢复彩色是个静态变化，不动一下很容易整轮都没注意到。
    * 弹的是 tilt 层的 y：slot 层归扇形摆位和拖拽管，碰了就会和它们的补间打架。
    *
+   * 判据是"由非空变 null"，不认具体是哪一档：轮到自己那一下现在多半是从 'deal' 解开的
+   *（每轮都是「答题中」→「发牌中」→ 解开，中间灰墨态一路不断），开局也一样，
+   * 于是这一弹正好落在最后一张牌飞进扇形之后。
+   *
    * 但"锁清空"不等于"能出牌了"，所以还要再看一眼 effectiveDisabled 和 frozen，有一个真就不弹：
    * 一是对局打完或中断（status 变 finished / aborted），那时 lockReason 跟着清空，
    * 可 actionsLocked 仍然是真，这时候说"能出牌了"是句假话；
    * 二是演出还没收尾（frozen），屏幕上正演着别的东西，再抖一排牌只是添乱
    *（和 handleLockedPress 里不摇头是同一个道理）。
+   * 这一条要求父组件把两件事放在同一次提交里松开——发牌那档就是这么办的
+   *（MatchStage 的 actionsLocked 和 handLockReason 读的是同一个 dealing）。
+   * 差一次提交的话，这里读到的 effectiveDisabled 还是旧的真值，这一弹就白丢了。
    */
   useEffect(() => {
     const prev = prevLockReasonRef.current
@@ -1220,7 +1329,9 @@ export function HandFan({
     //（同排其余的靠上面那份 opacity 自己压暗）。不接指针那件事归 frozen 管，不写在 CSS 里。
     // data-locked 是灰墨态的总开关（整排下沉、牌面褪色、光标收回箭头），全在 CSS 里做，
     // 走的属性（根节点的 transform、卡面的 filter）GSAP 一个都不碰，不会和补间抢。
-    // 它和 data-casting 不会同时出现：选目标只发生在自己回合，那时 lockReason 必是 null。
+    // 它和 data-casting 不会同时出现，这一条由调用方保证：选目标只发生在自己回合的出牌段，
+    //「对方回合 / 答题」两档天然撞不上，「发牌」那档 MatchStage 显式排掉了选目标态
+    //（测试房的 DevPanel 能在选目标途中凭空加一张手牌，不排就会同时打上两个）。
     <div
       className="hand-fan"
       ref={rootRef}

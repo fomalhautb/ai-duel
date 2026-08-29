@@ -271,6 +271,27 @@ export function deleteDeck(id: string): DecksData {
   return commit({ decks, currentId })
 }
 
+/**
+ * 按固定 id 写入一套牌组并切成当前牌组：已存在就整套覆盖，不存在就新建。
+ *
+ * 只有新手教程在用（组牌教学要有一套 id 稳定、可以反复重玩覆盖的牌组）。
+ * 普通的新建走 createDeck——那条路每次都发新 id，重玩教程会把牌组列表堆满。
+ *
+ * 覆盖已存在的那套时不动它在列表里的位置，玩家重玩教程不会看到牌组顺序跳一下。
+ * 已经满 MAX_DECKS 套又要新建时，挤掉列表最前面那套：这只可能发生在
+ * "玩家自己攒够 12 套之后又从头玩一遍教程"，为这个边角保留一条更复杂的规则不值当。
+ */
+export function putDeck(id: string, name: string, cards: readonly CardId[]): DecksData {
+  const data = loadDecks()
+  const deck: SavedDeck = { id, name: clampName(name, DEFAULT_DECK_NAME), cards: sanitizeCards(cards) }
+  const existing = data.decks.some((item) => item.id === id)
+  const decks = existing
+    ? data.decks.map((item) => (item.id === id ? deck : item))
+    : [...data.decks, deck]
+  while (decks.length > MAX_DECKS) decks.shift()
+  return commit({ decks, currentId: id })
+}
+
 /** 切换当前牌组。id 不存在时原样返回（不会把 currentId 指飞）。 */
 export function setCurrentDeck(id: string): DecksData {
   const data = loadDecks()

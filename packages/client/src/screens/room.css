@@ -170,8 +170,9 @@
   transition: color 0.18s ease;
 }
 
-/* 箭头的描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
-.room__back:hover {
+/* 返回键的箭头描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
+.room__back:hover,
+.room__tutorial:hover {
   color: var(--room-ink-lit);
 }
 
@@ -180,7 +181,8 @@
   outline-offset: 0.2cqi;
 }
 
-/* 教程那块不是按钮，排版自己写一份：它和返回按钮长得像，但没有箭头、也不响应 hover。 */
+/* 教程那块排版自己写一份：它和返回按钮长得像，但图标是书本不是箭头，
+   而返回按钮的样式已经搬进公共组件（见上面那段注释），两边不再共用一条规则。 */
 .room__tutorial {
   position: absolute;
   top: 5.4%;
@@ -189,19 +191,27 @@
   align-items: center;
   gap: 1.04cqi;
   padding: 0.4cqi 0.5cqi;
+  border: none;
+  background: none;
   color: var(--room-ink);
   font-size: 1.15cqi;
   letter-spacing: 0.1em;
   line-height: 1;
-  /* 教程页已经删掉还没重做（见 HomeScreen.tsx 文件头），这块只有「能读」没有「能按」：
-     光标保持默认，也不给 hover 变色——悬停有反馈是最明显的「可点」暗示。
-     它在 HTML 里也是 span 不是 button。 */
-  cursor: default;
+  /* 教程页已经做回来了，这块是真能点的 button（见 RoomScreen 里的 /tutorial）：
+     光标给手型，hover 时文字变色、书本提亮，和返回按钮一套反馈。 */
+  cursor: pointer;
+  transition: color 0.18s ease;
 }
 
 .room__book {
   width: 3.17cqi;
   height: 2.36cqi;
+  /* 书本是张图，跟不了 currentColor，hover 时和返回箭头一样用 brightness 当「变亮」。 */
+  transition: filter 0.18s ease;
+}
+
+.room__tutorial:hover .room__book {
+  filter: brightness(1.25);
 }
 
 /* ============================================================
@@ -223,8 +233,13 @@
   right: 0;
   left: 0;
   text-align: center;
-  /* 同 .hero__head：通栏又排在返回按钮后面，不关掉命中会盖住返回按钮的下半截。
-     里面只有标题和副标题，没有任何要点的东西。 */
+  /*
+   * 同 .hero__head：标题块横跨整个舞台（right/left 都是 0），而它在 DOM 里排在
+   * 返回和「新手教程」之后，两颗按钮的下半截正好落在标题的盒子里、点不动——
+   * 返回按钮会变成"只有上半边能按"，「新手教程」整颗更是被盖得严严实实。
+   * 这里就两行纯文字，本来也没有任何交互，直接让它不吃指针事件，
+   * 比给两颗按钮各加一个 z-index 干净（这个舞台里一处 z-index 都没有，见文件头）。
+   */
   pointer-events: none;
 }
 

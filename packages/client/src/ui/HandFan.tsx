@@ -18,7 +18,8 @@
  * 新牌进场是"从侧栏那摞牌堆飞到自己的扇形槽位"：起点由父组件通过 getDealOrigin 给，
  * 飞行本身就是那张牌的第一次布局补间（位移 + 从牌堆那么小放大到手牌尺寸）。
  * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这里是玩家主动翻牌时看到的背面，
- * AI 牌显示统一美术图，其他牌显示详情文字；两者都不是牌堆或对手手牌的隐藏牌背。
+ * AI 牌在统一星图底图上显示名称和技能详情，其他牌显示补充说明；
+ * 两者都不是牌堆或对手手牌的隐藏牌背。
  *
  * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
  * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
@@ -39,9 +40,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { AI_CARD_BACK_ART, cardArtFor } from './cardArt'
+import { cardArtFor } from './cardArt'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
+import { AiCardBack } from './AiCardBack'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
@@ -73,7 +75,8 @@ gsap.registerPlugin(useGSAP)
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
- * backText 是非 AI 牌翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
+ * AI 牌的 skillName / skillText 来自 core，正面铭牌和详情背面必须共用；
+ * backText 是其他牌翻面时的补充说明，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
@@ -87,9 +90,13 @@ export interface HandCardData {
   kind: 'ai' | 'skill' | 'hero'
   /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
   model?: string
+  /** AI 牌的专属技能名；技能牌和英雄牌不用这两个字段。 */
+  skillName?: string
+  /** AI 牌的专属技能效果。 */
+  skillText?: string
   /** 卡面正面的描述文案。 */
   text: string
-  /** 非 AI 牌翻到背面时展示的补充说明；AI 牌使用统一美术背面。 */
+  /** 非 AI 牌翻到背面时展示的补充说明。 */
   backText: string
   /**
    * 打出这张牌要花的 Token，卡面左上角那枚费用章画的就是它。
@@ -1468,12 +1475,7 @@ export function HandFan({
                 <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
                   <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
                     {card.kind === 'ai' ? (
-                      <img
-                        className="card-back__art"
-                        src={AI_CARD_BACK_ART}
-                        alt="AI 牌统一卡牌背面"
-                        draggable={false}
-                      />
+                      <AiCardBack card={card} />
                     ) : (
                       <>
                         <span className="card-back__title">{card.name}</span>
@@ -1540,7 +1542,7 @@ export function HandFan({
  * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌；完整技能牌原画直接展示；
  * 没有专属原画的卡继续使用渐变信息层。
  * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
- * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
+ * 主色来自 AI_MODEL_FACE；技能名来自 core，和背面技能详情共用同一份。
  */
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
@@ -1563,7 +1565,12 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         draggable={false}
       />
       {face !== undefined && cost !== undefined ? (
-        <CardFaceOverlay cost={cost} skillName={face.skillName} name={card.name} accent={face.accent} />
+        <CardFaceOverlay
+          cost={cost}
+          skillName={card.skillName ?? '技能待定'}
+          name={card.name}
+          accent={face.accent}
+        />
       ) : illustratedSkill ? null : (
         <div className="card-face__body">
           <div className="card-face__name">{card.name}</div>

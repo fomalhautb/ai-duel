@@ -97,7 +97,13 @@ function handCardOfDefinition(card: HandCard): HandCardData {
     tokenCost: card.tokenCost,
   }
   if (card.kind === 'ai') {
-    return { ...base, kind: 'ai', model: card.model }
+    return {
+      ...base,
+      kind: 'ai',
+      model: card.model,
+      skillName: card.skillName,
+      skillText: card.skillText,
+    }
   }
   return { ...base, kind: 'skill' }
 }
@@ -926,8 +932,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                 <p className="deck-pool__hint">
                   {deckFull
-                    ? `牌组已满 ${DECK_SIZE} 张 · 技能牌悬停看双面 · 先移除才能再加`
-                    : '技能牌悬停看双面 · 点击放大 · 圆圈或拖拽加入'}
+                    ? `牌组已满 ${DECK_SIZE} 张 · AI 牌点击翻背 · 先移除才能再加`
+                    : 'AI 牌点击翻背 · 技能牌悬停看双面 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -1102,7 +1108,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                       <div className="deck-side__foot">
                         <div className="deck-side__notes">
-                          <p className="deck-side__hint">技能牌悬停看双面 · 点击放大 · 圆圈或拖出移除</p>
+                          <p className="deck-side__hint">AI 牌点击翻背 · 技能牌悬停看双面 · 圆圈或拖出移除</p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                           ) : (

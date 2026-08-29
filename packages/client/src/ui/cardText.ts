@@ -1,7 +1,7 @@
 /**
  * 卡牌上那些 core 里没有、得由客户端现拼的文案。
  *
- * core 的 Card 只存卡面要印的那几项，翻面要看的那段说明没有对应字段
+ * AI 和英雄的技能说明直接存于 core；其他牌翻面要看的补充说明没有统一字段
  * （见 HandCardData.backText）。对局（ui/MatchStage）和图鉴页（dev/CardGallery）
  * 都要显示同一段话，所以拼法只留这一份：图鉴页的用处就是照着对局的真实文案检查排版，
  * 两边各抄一份的话，改了一边图鉴就开始骗人。
@@ -20,7 +20,7 @@ import type { Card } from '@ai-duel/core'
  */
 export function cardBackText(card: Card): string {
   if (card.kind === 'ai') {
-    return `模型：${card.model}。打出后留在场上，每轮跟着一起答题，答错才被罚下。`
+    return card.skillText
   }
   if (card.kind === 'hero') {
     return `${card.enName}。${card.text}英雄牌不占牌组的 20 张，开局就在场上。`

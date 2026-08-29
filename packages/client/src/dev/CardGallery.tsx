@@ -5,16 +5,17 @@
  * ——正反两面、卡面之外的字段、绑定的插画，最后附一份卡牌定义的原始 JSON。
  * 这是给开发和卡面调试用的，不是给玩家看的图鉴界面，所以只求信息全、找得快，不做美化。
  *
- * 卡面用的就是对局那套 HandCardFace。AI 牌背面统一显示美术资源，英雄牌和技能牌背面继续复用
- * 对局翻面那套 .card-back 结构和文案（见 ui/cardText.ts），方便在同一页检查两种背面的实际尺寸。
+ * 卡面用的就是对局那套 HandCardFace。AI 牌背面显示名称和技能详情，英雄牌和技能牌背面继续复用
+ * 对局翻面那套 .card-back 结构和文案（见 ui/cardText.ts），方便在同一页检查各种背面的实际尺寸。
  */
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation } from 'wouter'
 import type { Card, CardId } from '@ai-duel/core'
+import { AiCardBack } from '../ui/AiCardBack'
 import { HandCardFace } from '../ui/HandFan'
-import { AI_CARD_BACK_ART, CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
+import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { cardBackText } from '../ui/cardText'
 import { toHandCardData } from '../ui/handCardData'
 import { isIllustratedSkillCard } from '../ui/skillCardArt'
@@ -172,15 +173,10 @@ function CardDetail({ card }: { card: Card }) {
           <figcaption className="gallery__face-name">正面</figcaption>
         </figure>
         <figure className="gallery__face">
-          {/* AI 牌使用统一美术背面；其他牌的 .card-back 宽高各 100%，两者都由外层盒子定尺寸。 */}
+          {/* AI 牌使用统一详情背面；其他牌的 .card-back 宽高各 100%，两者都由外层盒子定尺寸。 */}
           <div className="gallery__card">
             {card.kind === 'ai' ? (
-              <img
-                className="gallery__card-back-art"
-                src={AI_CARD_BACK_ART}
-                alt={`${card.name} 的统一卡牌背面`}
-                draggable={false}
-              />
+              <AiCardBack card={card} />
             ) : (
               <div className="card-back">
                 <span className="card-back__title">{card.name}</span>
@@ -191,7 +187,7 @@ function CardDetail({ card }: { card: Card }) {
             )}
           </div>
           <figcaption className="gallery__face-name">
-            {card.kind === 'ai' ? '背面（AI 牌统一图案）' : '背面（与对局中翻面所见一致）'}
+            {card.kind === 'ai' ? '背面（AI 名称、技能与效果）' : '背面（与对局中翻面所见一致）'}
           </figcaption>
         </figure>
       </div>

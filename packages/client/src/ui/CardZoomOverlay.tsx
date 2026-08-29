@@ -20,9 +20,10 @@ import type { ReactNode, Ref, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
+import { AiCardBack } from './AiCardBack'
 import { HandCardFace } from './HandFan'
 import type { HandCardData } from './HandFan'
-import { setFlipAngle } from './flipCard'
+import { flipTo, setFlipAngle } from './flipCard'
 
 gsap.registerPlugin(useGSAP, Flip)
 
@@ -90,8 +91,8 @@ export interface ShowcaseCardProps {
   /** 展示卡本体：飞行、浮动、取飞回起点都对着它。 */
   cardRef?: Ref<HTMLDivElement>
   /**
-   * 背面内容。只有整段要翻面的链路才传（强制展示：牌背朝上飞过来的路上翻正）；
-   * 不传就不渲染背面那一层——放大查看的卡本来就正面朝上，整段不翻面。
+   * 背面内容。强制展示用它从隐藏牌背翻正；组卡页的 AI 牌用它在落位后翻出技能详情。
+   * 不传就不渲染背面那一层，普通技能牌的放大查看始终保持正面。
    */
   back?: ReactNode
 }
@@ -235,6 +236,10 @@ export function CardZoomOverlay({
     const el = cardRef.current
     // 趁展示卡还在屏幕中央、还没被调用方摘掉，量下它此刻的位置当飞回的起点。
     if (el !== null) {
+      // /room 的 AI 牌落位后会翻到详情背面；飞回的原位卡仍是正面，
+      // 截位置前先把展示卡摆正，避免飞回途中拿背面瞬间换成正面。
+      const inner = el.querySelector<HTMLElement>('.reveal-card__inner')
+      if (targetRef.current.card.kind === 'ai' && inner !== null) setFlipAngle(inner, 0)
       flipBackRef.current = { state: Flip.getState(el), getOrigin: targetRef.current.getOrigin }
     }
     targetRef.current = null
@@ -283,7 +288,7 @@ export function CardZoomOverlay({
 
         fadeVeilIn(veil)
 
-        // 卡本来就正面朝上，这条链路整段不翻面，直接把翻面层定死在正面。
+        // 卡从原位起飞时正面朝上，先把翻面层定死在正面；AI 牌落位后才翻到详情背面。
         // 仍然走 setFlipAngle 而不是裸 gsap.set：正反两面谁可见是由角度切 opacity 决定的。
         const inner = card.querySelector<HTMLElement>('.reveal-card__inner')
         if (inner !== null) setFlipAngle(inner, 0)
@@ -303,6 +308,9 @@ export function CardZoomOverlay({
           if (cardRef.current !== card) return
           heldRef.current = true
           floatRef.current = startZoomFloat(card)
+          // DeckScreen 嵌在 /room 内：玩家点击 AI 牌，先沿用既有的放大飞行，
+          // 落位后再走和 /match 手牌一致的 flipTo，直接展示可读的技能背面。
+          if (target.card.kind === 'ai' && inner !== null) flipTo(inner, 180, 0.4)
         }
 
         Flip.from(pending, {
@@ -357,6 +365,7 @@ export function CardZoomOverlay({
           flipId={target.flipId}
           clipRef={clipRef}
           cardRef={cardRef}
+          back={target.card.kind === 'ai' ? <AiCardBack card={target.card} /> : undefined}
         />
       )}
     </>

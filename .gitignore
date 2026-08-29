@@ -19,3 +19,7 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+
+.pnpm-store/
+tmp/
+output/

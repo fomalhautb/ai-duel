@@ -153,13 +153,14 @@ describe('卡池与初始收藏', () => {
     // 英雄牌是开局前单独选的，一旦漏进这三张表就会被当成能抽、能进牌组的普通牌。
     // 键序 = 选英雄界面的展示顺序，所以这里用对顺序敏感的 toEqual 一并守着。
     expect(Object.keys(HEROES)).toEqual([
-      'fei-fei-li',
+      // 已实装的 4 位在前，comingSoon 的 3 位排在最后。
       'danqi-chen',
       'melanie-perkins',
-      'mira-murati',
       'ada-lovelace',
-      'margaret-hamilton',
       'grace-hopper',
+      'fei-fei-li',
+      'mira-murati',
+      'margaret-hamilton',
     ])
     for (const id of Object.keys(HEROES)) {
       expect(CARDS).not.toHaveProperty(id)

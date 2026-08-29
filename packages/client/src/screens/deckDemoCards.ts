@@ -1,19 +1,16 @@
 /**
  * /deck 牌组页面专用展示卡池。
  *
- * 只服务于牌组页面：这里的牌不在 core 的 CARDS 里，拿不到 CardId，
- * 也就进不了正式对局。技能牌名称和说明来自当前设计稿，但效果尚未接入规则引擎；
- * 真卡池落地后应以 core 中的正式定义替换本文件。
- *
- * 形状借 HandCardData（手牌和战场小卡共用的展示数据），额外加一个 faction：
- * 阵营只是选卡页的筛选维度，对局规则里没有这个概念，所以没往 core 里加。
+ * AI 牌直接复用 core 的正式定义；技能牌名称和说明来自当前设计稿，
+ * 效果尚未接入规则引擎。技能牌只借用 HandCardData 的展示形状，
+ * 不属于任何 AI 阵营。
  *
  */
 
 import { AI_MODEL_CARDS } from '@ai-duel/core'
 import type { HandCardData } from '../ui/HandFan'
 
-/** 选卡页的阵营标识。和 core 无关，只在这个 demo 里用来分组筛选。 */
+/** 选卡页的 AI 阵营标识。和 core 无关，只用于筛选 AI 牌。 */
 export type DeckFaction = 'gpt' | 'claude' | 'kimi' | 'deepseek' | 'cn' | 'other'
 
 export interface FactionOption {
@@ -38,13 +35,9 @@ export const FACTIONS = [
 ] as const satisfies readonly FactionOption[]
 
 /**
- * 一张 demo 卡。
- *
- * art 不填：让卡面按 id 挑图（见 ui/cardArt.ts 的 cardArtFor）：
- * id 和真卡对上的那几张会拿到具名 AI 的原画，其余按 id 稳定地分一张占位插画。
- * 也正因如此，下面的 id 必须稳定——改 id 会连带换掉那张卡的插画。
+ * /deck 的展示卡。只有 AI 牌带阵营；技能牌通过 id 取得专属技能原画。
  */
-export type DeckDemoCard = HandCardData & { faction: DeckFaction }
+export type DeckDemoCard = HandCardData & { faction?: DeckFaction }
 
 /**
  * 24 张技能牌展示数据。AI 牌直接取 core 的正式定义，不在这里重复维护。
@@ -53,7 +46,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   // ---- 技能牌 ----
   {
     id: 'context-flood',
-    faction: 'gpt',
     kind: 'skill',
     name: '上下文洪水',
     text: '为对方本轮所有作答 Agent 加入长篇无关上下文。',
@@ -61,7 +53,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'topic-drift',
-    faction: 'claude',
     kind: 'skill',
     name: '话题漂移',
     text: '为对方1个作答 Agent 加入无关话题，要求综合考虑。',
@@ -69,7 +60,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'repetition-bombardment',
-    faction: 'kimi',
     kind: 'skill',
     name: '重复轰炸',
     text: '向对方1个作答 Agent 重复插入同一条无关信息。',
@@ -77,7 +67,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'black-white-reversal',
-    faction: 'deepseek',
     kind: 'skill',
     name: '黑白颠倒',
     text: '要求对方1个作答 Agent 给出与自身判断相反的答案。',
@@ -85,7 +74,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'fixed-answer',
-    faction: 'cn',
     kind: 'skill',
     name: '复读机',
     text: '对方1个作答 Agent 无论题目是什么，都只能回答香蕉。',
@@ -93,7 +81,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'one-sentence-answer',
-    faction: 'other',
     kind: 'skill',
     name: '一句话回答',
     text: '对方1个作答 Agent 只能用一句话回答。',
@@ -101,7 +88,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'character-lock',
-    faction: 'gpt',
     kind: 'skill',
     name: '字数封锁',
     text: '对方1个作答 Agent 最终答案不超过3个字符，标点计入。',
@@ -109,7 +95,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'clean-sweep',
-    faction: 'claude',
     kind: 'skill',
     name: '大扫除',
     text: '移除一个本轮作用于己方 Agent 的干扰效果。',
@@ -117,7 +102,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'jade-purification-vase',
-    faction: 'kimi',
     kind: 'skill',
     name: '玉净瓶',
     text: '移除一个本轮作用于己方 Agent 的限制效果。',
@@ -125,7 +109,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'boomerang',
-    faction: 'deepseek',
     kind: 'skill',
     name: '弹弹弹',
     text: '将对方本轮对你使用的一张非环境技能牌反弹给对方。',
@@ -133,7 +116,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'golden-bell-shield',
-    faction: 'cn',
     kind: 'skill',
     name: '金钟罩',
     text: '本轮内你和所有己方 Agent 不受其他技能牌影响。',
@@ -141,7 +123,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'safe-pass',
-    faction: 'other',
     kind: 'skill',
     name: '保送',
     text: '选己方场上一个 Agent，本轮结算无论答案是否正确都留在场上。',
@@ -149,7 +130,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'anti-addiction',
-    faction: 'gpt',
     kind: 'skill',
     name: '防沉迷',
     text: '本轮对方最多打出2张牌，包括 Agent 和技能牌。',
@@ -157,7 +137,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'compute-compression',
-    faction: 'claude',
     kind: 'skill',
     name: '算力压缩',
     text: '下一张己方 Agent 牌费用减少2，最低1。',
@@ -165,7 +144,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'model-distillation',
-    faction: 'kimi',
     kind: 'skill',
     name: '模型蒸馏',
     text: '弃置手牌中1张 Agent，获得等同其费用加1的 Token。',
@@ -173,7 +151,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'open-source-reproduction',
-    faction: 'deepseek',
     kind: 'skill',
     name: '开源复现',
     text: '从己方弃牌区选一张 Agent 加入手牌。',
@@ -181,7 +158,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'nuclear-power-station',
-    faction: 'cn',
     kind: 'skill',
     name: '核电站',
     text: '本轮双方后续所有牌费用减少1，最低1。',
@@ -189,7 +165,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'far-ahead',
-    faction: 'other',
     kind: 'skill',
     name: '遥遥领先',
     text: '立刻结束本轮，不作答、不判定、不积分；已打出的牌与已支付 Token 不返还。',
@@ -197,7 +172,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'domestic-substitution',
-    faction: 'gpt',
     kind: 'skill',
     name: '国产替代',
     text: '双方场上没有国产标签的 Agent 均被罚下并移入弃牌区。',
@@ -205,7 +179,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'version-rollback',
-    faction: 'claude',
     kind: 'skill',
     name: '版本回退',
     text: '选择场上1个可退化的 Agent，退化1级。',
@@ -213,7 +186,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'kids-mode',
-    faction: 'kimi',
     kind: 'skill',
     name: '儿童模式',
     text: '双方场上所有可退化 Agent 各退化1级。',
@@ -221,7 +193,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'version-upgrade',
-    faction: 'deepseek',
     kind: 'skill',
     name: '版本升级',
     text: '选择场上1个可进化的 Agent，进化1级。',
@@ -229,7 +200,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'rising-tide',
-    faction: 'cn',
     kind: 'skill',
     name: '鸡犬升天',
     text: '双方场上所有可进化 Agent 各进化1级。',
@@ -237,7 +207,6 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   },
   {
     id: 'memory-shortage',
-    faction: 'other',
     kind: 'skill',
     name: '内存紧缺',
     text: '双方各随机保留场上一半 Agent，向上取整，其余罚下移入弃牌区。',
@@ -255,7 +224,7 @@ function factionForAi(cardId: string): DeckFaction {
   return 'other'
 }
 
-const SKILL_CARDS = SKILL_CARD_FIXTURES.filter((card) => card.kind === 'skill')
+const SKILL_CARDS = SKILL_CARD_FIXTURES
 
 /**
  * /deck 的实际卡池：AI 牌只使用 core 中有专属原画的 18 张正式卡；技能牌保留完整 24 张。

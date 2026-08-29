@@ -69,6 +69,8 @@ import {
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
 import { loadSave } from '../save/save'
+import { FACTIONS, filterDeckCards } from './deckFactions'
+import type { DeckFaction } from './deckFactions'
 import { SkillCardHoverPreview } from './SkillCardHoverPreview'
 import './deck.css'
 
@@ -251,6 +253,13 @@ export interface DeckScreenProps {
 
 export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
+  /**
+   * 选中的阵营，null = 不按阵营筛。
+   *
+   * 切到「技能牌」页签时刻意**不重置**：技能牌那一页压根不显示阵营药丸（技能牌没有阵营），
+   * 玩家去技能页看一眼再切回来，多半是想接着挑刚才那家的 AI。
+   */
+  const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
   const [previewedSkill, setPreviewedSkill] = useState<HandCardData | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
@@ -286,7 +295,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const pool = useMemo<readonly CardId[]>(() => loadSave().ownedCards, [])
 
   /**
-   * 页签上的数字。按整个卡池实算，不跟着当前页签变：
+   * 页签上的数字。按整个卡池实算，既不跟着当前页签变，也不跟着阵营筛选变：
    * 它说的是"这一类我一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
    */
   const kindCounts = useMemo<Record<KindTabId, number>>(() => {
@@ -790,14 +799,11 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   // ---------- 筛选 ----------
 
-  // 只按种类筛。以前还有一排阵营药丸，那是 demo 卡自带的分组维度，core 的卡池没有阵营。
+  // 种类 + 阵营两道筛，语义都在 deckFactions.ts 里（阵营只作用于 AI 牌）。
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
   const shown = useMemo(
-    () =>
-      kindFilter === 'all'
-        ? pool
-        : pool.filter((cardId) => CARD_BY_ID.get(cardId)?.kind === kindFilter),
-    [pool, kindFilter],
+    () => filterDeckCards(pool, kindFilter, faction),
+    [pool, kindFilter, faction],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -858,6 +864,42 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                       <i className="deck-kinds__dia" />
                       <i className="deck-kinds__dia" />
                     </i>
+                  </div>
+                  {/* 阵营药丸。技能牌和阵营无关，所以「技能牌」页签下不摆那六颗，
+                      只留一颗常亮的「全部卡牌」占住这一行——整行抽掉的话，
+                      切页签时下面的卡池网格会跟着上下跳一截。 */}
+                  <div
+                    className="deck-factions"
+                    role="group"
+                    aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}
+                  >
+                    {kindFilter === 'skill' ? (
+                      <button type="button" className="deck-faction" data-active>
+                        全部卡牌
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="deck-faction"
+                          data-active={faction === null}
+                          onClick={() => setFaction(null)}
+                        >
+                          全部阵营
+                        </button>
+                        {FACTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="deck-faction"
+                            data-active={faction === option.id}
+                            onClick={() => setFaction(option.id)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
 

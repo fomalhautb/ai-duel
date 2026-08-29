@@ -6,6 +6,7 @@ import {
   drawNewCard,
   HEROES,
   INITIAL_COLLECTION,
+  SKILL_DESIGN_CARD_IDS,
   STARTER_DECK,
 } from '../src/index'
 
@@ -35,15 +36,34 @@ describe('卡池与初始收藏', () => {
     }
   })
 
+  it('24 张设计稿技能卡：开局全解锁，但一张都不进默认牌组', () => {
+    // 它们和「占位技能」走同一条结算路（打出即进弃牌堆），塞进默认牌组只会挤掉 AI 牌，
+    // 让新玩家开局就摸到一手什么都不会发生的卡。
+    expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
+    for (const id of SKILL_DESIGN_CARD_IDS) {
+      expect(CARD_POOL).toContain(id)
+      expect(INITIAL_COLLECTION).toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
+    }
+  })
+
+  it('技能牌一共 26 张：2 张有结算路径 + 24 张设计稿占位卡', () => {
+    const skillIds = Object.values(CARDS)
+      .filter((card) => card.kind === 'skill')
+      .map((card) => card.id)
+    expect(skillIds).toHaveLength(26)
+    expect(skillIds).toContain('placeholder-skill')
+    expect(skillIds).toContain('skill-must-answer')
+  })
+
   it('卡池覆盖全部卡牌定义', () => {
     expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
   })
 
-  it('初始收藏都是卡池里的卡', () => {
-    for (const id of INITIAL_COLLECTION) {
-      expect(CARD_POOL).toContain(id)
-    }
+  it('初始收藏就是整个卡池：新玩家一进来卡池页就摆得满满的', () => {
+    expect(new Set(INITIAL_COLLECTION)).toEqual(new Set(CARD_POOL))
+    expect(INITIAL_COLLECTION).toHaveLength(CARD_POOL.length)
   })
 
   it('示例牌组只用初始收藏里的卡', () => {
@@ -73,9 +93,9 @@ describe('卡池与初始收藏', () => {
 })
 
 describe('drawNewCard', () => {
-  // 现在示例牌组把卡池里的卡全用上了，初始收藏只能等于整个卡池（见 collection.ts），
+  // 初始收藏眼下就等于整个卡池（新玩家开局全解锁，见 collection.ts），
   // 所以这里不拿 INITIAL_COLLECTION 当"已拥有"，改用手搓的列表，
-  // 免得卡池一扩这些用例的前提就变了。
+  // 免得哪天解锁策略一改这些用例的前提就变了。
   const owned = CARD_POOL.slice(0, 2)
   const candidates = CARD_POOL.filter((id) => !owned.includes(id))
 

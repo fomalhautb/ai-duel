@@ -1,17 +1,23 @@
 import type { CardId, HandCard } from './types'
 import { AI_MODEL_CARDS, AI_MODEL_CARD_IDS } from './aiModels'
+import { SKILL_DESIGN_CARDS } from './skillCards'
 
 /**
  * 全部能进牌组的牌：十八张具名 AI 牌（表在 aiModels.ts，那边一张卡对一张原画）
  * 加上技能牌。
  *
- * 技能牌本迭代有两张：一张纯占位（打出、播动画、进弃牌堆，不产生任何效果），
- * 一张「必须回答」要选对方一个还没被干扰过的 AI，命中也只是把它标成"已干扰"，不改答题结果。
+ * 技能牌分两批，加起来 26 张：
+ * - 下面这两张有结算路径：一张纯占位（打出、播动画、进弃牌堆，不产生任何效果），
+ *   一张「必须回答」要选对方一个还没被干扰过的 AI，命中也只是把它标成"已干扰"，不改答题结果；
+ * - 另外 24 张设计稿占位卡（表在 skillCards.ts）效果都还没接进引擎，走的是和「占位技能」
+ *   同一条路：打出即进弃牌堆，什么都不发生。它们和这两张的差别只在卡面——各有一张专属原画，
+ *   卡背还会摆出设计稿定下的效果全文（`plannedEffect`）。
  *
  * 这里只收牌组里能出现的牌（HandCard）。英雄牌不进牌组，单独放在 heroes.ts。
  */
 export const CARDS: Record<CardId, HandCard> = {
   ...AI_MODEL_CARDS,
+  ...SKILL_DESIGN_CARDS,
   'placeholder-skill': {
     kind: 'skill',
     id: 'placeholder-skill',
@@ -54,8 +60,9 @@ export const DECK_SIZE = 20
  * 默认牌组：十八张 AI 各一张 + 两张技能牌各一张，正好凑满 DECK_SIZE 张。
  *
  * 两张技能牌各带一张是有意的：占位技能走"打出即完事"那条路，必须回答走"要选目标"那条，
- * 一副默认牌组就能把两条出牌链路都摸到。总数由 collection 的测试守着，
- * 想再加牌就得挤掉一张。
+ * 一副默认牌组就能把两条出牌链路都摸到。那 24 张设计稿占位卡刻意不进默认牌组——它们和
+ * 占位技能是同一条链路，多带几张只是让默认牌组少几张 AI，摸不到新东西。
+ * 总数由 collection 的测试守着，想再加牌就得挤掉一张。
  *
  * 一局最多摸 5（起手）+ 8（第 2~5 轮各 2 张，见 engine.ts 的 ROUND_DRAW_SIZE）= 13 张，
  * 20 张管够，不会抽空。

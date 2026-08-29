@@ -70,6 +70,15 @@ export interface SkillCard extends CardBase {
    * `playCard` 那段校验一行都不用改。
    */
   target?: 'foe-ai'
+  /**
+   * 设计稿定下的效果全文，**规则引擎尚未实装**，只供卡背展示。
+   *
+   * 带着它的牌走的是占位路径：打出后亮个相就进弃牌堆，什么都不会发生。
+   * 所以客户端拼卡背文案时必须一并说明"还没实装"（见 client 的 ui/cardText.ts）——
+   * 直接把这句话摆出来，玩家会以为打出去真有效果。
+   * 哪天某张牌接进引擎，就把这个字段删掉、改成真正的结算逻辑。
+   */
+  plannedEffect?: string
 }
 
 /**

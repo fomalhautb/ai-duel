@@ -25,6 +25,7 @@ import { useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { BackButton } from '../ui/BackButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
@@ -260,10 +261,8 @@ function HeroStage() {
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
-        <button type="button" className="hero__back" onClick={() => navigate('/')}>
-          <BackArrow />
-          返回
-        </button>
+        {/* 位置和配色留在 hero.css 的 .hero__back 里，箭头和文字的排版由公共组件管。 */}
+        <BackButton className="hero__back" onClick={() => navigate('/')} />
 
         <div className="hero__head">
           <h1 className="hero__title">
@@ -349,26 +348,6 @@ function Sparkle({ className }: { className: string }) {
         d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"
         fill="currentColor"
       />
-    </svg>
-  )
-}
-
-/** 返回箭头。用画的不用「←」：这个箭头在各家字体里长短粗细差得很远，落到兜底宋体上尤其难看。 */
-function BackArrow() {
-  return (
-    <svg
-      className="hero__back-arrow"
-      viewBox="0 0 23 15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M22 7.5 H1.5" />
-      <path d="M8 1.5 L1.5 7.5 L8 13.5" />
     </svg>
   )
 }

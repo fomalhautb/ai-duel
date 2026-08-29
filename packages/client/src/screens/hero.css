@@ -116,6 +116,11 @@
    ============================================================ */
 
 /*
+ * 按钮本体是公共组件 ui/BackButton.tsx（.ui-back）：箭头和文字怎么摆、hover 时箭头左移、
+ * 箭头按字号缩放，全在 styles.css 的「可复用返回按钮」一节里，这儿只补定位、字号和配色。
+ * 间距和箭头尺寸都是 em，跟着下面的 font-size 走，换算回来和设计稿量的一致
+ * （间距 0.9em ≈ 1.04cqi ≈ 20px）。
+ *
  * 设计稿上箭头左边缘在 x=69px、文字行盒中心在 y=64px。
  * 这里的 left / top 都已经把 padding 减掉了（padding 是为了把点击区从「只有那几个字」
  * 撑到一个手指按得中的方块，纯视觉位置不该跟着 padding 挪）：
@@ -125,38 +130,19 @@
   position: absolute;
   top: 4.2%;
   left: 3.09cqi;
-  display: flex;
-  align-items: center;
-  /* 箭头右端到文字左端设计稿量得 20px。 */
-  gap: 1.04cqi;
   padding: 0.4cqi 0.5cqi;
-  border: none;
-  background: none;
   color: var(--hero-ink);
   font-size: 1.15cqi;
   letter-spacing: 0.1em;
-  line-height: 1;
-  cursor: pointer;
   transition: color 0.18s ease;
 }
 
+/* 箭头的描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
 .hero__back:hover {
   color: var(--hero-ink-lit);
 }
 
-/* 箭头单独一层，hover 时只有它左移。
-   transform 写在这里不违反「transform 归 GSAP」那条：GSAP 只碰 .hero__back 本身，
-   父子各自一套 transform 互不覆盖。 */
-.hero__back-arrow {
-  width: 1.2cqi;
-  height: 0.78cqi;
-  transition: transform 0.18s ease;
-}
-
-.hero__back:hover .hero__back-arrow {
-  transform: translateX(-0.3cqi);
-}
-
+/* 公共样式那条焦点圈用的是 currentColor，这一页要的是亮起来那档墨色。 */
 .hero__back:focus-visible {
   outline: 2px solid var(--hero-ink-lit);
   outline-offset: 0.2cqi;
@@ -523,8 +509,8 @@
     animation: none;
   }
 
+  /* 返回箭头的位移不在这儿列：它归公共的 .ui-back__arrow 管，styles.css 里已经压过了。 */
   .hero__back,
-  .hero__back-arrow,
   .hero__card-frame,
   .hero__confirm {
     transition-duration: 1ms;

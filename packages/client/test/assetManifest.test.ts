@@ -1,7 +1,13 @@
 import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { BATTLE_ASSETS, CARD_ART_ASSETS, CARD_BACK_ASSETS } from '../src/ui/backgroundPreload'
+import {
+  BATTLE_ASSETS,
+  CARD_ART_ASSETS,
+  CARD_ART_FULL_ASSETS,
+  CARD_BACK_ASSETS,
+  CARD_BACK_FULL_ASSETS,
+} from '../src/ui/backgroundPreload'
 import { DECK_ASSETS } from '../src/screens/DeckScreen'
 import { HERO_ASSETS } from '../src/screens/HeroScreen'
 import { HOME_ASSETS } from '../src/screens/HomeScreen'
@@ -64,11 +70,17 @@ function listPublicImages(): string[] {
  *
  * CARD_ART_ASSETS 和 CARD_BACK_ASSETS 已经并在 BATTLE_ASSETS 里了，这里再列一遍是故意的：
  * 哪天有人把它们从 BATTLE_ASSETS 里摘出去单独排队，这份合集不用跟着改。
+ *
+ * 末尾那两份原画清单是"只登记、不下载"的：界面上已经没有一处引用 1024×1536 的原画
+ *（卡面一律走 600 宽那一档，见 src/ui/cardArtThumb.ts），但文件还留在 public/ 下，
+ * 所以必须登记，否则下面第一条断言会把它们报成漏网。
  */
 const ALL_MANIFESTS = [
   BATTLE_ASSETS,
   CARD_ART_ASSETS,
   CARD_BACK_ASSETS,
+  CARD_ART_FULL_ASSETS,
+  CARD_BACK_FULL_ASSETS,
   DECK_ASSETS,
   HERO_ASSETS,
   HOME_ASSETS,
@@ -96,10 +108,37 @@ describe('图片预加载清单', () => {
     expect(publicImages.filter((url) => !url.endsWith('.webp'))).toEqual([])
   })
 
-  it('把 42 张卡面原画和它们的缩略图都算进来', () => {
+  it('46 张卡面正面，三档各算一遍', () => {
     // 这次白卡的根因就是这批图一张都没进清单。数字写死，少一张要有人解释为什么。
+    expect(CARD_ART_FULL_ASSETS).toHaveLength(46)
     expect(CARD_ART_ASSETS).toHaveLength(46)
     expect(DECK_ASSETS.filter((url) => url.startsWith('/cards/thumbs/'))).toHaveLength(46)
+  })
+
+  it('对局要下的卡面是 600 宽那一档，不是原画', () => {
+    // 档位一旦和卡面组件（HandCardFace 铺的是 midFor(...)）分家，预载的和显示的就是两个 URL：
+    // 图照下不误、卡面照白不误，而且白下三倍大的流量。这条断言是那个错误的唯一拦网。
+    const cards = BATTLE_ASSETS.filter((url) => url.startsWith('/cards/'))
+    expect(cards.filter((url) => !url.startsWith('/cards/mid/'))).toEqual([])
+    // 正面 46 + 两张卡背。
+    expect(cards).toHaveLength(48)
+  })
+
+  it('原画一张都不进后台预载队列', () => {
+    // 界面上没有一处引用原画，排进队列就是白下 15 MB。
+    // 队列的内容见 backgroundPreload 的 PRELOAD_GROUPS；这里从外面能看到的入口是各页清单。
+    const queued = new Set([
+      ...BATTLE_ASSETS,
+      ...DECK_ASSETS,
+      ...HERO_ASSETS,
+      ...HOME_ASSETS,
+      ...INFO_ASSETS,
+      ...ROOM_ASSETS,
+    ])
+    const leaked = [...CARD_ART_FULL_ASSETS, ...CARD_BACK_FULL_ASSETS].filter((url) =>
+      queued.has(url),
+    )
+    expect(leaked).toEqual([])
   })
 })
 

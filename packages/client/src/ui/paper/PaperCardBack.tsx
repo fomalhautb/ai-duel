@@ -29,7 +29,7 @@ export function PaperCardBack({ slot, className = '' }: PaperCardBackProps) {
       <svg
         className="paper-back__compass"
         viewBox="0 0 120 120"
-        style={{ filter: 'url(#ai-duel-rough-compass)' }}
+        style={{ filter: 'var(--rough-compass)' }}
         aria-hidden="true"
       >
         <g fill="none" stroke="currentColor" strokeLinecap="round">

@@ -18,7 +18,7 @@ export type BackButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
  * 定位、字号和颜色一律由使用方通过 className 决定——各页的返回按钮位置和配色都不一样，
  * 写进公共样式反而每个页面都要覆盖一遍。样式见 styles.css 的「可复用返回按钮」一节。
  *
- * 公共样式里的 filter: url(#ai-duel-rough-icon) 指的是 App 全局挂的那份 <HandDrawnFilterDefs />，
+ * 公共样式里的 filter: var(--rough-icon) 代进去的是 App 全局挂的那份 <HandDrawnFilterDefs />，
  * 使用方不用自己再挂（找不到定义时 Chrome 上整颗按钮直接不画）。
  */
 export function BackButton({ label = '返回', className = '', ...props }: BackButtonProps) {

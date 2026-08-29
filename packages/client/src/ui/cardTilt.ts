@@ -190,13 +190,13 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
   /** 当前是否正在跟随。用它挡住重复的淡入淡出，免得高光每帧都重新开始淡入。 */
   let following = false
   /**
-   * 等高光淡完之后摘掉 data-glare 的定时器（null 表示当前没有排队的摘除）。
+   * 收手之后摘掉 data-glare / data-tilting 的定时器（null 表示当前没有排队的摘除）。
    *
    * 不用 GSAP 的补间回调：quickTo 每次改目标值走的是 resetTo 重启这条路，
    * 实测（gsap 3.15）这条路径不会触发 onComplete——值正常跑完，回调一次都不来，
    * 于是属性永远摘不掉。所以退回到平台自己的定时器来计时。
    */
-  let removeGlareTimer: ReturnType<typeof setTimeout> | null = null
+  let removeHoverStateTimer: ReturnType<typeof setTimeout> | null = null
   /**
    * 下一次跟随要不要先读一遍元素上真实的角度。
    *
@@ -233,19 +233,26 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       scaleXTo?.(1)
       scaleYTo?.(1)
     }
-    // 等淡出跑完再摘 data-glare，不在这里立刻摘：还没淡完的高光一旦失去 soft-light，
-    // 会当场变成普通的白色半透明叠加、亮度跳一下，看着就是消失前先闪一下。
-    // 多等的 100ms 是给淡出补间掉帧时留的余量。晚一点摘没有代价：
-    // 回调跑的时候高光早就看不见了，摘这一下只是把混合模式关掉。
-    // 没有高光层时没有属性要摘，也就不用排这个定时器。
-    if (glares.length > 0) {
-      if (removeGlareTimer !== null) clearTimeout(removeGlareTimer)
-      removeGlareTimer = setTimeout(() => {
-        removeGlareTimer = null
+    // 等淡出和归零都跑完再摘这两个属性，不在这里立刻摘：
+    // 还没淡完的高光一旦失去 soft-light，会当场变成普通的白色半透明叠加、亮度跳一下，
+    // 看着就是消失前先闪一下；而归零补间还在转的时候撤掉 data-tilting，
+    // 那半程会当场从三维塌成平面（见 styles.css 里 .hand-fan__tilt 那段）。
+    // 所以延迟取两者里长的那个（高光淡出 0.2s > 归零 0.15s），再加 100ms 给掉帧留余量。
+    // 晚一点摘没有代价：回调跑的时候两样都已经归位，摘这一下纯粹是把开销关掉。
+    //
+    // 定时器无条件排，不像以前那样只在"有高光层"时才排：现在它还管着 data-tilting，
+    // 而没有高光层的调用方一样会写倾斜，漏排的话那张卡就永远停在开着 3D 的状态。
+    if (removeHoverStateTimer !== null) clearTimeout(removeHoverStateTimer)
+    removeHoverStateTimer = setTimeout(
+      () => {
+        removeHoverStateTimer = null
         // 这段时间里指针可能又回到卡上了，那就别摘。
-        if (!following) el.removeAttribute('data-glare')
-      }, GLARE_FADE * 1000 + 100)
-    }
+        if (following) return
+        el.removeAttribute('data-glare')
+        el.removeAttribute('data-tilting')
+      },
+      Math.max(GLARE_FADE, RESET_DUR) * 1000 + 100,
+    )
     if (fast) {
       // 归零之前必须先停掉跟随补间。跟随和归零写的是同一层的 rotationX / rotationY，
       // 谁都没开 overwrite，所以两条补间会同时活着；而跟随长一倍多（0.35s vs 0.15s），
@@ -309,11 +316,18 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       //
       // 先撤掉上一轮排着的摘除：指针离开又马上回来时，那个定时器还在倒计时，
       // 让它跑到就会把刚打开的属性摘掉。
-      if (removeGlareTimer !== null) {
-        clearTimeout(removeGlareTimer)
-        removeGlareTimer = null
+      if (removeHoverStateTimer !== null) {
+        clearTimeout(removeHoverStateTimer)
+        removeHoverStateTimer = null
       }
       el.setAttribute('data-glare', 'on')
+      // 同一处再打一个"这张卡正在被倾斜"，让承载倾斜的那一层临时切成 preserve-3d
+      // （见 styles.css 的 .hand-fan__tilt）。两个属性同生共死：高光和倾斜都由 following 驱动，
+      // 开关时机完全一致，所以打在一块、摘也在一块。
+      //
+      // 必须赶在下面 follow() 写角度**之前**：属性和角度落在同一个同步块里，
+      // 浏览器看到的第一帧就已经是"3D 已开 + 角度已写"，中间不会有塌成平面的那一帧。
+      el.setAttribute('data-tilting', 'on')
       fadeGlare?.(1)
       // 放大只在"刚开始跟随"这一下触发，不用每次指针移动都喂值：目标值自始至终是同一个。
       if (hoverScale !== null) {
@@ -348,11 +362,12 @@ export function attachCardTilt(el: HTMLElement, opts: CardTiltOptions): CardTilt
       el.removeEventListener('pointercancel', onLeave)
       following = false
       // 摘除的定时器要是还排着，回调会去碰一个已经卸载的元素，所以撤掉它、这里直接摘。
-      if (removeGlareTimer !== null) {
-        clearTimeout(removeGlareTimer)
-        removeGlareTimer = null
+      if (removeHoverStateTimer !== null) {
+        clearTimeout(removeHoverStateTimer)
+        removeHoverStateTimer = null
       }
       el.removeAttribute('data-glare')
+      el.removeAttribute('data-tilting')
       // 卸载路径上不留补间：这几条补间的目标元素马上就要离开文档，
       // 让它们继续跑就是在改一个没人看的节点。直接杀掉再把值写死。
       ctx.kill()

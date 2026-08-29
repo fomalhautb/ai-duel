@@ -5,12 +5,12 @@ import { SKILL_CARD_ART, isIllustratedSkillCard } from '../src/ui/skillCardArt'
 import { cardArtFor } from '../src/ui/cardArt'
 
 /**
- * 24 张设计稿技能卡各有一张专属原画，靠 id 对上号（core 的 SKILL_DESIGN_CARDS ↔
+ * 24 张技能卡各有一张专属原画，靠 id 对上号（core 的 SKILL_DESIGN_CARDS ↔
  * ui/skillCardArt.ts 的 SKILL_CARD_ART）。改 id 就等于换掉那张卡的插画，
  * 所以这里两边一起守：少一边、错一个字母，卡面都会悄悄退回通用占位图。
  */
 describe('技能牌正面原画', () => {
-  it('为 24 张设计稿技能卡各绑定一张独立原画', () => {
+  it('为 24 张技能卡各绑定一张独立原画', () => {
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
     expect(Object.keys(SKILL_CARD_ART)).toHaveLength(24)
     expect(new Set(SKILL_DESIGN_CARD_IDS).size).toBe(24)
@@ -21,10 +21,10 @@ describe('技能牌正面原画', () => {
   })
 
   it('把同一批 24 张技能牌收录到 /card 图鉴', () => {
-    // 图鉴现在直接读 core 的 CARDS，所以技能牌一共 26 张：24 张设计稿卡
-    // 外加有结算路径的「占位技能」和「必须回答」（那两张没有专属原画，走占位图）。
+    // 图鉴直接读 core 的 CARDS，而卡表里的技能牌就是这 24 张——没有原画的占位卡已经删光，
+    // 所以图鉴里每一张技能牌都摆得出自己的原画。
     const galleryIds = GALLERY_SKILL_CARDS.map((card) => card.id)
-    expect(galleryIds).toHaveLength(26)
+    expect(galleryIds).toHaveLength(24)
     for (const cardId of SKILL_DESIGN_CARD_IDS) {
       expect(galleryIds).toContain(cardId)
     }

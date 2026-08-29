@@ -36,24 +36,35 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('24 张设计稿技能卡：开局全解锁，但一张都不进默认牌组', () => {
-    // 它们和「占位技能」走同一条结算路（打出即进弃牌堆），塞进默认牌组只会挤掉 AI 牌，
+  it('24 张技能卡开局全解锁，默认牌组只带其中两张', () => {
+    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「一句话回答」打出即完事。
+    // 其余 22 张和「一句话回答」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
     // 让新玩家开局就摸到一手什么都不会发生的卡。
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
+    const inDeck = ['fixed-answer', 'one-sentence-answer']
     for (const id of SKILL_DESIGN_CARD_IDS) {
       expect(CARD_POOL).toContain(id)
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
+        inDeck.includes(id) ? 1 : 0,
+      )
     }
   })
 
-  it('技能牌一共 26 张：2 张有结算路径 + 24 张设计稿占位卡', () => {
-    const skillIds = Object.values(CARDS)
-      .filter((card) => card.kind === 'skill')
-      .map((card) => card.id)
-    expect(skillIds).toHaveLength(26)
-    expect(skillIds).toContain('placeholder-skill')
-    expect(skillIds).toContain('skill-must-answer')
+  it('技能牌一共 24 张，只有「复读机」要选目标', () => {
+    // 早期那两张（placeholder-skill / skill-must-answer）已经删掉：占位技能没有卡面原画，
+    // 而「必须回答」的功能整个挪到了同样效果的「复读机」上。守着别有人把旧 id 又捡回来。
+    const skills = Object.values(CARDS).filter((card) => card.kind === 'skill')
+    expect(skills).toHaveLength(24)
+    for (const id of ['placeholder-skill', 'skill-must-answer']) {
+      expect(CARDS[id]).toBeUndefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
+    }
+    expect(skills.filter((card) => card.target !== undefined).map((card) => card.id)).toEqual([
+      'fixed-answer',
+    ])
   })
 
   it('卡池覆盖全部卡牌定义', () => {

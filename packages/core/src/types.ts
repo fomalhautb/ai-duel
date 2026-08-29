@@ -66,7 +66,7 @@ export interface AiCard extends CardBase {
 
 /**
  * 技能牌：设计上打出即效果结算、随后进弃牌堆，效果可以持续到之后回合；
- * 本迭代只有「必须回答」有实际结算（把目标标成已干扰），其余只有卡面和动画。
+ * 本迭代只有「复读机」有实际结算（把目标标成已干扰），其余只有卡面和动画。
  */
 export interface SkillCard extends CardBase {
   kind: 'skill'

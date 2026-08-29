@@ -77,7 +77,7 @@ describe('卡池筛选', () => {
     // 而他并没有表达过"不想看技能牌"。
     for (const option of FACTIONS) {
       expect(filterDeckCards(CARD_POOL, 'skill', option.id)).toEqual(skillIds)
-      // 「全部」页签下选了阵营：AI 被收窄，技能牌仍是完整的那 26 张。
+      // 「全部」页签下选了阵营：AI 被收窄，技能牌仍是完整的那 24 张。
       const all = filterDeckCards(CARD_POOL, 'all', option.id)
       expect(all.filter((cardId) => getCard(cardId).kind === 'skill')).toEqual(skillIds)
       expect(all.filter((cardId) => getCard(cardId).kind === 'ai')).toEqual(
@@ -86,7 +86,7 @@ describe('卡池筛选', () => {
     }
   })
 
-  it('24 张设计稿技能卡在任何阵营下都看得见', () => {
+  it('24 张技能卡在任何阵营下都看得见', () => {
     for (const option of FACTIONS) {
       const shown = new Set(filterDeckCards(CARD_POOL, 'all', option.id))
       for (const cardId of SKILL_DESIGN_CARD_IDS) expect(shown.has(cardId)).toBe(true)

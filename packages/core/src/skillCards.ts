@@ -1,15 +1,16 @@
 import type { CardId, SkillCard } from './types'
 
 /**
- * 24 张只有设计稿的技能牌。
+ * 24 张技能牌，一批设计稿出来的牌。除「复读机」外效果都还只停在设计稿上，
+ * 常量名里的 DESIGN 就是这个来历。
  *
  * 组织方式对齐 aiModels.ts：一张卡对一张原画，客户端按同一份 id 查图
  * （ui/skillCardArt.ts 的 SKILL_CARD_ART），所以 id 是资源名的一部分，
  * 改 id 等于换掉那张卡的插画，必须两边一起改。
  *
- * **这批牌的效果全都还没接进规则引擎**：一张都不填 `target`，走的是和 `placeholder-skill`
- * 一样的占位路径——打出后亮个相就进弃牌堆，什么都不发生。文案里写着「选1个 Agent」的那些
- * 也一样，engine.ts 不认识它们。设计稿定下的效果全文放在 `plannedEffect` 里，只给卡背展示。
+ * **除了「复读机」，这批牌的效果都还没接进规则引擎**：不填 `target` 的那些走占位路径——
+ * 打出后亮个相就进弃牌堆，什么都不发生。文案里写着「选1个 Agent」的那些也一样，
+ * engine.ts 不认识它们。设计稿定下的效果全文放在 `plannedEffect` 里，只给卡背展示。
  *
  * `tokenCost` 是逐张照原画转录的，不是随手定的平衡数值：每张原画左上角都印着一枚
  * 「N TOKEN」圆章，而 tokenCost 又是引擎真正扣费的那个数（见 CardBase）。两者一旦对不上，
@@ -53,9 +54,16 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'fixed-answer',
     name: '复读机',
+    /**
+     * 这批牌里唯一接进规则引擎的一张：打出时要点对方场上一个还没被干扰过的 AI。
+     *
+     * 命中只是把目标标成「已干扰」（`AiInstance.interfered`），答题时它还不会真的只答香蕉
+     * ——往上下文里塞话要等模型 API 接上。效果只做了一半，所以这张牌也不写 `plannedEffect`：
+     * 那个字段会让卡背印上"还没实装、打出去什么都不会发生"，而它确实会改场上的状态。
+     */
+    target: 'foe-ai',
     tokenCost: 4,
     text: '对方1个作答 Agent 无论题目是什么，都只能回答香蕉。',
-    plannedEffect: '对方1个作答 Agent 无论题目是什么，都只能回答香蕉。',
   },
   'one-sentence-answer': {
     kind: 'skill',

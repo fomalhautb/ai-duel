@@ -34,7 +34,9 @@
  * 真要清晰只能它也换 2x：按 3344×1882 重新导出、同名覆盖就行，
  * 代码一行都不用改——所有图层都是 width/height: 100%，多大的图都按舞台尺寸铺满。
  *
- * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
+ * "开始游戏"按存档分流：没走完新手教程的进 /tutorial，走完的直接进匹配房。
+ * 分流在点下去那一刻现读存档，不在挂载时读一次——教程和首页之间来回跳时，
+ * 提前读的那份会是过期的。
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -621,10 +623,11 @@ function HomeStage() {
           onClick={() => {
             // 手机上顺手进全屏并锁横屏：这是整个流程里第一次、也是最自然的一次用户点击，
             // 而全屏和方向锁都只认用户手势。不支持（iPhone）或被拒都只是没生效，
-            // 不影响进房间，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
+            // 不影响往下走，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
             // 只对触屏做：电脑上按个"开始游戏"就把浏览器变全屏太越界了，那边有 F11。
             if (isCoarsePointer()) void enterLandscapeFullscreen()
-            navigate('/room')
+            // 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。
+            navigate(loadSave().tutorialDone ? '/room' : '/tutorial')
           }}
         >
           <span className="home__start-label">开始游戏</span>

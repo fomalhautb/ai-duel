@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, isDeckable, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, STARTER_DECK, UNAVAILABLE_AI_CARD_IDS } from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -81,23 +81,15 @@ function countCopies(cards: readonly string[], cardId: string): number {
 
 const KNOWN_CARD_IDS = new Set(CARD_POOL)
 
-/** 卡池里能进牌组的那批（灰牌除外，见 core 的 isDeckable）。 */
-const DECKABLE_CARD_IDS = CARD_POOL.filter(isDeckable)
-
 /**
  * 测试里当素材用的三张真卡。
  * 从卡池头上取，不写死 id：卡池改名时这份测试跟着走，不用一处处改字符串。
- * 必须跳过灰牌——存档会把它们当脏数据剔掉，拿它当素材写进去就取不回来。
- * `!` 是给 noUncheckedIndexedAccess 让路——能进牌组的至少 20 张，前三张一定在。
+ * `!` 是给 noUncheckedIndexedAccess 让路——卡池至少 20 张，前三张一定在。
  */
-const [CARD_A, CARD_B, CARD_C] = [
-  DECKABLE_CARD_IDS[0]!,
-  DECKABLE_CARD_IDS[1]!,
-  DECKABLE_CARD_IDS[2]!,
-]
+const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
 
-/** 进不了牌组的那种卡，用来验存档会把它剔掉。卡池里眼下一定有（GPT-2、文心一言）。 */
-const UNDECKABLE_CARD = CARD_POOL.find((id) => !isDeckable(id))!
+/** 调不到模型、进不了卡池的那种 AI 牌，用来验存档会把它剔掉。 */
+const UNAVAILABLE_CARD = UNAVAILABLE_AI_CARD_IDS[0]!
 
 describe('牌组存档', () => {
   beforeEach(() => {
@@ -116,7 +108,7 @@ describe('牌组存档', () => {
     })
 
     // 预设直接取 core 的示例牌组，它本来就是一副能开局的牌，这里守着"没在存档层被改坏"。
-    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 2 份', () => {
+    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 MAX_COPIES 份', () => {
       const deck = loadDecks().decks[0]
       expect(deck?.cards).toEqual([...STARTER_DECK])
       expect(deck?.cards).toHaveLength(DECK_SIZE)
@@ -347,18 +339,18 @@ describe('牌组存档', () => {
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 
-    it('丢掉进不了牌组的灰牌', () => {
-      // 灰牌在卡池里（卡池要摆出来给人看），但构筑页不让加，存档里也不该留下——
-      // 老存档里那两张就是这么被清掉的。
+    it('丢掉调不到模型的那种 AI 牌', () => {
+      // 这类牌在 CARDS 里查得到、牌组页也灰着摆出来，但不在卡池里，存档里也不该留下——
+      // 老存档里带着 GPT-2 / 文心一言的牌组就是这么被清掉的。
       seedEmptyDeck()
-      const data = updateDeckCards('a', [CARD_A, UNDECKABLE_CARD, CARD_B])
+      const data = updateDeckCards('a', [CARD_A, UNAVAILABLE_CARD, CARD_B])
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 
-    it('同一张卡最多留 2 份', () => {
+    it('同一张卡最多留 3 份', () => {
       seedEmptyDeck()
-      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_B])
-      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_B])
+      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_A, CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A, CARD_B])
     })
 
     it('超过 20 张的部分被截掉', () => {
@@ -369,10 +361,10 @@ describe('牌组存档', () => {
 
     it('读存档时同样会过滤：存档里被改坏的卡表读出来是干净的', () => {
       writeRaw({
-        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, '野卡'] }],
+        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, CARD_A, '野卡'] }],
         currentId: 'a',
       })
-      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A])
+      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A])
     })
 
     it('cards 不是数组时读成空牌组', () => {

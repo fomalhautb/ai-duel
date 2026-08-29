@@ -18,10 +18,11 @@ import type { CardId, HeroId } from '@ai-duel/core'
  * v3 → v4 是卡池整个换了一批（模型卡/提示卡 → AI 牌/技能牌），旧存档里的卡 id 一个都不剩。
  * v4 → v5 卡 id 全部换名（agent-* → ai-*），术语统一为英雄牌/AI 牌/技能牌，旧存档直接作废。
  * v5 → v6 新增 savedHero（匹配后确认的英雄，下次进流程时预填），旧档直接作废。
+ * v6 → v7 新增 tutorialDone（新手教程走完没有，首页「开始游戏」照它分流），旧档直接作废。
  * ownedCards 里的卡 id 全部来自当前卡池（AI 牌 + 技能牌两类，见 core 的 CARDS）；
  * 英雄牌不进牌组也不进收藏，所以英雄只以 savedHero 这一个选择结果的形式存在。
  */
-const SAVE_KEY = 'ai-duel-save-v6'
+const SAVE_KEY = 'ai-duel-save-v7'
 
 export interface SaveData {
   /** 已拥有的卡牌定义 id。 */
@@ -30,17 +31,24 @@ export interface SaveData {
   wins: number
   /** 上次确认的英雄；没确认过是 null。 */
   savedHero: HeroId | null
+  /**
+   * 新手教程走完了没有。
+   *
+   * 只影响首页「开始游戏」去哪：false 进 /tutorial，true 进 /room。
+   * 匹配房里的「新手教程」是重玩入口，不看这个字段——已经走完也随时能再进一遍。
+   */
+  tutorialDone: boolean
 }
 
 function initialSave(): SaveData {
-  return { ownedCards: [...INITIAL_COLLECTION], wins: 0, savedHero: null }
+  return { ownedCards: [...INITIAL_COLLECTION], wins: 0, savedHero: null, tutorialDone: false }
 }
 
 /** 解析存档字符串，任何一处对不上就返回 null，由调用方回落到初始收藏。 */
 function parseSave(raw: string): SaveData | null {
   const data: unknown = JSON.parse(raw)
   if (typeof data !== 'object' || data === null) return null
-  const { ownedCards, wins, savedHero } = data as Partial<SaveData>
+  const { ownedCards, wins, savedHero, tutorialDone } = data as Partial<SaveData>
   if (!Array.isArray(ownedCards) || typeof wins !== 'number') return null
 
   // 卡池随时可能删卡，存档里残留的卡 id 必须丢掉，否则渲染时 getCard 会抛错。
@@ -56,6 +64,8 @@ function parseSave(raw: string): SaveData | null {
     ownedCards: [...new Set([...owned, ...INITIAL_COLLECTION])],
     wins,
     savedHero: heroValid ? savedHero : null,
+    // 写坏或缺字段时按"没走过教程"算：多放一次教程比把新手直接丢进匹配房好。
+    tutorialDone: tutorialDone === true,
   }
 }
 
@@ -112,6 +122,16 @@ export function recordWin(): { save: SaveData; drawn: CardId | null } {
  */
 export function saveHero(hero: HeroId): void {
   persist({ ...loadSave(), savedHero: hero })
+}
+
+/**
+ * 记下新手教程已经走完。
+ *
+ * 两条路径都会调它：走到教程完成页，以及中途点「跳过教程」——
+ * 对首页分流来说这两种是一回事，玩家都不该再被自动送进教程。
+ */
+export function markTutorialDone(): void {
+  persist({ ...loadSave(), tutorialDone: true })
 }
 
 /** 清空存档，回到新号状态。给演示和调试用（首页有入口）。 */

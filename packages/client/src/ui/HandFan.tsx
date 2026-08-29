@@ -39,8 +39,8 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
- * 「这一张打不起」是另一条线：传 tokens 之后逐张按卡面费用判，只压暗那几张，
- * 见 HandFanProps.tokens。
+ * 「这一张现在打不出去」是另一条线：传 tokens / aiPlayedThisRound 之后逐张判，只压暗那几张，
+ * 见 HandFanProps.tokens 和 HandFanProps.aiPlayedThisRound。
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -212,6 +212,29 @@ export interface HandFanProps {
    * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，图鉴也没有额度可言）。
    */
   tokens?: number | null
+  /**
+   * 这一轮已经派出过新的 AI 牌了。
+   *
+   * 规则是每轮至多派一张新 AI（引擎那边会拒掉第二张），所以为 true 时手上**其余的 AI 牌**
+   * 一律画成打不出：和「Token 不够」同一套压暗，按一下弹「本轮已派出 AI 牌」。
+   * 技能牌完全不受影响，一轮想打几张打几张。
+   *
+   * 和 tokens 各判各的，两条可以同时成立（一张打不起的 AI，本轮又已经派过人）。
+   * 那时弹的是这一句，和引擎的校验顺序一致：这条闸和钱多钱少无关，
+   * 说成"Token 不够"会让玩家以为攒够钱就能再派一个。
+   */
+  aiPlayedThisRound?: boolean
+  /**
+   * 调用方额外锁上的几张牌：**牌的 id（对局里就是手牌实例 id）** → 点它时弹的那句提示。
+   *
+   * 现在只有新手教程用：教学的前两轮只放行指定的那一两张牌，其余的一律锁住
+   * （规格 §15）。挂进下面那张 blocked 表就自动获得和「Token 不够」同一套压暗 + 摇头 + 弹提示，
+   * 不用另写一条锁的画法，也不会出现"点了没反应"。
+   *
+   * 优先级排在规则判据之前：一张牌既被教程锁着又刚好买不起时，玩家该看到的是
+   * "这一步不该打它"，而不是"钱不够"。
+   */
+  extraBlocked?: ReadonlyMap<string, string> | null
   /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
@@ -391,6 +414,8 @@ const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
 }
 /** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
 const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
+/** 本轮已经派过新 AI，手上其余 AI 牌被点时弹的小字。 */
+const AI_PLAYED_TIP_TEXT = '本轮已派出 AI 牌'
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
@@ -509,6 +534,8 @@ export function HandFan({
   onPlay,
   disabled = false,
   tokens = null,
+  aiPlayedThisRound = false,
+  extraBlocked = null,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -526,19 +553,29 @@ export function HandFan({
    */
   const effectiveDisabled = disabled || lockReason !== null
   /**
-   * 这一轮买不起的那几张牌的 id。
+   * 这一刻打不出去的那几张牌：id → 点它时该弹的那句提示。
    *
-   * 用 Set 而不是每处现算：canDrag 和渲染两条路都要问同一个问题，
-   * 而 tokens 一变（每出一张牌都会变）整排都要重判一次。
+   * 两条判据合在一张表里（本轮已派过 AI、Token 不够），因为 canDrag 和渲染两条路
+   * 问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
+   * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
+   *
+   * 顺序和引擎的校验一致：先看"本轮已派出 AI 牌"，再看费用（见 aiPlayedThisRound）。
+   * 调用方给的 extraBlocked 排在最前面，理由见那个 prop 的说明。
    */
-  const unaffordable = useMemo(() => {
-    const ids = new Set<string>()
-    if (tokens === null) return ids
+  const blocked = useMemo(() => {
+    const tips = new Map<string, string>()
     for (const card of cards) {
-      if (card.tokenCost !== undefined && card.tokenCost > tokens) ids.add(card.id)
+      const extra = extraBlocked?.get(card.id)
+      if (extra !== undefined) {
+        tips.set(card.id, extra)
+      } else if (aiPlayedThisRound && card.kind === 'ai') {
+        tips.set(card.id, AI_PLAYED_TIP_TEXT)
+      } else if (tokens !== null && card.tokenCost !== undefined && card.tokenCost > tokens) {
+        tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
+      }
     }
-    return ids
-  }, [cards, tokens])
+    return tips
+  }, [cards, tokens, aiPlayedThisRound, extraBlocked])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -1373,12 +1410,13 @@ export function HandFan({
     // 不排掉的话，按在按钮上会先起一次拖拽/选中，click 还没来选中态就被自己翻掉了。
     ignoreSelector: '.hand-fan__help, .hand-fan__play',
     // 两道各自的闸：已经打出、正在等父组件受理的牌不能再抓（防重复出牌），
-    // 这一轮买不起的牌也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
+    // 这一刻打不出去的牌（见 blocked）也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
     // canDrag 挡掉的按下不会走 onLockedPress（见 UseCardDragOptions 那边的说明）。
     canDrag: (id) => {
       if (playedRef.current.has(id)) return false
-      if (unaffordable.has(id)) {
-        refusePlay(id, UNAFFORDABLE_TIP_TEXT)
+      const tip = blocked.get(id)
+      if (tip !== undefined) {
+        refusePlay(id, tip)
         return false
       }
       return true
@@ -1568,6 +1606,9 @@ export function HandFan({
     <div
       className="hand-fan"
       ref={rootRef}
+      // 教程用的语义锚点（见 tutorial/steps.ts 的 TutorialAnchorName）。
+      // 写死在这里是安全的：这个组件只有对局界面在用，别处用的是 HandCardFace 或 OpponentFan。
+      data-tutorial-anchor="hand"
       data-casting={castingId === null ? undefined : 'true'}
       data-locked={lockReason === null ? undefined : lockReason}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}
@@ -1579,10 +1620,11 @@ export function HandFan({
             key={card.id}
             className="hand-fan__slot"
             data-flip-id={card.id}
-            /* 这一轮的 Token 买不起这张牌：只画成压暗 + 禁止光标，位置和层级一概不动
+            /* 这张牌现在打不出去（Token 不够，或者本轮已经派过 AI 了）：
+               只画成压暗 + 禁止光标，位置和层级一概不动
                （CSS 里只写 filter 和 cursor，都是 GSAP 碰不到的属性，见 [data-locked] 那段）。
                拖不动点不出那件事归上面 canDrag 管，不写在 CSS 里。 */
-            data-unaffordable={unaffordable.has(card.id) ? 'true' : undefined}
+            data-unplayable={blocked.has(card.id) ? 'true' : undefined}
             ref={(el) => {
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)
@@ -1625,7 +1667,7 @@ export function HandFan({
                   </span>
                 </div>
                 <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                  <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+                  <div className={cardBackClassName(card.kind)}>
                     {card.kind === 'ai' ? (
                       <img
                         className="card-back__art"
@@ -1731,6 +1773,19 @@ export function HandFan({
  * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
  * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
  */
+/**
+ * 一张牌翻到背面时那层容器该带哪些 class。
+ *
+ * 三处（对局手牌、卡池 / 牌组格子、图鉴页）画的是同一面背面，class 各写一份的话，
+ * 加了新卡种的样式总会漏掉其中一处，玩家就会看到同一张牌在两个页面长得不一样。
+ * AI 牌铺满整张美术卡背，技能牌铺星象边框底图再压文字，英雄牌沿用默认的深色底。
+ */
+export function cardBackClassName(kind: HandCardData['kind']): string {
+  if (kind === 'ai') return 'card-back card-back--ai-art'
+  if (kind === 'skill') return 'card-back card-back--skill'
+  return 'card-back'
+}
+
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
   // 两样缺一不可：非具名 AI 查不到装饰配置，英雄牌没有费用，任缺一样都退回下面的渐变信息层。

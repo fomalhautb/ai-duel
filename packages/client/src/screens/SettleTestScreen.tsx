@@ -23,11 +23,17 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import gsap from 'gsap'
 import { QUESTION_POOL, getCard, scriptedAnswers } from '@ai-duel/core'
-import type { AiInstance, CardId, GamePhase, Question } from '@ai-duel/core'
+import type { AiInstance, CardId, GamePhase, Question, RoundVerdict } from '@ai-duel/core'
 import { BattleFrame } from '../ui/MatchStage'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { RoundSettleLayer } from '../ui/RoundSettleLayer'
-import type { RoundSettle, SettleAiResult, SettleScore, SettleSides } from '../ui/RoundSettleLayer'
+import type {
+  RoundSettle,
+  SettleAiResult,
+  SettleCorrect,
+  SettleScore,
+  SettleSides,
+} from '../ui/RoundSettleLayer'
 import './settle-test.css'
 
 /**
@@ -64,79 +70,81 @@ interface Scenario {
 }
 
 /*
- * 五个场景覆盖计分的三条判据（先比答对数 → 再比消耗 → 都平各拿 1 分），
+ * 五个场景覆盖计分的三档判定（见 core 的 RoundVerdict）：
+ * 只有一方答对（① ④ ⑤）→ 双方同对时比消耗（②）→ 消耗也相同各拿 1 分（③）。
  * 同时把上场张数铺开：3v3、2v4、1v1、5v4、0v2。
  * 张数是另一条独立的排版变量——列数跟着张数涨、单边空场怎么排，只有真摆出来才看得见。
  *
- * 每个场景的卡都是照剧本表挑的，注释里那串 O/X 就是它们对这道题的实际对错，
- * 换卡之前先去 packages/core/src/script.ts 对一眼，不然答对数会和场景名对不上。
+ * 注意「这一方答没答对」是**团队口径**：己方至少一个 AI 答对就算答对，答对几个不参与判定。
+ * 所以场景注释里那串 O/X 只是各张卡的实际对错（照 packages/core/src/script.ts 挑的），
+ * 真正决定胜负的是"这一侧有没有 O"和两侧的消耗，换卡之前先去那张表对一眼。
  * 同一个场景里不要重复用同一张卡：instanceId 带了座位和序号所以不会撞 key，
  * 但一排两张一模一样的卡面会让人以为是渲染错了。
  */
 const SCENARIOS: Scenario[] = [
   {
     id: 'mine-correct',
-    label: '① 3v3 答对数取胜',
-    desc: '3v3，我方 2/3 对 1/3；答对数不同，消耗不参与判定',
+    label: '① 3v3 我方独对',
+    desc: '3v3，我方 2/3 对手 0/3；只有我方答对，消耗更多（14 对 9）也照样拿下这一分',
     questionId: 'q-triangles',
     round: 2,
     totalRounds: 5,
     scoresBefore: { mine: 1, theirs: 1 },
-    // O O X = 2/3，消耗 4+4+6=14
+    // O O X = 有人答对，消耗 4+4+6=14
     mine: ['gpt-4o', 'gemini', 'claude-fable-5'],
-    // O X X = 1/3，消耗 5+3+2=10（消耗更少也没用，答对数已经分出胜负）
-    foe: ['kimi-k3', 'deepseek-r1', 'doubao'],
+    // X X X = 全错，消耗 3+2+4=9（更省也没用，这一档根本不比消耗）
+    foe: ['deepseek-r1', 'doubao', 'glm-5'],
   },
   {
     id: 'spend-tiebreak',
     label: '② 2v4 消耗决胜',
-    desc: '2v4，我方 2/2 对 2/4；正确数都是 2，我方消耗 6 对 20，靠省 Token 拿下这一分',
+    desc: '2v4，双方都有人答对；判定落到消耗，我方 6 对 20，靠省 Token 拿下这一分',
     questionId: 'q-carwash',
     round: 3,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 1 },
-    // O O = 2/2，消耗 3+3=6
+    // O O = 有人答对，消耗 3+3=6
     mine: ['qwen', 'minimax'],
-    // O O X X = 2/4，消耗 7+4+4+5=20（人多不等于答对得多，还把消耗堆上去了）
+    // O O X X = 也有人答对，消耗 7+4+4+5=20（人多不占便宜，还把消耗堆上去了）
     foe: ['chatgpt-5-6-sol', 'glm-5', 'gemini', 'kimi-k3'],
   },
   {
     id: 'draw',
     label: '③ 1v1 势均力敌',
-    desc: '1v1，各出一张且都答对；答对数和消耗全平，两边都挂「平分秋色」徽章、各 +1 分',
+    desc: '1v1，各出一张且都答对；消耗也相同，两边都挂「平分秋色」徽章、各 +1 分',
     questionId: 'q-husky',
     round: 4,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 2 },
-    // O = 1/1，消耗 5
+    // O = 有人答对，消耗 5
     mine: ['deepseek-v4'],
-    // O = 1/1，消耗 5（和我方同价，消耗这一条也分不出胜负）
+    // O = 也有人答对，消耗 5（和我方同价，消耗这一条也分不出胜负）
     foe: ['kimi-k3'],
   },
   {
     id: 'foe-wins',
     label: '④ 5v4 多张（末轮）',
-    desc: '5v4 共九张，两侧一起变成五列、仍各排一行；我方 1/5 对 3/4 落败，末轮按钮换成「查看终局结算」',
+    desc: '5v4 共九张，两侧一起变成五列、仍各排一行；我方全错落败，末轮按钮换成「查看终局结算」',
     questionId: 'q-nurse',
     round: 5,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 3 },
-    // X X X X O = 1/5，消耗 1+2+2+3+3=11
-    mine: ['gpt-2', 'gpt-3-5', 'doubao', 'minimax', 'qwen'],
-    // O O O X = 3/4，消耗 6+4+5+3=18
+    // X X X X X = 全错，消耗 1+2+2+3+5=13（省下的钱救不回来，只有一方答对时不比消耗）
+    mine: ['gpt-2', 'gpt-3-5', 'doubao', 'minimax', 'deepseek-v4'],
+    // O O O X = 有人答对，消耗 6+4+5+3=18
     foe: ['claude-fable-5', 'gemini', 'kimi-k3', 'wenxin-yiyan'],
   },
   {
     id: 'one-side-empty',
     label: '⑤ 0v2 单边空场',
-    desc: '0v2，我方一个 AI 都没上：0 对 2 直接判负，验证一边空一边有的排版',
+    desc: '0v2，我方一个 AI 都没上：场上没 AI 就算没答对，消耗 0 也救不了，验证单边空场的排版',
     questionId: 'q-surgeon',
     round: 1,
     totalRounds: 5,
     scoresBefore: { mine: 0, theirs: 0 },
-    // 一张都不上，消耗 0
+    // 一张都不上，消耗 0；没有 AI 作答 = 这一方没答对
     mine: [],
-    // O O = 2/2，消耗 5+4=9
+    // O O = 有人答对，消耗 5+4=9
     foe: ['deepseek-v4', 'glm-5'],
   },
 ]
@@ -401,26 +409,35 @@ function unitOf(cardId: CardId, owner: 0 | 1, index: number): AiInstance {
 
 /**
  * 按引擎那套判据算本轮计分（见 core 的 submitAnswers）：
- * 先比答对数，一样多再比谁花的 Token 少，还一样就双方各拿 1 分。
+ * 只有一方答对就那方拿分；双方同对或同错就比谁花的 Token 少；消耗也一样就各拿 1 分。
+ *
+ * 「这一方答没答对」是团队口径的布尔值：己方**至少一个** AI 答对就算答对，
+ * 场上一个 AI 都没有的一方算没答对（filter 出来是空数组，some 自然是 false）。
  *
  * 消耗直接取这一侧全部上场卡的 tokenCost 之和——当成「这些 AI 都是本轮打出来的」，
  * 这样场景里改一张卡，消耗和胜负会跟着自己变，不用再手工对一遍数。
  */
 function buildScore(scenario: Scenario, results: SettleAiResult[]): SettleScore {
-  const correct: SettleSides = {
-    mine: results.filter((item) => item.mine && item.correct).length,
-    theirs: results.filter((item) => !item.mine && item.correct).length,
+  const correct: SettleCorrect = {
+    mine: results.some((item) => item.mine && item.correct),
+    theirs: results.some((item) => !item.mine && item.correct),
   }
   const spent: SettleSides = {
     mine: tokenSum(scenario.mine),
     theirs: tokenSum(scenario.foe),
   }
-  const gains: SettleSides =
+  const verdict: RoundVerdict =
     correct.mine !== correct.theirs
-      ? correct.mine > correct.theirs
+      ? 'sole-correct'
+      : spent.mine !== spent.theirs
+        ? 'fewer-tokens'
+        : 'equal-tokens'
+  const gains: SettleSides =
+    verdict === 'sole-correct'
+      ? correct.mine
         ? { mine: 1, theirs: 0 }
         : { mine: 0, theirs: 1 }
-      : spent.mine !== spent.theirs
+      : verdict === 'fewer-tokens'
         ? spent.mine < spent.theirs
           ? { mine: 1, theirs: 0 }
           : { mine: 0, theirs: 1 }
@@ -433,6 +450,7 @@ function buildScore(scenario: Scenario, results: SettleAiResult[]): SettleScore 
       mine: scenario.scoresBefore.mine + gains.mine,
       theirs: scenario.scoresBefore.theirs + gains.theirs,
     },
+    verdict,
   }
 }
 

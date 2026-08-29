@@ -4,11 +4,13 @@ import {
   AI_MODEL_CARDS,
   CARD_POOL,
   CARDS,
+  COMING_SOON_SKILL_CARD_IDS,
   drawNewCard,
   HEROES,
   INITIAL_COLLECTION,
-  isDeckable,
+  OPEN_SKILL_CARD_IDS,
   PLAYABLE_AI_CARD_IDS,
+  UNAVAILABLE_AI_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
   STARTER_DECK,
 } from '../src/index'
@@ -31,38 +33,72 @@ describe('卡池与初始收藏', () => {
     ).toEqual(AI_MODEL_CARD_IDS)
   })
 
-  it('18 张 AI 都已解锁，能上场的那 16 张各带一张（最便宜的两张各两张）', () => {
+  it('能上场的 16 张 AI 都已解锁，默认牌组里各带一张（最便宜的两张各两张）', () => {
     expect(STARTER_DECK).toHaveLength(20)
-    // 补第二份的这两张：全场最便宜的 AI（各 2 点），顶掉两张灰牌空出来的位置。
+    // 补第二份的这两张：全场最便宜的 AI（各 2 点），顶掉两张调不到模型的牌空出来的位置。
     const doubled = ['gpt-3-5', 'doubao']
-    for (const id of AI_MODEL_CARD_IDS) {
-      // 灰牌也在收藏里：卡池要把它们摆出来（见 collection.ts）。
+    for (const id of PLAYABLE_AI_CARD_IDS) {
       expect(INITIAL_COLLECTION).toContain(id)
-      const want = isDeckable(id) ? (doubled.includes(id) ? 2 : 1) : 0
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(want)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
+        doubled.includes(id) ? 2 : 1,
+      )
     }
   })
 
-  it('默认牌组里没有一张是选不进牌组的灰牌', () => {
+  it('默认牌组里没有一张是卡池外的牌', () => {
     // 起始牌组会被直接播成玩家的第一套牌组（见 client 的 deckStore），
-    // 混进一张加不进牌组的牌，玩家一进构筑页就会看到一副自己拼不出来的牌。
+    // 混进一张卡池外的牌，读档时会被当脏数据剔掉，玩家一进构筑页就看到一副缺张的牌。
     for (const id of STARTER_DECK) {
-      expect(isDeckable(id)).toBe(true)
+      expect(CARD_POOL).toContain(id)
     }
   })
 
-  it('24 张技能卡开局全解锁，默认牌组只带其中两张', () => {
-    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「一句话回答」打出即完事。
-    // 其余 22 张和「一句话回答」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
-    // 让新玩家开局就摸到一手什么都不会发生的卡。
+  it('24 张技能卡分成开放的 9 张和「即将上线」的 15 张', () => {
+    // 名单是产品定的，所以这里逐个写死：改动它意味着开放 / 收回了某张牌，
+    // 而那件事牵着卡池、初始收藏、示例牌组一整串，应该在这一行当场红。
+    // 顺序跟着 SKILL_DESIGN_CARDS 的键序走（卡池和图鉴按它摆），所以用对顺序敏感的 toEqual。
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
-    const inDeck = ['fixed-answer', 'one-sentence-answer']
-    for (const id of SKILL_DESIGN_CARD_IDS) {
+    expect(OPEN_SKILL_CARD_IDS).toEqual([
+      'black-white-reversal',
+      'fixed-answer',
+      'clean-sweep',
+      'golden-bell-shield',
+      'anti-addiction',
+      'nuclear-power-station',
+      'domestic-substitution',
+      'rising-tide',
+      'memory-shortage',
+    ])
+    // 两份名单不重不漏地把 24 张分完：漏一张就会有牌既进不了卡池、又不在牌组页摆出来，
+    // 等于凭空消失。
+    expect(COMING_SOON_SKILL_CARD_IDS).toHaveLength(15)
+    expect(new Set([...OPEN_SKILL_CARD_IDS, ...COMING_SOON_SKILL_CARD_IDS])).toEqual(
+      new Set(SKILL_DESIGN_CARD_IDS),
+    )
+  })
+
+  it('开放的技能卡开局全解锁，默认牌组只带其中两张', () => {
+    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「防沉迷」打出即完事。
+    // 开放的其余几张和「防沉迷」是同一条链路，塞进默认牌组只会挤掉 AI 牌，
+    // 让新玩家开局就摸到一手什么都不会发生的卡。
+    const inDeck = ['fixed-answer', 'anti-addiction']
+    for (const id of OPEN_SKILL_CARD_IDS) {
       expect(CARD_POOL).toContain(id)
       expect(INITIAL_COLLECTION).toContain(id)
       expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
         inDeck.includes(id) ? 1 : 0,
       )
+    }
+  })
+
+  it('「即将上线」的技能卡查得到卡面，但进不了卡池、收藏和牌组', () => {
+    // 卡面数据必须留在 CARDS 里：牌组页和图鉴要照常把它们画出来（灰着、排在最后）。
+    // 而卡池那三条一旦漏了，玩家就能把还没开放的牌选进牌组、带上牌桌。
+    for (const id of COMING_SOON_SKILL_CARD_IDS) {
+      expect(CARDS[id]).toBeDefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
     }
   })
 
@@ -82,9 +118,15 @@ describe('卡池与初始收藏', () => {
     ])
   })
 
-  it('卡池覆盖全部卡牌定义', () => {
-    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length)
+  it('卡池 = 全部卡牌定义减去「即将上线」和「调不到模型」的那两批', () => {
+    expect(CARD_POOL).toHaveLength(
+      Object.keys(CARDS).length -
+        COMING_SOON_SKILL_CARD_IDS.length -
+        UNAVAILABLE_AI_CARD_IDS.length,
+    )
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
+    // 反过来也要成立：卡池里不许有 CARDS 查不到的 id，否则开局 getCard 会抛错。
+    for (const id of CARD_POOL) expect(CARDS[id]).toBeDefined()
   })
 
   it('初始收藏就是整个卡池：新玩家一进来卡池页就摆得满满的', () => {
@@ -119,35 +161,33 @@ describe('卡池与初始收藏', () => {
 })
 
 describe('调不到模型的 AI 牌', () => {
-  // 这两张牌在 OpenRouter 上没有对得上的模型（原委见 aiModels.ts 里各自的注释）：
-  // 留在卡池里陈列，但选不进牌组。改这份名单等于改玩家能用哪些牌，所以写死在这里守着。
-  const unavailable = ['gpt-2', 'wenxin-yiyan']
-
-  it('只有 GPT-2 和文心一言的 openrouter 是 null', () => {
-    const nulls = AI_MODEL_CARD_IDS.filter((id) => AI_MODEL_CARDS[id]?.openrouter === null)
-    expect(nulls).toEqual(unavailable)
+  it('18 张 AI 分成能上场的 16 张和调不到模型的 2 张', () => {
+    // 名单写死在这里：改动它意味着某张牌能不能上场变了，而那件事牵着卡池、初始收藏、
+    // 示例牌组一整串，应该在这一行当场红。顺序跟着 AI_MODEL_CARDS 的键序走。
+    expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(UNAVAILABLE_AI_CARD_IDS).toEqual(['gpt-2', 'wenxin-yiyan'])
+    expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
+    expect([...PLAYABLE_AI_CARD_IDS, ...UNAVAILABLE_AI_CARD_IDS].sort()).toEqual(
+      [...AI_MODEL_CARD_IDS].sort(),
+    )
   })
 
-  it('其余 16 张都填了看得出厂商的 OpenRouter id', () => {
-    expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
+  it('两份名单的依据就是 openrouter 填没填', () => {
+    for (const id of UNAVAILABLE_AI_CARD_IDS) {
+      expect(AI_MODEL_CARDS[id]?.openrouter).toBeNull()
+    }
     for (const id of PLAYABLE_AI_CARD_IDS) {
       // OpenRouter 的 id 一律是「厂商/模型」两段，写漏斜杠调用时会 404。
       expect(AI_MODEL_CARDS[id]?.openrouter).toMatch(/^[a-z0-9-]+\/\S+$/)
     }
   })
 
-  it('isDeckable：灰牌选不进，其余 AI 和全部技能牌都能选', () => {
-    for (const id of unavailable) expect(isDeckable(id)).toBe(false)
-    for (const id of PLAYABLE_AI_CARD_IDS) expect(isDeckable(id)).toBe(true)
-    for (const id of SKILL_DESIGN_CARD_IDS) expect(isDeckable(id)).toBe(true)
-    // 卡池里没有的 id 也算选不进，存档筛脏数据时要靠这一条。
-    expect(isDeckable('nope')).toBe(false)
-  })
-
-  it('灰牌仍然留在卡池和初始收藏里', () => {
-    for (const id of unavailable) {
-      expect(CARD_POOL).toContain(id)
-      expect(INITIAL_COLLECTION).toContain(id)
+  it('调不到模型的那两张不进卡池，但卡面定义留着给牌组页画', () => {
+    for (const id of UNAVAILABLE_AI_CARD_IDS) {
+      expect(CARDS[id]).toBeDefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
     }
   })
 })

@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent } from 'react'
 
-export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
+export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  /**
+   * 新手教程的语义锚点（引导层照它查要高亮的元素，见 tutorial/steps.ts）。
+   *
+   * 得单独列出来：`data-*` 属性只有写在原生标签上时 TS 才放行，
+   * 经过一层组件就要求属性类型里真的有这一项。
+   */
+  'data-tutorial-anchor'?: string
+}
 
 /** 再快的点击也至少完整显示这么久的压入姿态，避免反馈强度取决于用户按键速度。 */
 const MIN_PRESS_MS = 70

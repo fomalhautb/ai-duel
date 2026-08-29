@@ -7,19 +7,20 @@
  * 比 save.ts 多一份内存缓存（cachedDecks）：这里的每次修改都要先读回上一份数据，
  * 读不了就得靠它把一次会话里的连续编辑接起来。
  *
- * 存的是 core 的真卡 id（CARD_POOL 里那批），所以这里读出来的牌组可以直接开局；
+ * 存的是 core 的真卡 id（CARD_POOL 里那批，不含「即将上线」的技能牌），
+ * 所以这里读出来的牌组可以直接开局；
  * 存档只保证卡 id 在卡池里，**不保证张数够开局**——玩家可以把牌组编到一半就走人，
  * 所以拿它去开局的地方（match/testMatch.ts、RoomScreen 的选卡组一步）都要自己查 DECK_SIZE。
  */
 
-import { CARD_POOL, DECK_SIZE, isDeckable, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, DECK_SIZE, STARTER_DECK } from '@ai-duel/core'
 import type { CardId } from '@ai-duel/core'
 
 /** 换存档结构时直接改版本号：旧数据解析不出来就回落成播种预设。 */
 const DECKS_KEY = 'ai-duel-decks-v2'
 
 /**
- * 一套牌组 20 张、同名卡最多 2 份、最多 12 套。
+ * 一套牌组 20 张、同名卡最多 3 份、最多 12 套。
  *
  * DECK_SIZE 是 core 那份（牌组容量是规则的一部分，引擎和存档校验都读它），这里只是转出来，
  * 让选牌页的三条选卡规则从同一个文件导入，不用为一个常量再引一次 core。
@@ -27,7 +28,7 @@ const DECKS_KEY = 'ai-duel-decks-v2'
  * 12 套是纯粹的界面约束：牌组列表再长就没法一眼扫完，顺带给 localStorage 封了顶。
  */
 export { DECK_SIZE }
-export const MAX_COPIES = 2
+export const MAX_COPIES = 3
 export const MAX_DECKS = 12
 /** 牌组名最多 10 个字符：再长选牌页的标签就排不下。 */
 export const DECK_NAME_MAX = 10
@@ -35,18 +36,18 @@ export const DECK_NAME_MAX = 10
 const DEFAULT_DECK_NAME = '新牌组'
 
 /**
- * 牌组白名单：存档里凡是不在这个集合里的 id 都要丢掉，否则卡面渲染时 getCard 会抛错。
- *
- * 比卡池少了两张：GPT-2 和文心一言背后的模型 OpenRouter 上调不到，构筑页也不让加
- *（见 core 的 isDeckable）。老存档里带着它们的话在这里一并剔除——牌组会因此少几张，
- * 和存档里混进别的坏 id 是同一种处理，玩家回构筑页补满即可。
+ * 卡池白名单：存档里凡是不在这个集合里的 id 都要丢掉。
+ * 挡的是三种脏数据：改坏的存档里那种压根不存在的 id（渲染时 getCard 会抛错）、
+ * 「即将上线」的技能牌，以及 OpenRouter 调不到模型的那两张 AI——后两类在 CARDS 里
+ * 查得到、画得出，但不该被带上牌桌。老存档里带着它们的牌组会因此少几张，
+ * 和混进别的坏 id 是同一种处理，玩家回构筑页补满即可。
  */
-const POOL_CARD_IDS = new Set<CardId>(CARD_POOL.filter(isDeckable))
+const POOL_CARD_IDS = new Set<CardId>(CARD_POOL)
 
 export interface SavedDeck {
   id: string
   name: string
-  /** 卡 id，逐份存：同一张卡带两份就在数组里出现两次。顺序即选牌顺序。 */
+  /** 卡 id，逐份存：同一张卡带三份就在数组里出现三次。顺序即选牌顺序。 */
   cards: CardId[]
 }
 
@@ -65,7 +66,7 @@ function clampName(raw: unknown, fallback: string): string {
   return [...trimmed].slice(0, DECK_NAME_MAX).join('')
 }
 
-/** 卡表规整：丢掉进不了牌组的卡（见 POOL_CARD_IDS）、超出 2 份的重复卡，并把长度收进 20 张以内。 */
+/** 卡表规整：丢掉卡池里没有的卡、超出 MAX_COPIES 份的重复卡，并把长度收进 20 张以内。 */
 function sanitizeCards(raw: unknown): CardId[] {
   if (!Array.isArray(raw)) return []
   const copies = new Map<CardId, number>()
@@ -111,7 +112,7 @@ function parseDecks(raw: string): DecksData | null {
 /**
  * 首次进入时播种的那一套预设：core 的示例牌组。
  *
- * 只播一套，不再自造几套「流派」：卡池里 24 张技能牌只有「复读机」接进了规则引擎，其余全是
+ * 只播一套，不再自造几套「流派」：卡池里已开放的技能牌只有「复读机」接进了规则引擎，其余全是
  * 打出即进弃牌堆的设计稿卡（见 core 的 CARDS），眼下真正拉得开差距的只有那 18 张 AI，
  * 「流派」无从谈起，多播几套等于把同一副牌换个名字摆三遍。等技能效果实装之后再考虑加。
  *
@@ -270,6 +271,27 @@ export function deleteDeck(id: string): DecksData {
   }
   const currentId = decks.some((deck) => deck.id === data.currentId) ? data.currentId : firstLeft.id
   return commit({ decks, currentId })
+}
+
+/**
+ * 按固定 id 写入一套牌组并切成当前牌组：已存在就整套覆盖，不存在就新建。
+ *
+ * 只有新手教程在用（组牌教学要有一套 id 稳定、可以反复重玩覆盖的牌组）。
+ * 普通的新建走 createDeck——那条路每次都发新 id，重玩教程会把牌组列表堆满。
+ *
+ * 覆盖已存在的那套时不动它在列表里的位置，玩家重玩教程不会看到牌组顺序跳一下。
+ * 已经满 MAX_DECKS 套又要新建时，挤掉列表最前面那套：这只可能发生在
+ * "玩家自己攒够 12 套之后又从头玩一遍教程"，为这个边角保留一条更复杂的规则不值当。
+ */
+export function putDeck(id: string, name: string, cards: readonly CardId[]): DecksData {
+  const data = loadDecks()
+  const deck: SavedDeck = { id, name: clampName(name, DEFAULT_DECK_NAME), cards: sanitizeCards(cards) }
+  const existing = data.decks.some((item) => item.id === id)
+  const decks = existing
+    ? data.decks.map((item) => (item.id === id ? deck : item))
+    : [...data.decks, deck]
+  while (decks.length > MAX_DECKS) decks.shift()
+  return commit({ decks, currentId: id })
 }
 
 /** 切换当前牌组。id 不存在时原样返回（不会把 currentId 指飞）。 */

@@ -9,6 +9,7 @@ import type { Command, GameSetup, PlayerId } from '@ai-duel/core'
 import { createDriverCore, rejectionOf, statusOf } from './driver'
 import type { MatchDriver } from './driver'
 import { createQuizAutopilot } from './quizAutopilot'
+import type { QuizAnswersFor } from './quizAutopilot'
 
 export interface LocalDriverOptions {
   setup: GameSetup
@@ -17,9 +18,24 @@ export interface LocalDriverOptions {
    * 轮到谁，界面就把谁画成"我方"。
    */
   seat: PlayerId | 'active'
+  /**
+   * 答题结果从哪来，不填就是 core 的固定剧本（见 quizAutopilot 的 answersFor）。
+   * 教学对战靠它把每一轮的对错写死。
+   */
+  answersFor?: QuizAnswersFor
+  /**
+   * 进答题后隔多久自动提交结果（毫秒），不填就是 QUIZ_AUTOPILOT_DELAY_MS。
+   * 测试传 0，免得为了一轮结算真等两秒半。
+   */
+  quizDelayMs?: number
 }
 
-export function createLocalDriver({ setup, seat }: LocalDriverOptions): MatchDriver {
+export function createLocalDriver({
+  setup,
+  seat,
+  answersFor,
+  quizDelayMs,
+}: LocalDriverOptions): MatchDriver {
   const opening = createGame(setup)
   const seatOf = (activePlayer: PlayerId): PlayerId => (seat === 'active' ? activePlayer : seat)
 
@@ -54,6 +70,10 @@ export function createLocalDriver({ setup, seat }: LocalDriverOptions): MatchDri
   const autopilot = createQuizAutopilot({
     getState: () => core.getSnapshot().state,
     apply,
+    // 两项都可能不传，autopilot 那边各自有默认值；这里不写成条件展开是因为
+    // exactOptionalPropertyTypes 没开，undefined 会被默认参数正常兜住。
+    answersFor,
+    delayMs: quizDelayMs,
   })
   // 开局局面也过一遍：createGame 出来必定是出牌阶段，这里只是把"上一次的阶段"记上。
   autopilot.observe(opening.state)

@@ -13,8 +13,9 @@ import type { AiCard, CardId } from './types'
  * 卡面文案是玩梗，不代表这些模型的真实表现。
  *
  * openrouter 是这张牌答题时真正去调的模型。其中两张填的是 null——GPT-2 和文心一言在
- * OpenRouter 上都没有对得上的模型（各自的原委写在那两张牌旁边），它们仍然留在卡池里陈列，
- * 但整张压灰、加不进牌组（判定见 cards.ts 的 isDeckable）。
+ * OpenRouter 上都没有对得上的模型（各自的原委写在那两张牌旁边），它们因此不进卡池
+ *（见 collection.ts 的 CARD_POOL），牌组页仍然把它们灰着摆在最后，和「即将上线」的技能牌
+ * 一个待遇。
  * 离线预生成脚本 scripts/pregen-answers.mjs 另有一份自己的模型表：那边除了 id 还要配
  * 思考强度和截断方式，是这份表的一个带调参的子集，加模型时两处都要看一眼。
  */
@@ -192,17 +193,31 @@ export const AI_MODEL_CARDS: Record<CardId, AiCard> = {
 }
 
 /**
- * 十八张 AI 牌的 id，顺序就是卡池里的顺序（按厂商归堆，不按字母排）。
- * 卡池要连那两张灰牌一起摆出来，所以这份列表是全的。
+ * 十八张 AI 牌的 id，顺序就是它们在牌组页里的顺序（按厂商归堆，不按字母排）。
+ * 这份是全的，含调不到模型的那两张——图鉴和卡面调试页要能逐张画出来。
  *
  * 从 AI_MODEL_CARDS 现取而不是另写一份列表：两份列表迟早会对不上。
  */
 export const AI_MODEL_CARD_IDS: CardId[] = Object.keys(AI_MODEL_CARDS)
 
 /**
- * 上面那批里真能上场的（OpenRouter 调得到的）。凡是要"发一副能打的牌"的地方都用它，
- * 别用 AI_MODEL_CARD_IDS——那份含着两张进不了牌组的灰牌。
+ * 调得到模型、真能上场的那 16 张，顺序同上。
+ *
+ * 只有它们进卡池（collection.ts 的 CARD_POOL），也只有它们能被选进牌组、能在对局里出现。
+ * 组织方式对齐技能牌那边的 OPEN_SKILL_CARD_IDS：那批是"产品还没开放"，这批是"模型调不到"，
+ * 在牌组页里是同一种待遇——灰着摆在卡池最后，碰一下只说一句为什么。
  */
 export const PLAYABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
   (id) => AI_MODEL_CARDS[id]?.openrouter !== null,
+)
+
+/**
+ * 调不到模型的那两张（GPT-2、文心一言），顺序同上。
+ *
+ * 对应技能牌那边的 COMING_SOON_SKILL_CARD_IDS，用法也一样：牌组页把这份列表拼在卡池后面，
+ * 于是它们天然排在所有能选的卡之后（见 DeckScreen 的 shown）。
+ * 哪天 OpenRouter 上架了对得上的模型，把那张牌的 openrouter 填上，这两份名单自己就改好了。
+ */
+export const UNAVAILABLE_AI_CARD_IDS: CardId[] = AI_MODEL_CARD_IDS.filter(
+  (id) => AI_MODEL_CARDS[id]?.openrouter === null,
 )

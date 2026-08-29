@@ -19,14 +19,20 @@
  * 这排扇形只干两件事——显示对手有几张牌，以及当对手出牌时强制展示的起飞点
  * （靠每张 slot 上的 data-flip-id 对号，见 MatchStage 的 startReveal）。
  * 能点的那条路眼下没有调用方，留着是因为它是这个组件本来的交互形态。
+ *
+ * 新牌进场是"从侧栏那摞对方卡堆飞到自己的扇形槽位"，和玩家手牌是同一套机制
+ *（起点由父组件通过 getDealOrigin 给，见 HandFanProps 上那几段说明）；
+ * 这边不翻面——飞的本来就是牌背。
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { battleStageMetrics, battleStageWidth, toStagePoint } from './battleStage'
 import { CardBackHidden } from './CardBackHidden'
 import type { HandCardData } from './HandFan'
-import { LAYOUT_DUR, OPPONENT_FAN, fanTransform } from './fanMath'
+import { CARD_HEIGHT, CARD_WIDTH, LAYOUT_DUR, OPPONENT_FAN, fanTransform } from './fanMath'
+import { prefersReducedMotion } from './reducedMotion'
 
 gsap.registerPlugin(useGSAP)
 
@@ -52,15 +58,48 @@ const HOVER_LIFT = 8
 /** hover 进出的时长，要比重排更干脆。 */
 const HOVER_DUR = 0.22
 /**
- * 新牌进场的起始偏移：先在基准位再"沉"这么多，再滑进来。
+ * 拿不到对方卡堆位置（或玩家要求减少动效）时的退路：新牌先在基准位再"沉"这么多，再滑进来。
  * 和玩家手牌用同一个量，两边抽牌的观感才是一套的。
- * 缩到 0.64 之后卡只剩 144 高，而基准位已经贴着视口顶边（sink 为 0），
- * 再沉 140 时整张牌的最低点还在视口顶边上方约 5px，连顶栏都不用帮忙挡，起点必然看不见。
+ * 缩到 0.64 之后卡只剩 144 高，而基准位已经贴着舞台顶边（sink 为 0），
+ * 再沉 140 时整张牌的最低点还在舞台顶边上方约 5px，连顶栏都不用帮忙挡，起点必然看不见。
  */
 const ENTER_OFFSET = 140
+/** 开局那几张牌依次起飞的间隔（秒）。和玩家手牌同一个值，两边发牌的节奏才是一套的。 */
+const DEAL_STAGGER = 0.12
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
+
+/**
+ * 把对方卡堆的位置换算成 slot 的起始变换（发牌飞行的起点）。
+ *
+ * 整个锚点容器转了 180°，所以画面上的方向和 slot 坐标是**反**的：
+ * slot 原点（锚点底边中点，转过来就是画面上锚点那条线的中点）往右是 x 减小、往下是 y 减小。
+ * 变换原点仍是卡的底边中点，按 s 缩放之后卡心落在原点"上方" s × 卡高 / 2 处，
+ * 转过来正好是画面上的下方，所以那一段要**加**回去（玩家手牌那边是减）。
+ *
+ * 两个入参都是 getBoundingClientRect 量的**视口**矩形（缩放之后的屏幕像素），
+ * 要过一次 toStagePoint 才换成舞台内坐标，写给 GSAP 的 x / y / scale 全是舞台内像素
+ *（口径见 ui/battleStage.ts）。原点取现量的锚点矩形而不是"舞台顶边"那个理论值，
+ * 理由和玩家手牌那份一样：slot 的 x / y 本来就是锚点局部坐标，照锚点当场在哪儿算才不会错。
+ * 锚点自己那个 rotate(180deg) 不影响它的矩形（高度为 0、绕自身中心转）。
+ *
+ * 旋转归零：画面上看这是"倒过来的"，可它此刻整个藏在左侧栏（z-index 30）后面，
+ * 而这排牌画的又是正反几乎对称的隐藏牌背，飞出来时看不出朝向变过。
+ * 换成从 180° 转到扇形角的话，整段飞行会多出一次没人要的翻滚。
+ */
+function dealStartVars(origin: DOMRect, anchor: DOMRect): gsap.TweenVars {
+  const metrics = battleStageMetrics()
+  const center = toStagePoint(origin.left + origin.width / 2, origin.top + origin.height / 2, metrics)
+  const base = toStagePoint(anchor.left + anchor.width / 2, anchor.top, metrics)
+  const shown = origin.width / metrics.scale / CARD_WIDTH
+  return {
+    x: base.x - center.x,
+    y: base.y - center.y + (shown * CARD_HEIGHT) / 2,
+    rotation: 0,
+    scale: shown,
+  }
+}
 
 export interface OpponentFanProps {
   cards: HandCardData[]
@@ -73,23 +112,78 @@ export interface OpponentFanProps {
   onReveal: (id: string) => void
   /** 为 true 时点不动、也不给 hover 反馈（比如正在强制展示另一张牌）。 */
   disabled?: boolean
+  /**
+   * 发牌飞行的起点：对方卡堆最上面那张牌此刻在屏幕上的位置（视口坐标）。
+   * 语义和玩家手牌那边完全一样，见 HandFanProps.getDealOrigin。
+   */
+  getDealOrigin?: () => DOMRect | null
+  /** 为 true 时新牌先压在卡堆上不动。见 HandFanProps.dealHold。 */
+  dealHold?: boolean
+  /** 还压在卡堆上、没起飞的新牌张数变了。见 HandFanProps.onDealPendingChange。 */
+  onDealPendingChange?: (count: number) => void
 }
 
-export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanProps) {
+export function OpponentFan({
+  cards,
+  onReveal,
+  disabled = false,
+  getDealOrigin,
+  dealHold = false,
+  onDealPendingChange,
+}: OpponentFanProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
   const hoverRef = useRef<string | null>(null)
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
   const placedRef = useRef(new Set<string>())
+  /**
+   * 发牌那三个 prop 的最新值。applyLayout 常常是上一次渲染留下的闭包，
+   * 而 dealHold 变化时 cards 没变、闭包不会刷新，只能走 ref 拿当前值。
+   */
+  const dealHoldRef = useRef(dealHold)
+  dealHoldRef.current = dealHold
+  const dealOriginRef = useRef(getDealOrigin)
+  dealOriginRef.current = getDealOrigin
+  const dealPendingRef = useRef(onDealPendingChange)
+  dealPendingRef.current = onDealPendingChange
+  /** 还压在卡堆上、没起飞的新牌。size 就是报给父组件的张数，含义见 HandFan 的同名 ref。 */
+  const dealQueueRef = useRef(new Set<string>())
+  /** 已经排好队、还在等 stagger 延迟的进场补间。重排时要亲手换掉，理由见 HandFan 的同名 ref。 */
+  const dealTweensRef = useRef(new Map<string, gsap.core.Tween>())
   /** 给 resize 监听用：它要拿到最新一次渲染的布局函数。 */
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
+  /** 把"还压着几张"报给父组件。没人关心时什么都不做。 */
+  const reportDealPending = () => dealPendingRef.current?.(dealQueueRef.current.size)
+
+  /** 这张牌不再压在卡堆上了。重复调用是安全的，同 HandFan 的 finishDeal。 */
+  const finishDeal = (id: string) => {
+    dealTweensRef.current.delete(id)
+    if (!dealQueueRef.current.delete(id)) return
+    reportDealPending()
+  }
+
   const applyLayout = (mode: LayoutMode) => {
-    // 锚点 .opponent-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条）。
-    // 和 HandFan 用同一个口径，两排扇形的水平间距才对得上，别混用 innerWidth。
-    const viewportWidth = document.documentElement.clientWidth
+    // 锚点 .opponent-fan 是 fixed + width: 100%。对局页里 .battle-scaler 带着 transform，
+    // fixed 的包含块因此是舞台那 1672×941 的盒子，这排牌就按整个舞台宽摊开：
+    // 它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
+    //（玩家那边量的是战场中栏，见 HandFan 的 fanAreaWidth）。
+    const stageWidth = battleStageWidth()
     const count = cards.length
+    // 减少动效时不做发牌飞行：新牌退回原来那段"从基准位外沉、淡入"，也不排队错开。
+    const reduce = prefersReducedMotion()
+    const dealOriginRect = reduce ? null : (dealOriginRef.current?.() ?? null)
+    // 起点要按锚点当场的位置算（见 dealStartVars），量不到锚点就不飞。
+    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
+    const dealStart =
+      dealOriginRect === null || anchorRect === null
+        ? null
+        : dealStartVars(dealOriginRect, anchorRect)
+    /** 这一轮排上队的新牌数；攒到最后统一报一次。 */
+    let dealAdded = 0
+    /** 这一轮真正安排起飞的第几张，决定各自的 stagger 延迟。 */
+    let dealSeq = 0
 
     if (mode === 'reflow') {
       const ids = new Set(cards.map((card) => card.id))
@@ -97,13 +191,19 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
       // hover 记录留着的话下一张顶上来的牌会莫名其妙带着抬起状态。
       if (hoverRef.current !== null && !ids.has(hoverRef.current)) hoverRef.current = null
       for (const id of placedRef.current) if (!ids.has(id)) placedRef.current.delete(id)
+      // 还没起飞就离开手牌的：补间得亲手掐掉，否则它到点会去动一个已经被摘掉的节点。
+      for (const id of dealQueueRef.current) {
+        if (ids.has(id)) continue
+        dealTweensRef.current.get(id)?.kill()
+        finishDeal(id)
+      }
     }
 
     cards.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
       if (!slot) return
 
-      const base = fanTransform(index, count, viewportWidth, OPPONENT_FAN)
+      const base = fanTransform(index, count, stageWidth, OPPONENT_FAN)
       // 牌心间距跟着卡面一起收紧。缩放是以每张牌自己的底边中点为原点做的，只缩卡面不动 x，
       // 相邻两张之间就会平白多出空隙，一排牌从"叠在手里"散成"排在架子上"；乘上同一个系数，
       // 重叠比例才和缩放前一样。只有 x 乘：rotation 和 y（sink + 下垂）保持原样，
@@ -112,21 +212,39 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
       const isNew = !placedRef.current.has(card.id)
       if (isNew) {
         placedRef.current.add(card.id)
-        // 新牌先退到视口外再滑进来。这里用 opacity 而不是 autoAlpha：
-        // autoAlpha 会把 visibility 也改掉，万一补间被打断，牌就会一直是隐藏的。
+        dealQueueRef.current.add(card.id)
+        dealAdded += 1
+        // 拿得到卡堆位置就从那儿起飞，拿不到就退回原来的"先退到舞台外再滑进来"。
+        // 从卡堆起飞的那张一开始就是不透明的：起点在左侧栏里，而侧栏（z-index 30）
+        // 压在这排牌（20）之上，牌是从侧栏后面滑出来的，本来就看不见。
+        // 淡入那条路用 opacity 而不是 autoAlpha：autoAlpha 会把 visibility 也改掉，
+        // 万一补间被打断，牌就会一直是隐藏的。
         gsap.set(slot, {
           transformOrigin: '50% 100%',
-          x,
-          y: base.y + ENTER_OFFSET,
-          rotation: base.rotation,
-          scale: CARD_SCALE,
-          opacity: 0,
+          ...(dealStart === null
+            ? { x, y: base.y + ENTER_OFFSET, rotation: base.rotation, scale: CARD_SCALE, opacity: 0 }
+            : { ...dealStart, opacity: 1 }),
         })
       }
 
       // 层级固定为"下标大的压住下标小的"，和玩家手牌同一个规则。
       // 牌背长得都一样，层级只影响相邻两张的压叠方向，hover 时也不改它。
       gsap.set(slot, { zIndex: index + 1 })
+
+      /** 这张牌还在发牌队里：要么正压着卡堆等放行，要么这一轮该给它排一次起飞。 */
+      const dealing = dealQueueRef.current.has(card.id)
+      if (dealing && dealHoldRef.current) {
+        // 过场（开局抛硬币）还盖着屏幕，这张牌先原地压在卡堆上，这一轮不给它任何补间。
+        // 上一轮万一已经排过起飞（开局事件比第一次布局晚一拍到），那条补间还没跑过，
+        // 得亲手掐掉并把牌退回卡堆位，否则它会在过场演着的时候自己跑起来。
+        const scheduled = dealTweensRef.current.get(card.id)
+        if (scheduled !== undefined) {
+          scheduled.kill()
+          dealTweensRef.current.delete(card.id)
+          if (dealStart !== null) gsap.set(slot, dealStart)
+        }
+        return
+      }
 
       const lifted = !disabled && hoverRef.current === card.id
       const vars: gsap.TweenVars = {
@@ -143,8 +261,27 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
         overwrite: 'auto',
       }
       if (isNew) vars.opacity = 1
-      gsap.to(slot, vars)
+      if (dealing) {
+        // 上一条还没跑过的进场补间要亲手换掉（理由见 dealTweensRef）。
+        const scheduled = dealTweensRef.current.get(card.id)
+        if (scheduled !== undefined) {
+          scheduled.kill()
+          dealTweensRef.current.delete(card.id)
+        }
+        vars.delay = reduce ? 0 : dealSeq * DEAL_STAGGER
+        dealSeq += 1
+        // 起飞才算离开卡堆：延迟那段时间里牌还压在堆上，数字不能提前减。
+        vars.onStart = () => finishDeal(card.id)
+        // 从卡堆飞过来的那张一路都是不透明的，这一行是给"退回淡入"那条路准备的，
+        // 两条路都要有，所以不管走哪条都补上。
+        vars.opacity = 1
+      }
+      const tween = gsap.to(slot, vars)
+      if (dealing) dealTweensRef.current.set(card.id, tween)
     })
+
+    // 新排上队的牌攒到这儿一次报完，不用一张一张地惊动父组件。
+    if (dealAdded > 0) reportDealPending()
   }
 
   const { contextSafe } = useGSAP(
@@ -159,6 +296,10 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
       return () => {
         placedRef.current.clear()
         hoverRef.current = null
+        // 卸载时 useGSAP 会 revert 掉这些补间、onStart 再也不会跑，发牌的账得自己清干净。
+        for (const tween of dealTweensRef.current.values()) tween.kill()
+        dealTweensRef.current.clear()
+        dealQueueRef.current.clear()
       }
     },
     { scope: rootRef, dependencies: [cards] },
@@ -169,6 +310,18 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  /** 上一次的 dealHold，用来认出"憋着的发牌被放开"这一个瞬间。 */
+  const prevDealHoldRef = useRef(dealHold)
+  /**
+   * 开局的抛硬币演完了：重排一次，把压在卡堆上的那几张牌依次放出去。
+   * 只在这个值真的变了才动手，理由同 HandFan 的同一段。
+   */
+  useLayoutEffect(() => {
+    if (prevDealHoldRef.current === dealHold) return
+    prevDealHoldRef.current = dealHold
+    layoutRef.current('reflow')
+  }, [dealHold])
 
   const handleEnter = contextSafe((id: string) => {
     if (disabled || hoverRef.current === id) return

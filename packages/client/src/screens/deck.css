@@ -11,19 +11,60 @@
    模块求值顺序，靠特指度赢比靠书写顺序赢可靠。这一条和 design.css 同源。
 
    ------------------------------------------------------------
-   整页锁死在一屏内，只有卡池网格自己滚
+   整页锁死在一屏内，两块网格各自滚
    ------------------------------------------------------------
-   页面高度就是视口高度、不出现整页滚动条：顶栏和右侧牌组面板永远在原位，
-   要滚的只有左边那格卡池网格（.deck-grid）。
+   页面高度就是 16:9 舞台的高度、不出现整页滚动条：顶栏和右侧牌组面板永远在原位，
+   要滚的只有左边那格卡池网格（.deck-grid）和右边那格牌组格子区（.deck-slots）。
 
-   代价是卡池网格成了 overflow 容器，会把溢出的子元素裁掉，而卡池的牌恰恰要
-   拖出网格才能丢进右面板。解决办法在 DeckScreen 的 liftCardOut：起拖那一刻
-   把这张牌切成 position: fixed（fixed 不受祖先 overflow 裁剪），松手回位后再切回来；
-   它原来占的格子由外层 .deck-pool-slot 撑着，所以邻牌不会塌陷补位。
-   反方向（牌组的牌拖出右面板算移除）不需要这套：右面板一路到 .deck-page 都没有 overflow。
+   代价是这两块都成了 overflow 容器，会把溢出的子元素裁掉，而两边的牌恰恰都要被拖出去
+   （卡池的牌拖进右面板 = 加入，格子里的牌拖出面板 = 移除）。解决办法在 DeckScreen 的
+   liftCardOut：起拖那一刻把这张牌切成 position: fixed（fixed 不受祖先 overflow 裁剪），
+   松手回位后再切回来；它原来占的格子由外层的 .deck-pool-slot / .deck-slot 撑着，
+   所以邻牌不会塌陷补位。两边的 onDragStart 都调它。
+   注意舞台带 transform（见下），fixed 的包含块是 .deck-scaler 而不是视口，
+   写进 left/top 的必须是舞台内坐标（liftCardOut 里会换算）。
    ============================================================ */
 
+/* ============================================================
+   16:9 舞台
+   ------------------------------------------------------------
+   外层把画面居中并铺满留边，中层是一块 1672:941 的舞台，视口太宽留左右边、太窄留上下边。
+   纸面（底色 + 两层纸纹 + 暗角）铺在外层 .deck-frame 上，留边和舞台因此是同一张纸，
+   接缝看不出来，舞台自己不用再画背景。
+
+   缩放方式和对局页一样（见 styles.css 里"对局界面的 16:9 舞台"）：内层 .deck-scaler
+   永远是 1672×941 的盒子，排版一个像素都不用改，只把整块画面 transform: scale() 缩到舞台大小。
+   首页 / hero / room 走的是另一条路（内部尺寸全写 cqi），这一页做不到——卡面 150×225、
+   迷你卡缩放、格子网格的几何都是写死的像素。
+
+   这个 transform 顺带让 .deck-scaler 成为内部所有 position: fixed 元素的包含块：
+   拖拽时被拎出网格的那张牌（见文件开头 liftCardOut）、放大查看的遮罩和裁剪层
+   （.reveal-overlay / .reveal-clip）都改成钉在舞台上，留边区域不会再被它们盖住。
+   代价是这些元素的坐标基准从视口换成了舞台，凡是"拿视口坐标算完写回 CSS / GSAP"的地方
+   都要过一次 ui/battleStage.ts 的换算（liftCardOut、useCardDrag 的默认跟随都已经处理）。
+   「把牌拖出面板 = 移除」那块落点登记的是最外层的 .deck-frame 而不是舞台，
+   所以拖到留边区域松手照样算移除。登记在舞台上的话，往右一甩正好落进右边那条留边，
+   zoneAt 找不到落点、按取消处理，牌会莫名其妙飞回去。
+   ============================================================ */
+
+.deck-frame {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+}
+
 .deck-page {
+  /* --deck-scale 要按舞台宽算，所以这里必须是尺寸容器。
+     inline-size 就够：舞台是定死的 16:9，宽度一定，高度也就定了。 */
+  container-type: inline-size;
+  /* 纸纹是宿主 .deck-frame 的 ::before / ::after，其中 ::after 排在所有子元素之后、
+     默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
+  position: relative;
+  z-index: 1;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+
   /* --battle-grain 的作用域补丁，同 design.css 里那段。
      .plaque-button（styles.css）的 background-image 里引用了这个变量，而它只定义在
      .battle 那个对局界面根类上。本页不在 .battle 里，变量取不到；CSS 的规则是 var()
@@ -36,25 +77,63 @@
   --battle-line-dark: var(--line-dark);
   --battle-paper: var(--paper);
 
+  /* 右栏宽度。格子网格的列宽是照它反算的（见 --deck-mini-scale），所以提成变量，
+     免得 .deck-body 的 grid-template-columns 和那条公式各写一份、改一处漏一处。
+     原先写成 clamp(444px, 30vw, 496px)，跟着视口宽走；现在排版永远按设计宽 1672 排
+     （整块画面交给 .deck-scaler 等比缩），30vw ≈ 501.6px 恒被上限截住，于是直接写上限值。
+     444 那条下限是「一行三张牌还认得出字」的底线，改这个值时别跌破它。 */
+  --deck-side-w: 496px;
+
+  /* 牌组格子之间的间距。也进 --deck-mini-scale 的公式，所以是变量不是字面量。 */
+  --deck-slot-gap: 10px;
+
   /* 牌组格子里那张迷你卡的缩放比。
      卡面里的字号、内边距全是写死的像素，只能整张按比例缩（同 HomeScreen 的做法）。
-     这个值同时决定格子的宽高，而格子网格是写死的五列，所以改它要连
-     .deck-body 右栏那个 clamp 一起验算，否则一行五个会放不下。
+     这个值同时决定格子的宽高。
 
-     跟着视口高走：整页锁死在一屏内，牌组那 4 行格子必须和面板的其余部分一起塞进这一屏。
-     公式是照实测的固定高反推的——面板除格子之外的部分约 284px（标题、进度条、底部按钮），
-     加上面板距顶 112px 和页面下边距 24px，共 420px；格子自身是 4 × 225 × scale + 3 × 8 的间距，
-     于是 scale = (视口高 − 444) ÷ 900。上限 0.46 是设计稿的原值，再大就撑破右栏宽度；
-     下限 0.28 是牌面上的字还认得出来的底线，屏幕再矮就只能让面板顶出去一点。
-     改面板里的任何固定高（标题、进度条、底部）都要重新验算这里的 444。
+     跟着**右栏宽度**走（以前是跟着视口高走）：格子区现在自己滚、高度多余多少都吃得下，
+     真正的硬约束只剩"一行三张要正好铺满右栏内宽"。右栏内宽这么摊：
+       右栏总宽 −2px（.deck-side 左右边框）−48px（.deck-side__body 左右内边距）
+              −8px（.deck-slots 的滚动条槽）−16px（左右各留 8px 余量）
+     那 16px 余量是给两样东西的：格子右上角的「×」按钮探出 6px（见 .deck-circle--remove），
+     以及滚动条两端的菱形装饰。剩下的宽度减掉两道 gap，除以 3 就是一张牌的宽，
+     再除以卡面原宽 150px 得到缩放比。
+     两个自变量现在都是定值，算出来恒等于 0.8933；仍然写成公式而不是直接写死这个数，
+     是为了改右栏宽或格子间距时不用手算——舞台是定死的，公式只在编译期算这一次。
      末尾的 “/ 1px” 是把算出来的长度除成无单位数：scale 和用它的那几个乘法都只吃纯数字。
+     改 .deck-side__body 的左右内边距、滚动条宽度或格子列数，都要回来重算这条。
    */
-  --deck-mini-scale: clamp(0.28, calc((100vh - 444px) / 900 / 1px), 0.46);
+  --deck-mini-scale: calc(
+    (var(--deck-side-w) - 74px - var(--deck-slot-gap) * 2) / 3 / 150 / 1px
+  );
 
-  /* 整页锁在一屏内。dvh 是给移动端浏览器地址栏伸缩用的，桌面端和 vh 等价。 */
-  height: 100dvh;
+  /* 进度条填充块的墨绿。比纸面 token 的 --c-green（#8a9a78）深得多：
+     那个绿是水彩淡色，铺成 9px 的实心块会糊在米纸底上分不出来。本页私有，不进 paper.css。 */
+  --deck-progress-green: #35604d;
+
   /* 兜底：正常情况下内部各块都定了高，不该有东西溢出到这里。 */
   overflow: hidden;
+}
+
+/*
+ * 缩放层：永远是设计稿那么大的一块盒子，整体缩到舞台里。
+ *
+ * --deck-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
+ * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
+ * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ *
+ * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
+ * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
+ */
+.deck-scaler {
+  --deck-scale: tan(atan2(100cqi, 1672px));
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1672px;
+  height: 941px;
+  transform: scale(var(--deck-scale));
+  transform-origin: top left;
 }
 
 /* 纸纹容器（styles.css 的 .paper-page__inner）默认按内容高，这里要它撑满并成为纵向弹性容器，
@@ -68,45 +147,68 @@
 
 /* ============================================================
    顶栏
+   ------------------------------------------------------------
+   整行左对齐：返回 — ✦ — 组建牌组 — 竖线 — 副标题，五件东西一条基线。
+   高度是刻意收紧的：整页锁死在一屏内，顶栏矮一分，下面两块面板就高一分。
    ============================================================ */
 .deck-top {
-  position: relative;
-  padding: 26px 30px 18px;
-  text-align: center;
+  display: flex;
+  /* 按基线对齐而不是居中：标题 28px、副标题 14px，居中会让两行字看着一高一低。
+     花饰和竖线没有基线可言，单独 align-self: center。 */
+  align-items: baseline;
+  gap: 14px;
+  padding: 16px 30px 12px;
 }
 
+/*
+ * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头怎么摆、hover 时箭头
+ * 往左挪）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
+ * 那边的规则全包在 :where() 里、特指度为 0，所以下面这些单类选择器一律压得住它。
+ * 不描边、不铺底：顶栏这一行是直接写在纸上的，加个框反而像贴了张标签。
+ */
 .deck-back {
-  position: absolute;
-  top: 26px;
-  left: 30px;
-  padding: 6px 14px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  background: rgb(255 255 255 / 24%);
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--ink-2);
   font: inherit;
   font-size: 14px;
   letter-spacing: 0.14em;
   cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    color 0.16s ease,
-    background-color 0.16s ease;
+  transition: color 0.16s ease;
 }
 
 .deck-back:hover {
-  border-color: var(--c-rust);
-  background: rgb(255 255 255 / 46%);
-  color: var(--ink);
+  color: var(--c-rust);
+}
+
+/* 顶栏那枚花饰。比标题两侧的小一号，只是个分隔符。 */
+.deck-top__spark {
+  align-self: center;
+  width: 13px;
+  height: 13px;
+  color: var(--c-rust);
 }
 
 .deck-top__title {
-  margin: 0 0 4px;
-  font-size: 30px;
+  flex: none;
+  margin: 0;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: 0.16em;
-  /* letter-spacing 会在末字后面也留一格，把整行推得偏左，取一半补回视觉居中。 */
-  text-indent: 0.16em;
+  /* letter-spacing 在末字后面也留一格，标题和后面那条竖线之间会多出这一格，取回来。 */
+  margin-right: -0.16em;
+}
+
+/* 标题和副标题之间的竖细线。2px 而不是 1px：这一页的线普遍是 2px 起，
+   1px 在纸纹上会被斑驳吃掉一半。 */
+.deck-top__rule {
+  align-self: center;
+  flex: none;
+  width: 2px;
+  height: 20px;
+  background: var(--line);
 }
 
 .deck-top__sub {
@@ -114,7 +216,22 @@
   color: var(--ink-2);
   font-size: 14px;
   letter-spacing: 0.1em;
-  text-indent: 0.1em;
+}
+
+/* ============================================================
+   花饰 ✦（Sparkle）
+   ------------------------------------------------------------
+   顶栏和「我的牌组」标题两侧共用。尺寸由使用处给，这里只定形和滤镜。
+   ============================================================ */
+.deck-spark {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+  color: var(--line-dark);
+  /* 和页面上其它线条共用同一份手绘抖动滤镜（见 ui/HandDrawnFilterDefs.tsx）。
+     图形本身就是实心面，位移只会让四个角歪一点，不存在细线被扯断的问题。 */
+  filter: url('#ai-duel-rough-icon');
 }
 
 /* ============================================================
@@ -122,12 +239,9 @@
    ============================================================ */
 .deck-body {
   display: grid;
-  /* 右栏宽度是照「一行五个迷你卡 + 雕花框留白」定的：
-     5 × 150 × 0.46 + 4 × 8 的格子网格 = 377px，加左右各 24px 内边距和 1px 边框。
-     改 --deck-mini-scale 或格子间距都要重新验算这个下限。 */
-  grid-template-columns: minmax(0, 1fr) clamp(444px, 30vw, 496px);
-  /* 左栏（卡池）要吃掉顶栏之外的全部高度，自己内部再滚；
-     右栏按内容定高，所以单独 align-self: start（见 .deck-side）。 */
+  /* 右栏定宽，迷你卡的大小反过来由它决定（见 .deck-page 里的 --deck-mini-scale）。 */
+  grid-template-columns: minmax(0, 1fr) var(--deck-side-w);
+  /* 两栏都要吃掉顶栏之外的全部高度，各自内部再滚。 */
   align-items: stretch;
   /* min-height: 0 是让卡池网格的 overflow 生效的关键：
      不写的话 grid 项目的最小高度是内容高，卡池会顶着页面撑出去而不是出滚动条。 */
@@ -144,7 +258,7 @@
    ============================================================ */
 .deck-pool {
   /*
-   * 深底上的墨色 token 就地翻转：面板里的 PaperTabs、说明文字都是照 --ink / --ink-2 /
+   * 深底上的墨色 token 就地翻转：面板里的页签、药丸、说明文字都是照 --ink / --ink-2 /
    * --line 上色的，不改的话深蓝底上是一片看不清的深灰字。
    * 只在这块面板内部生效，出了面板还是纸面那套。面板自己的边框不能用被改写的
    * --line-dark（那是给面板里的线用的浅色），所以另给了 --deck-pool-edge。
@@ -154,6 +268,9 @@
   --line: rgb(226 214 186 / 26%);
   --line-dark: rgb(226 214 186 / 46%);
   --deck-pool-edge: #4a5169;
+  /* 激活的那块牌匾是「一片米纸压在深蓝面板上」，字得是真正的墨色。
+     上面几行已经把 --ink 翻成浅色了，所以深色只能另起一个名字留一份。 */
+  --deck-plaque-ink: #2e2e38;
 
   /* 卡池分成三段：筛选栏、滚动网格、底部提示；只有中间那段滚。 */
   display: flex;
@@ -185,46 +302,174 @@
   background-color: #26334c;
 }
 
+/* ---------- 种类页签（牌匾式 tab） ---------- */
+/*
+ * 三块矩形牌匾坐在一条横贯面板的基线上。激活项米纸底 + 墨字 + 金赭双线描边，比未激活的高一截；
+ * 未激活项是深蓝底 + 浅字 + 细描边。牌匾自己**不套滤镜**：位移滤镜作用在有文字的盒子上
+ * 会把字一起扯糊，只有那条基线（纯图形）套。
+ */
+.deck-kinds {
+  position: relative;
+  display: flex;
+  /* 三块牌匾底边对齐坐在基线上，激活的那块因此是往上长高，不会把整行顶下去。 */
+  align-items: flex-end;
+  gap: 8px;
+  /* 给基线让出位置：线画在盒子最底下那 2px 上。 */
+  padding-bottom: 2px;
+}
+
+.deck-kind {
+  padding: 6px 16px 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px 2px 0 0;
+  background: rgb(255 255 255 / 5%);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-indent: 0.1em;
+  /* 「AI 卡 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.deck-kind:hover:not([data-active='true']) {
+  border-color: var(--line-dark);
+  background: rgb(255 255 255 / 11%);
+  color: var(--ink);
+}
+
+/*
+ * 激活项。双线描边 = 金色外框 + 往里缩 3px 的赭色内框（outline 负偏移画在盒子内部）。
+ * 上下内边距比未激活的各多 3px，配合容器的 flex-end 就是「略高略凸」。
+ * 一律瞬切不做过渡：牌匾变高会牵动整行布局，动起来是一次次重排。
+ */
+.deck-kind[data-active='true'] {
+  padding: 9px 18px 10px;
+  border-color: var(--c-gold);
+  outline: 1px solid rgb(192 122 82 / 62%);
+  outline-offset: -4px;
+  background: var(--paper);
+  color: var(--deck-plaque-ink);
+  font-weight: 600;
+  box-shadow: 0 -2px 8px rgb(0 0 0 / 26%);
+}
+
+/*
+ * 牌匾坐着的那条基线。
+ *
+ * 盒子做成 8px 高、只在中间画那条 2px 的线，是为了给手绘滤镜一个够高的计算盒：
+ * 滤镜区域是按边框盒的 ±20% 算的，直接给一个 2px 高的元素套滤镜，
+ * 两端 6px 的菱形会被裁掉大半（这一条是本页所有细线装饰的通用做法）。
+ */
+.deck-kinds__rule {
+  position: absolute;
+  right: 0;
+  bottom: -3px;
+  left: 0;
+  height: 8px;
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.deck-kinds__rule::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--line-dark);
+}
+
+/* 线两端的菱形端点。两枚同类名，靠 :last-child 分左右。 */
+.deck-kinds__dia {
+  position: absolute;
+  top: 1px;
+  left: -1px;
+  width: 6px;
+  height: 6px;
+  background: var(--line-dark);
+  transform: rotate(45deg);
+}
+
+.deck-kinds__dia:last-child {
+  right: -1px;
+  left: auto;
+}
+
+/* ---------- 阵营筛选（药丸） ---------- */
 .deck-factions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
+/*
+ * 药丸描边套手绘滤镜，所以描边和底色必须画在**另一层**上（::before），
+ * 不能挂在按钮本身：位移滤镜会连同里面的文字一起扯，字会糊。
+ *
+ * 整组一律瞬切、没有 transition：带滤镜的元素每过渡一帧就要重跑一遍
+ * feTurbulence + feDisplacementMap（WebKit 上是 CPU 逐像素算）。
+ */
 .deck-faction {
-  padding: 5px 13px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: rgb(255 255 255 / 4%);
+  position: relative;
+  padding: 5px 14px;
+  border: 0;
+  background: none;
   color: var(--ink-2);
   font: inherit;
   font-size: 13.5px;
   letter-spacing: 0.1em;
   text-indent: 0.1em;
   cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    color 0.16s ease;
 }
 
-.deck-faction:hover {
+/*
+ * z-index: -1 把这一层压到按钮文字下面。
+ * 按钮自己是 position: relative 但没有 z-index，不建层叠上下文，所以这一层实际落在
+ * .deck-pool__head（z-index: 2，是层叠上下文）的负层里——刚好在面板底色之上、
+ * 所有内容之下，正是要的位置。给 .deck-faction 加 z-index 或 isolation 会打破这个安排。
+ */
+.deck-faction::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 4%);
+  filter: url('#ai-duel-rough-button');
+}
+
+.deck-faction:hover:not([data-active='true'])::before {
   border-color: var(--line-dark);
   background: rgb(255 255 255 / 10%);
+}
+
+.deck-faction:hover:not([data-active='true']) {
   color: var(--ink);
 }
 
-/* 选中项：赭红描边配一层同色底，和 PaperTabs 当前项的下划线是同一种颜色语言。 */
+/*
+ * 选中项：双线金描边（border 是外线，负偏移的 outline 是内线），字色偏金。
+ * 两条线画在同一个元素上，所以歪的方向一致，看着像一笔勾出来的双线。
+ */
+.deck-faction[data-active='true']::before {
+  border-color: var(--c-gold);
+  outline: 1.5px solid rgb(217 164 65 / 45%);
+  outline-offset: -5px;
+  background: rgb(217 164 65 / 14%);
+}
+
 .deck-faction[data-active='true'] {
-  border-color: var(--c-rust);
-  background: rgb(192 122 82 / 26%);
-  color: #f6efdd;
+  color: #f3e2b8;
 }
 
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
-  /* 整页唯一的滚动区。它是 overflow 容器，所以卡被拖出去时要先切成 fixed，
-     否则会被裁掉（见文件头的说明和 DeckScreen 的 liftCardOut）。 */
+  /* 整页两块滚动区之一（另一块是 .deck-slots）。它是 overflow 容器，
+     所以卡被拖出去时要先切成 fixed，否则会被裁掉（见文件头的说明和 DeckScreen 的 liftCardOut）。 */
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -257,31 +502,72 @@
   position: relative;
   width: var(--card-w);
   height: var(--card-h);
-  border-radius: 12px;
+  /* 和 .card-face 的圆角对齐，选中金边才贴着卡走而不是在四角鼓出来。 */
+  border-radius: 8px;
   cursor: pointer;
-  transition:
-    box-shadow 0.16s ease,
-    filter 0.16s ease;
 }
 
-.deck-pool-card:hover {
+/*
+ * 离屏的卡不渲染内部。卡池一屏三十来张，每张里面都有一整份卡面（插画、文字层、
+ * 羽化伪元素、高光层），滚动时全量重画很贵。
+ *
+ * 挂在 .card-face 上，而不是外层的 .deck-pool-slot / .deck-pool-card——
+ * content-visibility: auto 会连带 paint 包含，而 paint 包含有两个副作用，外层一个都受不起：
+ *   1. 把「内容」裁到自己的 padding 盒。卡面自带的投影（0 10px 24px）、hover 的光晕、
+ *      选中的金边全画在盒子外面，挂在外层就会被整齐切掉一圈；
+ *      放大查看飞回原位那一程也是整张卡在格子外面飞，同样会被裁没。
+ *   2. 让自己变成 position: fixed 后代的包含块。卡池的牌起拖时正是靠切 fixed 逃出
+ *      .deck-grid 的 overflow（见文件头和 liftCardOut），外层一裁这一手就直接失效。
+ * .card-face 自己本来就是 overflow: hidden，里面的东西一个都溢不出来，
+ * 而且它已经带着 container-type: inline-size（layout + style 包含），
+ * 再补一层 paint 包含不改变任何画面。
+ */
+.deck-pool-card .card-face {
+  content-visibility: auto;
+  /* 被跳过时的尺寸兜底。卡面眼下是 width/height: 100%，尺寸不依赖内容，这一行其实不生效；
+     写出来是防将来卡面改成按内容定尺寸时，离屏的格子突然塌成 0。 */
+  contain-intrinsic-size: var(--card-w) var(--card-h);
+}
+
+/*
+ * hover 高亮。
+ *
+ * 这一层是**常驻**的，静置时 opacity: 0，hover 只切透明度——合成器自己就能做完，
+ * 一帧卡面都不用重画。以前是在 .deck-pool-card 上过渡 box-shadow + filter(brightness)，
+ * 那两样每帧都要重新算阴影模糊和整卡提亮，一屏三十张卡的时候很贵。
+ * 宿主 .deck-pool-card 身上有 GSAP 写的内联 transform，所以高亮只能是子层，不能靠宿主自己变。
+ */
+.deck-pool-card__glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* 半透明白提亮 + 金描边 + 柔和外晕，三样合成一层。 */
+  background: rgb(255 255 255 / 9%);
   box-shadow:
-    0 0 0 1px rgb(217 164 65 / 55%),
+    0 0 0 1px rgb(217 164 65 / 60%),
     0 12px 26px rgb(0 0 0 / 45%);
-  filter: brightness(1.08);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
 }
 
-/* 已经选进牌组：描金边。用 box-shadow 而不是 border，免得挤掉卡面 1px 让卡跳一下。 */
+.deck-pool-card:hover .deck-pool-card__glow {
+  opacity: 1;
+}
+
+/*
+ * 已经选进牌组：金色双线。
+ * 外线是 box-shadow 的 2px 扩散（不用 border，免得挤掉卡面 1px 让卡跳一下），
+ * 内线是负偏移的 outline——outline 在绘制顺序里排在所有子元素之后，
+ * 所以它压得住不透明的 .card-face，而 inset 阴影会被卡面整个盖掉。
+ * 选中态不做过渡：加牌是一次性的状态切换，渐变反而让人以为还在加载。
+ */
 .deck-pool-card[data-picked] {
   box-shadow:
     0 0 0 2px var(--c-gold),
     0 8px 20px rgb(0 0 0 / 42%);
-}
-
-.deck-pool-card[data-picked]:hover {
-  box-shadow:
-    0 0 0 2px var(--c-gold),
-    0 12px 28px rgb(0 0 0 / 50%);
+  outline: 1px solid rgb(217 164 65 / 72%);
+  outline-offset: -4px;
 }
 
 /* 选满两份：整卡退到背景里，明确「这张不用再看了」。滤镜只压卡面，
@@ -297,25 +583,41 @@
   filter: drop-shadow(0 18px 26px rgb(0 0 0 / 55%));
 }
 
-/* 选中份数角标，压在插画左上那一块（原先是钉在费用数字下面，卡面取消费用后位置照旧）。
-   不放右下角：那里是卡面底部的信息层（卡名、描述、模型名那一行），压上去会盖住文字。 */
-.deck-pool-card__mark {
+/*
+ * 选中圆章：金底墨字，钉在卡的右上角，约三分之一探出卡外。
+ * 一份显示「✓」，两份（MAX_COPIES）显示「×2」。
+ *
+ * 圆底和描边画在 ::before 上、只给这一层套手绘滤镜，章上的字留在元素本体：
+ * 位移滤镜作用在文字上会把「✓」和「×2」扯糊。
+ * isolation: isolate 是为了把下面那句 z-index: -1 关在圆章内部——
+ * 不隔离的话它会一路落到 .paper-page__inner 的负层，整个跑到卡面后面去。
+ */
+.deck-pool-card__seal {
   position: absolute;
-  top: 40px;
-  left: 6px;
+  top: -9px;
+  right: -9px;
   display: grid;
   place-items: center;
-  min-width: 26px;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid rgb(217 164 65 / 85%);
-  border-radius: 3px;
-  background: rgb(24 20 14 / 86%);
-  color: var(--c-gold);
-  font-size: 13px;
+  isolation: isolate;
+  width: 26px;
+  height: 26px;
+  color: #241d10;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
+  line-height: 1;
   pointer-events: none;
+}
+
+.deck-pool-card__seal::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid #8b6a24;
+  border-radius: 50%;
+  background: var(--c-gold);
+  filter: url('#ai-duel-rough-icon');
 }
 
 /* 和筛选栏一样在滚动区之外：它说的是"现在这块面板能怎么操作"，得一直看得见。 */
@@ -350,10 +652,15 @@
   background: rgb(20 17 12 / 78%);
   color: #f3ead6;
   cursor: pointer;
+  /*
+   * 只过渡底色和透明度。
+   * color 不能过渡：里面那个 SVG 的描边是 currentColor，字色一变，
+   * 挂在它身上的手绘滤镜就得跟着逐帧重跑（WebKit 上是 CPU 逐像素算）。
+   * box-shadow 也不过渡：hover 那圈金晕改成瞬切，省掉十几帧的阴影重算。
+   * opacity 例外——它作用在滤镜的结果上，合成器直接调透明度，不会让滤镜重算。
+   */
   transition:
     background-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease,
     opacity 0.14s ease;
 }
 
@@ -368,9 +675,11 @@
   filter: url('#ai-duel-rough-icon');
 }
 
+/* 挪到左上角。右上角让给选中圆章（.deck-pool-card__seal）——那枚章还探出卡外，
+   两个都钉在右上就会叠在一起。左上是整版插画，圆圈压上去不会盖到任何文字。 */
 .deck-circle--add {
   top: 7px;
-  right: 7px;
+  left: 7px;
   width: 28px;
   height: 28px;
 }
@@ -411,9 +720,15 @@
    右：我的牌组
    ============================================================ */
 .deck-side {
-  /* 页面不滚了，面板本来就一直在视口里，按内容定高即可。 */
+  /*
+   * 顶到底：面板吃掉顶栏之外的整段高度，多出来的高度全给格子区（.deck-slots）。
+   * 从这里到 .deck-side__body 一路都是「flex 列 + flex: 1 + min-height: 0」，
+   * 少写一层 min-height: 0，格子区的 overflow 就会失效、面板被内容顶出屏幕。
+   */
+  display: flex;
+  min-height: 0;
+
   position: relative;
-  align-self: start;
   /*
    * 整块面板要压过卡池那两条横条（.deck-pool__head / .deck-pool__hint，都是 z-index: 2）。
    * 迷你卡被拖出面板时 hook 给它写的 zIndex 1000 出不了这里——这里有 z-index 就建了层叠上下文——
@@ -426,9 +741,9 @@
   background-color: var(--paper-shade);
   background-image: radial-gradient(ellipse at 50% 26%, rgb(255 255 255 / 55%), transparent 74%);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 35%);
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
+  /* 只过渡边框色。落点高亮那圈 46px 的内发光不做过渡：它铺满整块面板，
+     每帧重算一遍大面积模糊很贵，而拖拽正在进行时这一帧格外不能丢。 */
+  transition: border-color 0.16s ease;
 }
 
 /*
@@ -461,6 +776,9 @@
  * （见 DeckScreen.tsx 里 deckDrag 的 zones 注释）。
  */
 .deck-side__inner {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   border-radius: inherit;
 }
 
@@ -480,65 +798,385 @@
  * 这一页要反过来：迷你卡被拖到面板边缘时得从雕花线上面经过，不然会被线切开。
  * 内容本身有 26/24px 内边距，静置时够不到 6px / 11px 处的框线，抬上来不改变静态画面。
  */
+/* 雕花框本身也要参与那条「顶到底」的 flex 链。 */
+.deck-page .deck-side .ornate-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .deck-page .deck-side .ornate-frame__content {
   z-index: 3;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .deck-side__body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* 雕花框的外线在 6px、内线在 11px、四角装饰 38px，内容要让开这一圈才不会压在线上。 */
+  /* 雕花框的外线在 6px、内线在 11px、四角装饰 38px，内容要让开这一圈才不会压在线上。
+     左右这个 24px 进 --deck-mini-scale 的公式，改了要回去重算。 */
   padding: 26px 24px 22px;
 }
 
-.deck-tally {
+/* 标题那一行：OrnateTitle 自己会把细线撑满，两侧各挂一枚花饰。 */
+.deck-side__title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.deck-side__title .paper-orn-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- 牌组管理条 ---------- */
+/*
+ * 当前牌组名 + 切换 / 改名 / 删除 / 新建。
+ *
+ * 下拉列表和删除确认都做成绝对定位的浮层，不进文档流：整页锁死在一屏内（见文件头），
+ * 管理条一旦能把面板撑高，挤掉的就是下面格子区能看见的行数。
+ * 只有 .deck-manage__row 那一行算高度。
+ * 本页私有，样式全用纸面 token，改配色只动这一段。
+ */
+.deck-manage {
+  flex: none;
+  position: relative;
+  /*
+   * 浮层要压住下面的进度条和格子网格。格子（.deck-slot）是 position: relative，
+   * 在同一个层叠上下文里按文档顺序排在管理条之上，不显式抬一层的话下拉会被格子盖掉。
+   */
+  z-index: 2;
+}
+
+.deck-manage__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 定高。两块浮层都不占文档流，所以这一行就是管理条对面板高度的全部贡献。 */
+  min-height: 26px;
+}
+
+/* 牌组名。字体跟着页面走（纸面那套衬线），太长时省略号收尾，别把按钮挤出去。 */
+.deck-manage__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 改名时就地把名字换成输入框，宽度和位置都和 .deck-manage__name 对齐，不让这一行跳动。 */
+.deck-manage__input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
+.deck-manage__actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+
+/* 细线描边 + 小圆角 + 衬线字（font: inherit 就是整页那套衬线），hover 整颗转赭色。
+   这几颗按钮身上没有滤镜，所以颜色可以做过渡。 */
+.deck-manage__btn {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 30%);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.deck-manage__btn:hover:not(:disabled) {
+  border-color: var(--c-rust);
+  background: rgb(255 255 255 / 55%);
+  color: var(--c-rust);
+}
+
+.deck-manage__btn:disabled {
+  border-color: rgb(185 177 158 / 55%);
+  color: rgb(107 106 95 / 45%);
+  cursor: not-allowed;
+}
+
+/* ---- 切换牌组的下拉 ---- */
+.deck-manage__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  /* 12 套顶天了，超过就自己滚，别把浮层拉到盖住整块面板。 */
+  max-height: 238px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line-dark);
+  border-radius: 3px;
+  /* 浮在进度条和格子上面，必须不透明；投影只压一点，浮层是"纸叠在纸上"不是弹窗。 */
+  background: var(--paper);
+  box-shadow: 0 8px 18px rgb(35 47 75 / 20%);
+}
+
+.deck-manage__list {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.deck-manage__item {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
   color: var(--ink-2);
+  font: inherit;
   font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.deck-manage__item:hover {
+  background: rgb(35 47 75 / 8%);
+  color: var(--ink);
+}
+
+/* 当前这一套。用赭红底而不是打钩，和阵营筛选的选中态是同一种颜色语言。 */
+.deck-manage__item[data-current='true'] {
+  background: rgb(192 122 82 / 16%);
+  color: var(--ink);
+}
+
+.deck-manage__item-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.deck-manage__item-count {
+  flex: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+}
+
+/* 列表底部的新建项。虚线框呼应空卡槽，表示"这一格还没有东西"。 */
+.deck-manage__new {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.deck-manage__new:hover:not(:disabled) {
+  border-color: var(--c-rust);
+  color: var(--c-rust);
+}
+
+.deck-manage__new:disabled {
+  color: rgb(107 106 95 / 45%);
+  cursor: not-allowed;
+}
+
+/* ---- 删除确认 ---- */
+/* 贴着「删除」按钮下方弹出。不用 window.confirm：那玩意会打断整页的 GSAP 和拖拽状态，
+   而且长得和这一页的纸面风格完全不搭。 */
+.deck-manage__confirm {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-dark);
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: 0 8px 18px rgb(35 47 75 / 20%);
+  white-space: nowrap;
+}
+
+.deck-manage__confirm-text {
+  color: var(--ink);
+  font-size: 13px;
   letter-spacing: 0.06em;
 }
 
-.deck-tally__count {
-  color: var(--ink);
-  font-size: 15px;
+.deck-manage__mini {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 40%);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
+.deck-manage__mini:hover {
+  border-color: var(--c-rust);
+  color: var(--c-rust);
+}
+
+/* 「确定」是不可撤销的那一下，用生命红标出来，和"还需选择 N 张"同色。 */
+.deck-manage__mini--yes {
+  border-color: rgb(178 63 51 / 55%);
+  color: var(--c-life);
+}
+
+.deck-manage__mini--yes:hover {
+  border-color: var(--c-life);
+  background: rgb(178 63 51 / 12%);
+  color: var(--c-life);
+}
+
+/* ---------- 计数 ---------- */
+/* 两行：大号数字那行是主角，卡种分布那行是补充说明。 */
+.deck-tally {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.deck-tally__count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+
+/* 已选张数。整块面板里最大的一个字号，一眼就能读到进度。 */
 .deck-tally__count b {
   color: var(--navy);
-  font-size: 22px;
+  font-size: 30px;
   font-weight: 600;
+  line-height: 1;
+}
+
+/* 「/ 20」比它小一号，读起来是「30 分之 20」的那个分母。 */
+.deck-tally__total {
+  color: var(--ink-2);
+  font-size: 18px;
+}
+
+.deck-tally__mix {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 
 /* ---------- 进度 ---------- */
 .deck-progress {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/*
+ * 一条横贯的细线，右端一个菱形端点，墨绿圆角块盖在线上表示进度。
+ *
+ * 盒子做成 12px 高、线和菱形都画在里面，是为了给手绘滤镜一个够高的计算盒
+ * （同 .deck-kinds__rule：2px 高的元素套滤镜会把 6px 的菱形裁掉大半）。
+ * 填充块的宽度一变，这条滤镜就要重算一遍——面积只有一条细带，成本可以接受，
+ * 但也正因如此宽度**不做过渡**：过渡等于连着十几帧每帧都重算。
+ */
 .deck-progress__track {
+  position: relative;
   flex: 1;
-  height: 8px;
-  border: 1px solid var(--line-dark);
-  border-radius: 2px;
-  background: rgb(35 47 75 / 8%);
-  overflow: hidden;
+  height: 12px;
+  filter: url('#ai-duel-rough-button');
+}
+
+.deck-progress__track::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--line-dark);
+}
+
+/* 右端的菱形端点。 */
+.deck-progress__track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  background: var(--line-dark);
+  transform: rotate(45deg);
 }
 
 .deck-progress__fill {
+  position: absolute;
+  top: 2px;
+  left: 0;
   display: block;
-  height: 100%;
-  background: linear-gradient(to right, var(--c-blue), var(--c-gold));
-  /* 宽度由内联样式给（百分比），这里只补一段过渡，加减牌时条子是走过去的而不是跳过去的。 */
-  transition: width 0.24s ease;
+  /* 比底下那条线粗，才像"盖在线上的一块"而不是把线填了色。 */
+  height: 9px;
+  border-radius: 5px;
+  background: var(--deck-progress-green);
+  /* 宽度由内联样式给（百分比）。不加 transition，理由见上面的滤镜说明。 */
 }
 
 .deck-progress__num {
-  min-width: 42px;
+  flex: none;
+  min-width: 38px;
   color: var(--ink-2);
   font-size: 13px;
   letter-spacing: 0.04em;
@@ -546,16 +1184,90 @@
 }
 
 /* ---------- 格子网格 ---------- */
-/* 列数写死五列（20 格正好四行）。不用 auto-fill 是因为格子数固定，
-   列数一变就会出现「最后一行只剩一两个」的空档，看着像少了几格。 */
+/*
+ * 外层只提供定位参照：滚动条两端那两枚菱形要钉在滚动区的上下沿，
+ * 画在 .deck-slots 自己的伪元素上会跟着内容一起滚走。
+ */
+.deck-slots-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* 列数写死三列。不用 auto-fill 是因为格子数固定，列数一变就会出现
+   「最后一行只剩一两个」的空档，看着像少了几格。
+   列宽和右栏内宽是配平的，见 .deck-page 里 --deck-mini-scale 的推导。 */
 .deck-slots {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+
   display: grid;
-  grid-template-columns: repeat(5, calc(var(--card-w) * var(--deck-mini-scale)));
-  gap: 8px;
+  grid-template-columns: repeat(3, calc(var(--card-w) * var(--deck-mini-scale)));
+  gap: var(--deck-slot-gap);
+  align-content: start;
   justify-content: center;
   margin: 0;
-  padding: 2px 0 4px;
+  /* 上下留白是给格子右上角那颗探出 6px 的「×」按钮的：这一层现在会裁剪溢出内容。 */
+  padding: 8px 0 10px;
   list-style: none;
+}
+
+/*
+ * 自定义滚动条。
+ *
+ * 刻意**不**写标准的 scrollbar-width / scrollbar-color：Chrome 从 121 起，只要这两个属性
+ * 出现在同一条规则里，下面整套 ::-webkit-scrollbar-* 就会被整体忽略，
+ * 换来的是一根圆头的系统细条——画不出这里要的「一道刻度线 + 一个小方块」。
+ * 代价是 Firefox 上退回系统默认滚动条——那只是少了点装饰，滚动本身照常。
+ * 另外，一旦给 ::-webkit-scrollbar 设了宽度，Chrome 就不再用 macOS 那种悬浮滚动条，
+ * 这 8px 会实打实占掉内容宽度——--deck-mini-scale 的公式里预留的就是它。
+ */
+
+/* 轨道画成一条居中的 1px 细线：滚动条不该是一根槽，而是纸上的一道刻度。 */
+.deck-slots::-webkit-scrollbar {
+  width: 8px;
+}
+
+.deck-slots::-webkit-scrollbar-track {
+  background: linear-gradient(
+    to right,
+    transparent calc(50% - 0.5px),
+    var(--line) calc(50% - 0.5px),
+    var(--line) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+
+/* thumb 收成一个 4px 宽的小方块：透明边框 + content-box 裁剪是把它从 8px 收窄的老办法。 */
+.deck-slots::-webkit-scrollbar-thumb {
+  min-height: 26px;
+  border: 2px solid transparent;
+  border-radius: 1px;
+  background: var(--line-dark);
+  background-clip: content-box;
+}
+
+/* 轨道上下两端的菱形装饰。钉在滚动区右缘、轨道正中线上。 */
+.deck-slots-wrap::before,
+.deck-slots-wrap::after {
+  content: '';
+  position: absolute;
+  right: 1.5px;
+  width: 5px;
+  height: 5px;
+  background: var(--line-dark);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.deck-slots-wrap::before {
+  top: -3px;
+}
+
+.deck-slots-wrap::after {
+  bottom: -3px;
 }
 
 /* 一格。尺寸就是迷你卡缩完之后的大小，空格和有牌的格子共用同一个盒子，
@@ -593,39 +1305,77 @@
   transform-origin: top left;
 }
 
-/* 迷你卡只有七十来像素宽，描边和阴影按比例都太细，hover 改用整张提亮加一圈金色辉光。 */
-.deck-mini:hover .deck-mini__card {
-  filter: brightness(1.1) drop-shadow(0 0 3px rgb(217 164 65 / 85%));
+/*
+ * hover 高亮。同 .deck-pool-card__glow：常驻一层、只切 opacity，不再逐帧跑
+ * filter(brightness + drop-shadow)。挂在 .deck-mini 上而不是缩放层里，
+ * 所以 inset: 0 就是格子的实际大小，不用跟着 --deck-mini-scale 反算。
+ */
+.deck-mini__glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 12%);
+  box-shadow:
+    0 0 0 1px rgb(217 164 65 / 75%),
+    0 0 9px rgb(217 164 65 / 50%);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+
+.deck-mini:hover .deck-mini__glow {
+  opacity: 1;
 }
 
 /* ---------- 底部 ---------- */
 .deck-side__foot {
+  flex: none;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
-  padding-top: 4px;
+  padding-top: 2px;
+}
+
+/* 说明文字一行两端：左边是「这一格能怎么操作」，右边是「还差多少」。 */
+.deck-side__notes {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 /* 不满 20 张时的提示。这一条是「为什么按钮点不了」的答案，所以用生命红，
    不跟旁边的说明文字同色。 */
 .deck-shortfall {
+  flex: none;
   margin: 0;
   color: var(--c-life);
-  font-size: 13.5px;
+  font-size: 13px;
   letter-spacing: 0.08em;
 }
 
-/* 两个类是为了稳稳盖过 .plaque-button 自己那份 224×68。 */
+/* 凑满 20 张之后顶替上面那条红字。留一句话而不是留空，是为了这一行的高度不跳。 */
+.deck-done {
+  flex: none;
+  margin: 0;
+  color: var(--c-green);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+/* 两个类是为了稳稳盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。 */
 .deck-page .deck-confirm {
-  width: 208px;
-  height: 56px;
+  width: 100%;
+  height: 54px;
   font-size: 19px;
 }
 
 .deck-side__hint {
   margin: 0;
+  overflow: hidden;
   color: var(--ink-2);
   font-size: 12.5px;
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

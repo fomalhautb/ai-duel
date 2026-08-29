@@ -24,8 +24,9 @@
   --tile-w: 110px;
   --tile-h: 165px;
   --tile-scale: 0.733333;
-  /* 强制展示时那张大卡的放大倍数：150×225 × 1.7 = 255×382.5。
-     和下面 .reveal-card 的宽高是同一组数，改一处必须改另一处，否则起飞那一帧会跳变。 */
+  /* 展示层那张大卡的放大倍数：150×225 × 1.7 = 255×382.5。
+     .reveal-card 的宽高就是按它算的，改这里等于改那张卡的尺寸。
+     侧栏英雄牌那条链路另调了一档（见 .reveal-clip--hero）：它的原位卡本来就大得多。 */
   --reveal-scale: 1.7;
 }
 
@@ -55,8 +56,10 @@ body,
 /* ---------- 页面外壳 ---------- */
 
 /*
- * 首页 / 匹配房 / 404 这类静态页共用的排版。
- * 全是占位样式：这一版只保证信息看得清、按钮点得到，美术另做。
+ * 没有专属样式的静态页排版。首页、匹配房、选择英雄都已经各自成页，
+ * 眼下只剩 App.tsx 里的 404 还在用这一套占位样式：只保证信息看得清、按钮点得到，美术另做。
+ * 所以这里只留 404 真正用到的四条（外壳、标题、次要文字、按钮）。
+ * 别往这加「将来可能用得上」的规则：新页面一律自己开一份私有样式（见 hero.css / room.css）。
  */
 .page {
   max-width: 720px;
@@ -69,47 +72,9 @@ body,
   color: #38bdf8;
 }
 
-.page h2 {
-  margin: 0 0 8px;
-  font-size: 15px;
-  color: #9ca3af;
-  font-weight: 600;
-}
-
-.page__lead {
-  line-height: 1.7;
-  color: #c9d1d9;
-}
-
-.page__cta {
-  margin: 24px 0;
-  padding: 14px 28px;
-  border: none;
-  border-radius: 10px;
-  background: #38bdf8;
-  color: #0d1117;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.page__section {
-  margin-top: 32px;
-  padding-top: 20px;
-  border-top: 1px solid #21262d;
-}
-
-.page__section--dev {
-  opacity: 0.65;
-}
-
 .page__muted {
   color: #6b7280;
   font-size: 13px;
-}
-
-.page__error {
-  color: #f87171;
 }
 
 .page button {
@@ -121,30 +86,6 @@ body,
   color: #e5e7eb;
   font-size: 14px;
   cursor: pointer;
-}
-
-.page button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.room__code {
-  margin: 8px 0;
-  font-size: 44px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: #38bdf8;
-}
-
-.room__input {
-  width: 160px;
-  padding: 8px 12px;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  background: #0d1117;
-  color: #e5e7eb;
-  font-size: 20px;
-  letter-spacing: 0.16em;
 }
 
 /* ---------- 首页 ---------- */
@@ -200,6 +141,18 @@ body,
 }
 
 .home__stage {
+  /*
+   * 金色高亮和人物介绍卡片共用的一对时长：进入比离开慢一点，
+   * 出现时看得出是"浮上来的"，退场则干脆一些，不拖着尾巴挡画面。
+   * 放在舞台上是为了两处读同一份，免得调节奏时只改到一边。
+   * 这里的大小关系是有讲究的，别改反：换人时是两张介绍卡片在同一块地方交叉，
+   * "离开短于进入"加上下面那份起跑延迟，才能让旧卡先退干净、不和新卡叠成重影，
+   * 理由见 .home__cast-panel。
+   */
+  --home-cast-fade-in: 0.26s;
+  --home-cast-fade-out: 0.2s;
+  /* 只有介绍卡片用的一份起跑延迟，理由见 .home__cast-panel.is-open。 */
+  --home-cast-panel-in-delay: 0.08s;
   container-type: size;
   position: relative;
   /*
@@ -286,8 +239,8 @@ body,
    */
   visibility: hidden;
   transition:
-    opacity 0.22s ease,
-    visibility 0s linear 0.22s;
+    opacity var(--home-cast-fade-out) ease-in,
+    visibility 0s linear var(--home-cast-fade-out);
 }
 
 .home__cast-glow.is-lit {
@@ -295,19 +248,20 @@ body,
   visibility: visible;
   /* 淡入时 visibility 要立刻生效，所以延迟归零。 */
   transition:
-    opacity 0.22s ease,
+    opacity var(--home-cast-fade-in) ease-out,
     visibility 0s linear 0s;
 }
 
 /*
- * 人物介绍卡片。左右位置由 HomeScreen 按人物的 alpha 包围盒现算，这里只管长相。
+ * 人物介绍卡片。七个人各有一份常驻在 DOM 里，位置由 HomeScreen 按各自的 alpha 包围盒算好写进内联样式，
+ * 这里只管长相和淡入淡出——所以不用过渡 left/right，切人是两张卡片各自淡出淡入。
  * 调子对着首页夜空走：深蓝底 + 米金细线，双线内衬呼应战场的 .ornate-frame，但换成首页色板。
  */
 .home__cast-panel {
   position: absolute;
   width: 23cqi;
   padding: 1.5cqi;
-  border: 1px solid rgb(232 198 159 / 55%);
+  border: 0.06cqi solid rgb(232 198 159 / 55%);
   border-radius: 0.4cqi;
   /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
   background: linear-gradient(to bottom, rgb(24 31 40 / 94%), rgb(18 23 31 / 92%));
@@ -320,19 +274,38 @@ body,
   transform: translateY(0.6cqi);
   /* 和发光层同一套 visibility 配方，理由见上面。 */
   visibility: hidden;
+  /*
+   * 缓动这里和发光层不一样：进出两侧都用 ease，不用"离开 ease-in、进入 ease-out"那套。
+   * 相邻两人的卡片在屏幕上是大面积摞着的（实测最挤的一对重叠八成，姓名行还在同一高度），
+   * 指针从一个人滑到另一个人，就是两张卡在同一块地方交叉淡入淡出。
+   * 两侧用同一条曲线、离开又比进入短，两张卡的透明度加起来才始终不超过 1，看着像一张卡在换内容；
+   * 换成 ease-in 淡出的话，旧卡前段走得慢、高透明度被拖到后半程，正好撞上冲得快的新卡，
+   * 中间那零点一秒两张卡的边框和文字都清清楚楚，成了重影。
+   * 发光层没这个顾虑：每个人的剪影各占一块地方，重叠得少，上面也没有字。
+   */
   transition:
-    opacity 0.24s ease,
-    transform 0.24s ease,
-    visibility 0s linear 0.24s;
+    opacity var(--home-cast-fade-out) ease,
+    transform var(--home-cast-fade-out) ease,
+    visibility 0s linear var(--home-cast-fade-out);
 }
 
 .home__cast-panel.is-open {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
+  /*
+   * 淡入这一侧：visibility 立刻生效（此时 opacity 还是 0，看不见），时长换成进入那一份，
+   * 再让整段淡入晚一点起跑。
+   *
+   * 这点延迟是给上面说的"两张卡摞着交叉"留的余地：不延迟的话，中间有 44ms 两张卡都在四分之一
+   * 以上、最密的一帧同时到 0.42，重叠八成的那一对会同时读到两组姓名和两圈边框，是看得见的重影；
+   * 晚 0.08s 起跑之后，两张同时最高只到 0.14，再没有哪一帧是双方都过四分之一的，重影就没了。
+   * 再往后拖并不会更好：换人的总时长会明显变长，快速扫过几个人时卡片根本来不及出现。
+   * 发光层不跟这个延迟，它要跟手——先亮边缘再浮出档案，顺序上也说得通。
+   */
   transition:
-    opacity 0.24s ease,
-    transform 0.24s ease,
+    opacity var(--home-cast-fade-in) ease var(--home-cast-panel-in-delay),
+    transform var(--home-cast-fade-in) ease var(--home-cast-panel-in-delay),
     visibility 0s linear 0s;
 }
 
@@ -341,7 +314,7 @@ body,
   content: '';
   position: absolute;
   inset: 0.35cqi;
-  border: 1px solid rgb(232 198 159 / 30%);
+  border: 0.06cqi solid rgb(232 198 159 / 30%);
   border-radius: 0.2cqi;
 }
 
@@ -466,7 +439,7 @@ body,
 /* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
 .home__flourish-line {
   width: var(--home-flourish-line-w, 5.4cqi);
-  height: 1px;
+  height: 0.06cqi;
   background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
@@ -517,8 +490,8 @@ body,
 .home__card {
   position: absolute;
   width: 11.8cqi;
-  height: 19.4cqi;
-  margin-top: -9.7cqi;
+  height: 20.5cqi;
+  margin-top: -10.25cqi;
   margin-left: -5.9cqi;
   transform: rotate(var(--home-card-rot));
   pointer-events: auto;
@@ -531,7 +504,7 @@ body,
   top: 2cqi;
   left: 0.4cqi;
   width: 11cqi;
-  height: 15.4cqi;
+  height: 16.5cqi;
   perspective: 73cqi;
 }
 
@@ -626,7 +599,7 @@ body,
 }
 
 .home__start:focus-visible {
-  outline: 2px solid var(--home-ink);
+  outline: 0.12cqi solid var(--home-ink);
   outline-offset: 0.4cqi;
 }
 
@@ -710,8 +683,9 @@ body,
 
   /*
    * 高亮和介绍卡片改成直接出现／消失，不淡入也不位移。
-   * visibility 那条不能一起压成 1ms：它本来就是 0s 时长、靠延迟排在淡出之后的，
-   * 淡出没了，它的延迟也得归零，否则隐藏会莫名慢半拍。
+   * 必须整条 transition: none，不能改成压时长（比如上面那样写 transition-duration: 1ms）：
+   * 这两处还挂着两种延迟——visibility 靠延迟排在淡出之后，介绍卡片的淡入又整体晚 0.08s 起跑。
+   * 只压时长的话延迟会原样留着，结果是隐藏慢半拍、卡片还要等 0.08s 才出现。
    */
   .home__cast-glow,
   .home__cast-glow.is-lit,
@@ -748,6 +722,9 @@ body,
   height: 0;
   z-index: 20;
   pointer-events: none;
+  /* 灰墨态那一下整排下沉（见下面的 [data-locked]）。这个 transform 只有 CSS 在写：
+     扇形的所有补间都打在里面的 slot / tilt / inner 上，GSAP 从不碰根节点。 */
+  transition: transform 0.45s ease;
 }
 
 /*
@@ -840,6 +817,8 @@ body,
 .hand-fan__face {
   position: absolute;
   inset: 0;
+  /* 灰墨态的褪色（见下面的 [data-locked]）。filter 全归 CSS，GSAP 在这一层只写 opacity。 */
+  transition: filter 0.45s ease;
 }
 
 .hand-fan__face--front {
@@ -913,6 +892,113 @@ body,
   visibility: hidden;
 }
 
+/* ---------- 出不了牌时的手牌（灰墨态） ---------- */
+
+/*
+ * data-locked 由 HandFan 在 lockReason 非空时打上（轮到对方出牌、场上 AI 在答题）。
+ * 值就是那个原因，现在只当开关用，样式不分档。
+ *
+ * 这一整套刻意只走 CSS，而且只挑 GSAP 碰不到的属性：
+ * 根节点的 transform（扇形的补间全打在 slot / tilt / inner 上，根节点一次都没被写过）
+ * 和卡面的 filter（GSAP 只改这几层的 transform 和 opacity）。
+ * 同一个属性两边各写一半必然打架——被内联样式压住的那一份看起来就是"样式没生效"。
+ *
+ * 整排往下沉一点，是想让它读起来像"手放下了"：牌面褪色单独看容易被当成图片没加载完，
+ * 配上这一下位移才是"这排牌现在不参与"。
+ *
+ * :not(:has(...)) 是给"拖到一半才轮到对方"那种情况让路：下沉打在根节点上，抓在手上的
+ * 那张牌是根节点的后代，会跟着一起往下走，而 HandFan 的 dragTargetOf 把光标换算成 slot
+ * 坐标时并不知道这 12px，牌就会永远浮在光标下方 12px 处。拖着的时候整排先不沉，
+ * 等松手回了扇形再沉。
+ */
+.hand-fan[data-locked]:not(:has([data-dragging])) {
+  transform: translateY(12px);
+}
+
+/*
+ * 褪色挂在 .hand-fan__face 而不是更外面的 .hand-fan__inner：inner 是 preserve-3d 的翻面层，
+ * 给它加 filter 会把里面的两个面拍成一张平面，翻面途中的立体感就没了。
+ * face 这一层本来就是平的，滤上去没有副作用。
+ */
+.hand-fan[data-locked] .hand-fan__face {
+  filter: saturate(0.5) brightness(0.9);
+}
+
+/*
+ * hover 的那张牌恢复本色：轮不到自己时玩家仍然要能把牌抬起来看清楚
+ *（这正是 disabled 和 frozen 的分工，见 HandFanProps），看的时候不该隔着一层灰。
+ * 用 CSS 的 :hover 而不是等 JS 那份 hover 状态：slot 各自接指针事件，两者的判定一致，
+ * 而且这样在补间开始之前就已经变色了。
+ */
+.hand-fan[data-locked] .hand-fan__slot:hover .hand-fan__face {
+  filter: none;
+}
+
+/* 光标要和"点了也没用"对得上，抓手收回默认箭头。
+   :not 是给拖到一半才轮到对方的那张牌让路——它还抓在手上，该继续是握拳
+   （见 HandFanProps.disabled 里"拖到一半才变成 true"那段）。 */
+.hand-fan[data-locked] .hand-fan__slot:not([data-dragging]) {
+  cursor: default;
+}
+
+/*
+ * 这一轮的 Token 买不起的那张牌（data-unaffordable 由 HandFan 逐张打上）。
+ *
+ * 和整排灰墨态是两条线，可以同时成立（自己回合里整排是亮的，只有最贵的那张打不起），
+ * 所以这里只挑 [data-locked] 没写过的属性：褪色打在 .card-face 上、位移一概不碰。
+ * hover 抬起来时**不**恢复本色，这一点和灰墨态相反：那边是"轮不到你，但你能看"，
+ * 这边是"看清楚了也打不出"，抬起来还压着灰才说得通。
+ */
+.hand-fan__slot[data-unaffordable] .card-face {
+  filter: grayscale(0.6) brightness(0.72) contrast(0.95);
+  transition: filter 0.3s ease;
+}
+
+/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不起的那张让路——它还抓在手上。
+   （实际走不到：费用只在自己出牌时才会变，而那一刻手上没有正在拖的牌。留着是为了
+   和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
+.hand-fan__slot[data-unaffordable]:not([data-dragging]) {
+  cursor: not-allowed;
+}
+
+/*
+ * 点一张出不了的牌时，浮在牌顶上方的小字提示。整排共用一个节点，位置由 JS 现算
+ * （见 HandFan 的 showLockTip），所以这里不写 left / top。
+ *
+ * 位置基准是 .hand-fan 那个高度为 0、钉在视口底边的锚点，和每张牌 slot 用的是同一个。
+ * 样式照抄选目标那条提示药丸（.battle__targeting-hint），两处说的都是"现在这一步怎么回事"。
+ * 淡入淡出归 GSAP 的 autoAlpha 管，所以这里不写 transition，只给一个隐藏的初值。
+ */
+.hand-fan__lock-tip {
+  position: absolute;
+  /* 要压过同层的每一张牌：slot 的 z-index 全由 GSAP 写成正数（静置按序 1..N、
+     选目标态 50、拖拽期间 1000），提示不比它们高就会被 hover 抬起来的那张牌整块挡住，
+     而提示恰恰是贴着被点的那张牌顶上弹出来的。 */
+  z-index: 1001;
+  padding: 4px 12px;
+  border: 1px solid rgb(255 229 164 / 55%);
+  border-radius: 999px;
+  background: rgb(14 21 36 / 90%);
+  box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
+  color: #ffeec5;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 下沉和褪色本身还留着（它们是状态，不是动效），只是不再补间。
+     摇头和解锁回弹那两段 GSAP 动画由 HandFan 自己让路（见那边的 prefersReducedMotion）。 */
+  .hand-fan,
+  .hand-fan__face,
+  .hand-fan__slot[data-unaffordable] .card-face {
+    transition-duration: 1ms;
+  }
+}
+
 /* ---------- 对手的倒扇形手牌 ---------- */
 
 /*
@@ -976,18 +1062,29 @@ body,
  * 边框统一走白色——插画本身已经很花，再套一圈亮蓝/亮橙会和画面打架。
  */
 .card-face {
-  /* 边缘羽化的宽度。插画在这条带子里淡出到卡面底色（也是白的），
-     白边和画面之间就没有一条硬邦邦的接缝。 */
-  --card-edge-feather: 7px;
+  /* 边缘那圈米黄。边框、羽化带和卡面底色是同一个颜色，
+     三者一致，白边和画面之间才没有一条硬邦邦的接缝。 */
+  --card-edge-tint: 244 235 214;
+  /*
+   * 羽化带的宽度，写成卡宽的百分比（4.7cqw ≈ 150px 卡面上的 7px）。
+   *
+   * 必须跟着卡面尺寸走：卡面在不同地方是**两种缩放路子**——手牌、战场小卡靠 transform／zoom
+   * 整体缩（px 会跟着缩），而图鉴、首页那类地方是直接给盒子换宽高（px 不会跟着变）。
+   * 写死 px 的话后一类里羽化带就永远是 7px，大卡上看着像一条细边、小卡上又糊掉半张脸。
+   */
+  --card-edge-feather: 4.7cqw;
 
   position: relative;
+  /* 上面那行 cqw 要有参照物。只声明 inline-size（不是 size）：
+     卡面的高由外面给定，容器查询不需要它，size 还会多要求一层高度上的约束。 */
+  container-type: inline-size;
   width: 100%;
   height: 100%;
-  border: 1px solid rgb(255 255 255 / 92%);
+  border: 1px solid rgb(var(--card-edge-tint) / 92%);
   border-radius: 8px;
-  /* 卡面底色，同时是羽化带淡出的去处，所以必须是白的：
+  /* 卡面底色，同时是羽化带淡出的去处，所以必须和边缘同色：
      图还没加载完时露出来的也是它。 */
-  background: #f6f3ec;
+  background: rgb(var(--card-edge-tint));
   box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
   overflow: hidden;
   /* 把高光层的混合限制在这张卡里面。少了它，soft-light 会拿卡牌背后的东西
@@ -1010,8 +1107,10 @@ body,
   /* 两层白：窄而实的一层贴着白边收口，宽而淡的一层把过渡拖长，
      合起来才像"融进去"，而不是描了第二条边。 */
   box-shadow:
-    inset 0 0 var(--card-edge-feather) calc(var(--card-edge-feather) / 3.5) rgb(246 243 236 / 62%),
-    inset 0 0 calc(var(--card-edge-feather) * 2.4) var(--card-edge-feather) rgb(246 243 236 / 30%);
+    inset 0 0 var(--card-edge-feather) calc(var(--card-edge-feather) / 3.5)
+      rgb(var(--card-edge-tint) / 62%),
+    inset 0 0 calc(var(--card-edge-feather) * 2.4) var(--card-edge-feather)
+      rgb(var(--card-edge-tint) / 30%);
 }
 
 .card-face--ai {
@@ -1106,7 +1205,7 @@ body,
 }
 
 /*
- * 玩家自己手牌的**详情背面**：翻过去看稀有度和说明文字用的，上面印着卡名。
+ * 玩家自己手牌的背面容器：AI 牌铺统一美术图，其他牌展示卡名和说明文字。
  * 别拿它当"对手的隐藏牌背"——那样等于把对方手牌摊开给玩家看。隐藏牌背是下面的
  * .card-back-hidden。
  */
@@ -1138,6 +1237,19 @@ body,
   color: #9ca3af;
   font-size: 11px;
   line-height: 1.6;
+}
+
+/* AI 牌沿用同一个背面容器，以保留手牌翻转、高光和问号热区，只让图片完整铺满卡框。 */
+.card-back--ai-art {
+  padding: 0;
+}
+
+.card-back__art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
 }
 
 /*
@@ -1261,10 +1373,11 @@ body,
 /* ---------- 对局界面 ---------- */
 
 /*
- * .battle 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级——
- * .hand-fan 是 position: fixed 钉在视口上的，而 fixed 元素本来就不受任何祖先的
- * overflow 裁剪。手牌 hover 放大、拖拽出牌这些动作只要让它在某一帧比视口高一丁点，
- * body 就会被判定成"可以滚"，触发系统的橡皮筋回弹动画（且对局页压根不需要滚动）。
+ * .battle 自己 overflow: hidden 只挡得住它内部的溢出，挡不住 html / body 这一级。
+ * 对局页里 .hand-fan 这类 position: fixed 的浮层虽然已经被 .battle-scaler 的 transform
+ * 收成"以舞台为包含块"（见下），但它们仍然不受任何祖先的 overflow 裁剪，
+ * 手牌 hover 放大、拖拽出牌只要有一帧比舞台高一丁点就会溢到页面上，
+ * body 就被判定成"可以滚"，触发系统的橡皮筋回弹（且对局页压根不需要滚动）。
  * 用 :has() 只在对局界面挂载时把 html/body 焊死，其它页面该怎么滚还怎么滚。
  */
 html:has(.battle),
@@ -1272,6 +1385,54 @@ body:has(.battle) {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+/*
+ * 对局界面的 16:9 舞台。
+ *
+ * 和首页 / hero / room 一样，画面锁死在 1672×941 的比例里，视口太宽就左右留边、
+ * 太窄就上下留边。不同的是缩放方式：那几页的内部尺寸全写成 cqi，跟着舞台宽度算；
+ * 对局页做不到——卡面 150×225、小卡、顶栏、扇形手牌的几何都是写死的像素，
+ * 而且 ui/fanMath.ts、HandFan 的防抖动下限等 JS 常量和这批像素是绑死的一套。
+ * 所以这里换成"按设计尺寸排版 + 整体 transform 缩放"：.battle-scaler 永远是
+ * 1672×941 的盒子，内部一个像素都不用改，只把整块画面等比缩到舞台大小。
+ *
+ * 这个 transform 还顺手办了第二件事：它让 .battle-scaler 成为内部所有 position: fixed
+ * 元素（手牌扇形、对手扇形、亮相层、结算层…）的包含块，于是那些"钉在视口上"的浮层
+ * 自动改成钉在舞台上，留边区域不会再被它们盖住。JS 那边把光标坐标换算回舞台内坐标的
+ * 口径统一在 ui/battleStage.ts。
+ *
+ * --battle-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
+ * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
+ * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ */
+.battle-frame {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  /* 留边色取比战场底（#26334c）更暗的一档深蓝：这样留边像是画面外的框，
+     而不是战场自己漏出来的一块；纸色侧栏压在深底上也才有"一块屏幕"的边界感。 */
+  background-color: #161e2c;
+}
+
+.battle-stage {
+  container-type: inline-size;
+  position: relative;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+  overflow: hidden;
+}
+
+.battle-scaler {
+  --battle-scale: tan(atan2(100cqi, 1672px));
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1672px;
+  height: 941px;
+  transform: scale(var(--battle-scale));
+  transform-origin: top left;
 }
 
 .battle {
@@ -1284,7 +1445,7 @@ body:has(.battle) {
   --battle-navy: #253149;
   --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
   /* 顶栏高度。写成变量是因为不止排版要用：展示卡的裁剪层（.reveal-clip）也拿它当
-     "顶栏下沿"那条线，两处必须是同一个数，矮窗口那一档改的也只是这一个变量。 */
+     "顶栏下沿"那条线，两处必须是同一个数。 */
   --battle-topbar-h: 72px;
   display: grid;
   grid-template-rows: var(--battle-topbar-h) minmax(0, 1fr);
@@ -1360,7 +1521,9 @@ body:has(.battle) {
   align-content: center;
   align-items: baseline;
   justify-content: center;
-  gap: clamp(14px, 1.8vw, 28px);
+  /* 原来是 clamp(14px, 1.8vw, 28px)。现在整块画面固定按 1672 宽排版再整体缩放，
+     1.8vw 恒定落在上限之外，直接写死上限值，下同（本节其余几处 vw / vh 同理）。 */
+  gap: 28px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -1514,11 +1677,70 @@ body:has(.battle) {
   transform: scale(-1);
 }
 
+/* ---------- 可复用返回按钮 ---------- */
+
+/*
+ * ui/BackButton.tsx 的排版底子。定位、字号和颜色都不写在这儿，由使用方的类名给。
+ *
+ * 全部包了一层 :where()，这样这些规则的特异性是 0，使用方随便一个类名都能盖掉。
+ * 这一层不是可有可无的洁癖：main.tsx 里 `import { App }` 排在 `import './styles.css'` 前面，
+ * App 拉起的各页面 CSS 因此**先于**本文件进入打包结果——同特异性时后来的本文件会赢，
+ * 页面样式反倒盖不住公共样式。:where() 把这个先后顺序的坑直接绕开。
+ *
+ * 尺寸和位移都写成 em，跟着使用方给的 font-size 缩放：
+ * 各页舞台的字号单位不一样（/hero 用 cqi），公共样式没法写死一套长度。
+ */
+:where(.ui-back) {
+  display: inline-flex;
+  align-items: center;
+  /* 箭头右端到文字左端。设计稿上 /hero 是 22px 字配 20px 间距，约 0.9em。 */
+  gap: 0.9em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/*
+ * 箭头是独立一层，hover 时只有它左移，按钮本身不动：
+ * 页面可能拿 GSAP 给按钮写入场用的 transform（/hero 就是），
+ * 位移放在子元素上，父子各写各的 transform，不会互相抹掉。
+ *
+ * 宽高按 viewBox 的 23:15 给，换算过来正好是设计稿上箭头相对文字的大小。
+ */
+:where(.ui-back__arrow) {
+  width: 1.04em;
+  height: 0.68em;
+  transition: transform 0.18s ease;
+}
+
+:where(.ui-back:hover) .ui-back__arrow {
+  transform: translateX(-0.26em);
+}
+
+:where(.ui-back):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 0.2em;
+}
+
+/* 减弱动效：位移不取消，只压成瞬时（同本文件其他几处的处理）。 */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-back__arrow) {
+    transition-duration: 1ms;
+  }
+}
+
 /* ---------- 主战场与侧栏 ---------- */
 
 .battle__layout {
   display: grid;
-  grid-template-columns: clamp(210px, 18.3vw, 306px) minmax(420px, 1fr) clamp(225px, 18.6vw, 316px);
+  /* 左栏 306px 照旧。右栏原来是 311px，收到它的 2/3（311 × 2/3 ≈ 207）：
+     那边现在只放一块「下一题」牌匾、一排 Token 星星和结束按钮，不需要那么宽，
+     省下的 104px 全归中栏，战场能多喘一口气。中栏剩 1159，远超它 420 的下限。 */
+  grid-template-columns: 306px minmax(420px, 1fr) 207px;
   min-width: 0;
   min-height: 0;
 }
@@ -1564,136 +1786,523 @@ body:has(.battle) {
   left: 0;
 }
 
+/* 右侧栏内容：牌匾吊在最上面，Token 和结束按钮成一组落在底部——Token 讲的是
+   "这一轮还能出多少牌"，和「结束出牌」是同一件事的两半，摆在一起才读得成一句话。
+   牌匾和 Token 之间那截空白由 .battle__tokens 的 margin-top: auto 撑开，
+   所以 gap 实际只作用在 Token 和按钮之间：60px 正好是一个按钮的高度，
+   两块既算一组，又不至于挤到一起。
+   左右只留 10px：侧栏收窄到 207px 之后，宽度基本都得让给那排星星和结束按钮。 */
 .battle__sidebar-frame--actions .ornate-frame__content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 18px;
-  padding: 32px 16px 94px;
+  gap: 60px;
+  padding: 16px 10px 64px;
 }
 
-/* 上下两块玩家面板（上=对方、下=我方）平分左侧栏。 */
+/*
+ * 侧栏收窄之后的结束按钮。
+ *
+ * 原来那套（宽 min(224px, 100%)、24px 字、左右 30px 内边距）在 207px 的栏里放不下最长的
+ * 那句「等待对方…」：五个字连字距要 125px，加上内边距就超过可用的 187px，
+ * 而按钮是 overflow: hidden，超出的部分会被直接切掉。所以这里整体缩一档。
+ */
+.battle__sidebar-frame--actions .plaque-button {
+  height: 60px;
+  padding: 0 14px;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+}
+
+/*
+ * 上下两块玩家面板（上=对方、下=我方）平分左侧栏，中间夹一条分界线。
+ *
+ * 内边距收到"刚好躲开雕花框四角"那一档：角上那组装饰（.ornate-frame__corner）从边缘算起
+ * 占到 44px，里面那颗菱形大致在 6～33px 之间。英雄牌是把整块面板填满的（见 useHeroCardScale），
+ * 所以上下留 40px 之后，最上面那张卡的顶边落在 y=40，正好压在菱形下面、不会切到装饰；
+ * 左右两侧的框线在 6px / 11px，20px 的内边距离它还有一截。
+ * 再想让卡变大就只能往角上挤了，别动这几个数。
+ *
+ * 中间那行是 auto：分界线自己多高就占多高，剩下的两块 1fr 平分。
+ * gap 16 × 2 加上分界线那 10px，两张卡之间隔开 42px——分得开，又只从每张卡身上
+ * 拿走十几个像素（固定舞台下卡是 249×373）。
+ */
 .battle__sidebar-frame--players .ornate-frame__content {
   display: grid;
-  grid-template-rows: 1fr 1fr;
-  gap: 14px;
-  padding: 26px 20px;
+  grid-template-rows: 1fr auto 1fr;
+  gap: 16px;
+  padding: 40px 20px;
 }
 
 /*
- * 一块玩家面板：最左边一张小英雄牌，中间名字和牌数，右边那个大数字是累计得分。
+ * 两块玩家面板之间的分界线：一条两头淡出的细线，中间压一颗小菱形。
  *
- * 英雄那一列跨两行，没有英雄时（hero 为 null）整个格子不渲染，
- * grid 会让后面两列自己顶上去，不用为这种情况另写一套模板。
+ * 画法照雕花框来（同一支笔：--battle-line-dark 的细线 + 手绘抖动滤镜 #ai-duel-rough-frame，
+ * 菱形是 .ornate-frame__corner::after 那颗的同款）。刻意只有这么点分量：
+ * 它要说的只是"上下是两个人"，再重就会把两张原画压下去。
+ * 滤镜由 HandDrawnFilterDefs 提供，只有对局界面挂了它——这条线也只在对局界面用。
+ */
+.battle__player-divider {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 10px;
+}
+
+.battle__player-divider-line {
+  position: absolute;
+  right: 6px;
+  left: 6px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgb(119 116 101 / 0%),
+    var(--battle-line-dark) 20%,
+    var(--battle-line-dark) 80%,
+    rgb(119 116 101 / 0%)
+  );
+  filter: url('#ai-duel-rough-frame');
+}
+
+/* 菱形排在细线后面，靠不透明底色把线从中间截断——两头淡出加中间这一颗，看着才像一件装饰。 */
+.battle__player-divider-gem {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--battle-line-dark);
+  background: var(--battle-paper);
+  transform: rotate(45deg);
+}
+
+/*
+ * 一块玩家面板：一张填满整块的英雄牌，卡堆压在卡面一角，别的什么都不画。
+ *
+ * 面板自己只负责"给英雄牌划一块地方"，尺寸完全由上面那张 1fr / 1fr 的网格定死，
+ * 和里面画了什么无关——MatchStage 的 useHeroCardScale 量的就是这块，
+ * 量完把缩放系数写成 --hero-card-scale，所以这里不能让内容反过来撑大面板
+ *（min-width / min-height 归零就是为了这个），否则 ResizeObserver 会来回震荡。
+ *
+ * 刻意不画边框和底色：这一块本来就整个被一张卡占满，再套一层框只会把卡挤小。
  */
 .battle__player-panel {
+  /*
+   * 英雄牌的缩放系数，由 MatchStage 的 useHeroCardScale 量出来后写成同名的内联样式盖掉。
+   * 必须声明在**这个**元素上：内联样式只压得住同一个元素上的规则，
+   * 写到下面 .battle__hero 上的话反倒会把继承下来的那份挡住（自己身上的声明优先于继承）。
+   * 这里的值只是第一帧还没量到时的兜底，别拿它当准数。
+   */
+  --hero-card-scale: 0.5;
+
+  position: relative;
   display: grid;
-  grid-template-areas:
-    'hero name score'
-    'hero piles score';
-  grid-template-columns: auto 1fr auto;
-  align-content: center;
-  gap: 2px 12px;
-  padding: 14px 16px;
-  border: 1px solid rgb(119 116 101 / 45%);
-  border-radius: 4px;
-  background: rgb(255 255 255 / 26%);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
 }
 
 /*
- * 侧栏里的小英雄牌。
+ * 英雄牌那一块：宽高就是 150×225 按 --hero-card-scale 换算出来的尺寸，2:3 恒定。
+ * 系数取的是"2:3 填满整块面板"，所以固定舞台下这张卡差不多就是面板本身那么大。
  *
- * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：盒子按缩小后的尺寸占位，
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面这个盒子按换算后的尺寸占位，
  * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ *（换成原画之后卡面里其实只有一张图，这条路留着是给没配图、退回文字卡面的英雄用的。）
+ * --hero-card-scale 从 .battle__player-panel 继承下来（见那里），这一层不许再声明一遍。
  */
 .battle__hero {
-  --hero-card-w: 62px;
-  --hero-card-h: 93px;
-  /* 62 / 150 = 0.413333，卡面高 225 × 0.413333 ≈ 93，和上面那对宽高对得上。 */
-  --hero-card-scale: 0.413333;
+  --hero-card-w: calc(var(--card-w) * var(--hero-card-scale));
+  --hero-card-h: calc(var(--card-h) * var(--hero-card-scale));
 
-  grid-area: hero;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  align-self: center;
+  position: relative;
+  width: var(--hero-card-w);
+  height: var(--hero-card-h);
 }
 
 .battle__hero-card {
-  width: var(--hero-card-w);
-  height: var(--hero-card-h);
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(20 24 34 / 26%);
+  cursor: pointer;
 }
 
-/* 里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。 */
-.battle__hero-card > * {
+/*
+ * 退回文字卡面时，里面这一层才是真正的 150×225 卡面，靠 scale 缩进上面那个盒子里。
+ * 只挑 .card-face，不写成 `> *`：原画那张 <img> 是另一套铺法（见下面），
+ * 被这条规则套上 scale 会缩成一小块。
+ */
+.battle__hero-card > .card-face {
   width: var(--card-w);
   height: var(--card-h);
   transform: scale(var(--hero-card-scale));
   transform-origin: top left;
 }
 
-/* 卡下面那行技能名。技能用掉之后变成「Debug 已用」，配合整块置灰。 */
-.battle__hero-tag {
-  max-width: calc(var(--hero-card-w) + 16px);
-  color: var(--battle-ink-muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-align: center;
+/*
+ * 英雄原画（768×1152，2:3），铺满整张卡。名字和英文名已经画在图里，不再叠任何文字。
+ * 比例和卡槽一致，object-fit: cover 只是防素材万一换了比例时糊成拉伸。
+ */
+.battle__hero-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-/* 技能已经用掉：整块褪色，一眼看出这一局指望不上它了。 */
-.battle__hero--used {
-  opacity: 0.55;
+/* 技能已经用掉：卡面褪色，一眼看出这一局指望不上它了。原因由下面那枚角标点明。 */
+.battle__hero-card--used {
+  opacity: 0.62;
   filter: grayscale(85%);
 }
 
-.battle__player-name {
-  grid-area: name;
-  color: var(--battle-ink);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+/*
+ * 「技能已用」角标。放在卡面盒子外边，所以不跟着一起褪色——
+ * 它正是用来解释褪色的，自己也灰掉就白写了。
+ */
+.battle__hero-used {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 6px;
+  border-radius: 6px 0 6px 0;
+  background: color-mix(in srgb, var(--battle-navy) 82%, transparent);
+  color: #f2ece0;
+  font-size: max(9px, calc(var(--hero-card-w) * 0.085));
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-.battle__player-score {
-  grid-area: score;
-  align-self: center;
-  color: var(--battle-navy);
-  font-size: 38px;
+/*
+ * 这张英雄牌此刻由展示层代管（玩家正放大查看它）：卡和角标一起让出来，
+ * 免得屏幕中央和侧栏同时出现两张一模一样的卡。同战场小卡的 .battle__tile--held。
+ * 卡堆不藏——它跟这次查看没关系，藏了反而像侧栏缺了一块。
+ */
+.battle__hero--held .battle__hero-card,
+.battle__hero--held .battle__hero-used {
+  visibility: hidden;
+}
+
+/*
+ * 卡堆：几张错位叠着的牌背，整个压在英雄牌上。
+ *
+ * 我方（下面那块）在卡的右下角，对方（上面那块）在右上角，上下镜像——两块面板本来就是
+ * 照战场那条中线对称摆的，卡堆跟着镜像，两边的"自己的牌从自己那头飞出来"才对得上。
+ * 换边只改 top / bottom，右边距共用，两侧到卡边的距离必然一样。
+ *
+ * 完全不往卡外探：卡现在填满整块面板（见 useHeroCardScale），往外探一点就顶到雕花框上了。
+ * 宽度按英雄牌折算，整块跟着卡一起大小；那个像素下限是防哪天卡变小——
+ * 固定舞台下吃不到，但一摞牌缩成几个像素就看不出是牌了。
+ */
+.battle__deck {
+  --deck-w: max(24px, calc(var(--hero-card-w) * 0.28));
+  --deck-h: calc(var(--deck-w) * 1.5);
+
+  position: absolute;
+  right: calc(var(--hero-card-w) * 0.045);
+  bottom: calc(var(--hero-card-h) * 0.035);
+  width: var(--deck-w);
+  height: var(--deck-h);
+  /* 压在英雄牌之上。同层里的兄弟节点，给个正数就够，不用建新的层叠上下文。 */
+  z-index: 1;
+  /*
+   * 卡堆整个盖在英雄牌上，不放开指针事件的话，卡面被它压住的那一块就点不开放大查看了。
+   * 卡堆本身没有任何交互，只是画出来 + 给发牌动画当起飞点量位置，
+   * 而 getBoundingClientRect 不受这条影响。
+   */
+  pointer-events: none;
+}
+
+/* 对方那摞挪到右上角。高度是写死的，再留着 bottom 就成了过约束（浏览器会挑一个忽略），
+   显式写 auto 免得日后读的人以为这块是被 top / bottom 一起撑出来的。 */
+.battle__deck[data-deck-side='foe'] {
+  top: calc(var(--hero-card-h) * 0.035);
+  bottom: auto;
+}
+
+/* 底下两张只画厚度，不带任何牌面信息；越靠后越往左上错开，看着像一摞没码齐的牌。 */
+.battle__deck-stack {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 45%, transparent);
+  border-radius: 3px;
+  background: var(--battle-paper-shade);
+  box-shadow: 0 2px 5px rgb(10 14 24 / 32%);
+}
+
+.battle__deck-stack--far {
+  transform: translate(-5px, -5px) rotate(-4deg);
+}
+
+.battle__deck-stack--near {
+  transform: translate(-2.5px, -2.5px) rotate(-1.8deg);
+}
+
+/*
+ * 最上面那张，也是发牌飞行的起点：两排扇形量的就是这个盒子的位置和宽度
+ *（见 MatchStage 的 dealOriginOf）。所以它必须是真实尺寸、不带任何变换的一块。
+ *
+ * 素面：一层极淡的中间提亮渐变加边框，只交代"这是一张牌"。
+ * 刻意不用对手手牌那张带纹章和纸纹的隐藏牌背（.card-back-hidden）——
+ * 那些花纹会和压在正中的大数字抢眼。改这里不影响 .opponent-fan 那边，两处现在各画各的。
+ */
+.battle__deck-top {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--battle-navy) 58%, transparent);
+  border-radius: 3px;
+  background-color: var(--battle-paper-shade);
+  background-image: radial-gradient(ellipse at 50% 40%, var(--battle-paper), transparent 82%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 60%),
+    0 3px 8px rgb(6 10 20 / 40%);
+}
+
+/*
+ * 剩余张数：一个压在最上面那张牌背正中间的大数字。
+ *
+ * 铺满整个卡堆盒子再居中，而不是自己算偏移——盒子和最上面那张牌（.battle__deck-top）
+ * 是同一个矩形，所以居中就是"正正压在牌面中间"。
+ * 字号取牌高的三分之一（固定舞台下约 35px）：隔着屏幕一眼就能读，又不至于把整张牌塞满。
+ * 等宽数字让张数从两位跳到一位时数字不会左右晃。
+ *
+ * 颜色走项目的暖色系：以纸张 token 里的金 --c-gold 为底，兑一份 --battle-ink 压暗，
+ * 得到一个能压在浅色牌面上的古铜金，比原来的藏青更贴原画那套调子。
+ *（--c-gold 定义在 ui/paper/paper.css 的 :root，main.tsx 全局引入，这里取得到；
+ * 仍写了兜底值，万一那张表被挪走也不会掉成默认黑色。）
+ * 外面描一圈浅纸色的边（四向 text-shadow 拼的，比 -webkit-text-stroke + paint-order 稳），
+ * 再补一层柔和的暖褐投影把字从牌面上托起来。描边宽度跟着字号走，卡堆变小时不会糊成一团。
+ *
+ * 张数为 0 时变红：牌堆空了之后每轮补牌都是白抽一次（引擎的 drawCards 直接返回），
+ * 这件事画面上没有别的地方说得出来。
+ */
+.battle__deck-count {
+  --deck-count-edge: max(1px, calc(var(--deck-h) * 0.022));
+
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--c-gold, #d9a441) 58%, var(--battle-ink));
+  font-size: calc(var(--deck-h) / 3);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  text-shadow:
+    calc(var(--deck-count-edge) * -1) calc(var(--deck-count-edge) * -1) 0 rgb(246 240 226 / 95%),
+    var(--deck-count-edge) calc(var(--deck-count-edge) * -1) 0 rgb(246 240 226 / 95%),
+    calc(var(--deck-count-edge) * -1) var(--deck-count-edge) 0 rgb(246 240 226 / 95%),
+    var(--deck-count-edge) var(--deck-count-edge) 0 rgb(246 240 226 / 95%),
+    0 calc(var(--deck-count-edge) * 1.5) calc(var(--deck-count-edge) * 2.5) rgb(74 52 24 / 40%);
 }
 
-.battle__player-piles {
-  grid-area: piles;
-  color: var(--battle-ink-muted);
-  font-size: 12px;
+.battle__deck-count--empty {
+  color: #b03a2e;
 }
 
-/* 右侧栏上半块：下一题类别、状态行，自上而下一列。
-   轮次和比分不放这儿，顶栏正中已经有一份。 */
-.battle__turn {
+/*
+ * ---------- 右侧栏：「下一题」牌匾 ----------
+ *
+ * 一块吊在侧栏顶上的繁复小匾，图形全部由 SVG 画出来（见 MatchStage 的 NextQuestionPlaque
+ * 和那一批 PLAQUE_* 路径常量），没有切图。
+ *
+ * 匾体尺寸写死成 168×118，和 SVG 的 viewBox 一比一：这里刻意**不**用 preserveAspectRatio: none
+ * 去拉伸——四角卷草和菱形冠饰一被非等比拉伸就会歪成椭圆，而整个战场本来就在一块
+ * 固定 1672×941 的舞台里等比缩放（见 .battle-scaler），尺寸写死不会有适配问题。
+ */
+.battle__next-plaque {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 168px;
+}
+
+/* 两根挂绳。一个容器加两个伪元素，比两个空 span 省 DOM（回合牌匾那边同样的写法）。 */
+.battle__next-plaque-cords {
+  position: relative;
+  width: 100%;
+  height: 14px;
+}
+
+.battle__next-plaque-cords::before,
+.battle__next-plaque-cords::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--battle-line-dark);
+}
+
+.battle__next-plaque-cords::before {
+  left: 42px;
+}
+
+.battle__next-plaque-cords::after {
+  right: 42px;
+}
+
+.battle__next-plaque-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  margin-top: auto;
-  text-align: center;
+  justify-content: center;
+  gap: 6px;
+  width: 168px;
+  height: 118px;
 }
 
-.battle__turn-next {
-  color: var(--battle-ink);
-  font-size: 14px;
-  letter-spacing: 0.06em;
+/* 图形层铺满匾体，文字压在它上面（下面两条各自的 position: relative）。 */
+.battle__next-plaque-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 手绘滤镜只套在图形上，不套文字：一起套的话字会跟着抖歪
+     （PlaqueButton 和回合牌匾同理，见各自的 __frame）。 */
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
 }
 
-.battle__turn-who {
+/* 匾面底纸。比侧栏底色深一档，匾才浮得出来。 */
+.battle__next-plaque-paper {
+  fill: var(--battle-paper-shade);
+  stroke: none;
+}
+
+.battle__next-plaque-rim {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.6;
+}
+
+/* 由外到内越来越细，三道线才有层次；最里面那道还退了一档颜色。 */
+.battle__next-plaque-rim--thin {
+  stroke-width: 1;
+}
+
+.battle__next-plaque-rim--hair {
+  stroke: var(--battle-line);
+  stroke-width: 0.7;
+}
+
+.battle__next-plaque-scroll-arc {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+  opacity: 0.8;
+}
+
+.battle__next-plaque-scroll-leaf {
+  fill: var(--battle-line-dark);
+  stroke: none;
+  opacity: 0.72;
+}
+
+.battle__next-plaque-crest-gem {
+  fill: var(--battle-paper-shade);
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.4;
+}
+
+.battle__next-plaque-crest-wing {
+  fill: none;
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+}
+
+.battle__next-plaque-stud {
+  fill: var(--battle-paper-shade);
+  stroke: var(--battle-line-dark);
+  stroke-width: 1.1;
+}
+
+.battle__next-plaque-eyebrow {
+  position: relative;
   color: var(--battle-ink-muted);
-  font-size: 14px;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
+  text-indent: 0.34em;
+}
+
+.battle__next-plaque-title {
+  position: relative;
+  color: var(--battle-navy);
+  font-size: 20px;
+  font-weight: 600;
+  /* 最长的「脑筋急转弯」是五个字：20px 字配 0.03em 字距约 103px，而匾内最里面那道框线
+     围出来的可用宽度是 138px（见 PLAQUE_INNER），两边各留 17px 才不顶到线上。
+     换更长的类别名（ui/labels.ts）要回来重算这两个数。 */
+  letter-spacing: 0.03em;
+  text-indent: 0.03em;
+  white-space: nowrap;
+}
+
+/*
+ * ---------- 右侧栏：Token 星星 ----------
+ *
+ * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
+ * 星星本身就是站点图标那颗（见 MatchStage 的 TOKEN_STAR_PATH）。
+ */
+/* 星星在上、数字那行压在底下当落款；星星本身是从下往上烧的（见 MatchStage 的 TokenTrack）。
+   margin-top: auto 把牌匾和它之间的空白全吃掉，整块沉到底下和结束按钮成一组。 */
+.battle__tokens {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  margin-top: auto;
+}
+
+/*
+ * 按列摆：grid-auto-flow: column 加上写死的行数，DOM 顺序就是"左列从上往下填满、再填右列"。
+ * 行数由 JS 传（--token-rows）：上限每轮都在涨，CSS 自己算不出来。
+ * 上限 8 点以内只有一列，这时行数就等于上限，auto-flow 也就只排得出一列。
+ */
+.battle__token-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(var(--token-rows), auto);
+  gap: 7px 16px;
+  justify-items: center;
+}
+
+/*
+ * 一颗星星。滤镜链的顺序是有讲究的：先用手绘滤镜把星芒抖歪，辉光再照着抖歪之后的形状发，
+ * 反过来写的话辉光是照原图算的，会和星星错开一圈。
+ *
+ * 辉光是静态的两层，没有动画：十几颗星星一起挂 filter 只在渲染时算一次，
+ * 真让它们呼吸起来就是每帧十几次离屏滤镜。
+ */
+.battle__token-star {
+  width: 30px;
+  height: 30px;
+  fill: #f5b95c;
+  filter: url('#ai-duel-rough-icon') drop-shadow(0 0 3px rgb(245 185 92 / 85%))
+    drop-shadow(0 0 9px rgb(232 158 47 / 55%));
+}
+
+/* 花掉的那几点：退成纸面上的一道浅灰印子，不发光，但照样抖。 */
+.battle__token-star[data-spent] {
+  fill: #b6b0a0;
+  opacity: 0.5;
+  filter: url('#ai-duel-rough-icon');
+}
+
+.battle__token-count {
+  /* 和星星同一种抖法：这一行紧挨着星星，用别的 seed 反而看得出是两套东西。 */
+  filter: url('#ai-duel-rough-icon');
+  color: var(--battle-ink-muted);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  /* 等宽数字：从 10 掉到 9 时这一行不会跟着抖一下。 */
+  font-variant-numeric: tabular-nums;
 }
 
 /* 战场背景图：public/battle/battle-bg.webp，1672×941。
@@ -1709,7 +2318,8 @@ body:has(.battle) {
    存成 WebP 而不是 PNG：画面是纸纹噪点加暗部渐变的照片类内容，PNG 无损压不动它，
    原来那张 PNG 有 2.18MB，同一张图 WebP q90 只要 188KB，噪点和渐变都看不出损失。 */
 .battle__battlefield {
-  --battle-hand-zone-h: clamp(210px, 27vh, 250px);
+  /* 原来是 clamp(210px, 27vh, 250px)：设计高 941 的 27% 是 254，恒被压到上限。 */
+  --battle-hand-zone-h: 250px;
   /*
    * 战场顶上给对方手牌留出的高度（下面 .battle__board 的 top inset 用它）。
    *
@@ -1776,6 +2386,12 @@ body:has(.battle) {
   transform: translateY(-5px);
 }
 
+/* 测试房：对方这一轮的 Token 买不起的牌。只压暗不拦点击——测试房本来就是拿来试
+   各种被拒场景的，点下去照样会收到引擎那句「Token 不够」。 */
+.battle__foe-card[data-unaffordable] {
+  filter: grayscale(0.6) brightness(0.72);
+}
+
 .battle__foe-card-inner {
   width: var(--card-w);
   height: var(--card-h);
@@ -1800,14 +2416,18 @@ body:has(.battle) {
  */
 .battle__board {
   position: absolute;
-  inset: var(--battle-foe-hand-h) clamp(16px, 2vw, 28px) var(--battle-hand-zone-h);
+  /* 左右那 28px 原来是 clamp(16px, 2vw, 28px)，设计宽下恒在上限。 */
+  inset: var(--battle-foe-hand-h) 28px var(--battle-hand-zone-h);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 不设 gap：两行之间的距离全交给中线自己的上下 margin（见 .battle__midline）。
+     两处都留一份的话，行距就是"中线高 + margin + gap"三个数拼出来的，
+     算高度预算时最容易漏掉其中一个。 */
+  gap: 0;
   min-height: 0;
-  /* 上下留白比单行时紧了一圈：同一块高度要塞两排 165px 的小卡，
-     1440×900 这类常见窗口下多留 20px 就会让两排挤到互相压边。
-     顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。 */
+  /* 顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。
+     设计高度下这块内容区有 465px（战场 535 − 上下留白 70），
+     两排 165px 的小卡加 30px 的中线用掉 360px，富余都摊给两行的行内居中。 */
   padding: 52px 24px 18px;
   border: 1px dashed transparent;
   border-radius: 18px;
@@ -1820,6 +2440,11 @@ body:has(.battle) {
 /*
  * 上下两行分别是对方场面和我方场面。两行等分剩下的高度，对手多摆几张也不会把我这边挤没。
  *
+ * 永不换行：一方的场面必须始终是一排，折出第二排会越过中线戳进对方那半边，
+ * "线上面是他、线下面是我"这条读图规则就废了。张数多到摆不下时不折行，
+ * 改成让每张卡互相压边（见 .battle__board-slot），和手牌扇形挤在一起是同一种处理。
+ * gap 是压边的下限：挤到极限时相邻两张之间仍有这 12px，每张至少露出一条边。
+ *
  * 和 .battle__board 一样，这两行刻意不写 transform / z-index / isolation——
  * 一旦其中任何一个成了层叠上下文，Flip 飞行时打在卡上的 z-index 就只在行内部有效，
  * 飞行中的卡会被手牌或遮罩压住。
@@ -1827,20 +2452,28 @@ body:has(.battle) {
 .battle__row {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
-  align-content: center;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 12px;
   min-height: 0;
 }
 
-.battle__row--foe {
-  align-content: flex-start;
-}
-
-.battle__row--mine {
-  align-content: flex-end;
+/*
+ * 场上一张小卡的位置。真正排在行里的是它，不是小卡本身。
+ *
+ * flex: 0 1 var(--tile-w) —— 基准正好是一张卡宽，但允许被压缩（min-width: 0 把
+ * "不小于内容"那道默认下限也撤掉）。卡自己是 flex: none 的定宽块，在 slot 里居中、
+ * 溢出照常画出来，于是空间不够时相邻两张对称地往中间叠，整行始终居中。
+ * 少这一层的话，能压缩的就只有卡本身，卡会被压窄变形。
+ *
+ * 同样刻意不写 transform / z-index / isolation，理由见 .battle__board 上面那段。
+ */
+.battle__board-slot {
+  display: flex;
+  flex: 0 1 var(--tile-w);
+  justify-content: center;
+  min-width: 0;
 }
 
 /*
@@ -1897,11 +2530,105 @@ body:has(.battle) {
     0 0 30px rgb(255 220 141 / 30%);
 }
 
-.battle__board-hint {
-  color: rgb(211 204 185 / 50%);
+/* ---------- 敌我分界中线 ---------- */
+
+/*
+ * 夹在两行场面之间的分界线：一条横贯细线，中间嵌一块深蓝小匾。
+ * 样式取自纸面主题的回合徽章（.paper-turn-line），但没有复用它——
+ * 那一套是浅纸底上的深线，还写死了 max-width: 320px，搬到深蓝战场上既看不清也拉不满。
+ *
+ * 两侧的线是 ::before / ::after 各占一半剩余宽度撑出来的，所以匾永远在正中间，
+ * 回合数从个位涨到两位、后半句在"你出牌 / 对方出牌 / 答题中"之间换，线都不会被推歪。
+ *
+ * 高度是算过的：内容 20px + 上下各 5px 外边距 = 30px，两行小卡能分的高度就少这么多。
+ * 这三个数改任何一个，都要跟着核对 .battle__board 那笔高度预算（见它 padding 上的注释）。
+ *
+ * 不吃指针事件：战场落点是按 .battle__board 的矩形几何判的，中线挡不着它，
+ * 但"点空白处取消选目标"是真的点击，这条线横在战场正中间，不让开就会吃掉一整条的取消。
+ *
+ * 手绘滤镜只加在下面的伪元素和小匾上，这个容器本身仍然不写 transform / z-index /
+ * isolation / filter。filter 会让子元素成为层叠上下文，但中线是两行场面的兄弟节点、
+ * 不是任何飞行卡的祖先，层叠上下文只圈住它自己那条线和那块匾，
+ * 带 z-index 的飞行卡照样画在它上面（.battle__board 上面那段讲的就是这件事）。
+ * 容器留干净是为了它自己：它是这一行的 flex 布局主体，多一道滤镜只会白算一整条的像素。
+ */
+.battle__midline {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: 5px 0;
+  pointer-events: none;
+}
+
+/*
+ * 两端渐隐：线不该在战场内边距那里被生生切断，淡出去才像是纸上洇开的一笔。
+ *
+ * 盒子做成 10px 高、线只用背景画在正中间的 2px 上，是为了给滤镜留出位移的余地：
+ * CSS 滤镜的作用区域按边框盒的百分比算，盒子要是只有线那么薄，
+ * 竖直方向的位移会当场被裁掉，手绘的歪一点都留不下来。
+ * 10px 仍比中间那块匾（20px）矮，这一行的高度还是匾说了算，不影响上面那笔预算。
+ *
+ * 线本身从 1px 加粗到 2px：位移会把边缘打散成半透明像素，1px 的线被摊薄后整条发虚。
+ */
+.battle__midline::before,
+.battle__midline::after {
+  content: '';
+  flex: 1;
+  height: 10px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 2px;
+  /*
+   * 用 rays 而不是图标那几个滤镜：这条线又长又细，图标那档的高频噪声（0.05）
+   * 会沿着线抖成断续的锯齿，rays 的波长有二三十像素，整段一起歪才像随手划的一笔。
+   * 两个伪元素共用同一个滤镜——同宽的盒子会取到同一段噪声，但它们分居匾的两侧、
+   * 隔着大半个战场，看不出是同一条抖法。
+   */
+  filter: url('#ai-duel-rough-rays');
+}
+
+.battle__midline::before {
+  background-image: linear-gradient(to right, rgb(214 204 178 / 0%), rgb(214 204 178 / 35%));
+}
+
+.battle__midline::after {
+  background-image: linear-gradient(to left, rgb(214 204 178 / 0%), rgb(214 204 178 / 35%));
+}
+
+/*
+ * 匾本身。高度写死 20px（border-box，含 1px 描边），文字靠 line-height 撑到正中：
+ * 里面那个更大号的回合数是行内元素，line-height 写成长度就会被它原样继承，
+ * 行盒不会跟着字号变高，匾的高度和上面那笔预算才对得上。
+ *
+ * 滤镜直接扣在整块匾上，边框、底色和里面的字一起歪——这是刻意要的效果，
+ * 和回合牌匾（.battle__turn-plaque-frame 把框拆成单独 SVG 好让字不抖）走的是相反的路。
+ * 选 compass 是这套滤镜里位移最小的一档（2px，还是低频）：12px 的小字配图标那档的 3px 位移
+ * 会糊到影响认读，而低频噪声的波长比一个字还长，每个字整体挪一点、笔画内部不被扯散。
+ */
+.battle__midline-badge {
+  flex: none;
+  height: 20px;
+  margin: 0 12px;
+  padding: 0 12px;
+  border: 1px solid rgb(214 204 178 / 38%);
+  border-radius: 10px;
+  background: #232f48;
+  box-shadow: 0 1px 4px rgb(6 12 24 / 45%);
+  filter: url('#ai-duel-rough-compass');
+  color: rgb(228 218 192 / 88%);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0.1em;
+  /* 字距会在最后一个字后面也留一份，text-indent 补回同样的量，文字才真的居中。 */
+  text-indent: 0.1em;
+  white-space: nowrap;
+}
+
+/* 回合数用铁锈红（同纸面主题的 --c-rust），一眼能从后半句状态文案里挑出来。 */
+.battle__midline-num {
+  color: #c07a52;
+  font-weight: 700;
   font-size: 13px;
-  letter-spacing: 0.16em;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
 }
 
 /* ---------- 拒绝提示 ---------- */
@@ -1996,7 +2723,7 @@ body:has(.battle) {
 .battle__drop-cue--return {
   --battle-cue-x: 0;
   top: 18px;
-  right: clamp(18px, 3vw, 42px);
+  right: 42px;
   left: auto;
   color: rgb(198 220 248 / 88%);
 }
@@ -2044,7 +2771,7 @@ body:has(.battle) {
   background-blend-mode: screen;
   clip-path: polygon(5.5% 0, 94.5% 0, 100% 18%, 100% 82%, 94.5% 100%, 5.5% 100%, 0 82%, 0 18%);
   color: #e7e1d4;
-  font-size: clamp(18px, 1.5vw, 24px);
+  font-size: 24px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.25em;
@@ -2216,6 +2943,20 @@ body:has(.battle) {
 }
 
 /*
+ * 只在场面挤到互相压边时才看得出来（见 .battle__board-slot）：卡叠在一起时默认是
+ * 后面的盖住前面的（DOM 顺序），指到哪张就把哪张翻到最上面，不然左边那几张永远只露一条边、
+ * 鼠标停上去也认不出是什么。没重叠的时候这条规则什么都不改变。
+ *
+ * 不和 Flip 打架：tile 本来就因为 perspective 是层叠上下文，抬不抬都出不了这一行；
+ * 而飞行途中 Flip 把 z-index 写在内联样式上，压得过这里的 3。
+ * :not() 是必须的——:hover 比单个类更具体，不排除掉的话，
+ * 鼠标一停到可选目标上就会把它从压暗层之上（76）打回 3，正好在最该点得动的时候点不动。
+ */
+.battle__tile:hover:not(.battle__tile--target-lift) {
+  z-index: 3;
+}
+
+/*
  * 这张小卡正由展示层代管：玩家点开了放大查看，或者对手打出的模型还停在展示位上。
  *
  * 用 visibility 而不是把 tile 从 React 里卸掉：格子还得占着位置，
@@ -2257,6 +2998,182 @@ body:has(.battle) {
   transform-origin: top left;
 }
 
+/* ---------- 回合牌匾 ---------- */
+
+/*
+ * 吊在顶栏正下方的小匾，只在轮到对方出牌时挂出来（data-on 由 MatchStage 打）。
+ *
+ * fixed 而不是塞进战场：它要从顶栏下沿往下吊，而顶栏和战场是 .battle 那张网格里的两行，
+ * 挂在战场里就只能从战场顶边算起，两个基准差着 4px 的顶栏描边。
+ * 居中靠 inset-inline: 0 撑满两边再用 margin-inline: auto 把固定宽度顶到中间，
+ * 不用 translate——transform 已经让给了下面进出场那点纵向位移，横向再占一份就得两处合写，
+ * 改一边忘一边就会跑偏。
+ *
+ * z-index 40 夹在对手手牌（20）之上、顶栏（70）之下：牌匾要盖住倒扇形中间那一两张牌背，
+ * 自己则不该越过顶栏。全层不吃指针事件。
+ */
+.battle__turn-plaque {
+  position: fixed;
+  top: var(--battle-topbar-h);
+  inset-inline: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 252px;
+  margin-inline: auto;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  /* 隐藏态还要退出无障碍树和命中测试，光靠 opacity 不够。
+     它的时长是 0，靠延迟排在淡出之后，所以不能和上面两条一起写进 transition 简写。 */
+  visibility: hidden;
+  transition:
+    opacity 0.35s ease-out,
+    transform 0.35s ease-out,
+    visibility 0s linear 0.35s;
+}
+
+.battle__turn-plaque[data-on] {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 0.35s ease-out,
+    transform 0.35s ease-out,
+    visibility 0s;
+}
+
+/* 两根挂绳：把匾和顶栏连起来，看着像是钉在顶栏下沿的。
+   一个容器加两个伪元素，比两个空 span 省 DOM。 */
+.battle__turn-plaque-cords {
+  position: relative;
+  width: 100%;
+  height: 21px;
+}
+
+.battle__turn-plaque-cords::before,
+.battle__turn-plaque-cords::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #8a92ad;
+}
+
+.battle__turn-plaque-cords::before {
+  left: 45px;
+}
+
+.battle__turn-plaque-cords::after {
+  right: 45px;
+}
+
+/*
+ * 匾体。双线框里的外框是下面那层 SVG（要套手绘滤镜，只能画成图形），
+ * 内衬那道高光走 inset 阴影——它贴着圆角走，不需要跟着抖。
+ */
+.battle__turn-plaque-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 66px;
+  border-radius: 9px;
+  background: var(--battle-navy);
+  box-shadow:
+    0 6px 16px rgb(10 14 24 / 50%),
+    inset 0 0 0 1px rgb(255 255 255 / 18%);
+}
+
+/*
+ * 外框线。单独画成 SVG 才好套手绘滤镜：直接给匾体加 border 再 filter，
+ * 里面的字会跟着一起抖歪（PlaqueButton 那边同理，见 .plaque-button__frame）。
+ * preserveAspectRatio: none 让 252×66 的 viewBox 直接铺满匾体，描边宽度按 1.5 画、
+ * 一半压在边界外，看到的正好是 1px 左右。
+ */
+.battle__turn-plaque-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: #8a92ad;
+  stroke-width: 1.5;
+  filter: url('#ai-duel-rough-frame');
+  pointer-events: none;
+}
+
+.battle__turn-plaque-label {
+  /* 和框线分开套滤镜，抖法也换一种，免得字和框歪成同一条线。 */
+  filter: url('#ai-duel-rough-icon');
+  color: #b8c2d9;
+  font-size: 21px;
+  letter-spacing: 0.3em;
+  /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
+  text-indent: 0.3em;
+}
+
+.battle__turn-plaque-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.battle__turn-plaque-dots i {
+  width: 4.5px;
+  height: 4.5px;
+  border-radius: 50%;
+  background: #b8c2d9;
+  opacity: 0.5;
+}
+
+/* 跳动只挂在亮相态上：牌匾大多数时候是隐藏的，动画挂在基础样式里就会在看不见的时候
+   一直空转，而且再挂出来时是从上一轮停在的随便哪一拍接着走。挂在 [data-on] 上，
+   每次亮相都从第一拍开始。下面两条 animation-delay 留在原处即可——
+   没有 animation-name 的时候它什么都不做。 */
+.battle__turn-plaque[data-on] .battle__turn-plaque-dots i {
+  animation: battle-turn-plaque-dot 1.4s ease-in-out infinite;
+}
+
+.battle__turn-plaque-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.battle__turn-plaque-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes battle-turn-plaque-dot {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-4.5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 进出场改成瞬时。visibility 那条的延迟也要一起归零，否则隐藏会慢半拍。 */
+  .battle__turn-plaque,
+  .battle__turn-plaque[data-on] {
+    transition-duration: 1ms;
+    transition-delay: 0s;
+  }
+
+  /* 选择器要和上面那条一样带上 [data-on]，否则特指度不够，压不掉跳动。 */
+  .battle__turn-plaque[data-on] .battle__turn-plaque-dots i {
+    animation: none;
+  }
+}
+
 /* ---------- 事件动画层 ---------- */
 
 /*
@@ -2284,7 +3201,7 @@ body:has(.battle) {
   position: absolute;
   top: 24%;
   left: 50%;
-  width: min(860px, 90vw);
+  width: 860px;
   translate: -50% 0;
 }
 
@@ -2316,36 +3233,88 @@ body:has(.battle) {
 
 /* ---------- 结算层 ---------- */
 
-/* 盖满整屏，所以下面的对局点不到了。 */
+/* 盖满整屏并压暗战场，保留足够的背景信息承接结算底板的环境色。 */
 .battle__result {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
   align-items: center;
   justify-content: center;
-  background: rgb(18 22 30 / 88%);
+  overflow: hidden;
+  background: rgb(8 12 20 / 78%);
+  backdrop-filter: blur(2px) saturate(72%);
+}
+
+/*
+ * 结算底板跟随 1672×941 的设计舞台整体缩放。位图四周带透明装饰，3:2 容器必须完整保留，
+ * 不能按中间纸张的边缘裁切。
+ */
+.battle__result-panel {
+  position: relative;
+  width: 900px;
+  aspect-ratio: 3 / 2;
+}
+
+/*
+ * 只给底板位图做轻微环境染色，不能把文字和按钮一起套 filter。少量透明与降饱和让羊皮纸
+ * 吸收战场的深蓝灰色调，同时保留暖金色装饰。
+ */
+.battle__result-panel::before {
+  position: absolute;
+  inset: 0;
+  background: url('/battle/final-victory-bg.png') center / contain no-repeat;
+  content: '';
+  opacity: 0.95;
+  filter:
+    saturate(88%)
+    brightness(94%)
+    contrast(97%)
+    drop-shadow(0 26px 44px rgb(0 0 0 / 48%))
+    drop-shadow(0 0 30px rgb(224 177 99 / 12%));
+}
+
+/* 文字区按底图留白定位：标题在放射纹中心，比分完整落到中央装饰线下方。 */
+.battle__result-content {
+  position: absolute;
+  z-index: 1;
+  top: 31%;
+  right: 18%;
+  left: 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #242a35;
+  text-align: center;
 }
 
 .battle__result-title {
-  margin: 0;
-  color: #ffeec5;
-  font-size: 44px;
+  margin: 0 0 70px;
+  color: #252b35;
+  font-size: 70px;
   font-weight: 700;
-  letter-spacing: 0.2em;
-  text-indent: 0.2em;
-  text-shadow: 0 4px 22px rgb(6 10 18 / 80%);
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  text-shadow: 0 2px 0 rgb(255 250 236 / 70%);
 }
 
 /* 最终比分。对局中断（对手断线）时没有比分可言，那种情况这一行整个不渲染。 */
 .battle__result-score {
-  margin: -8px 0 0;
-  color: rgb(255 238 197 / 78%);
-  font-size: 20px;
-  letter-spacing: 0.16em;
-  text-indent: 0.16em;
+  margin: 0 0 34px;
+  color: #313640;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+}
+
+.battle__result-score strong {
+  color: #8d4033;
+  font-size: 1.18em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .battle__result-actions {
@@ -2368,6 +3337,65 @@ body:has(.battle) {
 .battle__result-actions button:hover {
   border-color: #cb9d7b;
   background: rgb(48 63 92 / 92%);
+}
+
+/* 结算底板内的两个原有按钮只换外观，不改变 MatchScreen 传入的点击逻辑。 */
+.battle__result .battle__result-actions {
+  gap: 32px;
+}
+
+.battle__result .battle__result-actions button {
+  position: relative;
+  min-width: 224px;
+  min-height: 66px;
+  padding: 10px 30px;
+  border: 1px solid #aa8751;
+  border-radius: 5px;
+  outline: 1px solid rgb(218 181 113 / 48%);
+  outline-offset: -6px;
+  background:
+    linear-gradient(90deg, transparent 0 8%, rgb(220 181 110 / 22%) 8.2% 8.7%, transparent 9% 91%, rgb(220 181 110 / 22%) 91.3% 91.8%, transparent 92%),
+    linear-gradient(180deg, #293345 0%, #1c2534 52%, #151e2c 100%);
+  box-shadow:
+    0 5px 0 #111827,
+    0 10px 18px rgb(8 11 17 / 28%),
+    inset 0 1px 0 rgb(255 239 200 / 16%);
+  color: #ede1c8;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 76%);
+  transition:
+    translate 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.battle__result .battle__result-actions button:hover {
+  translate: 0 -2px;
+  border-color: #d4ae6b;
+  background:
+    linear-gradient(90deg, transparent 0 8%, rgb(238 201 130 / 28%) 8.2% 8.7%, transparent 9% 91%, rgb(238 201 130 / 28%) 91.3% 91.8%, transparent 92%),
+    linear-gradient(180deg, #344158 0%, #222e41 52%, #192437 100%);
+  box-shadow:
+    0 7px 0 #111827,
+    0 14px 22px rgb(8 11 17 / 32%),
+    inset 0 1px 0 rgb(255 239 200 / 22%);
+  filter: brightness(1.06);
+}
+
+.battle__result .battle__result-actions button:active {
+  translate: 0 2px;
+  box-shadow:
+    0 2px 0 #111827,
+    0 6px 12px rgb(8 11 17 / 24%);
+}
+
+.battle__result .battle__result-actions button:focus-visible {
+  outline: 2px solid #f0cb83;
+  outline-offset: 3px;
 }
 
 /* ---------- dev 测试面板 ---------- */
@@ -2765,7 +3793,19 @@ body:has(.battle) {
 }
 
 /*
- * 屏幕中央那张放大的展示卡：150×225 的 1.7 倍。
+ * 放大英雄牌时把倍率调高一档。
+ *
+ * 默认那 1.7 倍是照手牌（150×225）定的，而侧栏那张英雄牌本身就有 259×389——
+ * 按 1.7 飞到中央反而比原位还小一点，"点开放大"就成了一句空话。
+ * 调到 2.2 倍是 330×495，比侧栏那张明显大一圈，卡底到字幕也还留得下地方。
+ * 写在裁剪层而不是 .reveal-card 上：字幕是卡的兄弟节点，它的位置也按这个倍率算。
+ */
+.reveal-clip--hero {
+  --reveal-scale: 2.2;
+}
+
+/*
+ * 屏幕中央那张放大的展示卡：150×225 按 --reveal-scale 放大（默认 1.7 倍，英雄牌那档见上面）。
  *
  * 定位用 left/top + 负 margin，**不能**用 transform: translate(-50%, -50%)——
  * 这个元素的 transform 归 Flip 飞行和呼吸浮动管，写在这里会被它们整个覆盖掉，
@@ -2824,6 +3864,52 @@ body:has(.battle) {
   height: var(--card-h);
   transform: scale(var(--reveal-scale));
   transform-origin: top left;
+}
+
+/*
+ * 英雄原画放大之后就是这张图本身（2:3，768×1152），铺满整面即可——
+ * 它不像文字卡面那样有一套照 150×225 写死的排版，用不着上面那层缩放。
+ * 圆角继承 .reveal-card__face：那一层的投影是照它的圆角画的，这里画成直角会露出四个角。
+ */
+.reveal-card__art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/*
+ * 放大态卡下方那行技能字幕，眼下只有英雄牌用（原画上没印技能，见 MatchStage 的 handleInspectHero）。
+ *
+ * 定位挂在裁剪层上，跟着展示卡的那套数走：卡的中心在 46%、高 --card-h × --reveal-scale，
+ * 所以卡底就是 46% + 半高，再往下留一口气。
+ * 左右铺满、内容居中，不用 translateX(-50%)——省得和 GSAP 可能写到这个元素上的 transform 打架。
+ * 淡入由 MatchStage 那段 Flip 的同一批补间管，这里不写初始 opacity：万一那段没跑到，
+ * 字幕就是直接可见，总好过永远不出现。
+ */
+.reveal-caption {
+  position: absolute;
+  top: calc(46% + var(--card-h) * var(--reveal-scale) / 2 + 22px);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.reveal-caption__text {
+  display: inline-block;
+  max-width: 640px;
+  padding: 10px 20px;
+  border: 1px solid rgb(255 233 190 / 22%);
+  border-radius: 8px;
+  background: rgb(16 20 30 / 72%);
+  color: #f3ecdc;
+  font-size: 20px;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
 }
 
 /* ---------- 全屏过场：抛硬币 / 答题揭晓 / 英雄技能抵消 ---------- */
@@ -2885,7 +3971,7 @@ body:has(.battle) {
 }
 
 .skill-cancel__text {
-  max-width: min(720px, 88vw);
+  max-width: 720px;
   margin: 0;
   color: rgb(255 238 197 / 88%);
   font-size: 20px;
@@ -2958,8 +4044,9 @@ body:has(.battle) {
   flex-direction: column;
   gap: 14px;
   align-items: center;
-  width: min(720px, 88vw);
-  max-height: 82vh;
+  width: 720px;
+  /* 原来是 82vh；设计高 941 的 82% 是 771。 */
+  max-height: 771px;
   padding: 30px 34px;
   overflow-y: auto;
   border: 1px solid var(--battle-line-dark, #777465);
@@ -3113,64 +4200,17 @@ body:has(.battle) {
   text-indent: 0.14em;
 }
 
-@media (max-width: 1080px) {
-  .battle__layout {
-    grid-template-columns: 170px minmax(360px, 1fr) 190px;
-  }
-
-  .battle-topbar__status {
-    gap: 12px;
-  }
-
-  .battle-topbar__score-num {
-    margin: 0 5px;
-    font-size: 26px;
-  }
-
-  .battle__sidebar-frame--actions .ornate-frame__content {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-}
-
 /*
- * 777px 这个阈值是算出来的，不是拍的：战场两行各要 165px 才放得下一张小卡，
- * 而战场高度 = 视口高 − 顶栏 72 − 对方手牌条 84 − 手牌区 210
- * （27vh 在这个高度段恒被 clamp 到下限）− 内边距 52/18 − 边框 2 − 行间距 10，两行平分，
- * 解出来要 778px 高才够。差一点点的话小卡不会自己变矮（.battle__tile 高度写死），
- * 而是整条 flex line 溢出行盒：对方行往上顶进拖拽提示药丸，
- * 我方行往下戳破战场的虚线框，一直捅到手牌区里。
- * 所以 1366×768 这类笔记本（视口高约 690~720）必须走这一档。
- * 缩一号之后的下限是 693px，再矮连 127.5px 的小卡也放不下——窗口小到那个程度这页本来就没法看了。
+ * 这里原来有两档响应式断点（max-width: 1080px 的窄窗口档、max-height: 777px 的矮窗口档），
+ * 用来在小窗口下收窄侧栏、缩小顶栏和场上小卡。现在整块画面固定按 1672×941 排版、
+ * 再由 .battle-scaler 整体等比缩放（见"对局界面的 16:9 舞台"那段），
+ * 内部尺寸永远是设计稿上那一套，窗口再小也只是缩得更小，断点已经没有意义，故删除。
+ * 需要为极小窗口单独调版式的话，条件要写成对舞台的容器查询，而不是对视口的媒体查询。
+ *
+ * 侧栏那两张英雄牌同理：它们的大小是 ResizeObserver 量面板算出来的（见 MatchStage 的
+ * useHeroCardScale），量到的永远是设计尺寸下那块 266×401 的面板，窗口大小不参与，
+ * 所以也不需要为小窗口另开一档内边距。
  */
-@media (max-height: 777px) {
-  .battle {
-    --battle-topbar-h: 62px;
-    /* 矮窗口下战场那块只剩三百来像素，两排 165px 的小卡放不下，整体缩一号。
-       比例必须仍是 85 / 150 = 0.566667（225 × 0.566667 = 127.5），
-       比例一变，打出时的飞行就会把卡面拉变形。 */
-    --tile-w: 85px;
-    --tile-h: 127.5px;
-    --tile-scale: 0.566667;
-  }
-
-  .battle__board {
-    padding-top: 48px;
-    padding-bottom: 12px;
-  }
-
-  .battle-topbar__round-num {
-    font-size: 21px;
-  }
-
-  .battle-topbar__score-num {
-    font-size: 26px;
-  }
-
-  .battle__sidebar-frame--actions .ornate-frame__content {
-    padding-bottom: 42px;
-  }
-}
 
 /* ---------- 卡牌图鉴页（/card） ---------- */
 
@@ -3373,6 +4413,20 @@ body:has(.battle) {
 .gallery__card {
   width: var(--card-w);
   height: var(--card-h);
+}
+
+/*
+ * AI 牌共用的 2:3 背面图与当前卡框同一比例，可以完整显示米白外边和中央纹样。
+ * 圆角和阴影直接挂在图片上，避免米白边在深色详情区旁露出直角。
+ */
+.gallery__card-back-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 32%);
+  user-select: none;
 }
 
 .gallery__face-name {
@@ -3832,3 +4886,59 @@ body:has(.battle) {
 .gallery__faces[data-preview-size='actual'] .gallery__card { width: 150px; height: 225px; }
 .gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
 .gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+
+/* ---------- 触屏设备提示（TouchDeviceNotice） ---------- */
+
+/*
+ * 挂在应用最外层、盖住整页的一层提示：这游戏还没为触屏做过适配。
+ * 判据和"为什么不记住"见 ui/TouchDeviceNotice.tsx。
+ *
+ * z-index 取一个比对局界面里所有浮层（最高是展示遮罩那档 1100~1200）都大的数：
+ * 提示可能出现在任何一页，包括正在对局的那一页，被压在牌底下就白提示了。
+ */
+.touch-notice {
+  position: fixed;
+  z-index: 9000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background-color: rgb(12 16 26 / 62%);
+}
+
+.touch-notice__panel {
+  /* .plaque-button（见上面那一节）的 background-image 里引用了 --battle-grain，
+     而它只定义在 .battle 上。这一层不在 .battle 里，取不到值整条声明就作废，
+     连同一条里的高光渐变一起没了，「确认」会变成一块死板的纯色。
+     同样的作用域补丁 deck.css 和 design.css 里各有一份，改的时候三处一起改。 */
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: min(420px, 100%);
+  padding: 34px 30px 30px;
+  border: 1px solid var(--line-dark, #8a8270);
+  color: var(--ink, #2e2e38);
+  /* 一张纸：底色 + .grain 的两层纸纹，和全站其它纸面同一套（见 ui/paper/paper.css）。 */
+  background-color: var(--paper, #f0ecdf);
+  box-shadow: 0 18px 48px rgb(6 10 20 / 45%);
+  text-align: center;
+}
+
+.touch-notice__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.3em;
+}
+
+.touch-notice__text {
+  margin: 0;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 17px;
+  line-height: 1.75;
+}

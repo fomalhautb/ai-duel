@@ -16,6 +16,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import gsap from 'gsap'
+import { battleStageMetrics } from './battleStage'
 
 /**
  * 按下之后指针要走过这么多像素才算拖拽，没走到就只是一次点击。
@@ -111,8 +112,9 @@ export interface UseCardDragOptions {
    * 把光标位置换算成写给元素的 x / y 目标值——也就是"牌中心怎么对准光标"这件事。
    *
    * 换算方式和元素的坐标原点、变换原点、放大倍数全都有关，只有调用方知道，所以必须由它给。
-   * 不传就退化成"起拖那一刻的 x / y 加上指针走过的位移"，
-   * 也就是原地把牌拎起来平移，网格卡池这种按文档流摆位的页面直接用它就行。
+   * 不传就退化成"起拖那一刻的 x / y 加上指针走过的位移"（位移会先换算成舞台内坐标，
+   * 见 defaultFollowTarget），也就是原地把牌拎起来平移，
+   * 网格卡池这种按文档流摆位的页面直接用它就行。
    */
   targetOf?: (clientX: number, clientY: number, drag: CardDragInfo) => { x: number; y: number }
   /**
@@ -167,6 +169,21 @@ export interface UseCardDragOptions {
    * enabled 为 false 时不会调。
    */
   onTap?: (id: string, drag: CardDragInfo) => void
+  /**
+   * enabled 为 false 时按下了这张牌，给调用方一个做「拒绝反馈」的钩子。
+   *
+   * 被 enabled 挡掉的按下什么都不会发生：既没有拖拽也没有 onTap，玩家点了半天没动静，
+   * 分不清是"现在不能出"还是"界面卡了"。手牌就靠它做摇头加小字提示
+   *（见 HandFan 的 handleLockedPress）。
+   *
+   * 只认这一条闸，另外两条不给：按在 ignoreSelector 上压根不是"想出这张牌"；
+   * 被 canDrag 挡掉的那些同样静默，但那是调用方自己按牌况判的（手牌那边是"已经打出、
+   * 正在等受理"和"这一轮的 Token 买不起"），它想反馈的话在 canDrag 里就能做
+   *（手牌那边买不起的那一档就是这么摇头弹提示的），不必绕这个钩子。
+   *
+   * 只是通知，调不调都不改变这次按下被忽略这个结果。
+   */
+  onLockedPress?: (id: string) => void
 }
 
 /** 绑到卡牌根节点上的那几个事件。 */
@@ -223,6 +240,22 @@ interface DragState extends CardDragInfo {
   /** gsap.quickTo 出来的跟随函数，进入拖拽时才建。 */
   moveX: ((value: number) => void) | null
   moveY: ((value: number) => void) | null
+}
+
+/**
+ * 没给 targetOf 时的跟随目标：起拖位置加上指针走过的位移。
+ *
+ * 位移要先除以舞台的 scale。写出去的 x / y 是 GSAP 的 transform，也就是舞台内坐标，
+ * 而 clientX / clientY 是缩放之后的屏幕像素；页面套了缩放舞台（卡组页的 .deck-scaler、
+ * 对局页的 .battle-scaler）时两者差的正好是这一个倍数，不除的话牌走得比光标慢或快，
+ * 追不上光标。没有舞台时 scale 是 1，结果和改造之前一模一样。口径见 ui/battleStage.ts。
+ */
+function defaultFollowTarget(drag: DragState, clientX: number, clientY: number) {
+  const { scale } = battleStageMetrics()
+  return {
+    x: drag.baseX + (clientX - drag.originX) / scale,
+    y: drag.baseY + (clientY - drag.originY) / scale,
+  }
 }
 
 export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
@@ -354,14 +387,20 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     const opts = optionsRef.current
     // 只认鼠标主键：中键、右键、以及多指里的副指针都不该把牌抓起来。
     if (!event.isPrimary || event.button !== 0) return
-    if (opts.enabled === false) return
-    if (opts.canDrag !== undefined && !opts.canDrag(id)) return
+    // 这道闸要排在 enabled 前面：按在卡面上另有用途的小控件（手牌的问号热区）上不是
+    // "想出这张牌"，锁着的时候也就不该触发下面那记拒绝反馈。
+    // 挪到最前面不影响原来的行为——它和 enabled / canDrag 三条闸的结果都是同一个"直接返回"。
     if (
       opts.ignoreSelector !== undefined &&
       (event.target as HTMLElement).closest(opts.ignoreSelector) !== null
     ) {
       return
     }
+    if (opts.enabled === false) {
+      opts.onLockedPress?.(id)
+      return
+    }
+    if (opts.canDrag !== undefined && !opts.canDrag(id)) return
     // 挡掉浏览器默认的文字选中和图片拖拽，不然拖到一半会拖出一片蓝色选区。
     event.preventDefault()
     dragRef.current = {
@@ -399,10 +438,7 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     const opts = optionsRef.current
     const target =
       opts.targetOf === undefined
-        ? {
-            x: drag.baseX + (event.clientX - drag.originX),
-            y: drag.baseY + (event.clientY - drag.originY),
-          }
+        ? defaultFollowTarget(drag, event.clientX, event.clientY)
         : opts.targetOf(event.clientX, event.clientY, drag)
     drag.moveX?.(target.x)
     drag.moveY?.(target.y)

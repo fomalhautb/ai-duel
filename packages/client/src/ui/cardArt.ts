@@ -7,6 +7,7 @@
  */
 
 import { AI_MODEL_ART } from './aiModelArt'
+import { SKILL_CARD_ART } from './skillCardArt'
 
 export const CARD_ART_PLACEHOLDERS = [
   '/cards/placeholder-1.webp',
@@ -14,6 +15,9 @@ export const CARD_ART_PLACEHOLDERS = [
   '/cards/placeholder-3.webp',
   '/cards/placeholder-4.webp',
 ] as const
+
+/** /card 图鉴里所有 AI 牌共用的背面图，英雄牌和技能牌仍显示带说明文字的详情背面。 */
+export const AI_CARD_BACK_ART = '/cards/card-back-v4-relaxed-ornament.png'
 
 /**
  * 按 id 稳定地挑一张占位图：同一个 id 永远拿到同一张。
@@ -41,5 +45,5 @@ export function placeholderArtFor(seed: string): string {
  * 预加载等的图和卡面真正显示的图就会对不上，玩家会先看到空白再看到图闪出来。
  */
 export function cardArtFor(cardId: string): string {
-  return AI_MODEL_ART[cardId] ?? placeholderArtFor(cardId)
+  return AI_MODEL_ART[cardId] ?? SKILL_CARD_ART[cardId] ?? placeholderArtFor(cardId)
 }

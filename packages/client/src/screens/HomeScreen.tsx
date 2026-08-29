@@ -40,6 +40,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useLocation } from 'wouter'
+import { getCard } from '@ai-duel/core'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
@@ -48,6 +49,7 @@ import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardArtFor } from '../ui/cardArt'
+import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
@@ -66,9 +68,9 @@ const CARD_WIDTH_CQI = 11
  * hover 时卡牌上浮的距离，写成卡高的百分比。
  *
  * 设计上想要的是"抬起约 1.5cqi"，但 GSAP 的 y 只认 px 和 %，不认 cqi；
- * 换算成卡自身高度的百分比（1.5 / 15.4 ≈ 9.7%）就和单位无关了，缩放到任何窗口都一样高。
+ * 换算成卡自身高度的百分比（1.5 / 16.5 ≈ 9.1%）就和单位无关了，缩放到任何窗口都一样高。
  */
-const CARD_LIFT_PERCENT = -9.7
+const CARD_LIFT_PERCENT = -9.1
 /** 卡面跟着指针倾斜的最大角度。和手牌里的大卡取同一档。 */
 const CARD_TILT_DEG = 10
 /** hover 上浮 / 落回的时长，两边一致，来回扫动时不会一边快一边慢。 */
@@ -85,62 +87,20 @@ interface Seat {
 }
 
 /**
- * 首页橱窗里的四张卡：卡面数据是纯占位（不是真卡池里的东西），
+ * 首页橱窗里的四张卡：直接取 core 卡池里的真卡，卡面走对局那套 HandCardFace，
+ * 展示数据走公共的 toHandCardData（见 ui/handCardData.ts），
+ * 所以这里看到的名字、描述、插画和对局里抽到同一张时完全一致，不需要在这一页维护占位文案。
+ *
+ * 挑的是四家各自的旗舰款（GPT / Claude / DeepSeek / 豆包）：首页是门面，
+ * 摆一眼能认出品牌的那张，比摆早期型号更说明这游戏在玩什么。
+ *
  * 位置和倾角照着设计稿量。注意两端的卡不是抬起而是**沉下去**一点（y 差约 1.6%），弧口朝上。
  */
 const SEATS: Seat[] = [
-  {
-    x: 36.6,
-    y: 49.7,
-    rot: -9,
-    card: {
-      id: 'home-chatgpt',
-      kind: 'ai',
-      name: 'ChatGPT',
-      model: 'GPT',
-      text: '占位描述：老成持重的通才，什么都会一点，什么都不算最强。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 45.5,
-    y: 48.1,
-    rot: -3,
-    card: {
-      id: 'home-claude',
-      kind: 'ai',
-      name: 'Claude',
-      model: 'Claude',
-      text: '占位描述：话多且讲究，越是被追问越要把话说圆。',
-      backText: '占位背面：稀有度 ★★★ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 54.5,
-    y: 48.1,
-    rot: 3,
-    card: {
-      id: 'home-deepseek',
-      kind: 'ai',
-      name: 'DeepSeek',
-      model: 'DeepSeek',
-      text: '占位描述：算得又快又狠，可惜偶尔算错了也一样理直气壮。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
-  {
-    x: 63.4,
-    y: 49.7,
-    rot: 9,
-    card: {
-      id: 'home-gemini',
-      kind: 'ai',
-      name: 'Gemini',
-      model: 'Gemini',
-      text: '占位描述：看得见听得见，就是记性差了点。',
-      backText: '占位背面：稀有度 ★★☆ · 这里之后会放这张卡的更多信息。',
-    },
-  },
+  { x: 36.6, y: 49.7, rot: -9, card: toHandCardData(getCard('chatgpt-5-6-sol')) },
+  { x: 45.5, y: 48.1, rot: -3, card: toHandCardData(getCard('claude-fable-5')) },
+  { x: 54.5, y: 48.1, rot: 3, card: toHandCardData(getCard('deepseek-v4')) },
+  { x: 63.4, y: 49.7, rot: 9, card: toHandCardData(getCard('doubao')) },
 ]
 
 interface CastMember {
@@ -159,7 +119,7 @@ interface CastMember {
  * 每张抠图都是和舞台等比的整幅透明图，人物已经画在各自该在的位置上，所以这里不需要任何坐标——
  * 整张铺满舞台叠上去就是对的位置，和夜空底、桌面弧、前景道具是同一种用法（共用 .home__layer）。
  * 换人只要重新导出同比例的整幅图，不用回来改代码；尺寸越大越清晰，理由见文件头「素材分辨率」。
- * 介绍卡片的定位也不用跟着改：它是从图片的 alpha 包围盒现算的，而包围盒存的是 0~1 的比例，
+ * 介绍卡片的定位也不用跟着改：它是从图片的 alpha 包围盒算出来的，而包围盒存的是 0~1 的比例，
  * 和图片到底多少像素无关，所以换成 2x 素材照样对得上（见 castHitTest.ts）。
  *
  * 数组顺序就是叠放顺序，后面的盖住前面的，所以站在前排的人排在后面。
@@ -253,10 +213,10 @@ const CAST_PANEL_HEIGHT = 32
 const CAST_PANEL_TOP_MIN = 30
 const CAST_PANEL_TOP_MAX = 74.5 - CAST_PANEL_HEIGHT
 
-/** 介绍卡片当前该出现在哪、显示谁。指针移开时保留最后一次，只让透明度淡出。 */
-interface CastPanelState {
-  index: number
-  style: CSSProperties
+/** 命中检测要用的一整套 alpha 通道：七个人物，加上压在他们之上的两张遮挡层。 */
+interface CastAlphaMaps {
+  cast: AlphaMap[]
+  occluders: AlphaMap[]
 }
 
 /**
@@ -264,6 +224,9 @@ interface CastPanelState {
  *
  * 横向看人在舞台的哪半边：左半边的人把卡片放到他右侧，右半边的放到左侧（用 right 定位，
  * 卡片自己多宽都不会越过人物）。这样卡片永远朝画面中间展开，不会挤出舞台。
+ *
+ * 只在 alpha 通道加载完那一次给七个人各算一遍，之后既不跟指针也不跟窗口变：
+ * 包围盒存的是 0~1 的比例，换算出来的百分比和窗口多大无关，算一次就是定值。
  */
 function castPanelStyle(bbox: NormalizedBox): CSSProperties {
   const top = Math.min(
@@ -326,19 +289,33 @@ function HomeStage() {
   // 同一个值再存一份在 ref 里：rAF 回调是在闭包里跑的，读 state 会读到过期值，
   // 拿它来判断"命中变了没"才靠谱，也才能做到没变就不 setState。
   const hoveredCastRef = useRef<number | null>(null)
-  const [castPanel, setCastPanel] = useState<CastPanelState | null>(null)
+  /**
+   * 七张介绍卡片各自的位置样式，下标和 CAST 对齐。
+   *
+   * 抠图 alpha 抽完之前这份数组是空的，七张卡片一张都还没进 DOM；不过 hover 命中读的是同一批
+   * 抠图，所以不会出现"能 hover 却没卡片"的空窗。抽完之后，某个人没抠出包围盒
+   *（加载失败或整张全透明）时那一格是 null，卡片摆哪无从算起，那一张就一直不渲染。
+   */
+  const [castPanelStyles, setCastPanelStyles] = useState<Array<CSSProperties | null>>([])
   /**
    * 命中检测用的 alpha 通道：七个人物 + 两张遮挡层（桌面弧、前景道具）。
-   * 放 ref 不放 state：它只被指针回调读，进 state 会白白多一次重渲染。
+   *
+   * 放 ref 不放 state：它只被指针回调读，不参与渲染；这又是九张图的逐像素数组，
+   * 放进 state 只是让它白白挂在渲染路径上跟着走一遍。
+   * 它同时是 hover 的总开关——还是 null 时命中检测直接不跑，什么都不会高亮。
    */
-  const castAlphaRef = useRef<{ cast: AlphaMap[]; occluders: AlphaMap[] } | null>(null)
+  const castAlphaRef = useRef<CastAlphaMaps | null>(null)
+  /** 抠图已经抽完、但还不许拿去 hover 的中转站，理由见下面放行它的那个 effect。 */
+  const pendingCastAlphaRef = useRef<CastAlphaMaps | null>(null)
 
   /*
    * 抠图解码 + 抽 alpha 是异步的，加载完成前 hover 静默不生效（宁可没反应，也别乱高亮）。
    * 九张图一次请完，是为了让它们共用同一块离屏画布（见 loadCastAlphaMaps）。
    *
    * 这九个地址全都在 HOME_ASSETS 里，而 HomeStage 要等那批图就绪才挂载，
-   * 所以这里的 new Image 命中的是浏览器缓存，不会再下一遍，decode() 也基本当场返回。
+   * 所以这里的 new Image 命中的是浏览器缓存，不会再下一遍。
+   * 但"下载好了"不等于"解得出来"：九张大图一起解时浏览器会取消掉一部分，
+   * 那种情况下 castHitTest.ts 会退回等 load 事件再画，不会把人丢掉（理由写在那边）。
    * 剩下的开销是画进离屏画布再逐像素扫一遍，正好落在首页淡入那段时间（见 castHitTest.ts）。
    * 没把这一步并进加载闸门：hover 高亮晚几百毫秒无所谓，
    * 为它多顶一会儿 loader 却是每个玩家都要付的代价。
@@ -351,12 +328,33 @@ function HomeStage() {
     ]
     void loadCastAlphaMaps(srcs).then((maps) => {
       if (!alive) return
-      castAlphaRef.current = { cast: maps.slice(0, CAST.length), occluders: maps.slice(CAST.length) }
+      const cast = maps.slice(0, CAST.length)
+      // 先搁在中转站，不当场开 hover，理由见下面放行它的那个 effect。
+      pendingCastAlphaRef.current = { cast, occluders: maps.slice(CAST.length) }
+      // 这一次 setState 躲不掉：七张介绍卡片必须先进 DOM 才谈得上淡入（理由见渲染处），
+      // 而它们摆在哪要等包围盒算完才知道，只能靠这次重渲染把它们放进去。
+      setCastPanelStyles(cast.map((map) => (map.bbox === null ? null : castPanelStyle(map.bbox))))
     })
     return () => {
       alive = false
     }
   }, [])
+
+  /*
+   * 等七张卡片以关闭态提交进 DOM 之后，再把 alpha 通道交给命中检测。
+   *
+   * 两件事挤进同一次提交会毁掉首次淡入：抠图抽完的那一刻指针要是正压在某个人身上，
+   * 命中检测排的那次 setHoveredCast 会和上面的 setCastPanelStyles 被合并成同一次渲染，
+   * 七张卡片首次插进 DOM 时，指针底下那张就已经带着 is-open 了——而 CSS 过渡对刚插入的元素
+   * 不生效（没有"变化前"的样式可比），第一次又变回"啪"地弹出，正好是这次要消灭的那个毛病。
+   * 隔开一次提交之后，加 is-open 必然发生在卡片已经渲染过关闭态之后，也就必然是一次真正的过渡。
+   */
+  useEffect(() => {
+    const pending = pendingCastAlphaRef.current
+    if (pending === null) return
+    castAlphaRef.current = pending
+    pendingCastAlphaRef.current = null
+  }, [castPanelStyles])
 
   /**
    * 舞台在视口里的位置和大小，缓存起来给命中检测用。
@@ -406,11 +404,6 @@ function HomeStage() {
           )
       if (hit === hoveredCastRef.current) return
       hoveredCastRef.current = hit
-      // 位置在这里一次算定，之后只随下一次命中变化：卡片淡出期间不该跟着指针跑。
-      if (hit !== null) {
-        const bbox = maps.cast[hit]?.bbox ?? null
-        if (bbox !== null) setCastPanel({ index: hit, style: castPanelStyle(bbox) })
-      }
       setHoveredCast(hit)
     })
   }
@@ -648,33 +641,45 @@ function HomeStage() {
         {/*
           人物介绍卡片放在舞台的最后一层，压在所有东西之上（包括标题和道具）——
           它是临时浮出来的信息，被夜空里的任何东西挡住都会显得像画错了。
-          指针移开后不卸载、只淡出，所以这里读的是 castPanel 而不是 hoveredCast：
-          淡出过程中内容还得留在原地，否则字会先消失、框再慢慢淡。
+
+          抠图 alpha 抽完之后，七个人各有一份卡片一直挂在这儿，和上面那圈发光副本是同一套写法：
+          显不显示只由 .is-open 这一个类决定。按需挂载做不到淡入——CSS 过渡对刚插进 DOM 的元素不生效
+          （没有"变化前"的样式可比），第一次 hover 必然是"啪"地弹出。常驻之后加类才是一次真正的过渡。
+          指针从一个人直接滑到另一个人也顺带解决了：那是两张卡片各自淡出、淡入，
+          不需要定时器等旧内容退场，也不用去过渡位置——每张卡的位置是它自己的定值，
+          正好绕开"左半边用 left、右半边用 right，两个属性之间没法插值"这个死结。
+          抽完之前整份位置数组还是空的，所以下面既要挡 undefined（还没抽完）也要挡 null
+          （抽完了但这个人没抠出包围盒，卡片摆哪无从算起）——两种情况都不渲染这一张。
 
           aria-hidden 是有意的：整块内容只有 hover 得到的人看得见，读屏和键盘用户本来就到不了，
           留在无障碍树里只会变成一段没有上下文、还会随指针来回出现的游离文字。
           TODO：角色文案从占位换成真设定之后，这些信息就不能只挂在 hover 上了，
           得另给一个可聚焦、触屏也点得到的入口（比如"图鉴"页），那时再把这里接进无障碍树。
         */}
-        {castPanel !== null && (
-          <aside
-            className={`home__cast-panel${hoveredCast !== null ? ' is-open' : ''}`}
-            style={castPanel.style}
-            aria-hidden="true"
-          >
-            <span className="home__cast-panel-kicker">角色档案</span>
-            <span className="home__cast-panel-name">{CAST[castPanel.index]?.name}</span>
-            {/* 分隔线和副标题两侧那组花饰共用 .home__flourish 的零件，只是把线和星改小一档、
-                星色调淡（覆盖的三个变量见 styles.css 的 .home__cast-panel-rule）。 */}
-            <span className="home__flourish home__cast-panel-rule">
-              <i className="home__flourish-line" />
-              <Sparkle className="home__flourish-star" />
-              <i className="home__flourish-line home__flourish-line--right" />
-            </span>
-            <span className="home__cast-panel-title">{CAST[castPanel.index]?.title}</span>
-            <p className="home__cast-panel-blurb">{CAST[castPanel.index]?.blurb}</p>
-          </aside>
-        )}
+        {CAST.map((member, index) => {
+          const panelStyle = castPanelStyles[index]
+          if (panelStyle === undefined || panelStyle === null) return null
+          return (
+            <aside
+              key={member.file}
+              className={`home__cast-panel${hoveredCast === index ? ' is-open' : ''}`}
+              style={panelStyle}
+              aria-hidden="true"
+            >
+              <span className="home__cast-panel-kicker">角色档案</span>
+              <span className="home__cast-panel-name">{member.name}</span>
+              {/* 分隔线和副标题两侧那组花饰共用 .home__flourish 的零件，只是把线和星改小一档、
+                  星色调淡（覆盖的三个变量见 styles.css 的 .home__cast-panel-rule）。 */}
+              <span className="home__flourish home__cast-panel-rule">
+                <i className="home__flourish-line" />
+                <Sparkle className="home__flourish-star" />
+                <i className="home__flourish-line home__flourish-line--right" />
+              </span>
+              <span className="home__cast-panel-title">{member.title}</span>
+              <p className="home__cast-panel-blurb">{member.blurb}</p>
+            </aside>
+          )
+        })}
       </div>
     </div>
   )

@@ -28,6 +28,7 @@ import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
+import { BackButton } from '../ui/BackButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
@@ -43,6 +44,7 @@ import {
   ZOOM_OUT_DUR,
   ZOOM_OUT_EASE,
 } from '../ui/CardZoomOverlay'
+import { prefersReducedMotion } from '../ui/reducedMotion'
 import './hero.css'
 
 gsap.registerPlugin(useGSAP, Flip)
@@ -127,17 +129,6 @@ const PLACEHOLDER_SKILLS = [
     text: '技能效果待设计。这里会写这位英雄的被动或大招，以及它的触发条件。',
   },
 ] as const
-
-/**
- * 系统的「减少动效」开关。每次现读不缓存：这个设置能在页面开着的时候改，
- * 读一次存下来就会一直沿用旧值。
- *
- * hero.css 末尾那块 @media 只管得到 CSS 过渡，GSAP 写的位移得在 JS 里自己让路，
- * 所以这一页两边都要做——它是全站第一个有入场动画的页面。
- */
-function prefersReducedMotion() {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 /**
  * 加载闸门。
@@ -479,16 +470,13 @@ function HeroStage() {
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
-        {/* 详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。 */}
-        <button
-          type="button"
+        {/* 位置和配色留在 hero.css 的 .hero__back 里，箭头和文字的排版由公共组件管。
+            详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。 */}
+        <BackButton
           className="hero__back"
           inert={detailId !== null}
           onClick={() => navigate('/')}
-        >
-          <BackArrow />
-          返回
-        </button>
+        />
 
         <div className="hero__head" inert={detailId !== null}>
           <h1 className="hero__title">
@@ -599,15 +587,9 @@ function HeroStage() {
               {/* 详情只能从这两颗按钮（或 ESC）退出：点空白处会关掉，
                   就没法在大卡上随便挪指针看画，所以那条去掉了。 */}
               <div className="hero__detail-actions">
-                <button
-                  type="button"
-                  className="hero__detail-back"
-                  ref={detailBackRef}
-                  onClick={closeDetail}
-                >
-                  <BackArrow />
-                  <span className="hero__detail-back-label">返回</span>
-                </button>
+                {/* 和左上角那颗同一个公共组件（ui/BackButton），只是字号更大、套了手绘滤镜，
+                    定位交给 .hero__detail-back。 */}
+                <BackButton className="hero__detail-back" ref={detailBackRef} onClick={closeDetail} />
                 {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。 */}
                 <PlaqueButton className="hero__confirm" onClick={handleConfirm}>
                   确认英雄
@@ -633,26 +615,6 @@ function Sparkle({ className }: { className: string }) {
         d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"
         fill="currentColor"
       />
-    </svg>
-  )
-}
-
-/** 返回箭头。用画的不用「←」：这个箭头在各家字体里长短粗细差得很远，落到兜底宋体上尤其难看。 */
-function BackArrow() {
-  return (
-    <svg
-      className="hero__back-arrow"
-      viewBox="0 0 23 15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M22 7.5 H1.5" />
-      <path d="M8 1.5 L1.5 7.5 L8 13.5" />
     </svg>
   )
 }

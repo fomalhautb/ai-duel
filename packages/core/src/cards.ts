@@ -15,6 +15,8 @@ export const CARDS: Record<CardId, HandCard> = {
   'placeholder-skill': {
     kind: 'skill',
     id: 'placeholder-skill',
+    // 两张技能牌都定得很便宜：它们现在几乎没有实际效果，定贵了就是逼玩家永远别打它们。
+    tokenCost: 1,
     name: '占位技能',
     text: '占位卡面：打出后亮个相就进弃牌堆，暂时没有任何效果。',
   },
@@ -23,6 +25,7 @@ export const CARDS: Record<CardId, HandCard> = {
     id: 'skill-must-answer',
     // 第一张要选目标的技能牌。本迭代只做"选中并标记"，答题时还不会真的照这句话回答。
     target: 'foe-ai',
+    tokenCost: 2,
     name: '必须回答',
     // 卡面描述最多三行（约 35 个字，见 styles.css 的 .card-face__text），再长会被截掉，
     // 所以这句去掉了引号，压到刚好三行以内。
@@ -47,7 +50,8 @@ export function getCard(cardId: CardId): HandCard {
  * 一副默认牌组就能把两条出牌链路都摸到。20 这个总数由 collection 的测试守着，
  * 想再加牌就得挤掉一张。
  *
- * 一局最多摸 5（起手）+ 4（第 2~5 轮各 1 张）= 9 张，20 张管够，不会抽空。
+ * 一局最多摸 5（起手）+ 8（第 2~5 轮各 2 张，见 engine.ts 的 ROUND_DRAW_SIZE）= 13 张，
+ * 20 张管够，不会抽空。
  *
  * 只用 `INITIAL_COLLECTION` 里的卡，否则新玩家会拿到自己还没解锁的卡；
  * 这条约束由 collection 的测试守着（这里不 import collection.ts，

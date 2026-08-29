@@ -14,13 +14,19 @@
  * 阶段动画分三档：
  * - 全屏过场（开局抛硬币、答题揭晓、英雄技能抵消）挂在 React 状态上，压暗整个战场演一段再退场；
  * - 屏幕中央那套展示层（.reveal-*）由两条链路共用，它们严格互斥（共用同一张展示卡、同一条浮动）：
- *   对手出牌的强制展示（reveal，不可打断）和玩家点战场小卡的放大查看（inspect，点遮罩关闭）；
+ *   对手出牌的强制展示（reveal，不可打断）和玩家点开一张卡的放大查看（inspect，点遮罩关闭；
+ *   战场小卡和左侧栏那两张英雄牌都走它）；
  * - 轻量提示（第几轮、轮到谁出牌）走中央横幅，一次只播一条，多条排队。
  * 视觉全是占位，只求节奏顺、看得懂，美术另做。
  */
 
-import { useRef, useState, useEffect, useMemo } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import { useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react'
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject,
+} from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
@@ -31,18 +37,19 @@ import type {
   CardInstance,
   Command,
   GameState,
-  HeroId,
   InstanceId,
   PlayerId,
   PlayerState,
   Question,
+  QuestionCategory,
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
+import { battleStageMetrics } from './battleStage'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
-import type { CardPlayVia, HandCardData } from './HandFan'
+import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
@@ -50,7 +57,9 @@ import { PlaqueButton } from './PlaqueButton'
 import { cardBackText } from './cardText'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
+import { CARD_HEIGHT, CARD_WIDTH } from './fanMath'
 import { flipTo, setFlipAngle, syncFlipFaces } from './flipCard'
+import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSkillHitFx, playSummonFx } from './playSummonFx'
@@ -134,6 +143,16 @@ const COIN_HOLD = 1.3
 /** 英雄技能抵消那一层，大字停留多久（秒）再整层淡出。 */
 const CANCEL_HOLD = 1.3
 
+/**
+ * 开局发牌的兜底放行时间（秒）。
+ *
+ * 发牌默认憋着，正常由抛硬币过场的收尾放开（见 dealHeld）。要是这一局压根没有 GAME_STARTED
+ *（联机客人接手一局打到一半的对局就是这样），那条收尾永远不会来，牌会一直压在卡堆上。
+ * 开局事件是 driver 构造时就发出来的、挂载后第一个 effect 就送到（架构 5.2），
+ * 所以只要这个时间盖得住"挂载到第一批事件"这一小会儿就够，取多长不影响正常开局。
+ */
+const DEAL_HOLD_FALLBACK = 0.8
+
 /** 答题结果逐条淡入的间隔（秒）。 */
 const QUIZ_ROW_STAGGER = 0.16
 /** 计分那行出来之后停留多久（秒）再整层淡出，露出已经更新的战场和比分。 */
@@ -172,15 +191,38 @@ interface QuizReveal {
 }
 
 /**
- * 正在被放大查看的那张战场小卡。
+ * 放大查看的那张卡原来摆在哪：战场上的一个格子，还是左侧栏里的英雄牌。
+ * 飞回时要按它决定去哪个容器里找原位（见 inspectOriginOf）。
+ */
+type InspectSource = 'tile' | 'hero'
+
+/**
+ * 正在被放大查看的那张卡（战场小卡或侧栏英雄牌）。
  *
- * 这张卡**没有**离开战场：格子还在（只是隐藏着占位，见 .battle__tile--held），
- * 展示层只是多渲染了一份放大的副本。instanceId 同时是飞回原格时 Flip 的配对键。
+ * 这张卡**没有**离开原位：原位还占着地方（只是隐藏着，见 .battle__tile--held /
+ * .battle__hero--held），展示层只是多渲染了一份放大的副本。
+ * flipId 同时是飞回原位时 Flip 的配对键：战场小卡用实例 id，英雄牌用 heroFlipId 拼的键。
  */
 interface InspectTarget {
   card: HandCardData
-  instanceId: InstanceId
+  flipId: string
+  source: InspectSource
+  /**
+   * 英雄原画卡的图片地址（见 ui/heroArt.ts）。非空时展示层画的是这张整图，
+   * 不是 card 拼出来的文字卡面；card 仍然要给，图取不到时还得靠它兜底。
+   */
+  art: string | null
+  /**
+   * 放大态卡下方那行字幕。
+   *
+   * 只有英雄牌用得上：原画上没印技能，而"点开英雄牌看技能"正是这条链路存在的理由，
+   * 所以把「技能名：技能说明」补在卡下面。战场小卡的卡面自带说明，为 null。
+   */
+  caption: string | null
 }
+
+/** 左侧栏两块玩家面板各是谁的。卡堆和发牌动画靠它对上号。 */
+type DealSide = 'mine' | 'foe'
 
 /**
  * 正在被强制展示的那张对手牌。
@@ -244,29 +286,54 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
   // 下面那个组件的一整套 hook 都要求 state 存在，所以拆成两个组件而不是在中间早退。
   if (view.state === null) {
     return (
-      <div className="battle battle--waiting">
-        <HandDrawnFilterDefs />
-        <BattleTopBar />
-        <div className="battle__waiting">
-          <p className="battle__waiting-text">
-            {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
-          </p>
-          {view.status === 'aborted' ? (
-            <div className="battle__result-actions">{resultActions}</div>
-          ) : null}
+      <BattleFrame>
+        <div className="battle battle--waiting">
+          <HandDrawnFilterDefs />
+          <BattleTopBar />
+          <div className="battle__waiting">
+            <p className="battle__waiting-text">
+              {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
+            </p>
+            {view.status === 'aborted' ? (
+              <div className="battle__result-actions">{resultActions}</div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </BattleFrame>
     )
   }
 
   return (
-    <BattleField
-      driver={driver}
-      view={view}
-      state={view.state}
-      testMode={testMode}
-      resultActions={resultActions}
-    />
+    <BattleFrame>
+      <BattleField
+        driver={driver}
+        view={view}
+        state={view.state}
+        testMode={testMode}
+        resultActions={resultActions}
+      />
+    </BattleFrame>
+  )
+}
+
+/**
+ * 16:9 舞台外壳：把整个对局界面锁进设计稿的比例里，窗口太宽留左右边、太窄留上下边。
+ *
+ * 三层各管一件事（样式和取舍见 styles.css 里"对局界面的 16:9 舞台"）：
+ * .battle-frame 铺留边并把舞台居中，.battle-stage 定下 16:9 的那块地方，
+ * .battle-scaler 永远是 1672×941 的盒子、再整体缩到舞台大小。
+ * 等待页和正式对局都要套上：它们共用同一套写死像素的排版，也共用 .battle 的顶栏。
+ *
+ * 缩放层上那个 stage-scaler 是给 JS 认的：ui/battleStage.ts 照它查当前舞台，
+ * 卡组页的 .deck-scaler 也带同一个类，两页共用同一套坐标换算。样式仍写在 .battle-scaler 上。
+ */
+function BattleFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="battle-frame">
+      <div className="battle-stage">
+        <div className="battle-scaler stage-scaler">{children}</div>
+      </div>
+    </div>
   )
 }
 
@@ -331,8 +398,25 @@ function BattleField({
    * 两行文案在收到 SKILL_CANCELED 那一刻就按当时的座位拼好，演的时候不再回头读局面。
    */
   const [skillCancel, setSkillCancel] = useState<(SkillCancelText & { key: number }) | null>(null)
-  /** 正在放大查看的战场小卡；非空即"查看中"，同时也是遮罩可点关闭的开关。 */
+  /** 正在放大查看的那张卡（战场小卡或侧栏英雄牌）；非空即"查看中"，同时也是遮罩可点关闭的开关。 */
   const [inspecting, setInspecting] = useState<InspectTarget | null>(null)
+  /**
+   * 开局的发牌先憋着，等抛硬币过场演完再放。
+   *
+   * 初值就是 true：开局事件是挂载之后的 effect 才送到的（架构 5.2），
+   * 那时两排扇形已经把开局手牌摆好、动画都排上了，等 coinToss 立起来再拦就晚了一拍。
+   * 所以默认拦着，由抛硬币的收尾放开，另有一条兜底定时器防着"这一局根本没有过场"
+   *（见 DEAL_HOLD_FALLBACK）。
+   */
+  const [dealHeld, setDealHeld] = useState(true)
+  /**
+   * 两排扇形各自还压在卡堆上、没起飞的新牌张数。
+   *
+   * 卡堆上显示的是"局面里的剩余张数 + 这个数"：开局那 5 张牌一张张飞出去时，
+   * 数字才会从 20 慢慢数到 15，而不是一上来就跳到 15。
+   * 测试房里对方那排扇形不渲染（换成了摊开的手牌条），foe 恒为 0，卡堆直接显示局面里的数。
+   */
+  const [dealPending, setDealPending] = useState({ mine: 0, foe: 0 })
   /** 对手正打出的那张牌，强制展示在屏幕中央。 */
   const [reveal, setReveal] = useState<RevealTarget | null>(null)
   /** 正在给一张干扰技能选目标（点击路）；非空即选目标态。 */
@@ -363,6 +447,8 @@ function BattleField({
   const revealCardRef = useRef<HTMLDivElement>(null)
   /** 展示卡的裁剪层。飞行途中它把顶栏那一截挡住，落位后由 JS 撤掉（原因见 .reveal-clip）。 */
   const revealClipRef = useRef<HTMLDivElement>(null)
+  /** 放大英雄牌时卡下方那行技能字幕。只有那条链路会挂上，别的展示为 null。 */
+  const revealCaptionRef = useRef<HTMLParagraphElement>(null)
   /** 战场上每张小卡的倾斜跟随，按 tile 元素存着（tile 上没有别的稳定标识可用）。 */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
   /** 上面那段演出是否还在进行中。事件回调和延迟回调读它判活，见 landing。 */
@@ -384,6 +470,8 @@ function BattleField({
   const lockFallbackRef = useRef<gsap.core.Tween | null>(null)
   /** 这次技能牌展示持有的是哪一号锁。展示时间线演完时凭它解锁（见 landingTokenRef）。 */
   const skillLockTokenRef = useRef(0)
+  /** 发牌憋着的兜底放行定时器。抛硬币一起来就把它撤掉，放行交给过场的收尾。 */
+  const dealHoldFallbackRef = useRef<gsap.core.Tween | null>(null)
   /** 当前正在展示的那张技能牌的 key。连打时用它认出"我这条时间线是不是已经过气了"。 */
   const skillShowKeyRef = useRef<number | null>(null)
   /** 松手那一刻记下的手牌位置，等 React 把 DOM 换好之后再拿它补飞行动画。 */
@@ -416,12 +504,16 @@ function BattleField({
     id: InstanceId
     token: number
   } | null>(null)
-  /** 待播的"小卡飞向展示位"动画，记的是战场上那个格子起飞前的位置。 */
+  /** 待播的"原位那张卡飞向展示位"动画，记的是它起飞前的位置。 */
   const inspectFlipRef = useRef<Flip.FlipState | null>(null)
-  /** 待播的"从展示位飞回战场格子"动画，同样要连 id 和演出锁的编号一起存。 */
+  /**
+   * 待播的"从展示位飞回原位"动画。
+   * 除了起飞状态和演出锁的编号，还要连"回哪儿"一起存：战场小卡和侧栏英雄牌不在同一个容器里。
+   */
   const inspectReturnRef = useRef<{
     state: Flip.FlipState
-    id: InstanceId
+    flipId: string
+    source: InspectSource
     token: number
   } | null>(null)
   /**
@@ -496,6 +588,19 @@ function BattleField({
   useEffect(() => {
     setAwaiting(false)
   }, [view])
+
+  /**
+   * 发牌憋着的兜底放行：这一局要是根本没有抛硬币过场，也得让开局手牌飞出来。
+   * 收到 GAME_STARTED 时会把它撤掉（见那条 case），放行改由过场的收尾负责。
+   */
+  useEffect(() => {
+    const fallback = gsap.delayedCall(DEAL_HOLD_FALLBACK, () => setDealHeld(false))
+    dealHoldFallbackRef.current = fallback
+    return () => {
+      fallback.kill()
+      if (dealHoldFallbackRef.current === fallback) dealHoldFallbackRef.current = null
+    }
+  }, [])
 
   // ---------- 事件动画 ----------
 
@@ -694,6 +799,10 @@ function BattleField({
           // 全屏过场会盖住战场，选目标态一律先收掉（同 QUESTION_REVEALED 那条）。
           setTargeting(null)
           coinUpRef.current = true
+          // 过场真的要演了，发牌的兜底放行可以撤了：改由下面那条时间线的收尾放行，
+          // 开局手牌才不会在硬币还转着的时候飞出来（那时整个屏幕被 1100 那层盖着）。
+          dealHoldFallbackRef.current?.kill()
+          dealHoldFallbackRef.current = null
           setCoinToss((current) => ({
             firstPlayer: event.firstPlayer,
             key: (current?.key ?? 0) + 1,
@@ -899,6 +1008,8 @@ function BattleField({
             setCoinToss((current) => (current?.key === shownKey ? null : current))
             // 开局这一批里，硬币后面紧跟着还有「第 1 轮」和「轮到你出牌」两条横幅憋着。
             pumpBanner()
+            // 屏幕空出来了，开局那两手牌这才从各自的卡堆一张张飞出去（见 dealHeld）。
+            setDealHeld(false)
           },
         })
         .fromTo(
@@ -1086,6 +1197,8 @@ function BattleField({
     cancelUpRef.current = false
     pendingCancelRef.current = null
     skillShowBusyRef.current = 0
+    // 抛硬币被收掉了，放行发牌的那条收尾也就不会来了；开局手牌不该一直压在卡堆上。
+    setDealHeld(false)
     setCoinToss(null)
     setQuizReveal(null)
     setSkillCancel(null)
@@ -1231,6 +1344,9 @@ function BattleField({
     const card = slot.getBoundingClientRect()
     const cx = card.left + card.width / 2
     const cy = card.top + card.height / 2
+    // 下面全程在视口坐标里比矩形，本来不用换算；只有 TARGET_SNAP 这个放宽量是照舞台内像素
+    // 定的，得跟着舞台一起缩，否则窗口越小，这圈"擦边也算命中"的余量在画面上就越大。
+    const snap = TARGET_SNAP * battleStageMetrics().scale
 
     // 先在**整行**里找最近的那张（不是只在合法目标里找），最后才看它能不能打：
     // 只挑合法的话，松手在一张已干扰的小卡上会打中旁边那张，玩家眼里就是"我明明放在它身上"。
@@ -1239,8 +1355,8 @@ function BattleField({
       const tile = tileOf(boardRef, ai.instanceId)
       if (tile === null) continue
       const rect = tile.getBoundingClientRect()
-      if (cx < rect.left - TARGET_SNAP || cx > rect.right + TARGET_SNAP) continue
-      if (cy < rect.top - TARGET_SNAP || cy > rect.bottom + TARGET_SNAP) continue
+      if (cx < rect.left - snap || cx > rect.right + snap) continue
+      if (cy < rect.top - snap || cy > rect.bottom + snap) continue
       // 放宽之后相邻两张小卡的判定区会重叠，取牌心最近的那张，和肉眼看到的一致。
       const distance = Math.hypot(
         cx - (rect.left + rect.right) / 2,
@@ -1358,33 +1474,83 @@ function BattleField({
   }
 
   /**
-   * 点战场小卡：把它放大到屏幕中央看清楚。
+   * 放大查看那张卡的原位元素：战场小卡在战场容器里，英雄牌在左侧栏里。
+   *
+   * 查询必须限定容器：手牌、战场小卡、侧栏英雄牌、展示卡共用同一套 data-flip-id，
+   * 满文档找会抓错元素（同 startReveal / tileOf 那几处查询）。
+   */
+  const inspectOriginOf = (flipId: string, source: InspectSource): HTMLElement | null => {
+    const selector = `[data-flip-id="${CSS.escape(flipId)}"]`
+    if (source === 'hero') {
+      return document.querySelector<HTMLElement>(`.battle__sidebar--left ${selector}`)
+    }
+    return boardRef.current?.querySelector<HTMLElement>(selector) ?? null
+  }
+
+  /**
+   * 现在能不能开一次放大查看。战场小卡和侧栏英雄牌共用这一份口径。
    *
    * 展示层同一时刻只归一条链路用，所以对手正在强制展示、或者上一次查看还没收干净时都不受理。
    */
-  const handleInspect = (ai: AiInstance) => {
-    if (reveal !== null || inspecting !== null) return
+  const canInspect = (): boolean => {
+    if (reveal !== null || inspecting !== null) return false
     // 选目标态下点小卡的含义是"选中它"，不该再弹出放大查看。
     // 鼠标走不到这儿（压暗层挡着，可选的那几张也另走 confirmTarget），但键盘能：
-    // 小卡是 tabIndex=0 的 role="button"，压暗层拦不住回车。
-    if (targeting !== null) return
+    // 小卡是 tabIndex=0 的 role="button"，压暗层拦不住回车。侧栏英雄牌同理。
+    if (targeting !== null) return false
     // 有牌正在飞或刚落地时也不受理：点开的很可能正是那张还被 Flip 改写着的格子。
-    if (flyingRef.current) return
+    if (flyingRef.current) return false
     if (
       revealBusyRef.current ||
       inspectFlipRef.current !== null ||
       inspectReturnRef.current !== null
     ) {
-      return
+      return false
     }
+    return true
+  }
+
+  /** 点战场小卡：把它放大到屏幕中央看清楚。 */
+  const handleInspect = (ai: AiInstance) => {
+    if (!canInspect()) return
     // 此刻这张小卡还是可见的（held 要等下一次渲染才为 true），正好当飞行起点。
     // 而 Flip 把它和展示卡对上号靠的是两边同一个 data-flip-id（就是 instanceId）。
-    const slot = boardRef.current?.querySelector(
-      `[data-flip-id="${CSS.escape(ai.instanceId)}"]`,
-    )
-    if (slot == null) return
+    const slot = inspectOriginOf(ai.instanceId, 'tile')
+    if (slot === null) return
     inspectFlipRef.current = Flip.getState(slot)
-    openInspect({ card: handCardOfAi(ai), instanceId: ai.instanceId })
+    openInspect({
+      card: handCardOfAi(ai),
+      flipId: ai.instanceId,
+      source: 'tile',
+      art: null,
+      caption: null,
+    })
+  }
+
+  /**
+   * 点侧栏的英雄牌：走和战场小卡完全同一条链路飞到屏幕中央放大，再点一下收回。
+   *
+   * 侧栏画的是英雄原画（见 ui/heroArt.ts），放大的也得是同一张图，否则飞到一半会换脸；
+   * 原画上没有技能文字，所以另外给一行字幕补上「技能名：技能说明」——
+   * "看英雄技能"这件事就靠这一下，不另做界面。
+   * 侧栏那张是靠 CSS 的 transform scale 缩小画出来的，Flip 那边必须开 scale: true
+   *（和战场小卡一样，见下面消费 inspectFlipRef 的那段）。
+   */
+  const handleInspectHero = (player: PlayerState) => {
+    if (player.hero === null) return
+    if (!canInspect()) return
+    const flipId = heroFlipId(player.id)
+    const slot = inspectOriginOf(flipId, 'hero')
+    if (slot === null) return
+    const hero = getHero(player.hero)
+    inspectFlipRef.current = Flip.getState(slot)
+    openInspect({
+      card: heroCardData(hero),
+      flipId,
+      source: 'hero',
+      art: heroArtSrc(hero.id),
+      caption: `${hero.skillName}：${hero.skillText}`,
+    })
   }
 
   /**
@@ -1404,7 +1570,8 @@ function BattleField({
       // 飞回那 0.6 秒同样要冻住手牌：遮罩这时已经在淡出，挡不住指针了。
       inspectReturnRef.current = {
         state: Flip.getState(el),
-        id: inspecting.instanceId,
+        flipId: inspecting.flipId,
+        source: inspecting.source,
         token: acquireLanding(),
       }
     }
@@ -1437,6 +1604,28 @@ function BattleField({
    * 不冻的话它会一直保持放大，把玩家要选的战场整个挡住。
    */
   const handFrozen = landing || showcasing || targeting !== null
+  /**
+   * 轮到对方出牌。回合牌匾只认它，手牌的灰墨态也只认它（和下面的 quizWait）。
+   *
+   * 刻意不复用 actionsLocked：那个口径里还压着 awaiting / landing / showcasing 这些瞬态锁，
+   * 自己回合里每打一张牌都会开关一次，拿它当灰墨态的判据，整排手牌会跟着一亮一灰地闪。
+   * 这两个只跟着"该谁动"走，一整段等待里恒定不变。
+   *
+   * 复用 myPlayTurn 是为了让"该谁动"只有一份口径：它已经含了 phase === 'play'，
+   * 所以这里再判一次 phase 之后，!myPlayTurn 就等价于 activePlayer !== mySeat。
+   */
+  const waitingForFoe = view.status === 'playing' && state.phase === 'play' && !myPlayTurn
+  /** 答题阶段：双方都出不了牌，等场上的 AI 答完。 */
+  const quizWait = view.status === 'playing' && state.phase === 'quiz'
+  /**
+   * 交给 HandFan 的"为什么出不了牌"。它不挡操作（那仍归上面的 actionsLocked），
+   * 只决定手牌要不要进灰墨态、点上去弹哪句提示（见 HandFanProps.lockReason）。
+   */
+  const handLockReason: HandLockReason | null = waitingForFoe
+    ? 'foe-turn'
+    : quizWait
+      ? 'quiz'
+      : null
 
   /**
    * 现算的话每次渲染都是个新数组，两个 Fan 的 useGSAP 会跟着重跑一遍归位补间；
@@ -1445,6 +1634,24 @@ function BattleField({
    */
   const handCards = useMemo(() => me.hand.map(handCardOfInstance), [me.hand])
   const foeHandCards = useMemo(() => foe.hand.map(handCardOfInstance), [foe.hand])
+
+  // ---------- 发牌 ----------
+
+  /**
+   * 两排扇形的发牌起点。每次要摆新牌时它们会现调一次，所以这里每次渲染换个新函数没关系
+   *（函数体里只有一次 DOM 查询，闭包里什么都没捕获）。
+   */
+  const myDealOrigin = () => dealOriginOf('mine')
+  const foeDealOrigin = () => dealOriginOf('foe')
+
+  /**
+   * 扇形报上来"还压着几张没起飞"。相等时原样返回，免得每次报同一个数都白重渲染一遍。
+   * 这两个回调会被 GSAP 的 onStart 延迟调到，所以不能假设它跑在 React 的事件里。
+   */
+  const setMyDealPending = (count: number) =>
+    setDealPending((current) => (current.mine === count ? current : { ...current, mine: count }))
+  const setFoeDealPending = (count: number) =>
+    setDealPending((current) => (current.foe === count ? current : { ...current, foe: count }))
 
   // ---------- 飞行与进场 ----------
 
@@ -1739,6 +1946,25 @@ function BattleField({
         const clip = revealClipRef.current
         if (clip !== null) gsap.set(clip, { clipPath: 'none' })
 
+        // 技能字幕（只有英雄牌有）等卡快飞到位再淡上来，起飞那一刻就亮着的话，
+        // 字会先在半空中和飞行的卡各说各话。
+        // fromTo 默认 immediateRender: true，所以哪怕带着 delay，隐藏也是这一帧就生效；
+        // CSS 里不写初始 opacity，是为了万一这段没跑到，字幕仍然是看得见的那一档。
+        const caption = revealCaptionRef.current
+        if (caption !== null) {
+          gsap.fromTo(
+            caption,
+            { autoAlpha: 0 },
+            {
+              autoAlpha: 1,
+              duration: 0.28,
+              delay: REVEAL_IN_DUR * 0.6,
+              ease: 'power2.out',
+              overwrite: 'auto',
+            },
+          )
+        }
+
         // onComplete 是飞完才跑的，出了 useGSAP 回调的同步区间，
         // 里面新建的浮动补间不包一层就不归 context 管，组件卸载时 revert 不掉。
         const landed = () => {
@@ -1778,12 +2004,10 @@ function BattleField({
         ease: 'power2.in',
         overwrite: 'auto',
       })
-      // 原来那个格子此刻已经跟着 held 变 false 恢复可见了。useGSAP 是 layout effect，
-      // 恢复可见和 Flip 把它摆到起飞位置发生在同一次绘制之前，中间不会闪一下空格子。
-      const target = boardRef.current?.querySelector<HTMLElement>(
-        `[data-flip-id="${CSS.escape(back.id)}"]`,
-      )
-      if (target == null) {
+      // 原位那张卡此刻已经跟着 held 变 false 恢复可见了。useGSAP 是 layout effect，
+      // 恢复可见和 Flip 把它摆到起飞位置发生在同一次绘制之前，中间不会闪一下空位。
+      const target = inspectOriginOf(back.flipId, back.source)
+      if (target === null) {
         releaseLanding(back.token)
         return
       }
@@ -1867,17 +2091,30 @@ function BattleField({
    *
    * key 让两条链路各自持有一份展示卡（对手出牌会中止正在进行的查看，两者相接时
    * DOM 不能被复用）：裁剪层每次都是新挂载的，上一轮撤裁剪时写的内联样式不会留到下一轮。
+   *
+   * art / caption 只有查看英雄牌那条会填（见 InspectTarget）：强制展示的永远是一张手牌，
+   * 画的是文字卡面、也不配字幕。
    */
   const showcase =
     reveal !== null
-      ? { card: reveal.card, flipId: reveal.flipId, key: `reveal-${reveal.key}` }
+      ? {
+          card: reveal.card,
+          flipId: reveal.flipId,
+          key: `reveal-${reveal.key}`,
+          art: null,
+          caption: null,
+        }
       : inspecting !== null
         ? {
             card: inspecting.card,
-            flipId: inspecting.instanceId,
-            key: `inspect-${inspecting.instanceId}`,
+            flipId: inspecting.flipId,
+            key: `inspect-${inspecting.flipId}`,
+            art: inspecting.art,
+            caption: inspecting.caption,
           }
         : null
+
+  const turnHint = turnHintOf(view, state, mySeat)
 
   return (
     <div className="battle">
@@ -1885,15 +2122,34 @@ function BattleField({
       <BattleTopBar status={{ round: state.round, myScore: me.score, foeScore: foe.score }} />
 
       <div className="battle__layout">
+        {/* 左侧栏上下两块：上=对方、下=我方。每块一张大英雄牌加一摞卡堆，
+            卡堆同时是发牌飞行的起点（两排扇形靠 data-deck-side 找它）。
+            中间那条分界线是第三行网格，把"这是两个人"分清楚（见 .battle__player-divider）。 */}
         <aside className="battle__sidebar battle__sidebar--left" aria-label="双方状态">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--players">
-            <PlayerPanel player={foe} />
-            <PlayerPanel player={me} />
+            <PlayerPanel
+              player={foe}
+              side="foe"
+              deckCount={foe.deck.length + dealPending.foe}
+              heroHeld={inspecting?.flipId === heroFlipId(foe.id)}
+              onInspectHero={handleInspectHero}
+            />
+            <div className="battle__player-divider" aria-hidden="true">
+              <span className="battle__player-divider-line" />
+              <span className="battle__player-divider-gem" />
+            </div>
+            <PlayerPanel
+              player={me}
+              side="mine"
+              deckCount={me.deck.length + dealPending.mine}
+              heroHeld={inspecting?.flipId === heroFlipId(me.id)}
+              onInspectHero={handleInspectHero}
+            />
           </OrnateFrame>
         </aside>
 
         <main className={`battle__battlefield${testMode ? ' battle__battlefield--test' : ''}`}>
-          {testMode ? <FoeHand hand={foe.hand} onPlay={playForFoe} /> : null}
+          {testMode ? <FoeHand hand={foe.hand} tokens={foe.tokens} onPlay={playForFoe} /> : null}
 
           {/* data-picking 只管一件事：拖着干扰技能时把「松手 放到场上」那颗提示药丸收起来
               ——这张牌不是往场上放的，得松手在某张小卡身上。落点区的边框高亮照常亮着。
@@ -1912,39 +2168,61 @@ function BattleField({
                 和场上的 tile 才都压得住它。 */}
             <div className="battle__smoke-layer" ref={smokeLayerRef} aria-hidden="true" />
 
+            {/* 每张小卡都套一层 slot：真正排在行里的是 slot，它可以被挤得比卡还窄，
+                卡在里面居中溢出，于是场面摆满时相邻两张对称地互相压边，而不是折行
+                （行已改成永不换行，理由见 .battle__row）。 */}
             <div className="battle__row battle__row--foe">
               {foe.board.map((ai) => (
-                <BoardTile
-                  key={ai.instanceId}
-                  ai={ai}
-                  // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
-                  held={
-                    inspecting?.instanceId === ai.instanceId ||
-                    reveal?.landingId === ai.instanceId
-                  }
-                  // 只有还没被干扰的对手小卡是合法目标。点击路（'pick'）还要把它抬到压暗层之上
-                  // 才点得动；其余小卡（含我方那一行）留在压暗层底下，点它们等于点空白 = 取消。
-                  target={targetMode === 'none' || ai.interfered === true ? 'none' : targetMode}
-                  onActivate={() => (targeting === null ? handleInspect(ai) : confirmTarget(ai))}
-                />
+                <div className="battle__board-slot" key={ai.instanceId}>
+                  <BoardTile
+                    ai={ai}
+                    // 对方的 AI 有两种"由展示层代管"：玩家点开查看，或者它正停在展示位上等落场。
+                    // 查看那一路认的是 flipId：展示层现在也管侧栏英雄牌，那两张的键是拼出来的
+                    // （见 heroFlipId），不是实例 id。
+                    held={
+                      inspecting?.flipId === ai.instanceId ||
+                      reveal?.landingId === ai.instanceId
+                    }
+                    // 只有还没被干扰的对手小卡是合法目标。点击路（'pick'）还要把它抬到压暗层之上
+                    // 才点得动；其余小卡（含我方那一行）留在压暗层底下，点它们等于点空白 = 取消。
+                    target={targetMode === 'none' || ai.interfered === true ? 'none' : targetMode}
+                    onActivate={() => (targeting === null ? handleInspect(ai) : confirmTarget(ai))}
+                  />
+                </div>
               ))}
             </div>
 
+            {/*
+              敌我分界的中线：一条横贯细线，中间嵌一块深蓝小匾，报第几回合、轮到谁出牌。
+              顶栏的回合数和右侧栏的状态行各自也说了一遍，这里再说是因为位置本身就是信息——
+              线两边就是双方的场面，匾正压在分界上，视线不用离开战场。
+
+              线和小匾各自套了手绘滤镜（见 styles.css 的 .battle__midline），
+              这是战场这几层里唯一一处建层叠上下文的地方：其余各层都守着"一处都不建"的规矩
+              （见 .battle__board 上面那段注释），中线能破例是因为它只是两行场面的兄弟节点、
+              不是任何飞行卡的祖先——层叠上下文只圈住它自己的线和匾，
+              带 z-index 的飞行卡照样画在它上面。外层的 .battle__midline 容器本身仍然不写
+              transform / z-index / isolation / filter；照抄这块时别把滤镜提到容器上去。
+            */}
+            <div className="battle__midline">
+              <span className="battle__midline-badge">
+                第 <b className="battle__midline-num">{state.round}</b> 回合
+                {turnHint === null ? null : ` · ${turnHint}`}
+              </span>
+            </div>
+
             <div className="battle__row battle__row--mine">
-              {me.board.length === 0 ? (
-                <span className="battle__board-hint">将手牌拖入战场</span>
-              ) : (
-                me.board.map((ai) => (
+              {me.board.map((ai) => (
+                <div className="battle__board-slot" key={ai.instanceId}>
                   <BoardTile
-                    key={ai.instanceId}
                     ai={ai}
-                    held={inspecting?.instanceId === ai.instanceId}
+                    held={inspecting?.flipId === ai.instanceId}
                     // 干扰技能只打对面，我方这一行永远不是目标。
                     target="none"
                     onActivate={() => handleInspect(ai)}
                   />
-                ))
-              )}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1962,47 +2240,101 @@ function BattleField({
 
         <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
           <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
-            <div className="battle__turn">
-              {/*
-                只报类别不报题面：题目全文要到答题阶段才揭晓，这里是"下一题考什么方向"。
-                终局后没有下一题了，整行不渲染——state.round 停在最后一轮，
-                照常渲染的话会一直挂着最后一题的类别，看着像还有一题要考。
-              */}
-              {finished || category === undefined ? null : (
-                <span className="battle__turn-next">
-                  下一题：{QUESTION_CATEGORY_LABELS[category]}
-                </span>
-              )}
-              <span className="battle__turn-who">{statusTextOf(view, state, mySeat)}</span>
-            </div>
+            {/*
+              终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
+              最后一题的类别，看着像还有一题要考。
+            */}
+            {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
+            <TokenTrack tokens={me.tokens} max={me.tokenMax} />
+            {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
+                三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
+                换文案撑不破框。 */}
             <PlaqueButton
               disabled={actionsLocked}
               onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
             >
-              结束出牌
+              {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
             </PlaqueButton>
           </OrnateFrame>
         </aside>
       </div>
 
+      {/*
+        回合牌匾：一块吊在顶栏正下方的小匾，只在对方出牌那段时间挂出来。
+
+        常驻 DOM 靠 data-on 开关，隐藏态才淡得出去——挂在条件渲染上的话元素一没就没了，
+        谈不上退场过渡。整层不吃指针事件。
+        只认 waitingForFoe：答题阶段两边都不出牌，"对方回合"是句错话，那时留给手牌的
+        小字提示和侧栏状态行去说；终局后更没有回合可言。
+
+        它会盖住对手倒扇形（z-index 20）中间那一两张牌背，这是接受的：牌匾正好标在行动方
+        头上，位置本身就是信息，而手牌张数侧栏的玩家面板另有一份。
+
+        测试房整个不挂（和上面的 OpponentFan 同理）：那边顶部换成了摊开的对方手牌条，
+        而且是玩家亲自替对方出牌，"对方回合"在那儿既是句错话，牌匾还会盖住那排卡面。
+      */}
+      {testMode ? null : (
+        <div className="battle__turn-plaque" data-on={waitingForFoe ? 'true' : undefined}>
+          <span className="battle__turn-plaque-cords" aria-hidden="true" />
+          <div className="battle__turn-plaque-body">
+            {/* 框线单独画成 SVG 才好套手绘滤镜：CSS 的 border 直接 filter 会把匾里的字一起抖歪
+                （PlaqueButton 那边同理，见它的 .plaque-button__frame）。 */}
+            <svg
+              className="battle__turn-plaque-frame"
+              viewBox="0 0 252 66"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <rect x="0.75" y="0.75" width="250.5" height="64.5" rx="8.25" />
+            </svg>
+            <span className="battle__turn-plaque-label">对方回合</span>
+            {/* 三个跳动的点：静止的一行字看着像界面卡住了，这里要说的恰恰是"对方还在动"。 */}
+            <span className="battle__turn-plaque-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 对手手牌：吊在视口顶边的倒扇形，只显示张数、当强制展示的起飞点。
           恒 disabled——本项目不防作弊（架构 4.1），客人手里确实有对手的牌，
           但玩家不该点得动它。张数信息侧栏的玩家面板本来就有一份。 */}
-      {testMode ? null : <OpponentFan cards={foeHandCards} onReveal={noopReveal} disabled />}
+      {testMode ? null : (
+        <OpponentFan
+          cards={foeHandCards}
+          onReveal={noopReveal}
+          disabled
+          getDealOrigin={foeDealOrigin}
+          dealHold={dealHeld}
+          onDealPendingChange={setFoeDealPending}
+        />
+      )}
 
-      {/* disabled 和 frozen 分工不同：前者是"出不了牌但还能 hover 看牌"（不是我的回合、
-          等回包……），后者是演出期间整排手牌冻住，连 hover 都不接。见 HandFanProps。 */}
+      {/* 三个开关分工不同：disabled 是"出不了牌但还能 hover 看牌"（不是我的回合、等回包……），
+          frozen 是演出期间整排手牌冻住连 hover 都不接，lockReason 是 disabled 加一句"为什么"，
+          自带禁用，另外把"在等对方 / 在等答题"画成灰墨态和点击反馈。见 HandFanProps。
+          disabled 这里照旧传 actionsLocked：它比 lockReason 宽，还含着那些瞬态锁。 */}
       <HandFan
         cards={handCards}
         dropZoneRef={boardRef}
         returnZoneRef={returnZoneRef}
         onPlay={handlePlay}
         disabled={actionsLocked}
+        // 这一轮的额度买不起的牌单独压暗、拖不动，免得拖到一半才被引擎回一句 Token 不够。
+        // 轮到对方时这几张同样是打不起的，压暗叠在灰墨态上不冲突（两边写的属性不一样）。
+        tokens={me.tokens}
         frozen={handFrozen}
+        lockReason={handLockReason}
         // 选目标态下这张牌留在扇形里抬起来亮着，整排其余的压暗（不接指针那件事归 frozen，
         // 上面那行已经把选目标态算进去了）。
         castingId={targeting?.instanceId ?? null}
         onDragStateChange={setDraggingId}
+        // 新牌从我方卡堆飞进扇形；开局那 5 张憋到抛硬币演完再飞（见 dealHeld）。
+        getDealOrigin={myDealOrigin}
+        dealHold={dealHeld}
+        onDealPendingChange={setMyDealPending}
       />
 
       {/*
@@ -2054,16 +2386,31 @@ function BattleField({
         onClick={handleShowcaseClick}
       />
       {showcase !== null ? (
-        <div className="reveal-clip" key={showcase.key} ref={revealClipRef}>
+        // 英雄牌那条链路要换一档更大的倍率，理由见 .reveal-clip--hero。
+        <div
+          className={showcase.art === null ? 'reveal-clip' : 'reveal-clip reveal-clip--hero'}
+          key={showcase.key}
+          ref={revealClipRef}
+        >
           <div className="reveal-card" ref={revealCardRef} data-flip-id={showcase.flipId}>
             {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。
                 放大查看不翻面，只用 setFlipAngle 把它定死在正面。 */}
             <div className="reveal-card__inner">
               <div className="reveal-card__face" data-flip-face="front">
-                {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
-                <div className="reveal-card__scale">
-                  <HandCardFace card={showcase.card} />
-                </div>
+                {showcase.art === null ? (
+                  // 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。
+                  <div className="reveal-card__scale">
+                    <HandCardFace card={showcase.card} />
+                  </div>
+                ) : (
+                  // 英雄原画是一张 2:3 的整图，没有需要跟着放大的排版，直接铺满这一面就行。
+                  <img
+                    className="reveal-card__art"
+                    src={showcase.art}
+                    alt={showcase.card.name}
+                    draggable={false}
+                  />
+                )}
               </div>
               <div className="reveal-card__face reveal-card__face--back" data-flip-face="back">
                 {/* 背面必须是对手手牌里那张一模一样的隐藏牌背，起飞瞬间才不会跳变。
@@ -2074,18 +2421,30 @@ function BattleField({
               </div>
             </div>
           </div>
+          {/* 技能字幕。挂在裁剪层里、当展示卡的兄弟节点，不能塞进 .reveal-card：
+              那一层的 transform 归 Flip 和呼吸浮动管，字幕跟着飞进来会一起被缩放和摇晃。
+              收回时整个裁剪层随 showcase 卸载，字幕不用另外清理。 */}
+          {showcase.caption === null ? null : (
+            <p className="reveal-caption" ref={revealCaptionRef}>
+              <span className="reveal-caption__text">{showcase.caption}</span>
+            </p>
+          )}
         </div>
       ) : null}
 
       {finished ? (
         <div className="battle__result">
-          <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
-          {view.status === 'aborted' ? null : (
-            <p className="battle__result-score">
-              最终比分 {me.score} : {foe.score}
-            </p>
-          )}
-          <div className="battle__result-actions">{resultActions}</div>
+          <div className="battle__result-panel">
+            <div className="battle__result-content">
+              <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
+              {view.status === 'aborted' ? null : (
+                <p className="battle__result-score">
+                  最终比分 <strong>{me.score} : {foe.score}</strong>
+                </p>
+              )}
+              <div className="battle__result-actions">{resultActions}</div>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -2222,6 +2581,33 @@ function tileOf(
 }
 
 /**
+ * 侧栏英雄牌的 Flip 配对键。
+ *
+ * 加个前缀是因为这套键是全场共用的：手牌、战场小卡、展示卡都挂着 data-flip-id，
+ * 实例 id 形如 p1-c7，和 hero-0 撞不上。
+ */
+function heroFlipId(playerId: PlayerId): string {
+  return `hero-${playerId}`
+}
+
+/**
+ * 某一侧卡堆最上面那张牌此刻在屏幕上的位置，交给两排扇形当发牌飞行的起点。
+ *
+ * 侧栏还没挂上时返回 null，那时两排扇形会退回原来的"从基准位下方淡入"（见 HandFanProps）。
+ * 每次要摆新牌时现查一次，不缓存：窗口一变，16:9 舞台的缩放就变，这个矩形跟着变。
+ *
+ * 返回的是 getBoundingClientRect 的**视口**矩形（缩放之后的屏幕像素），
+ * 换算成舞台内坐标是两排扇形自己的事（各自的 dealStartVars，口径见 ui/battleStage.ts）：
+ * 那两处还要照各自的坐标系翻方向，换算没法在这里一次做完。
+ */
+function dealOriginOf(side: DealSide): DOMRect | null {
+  const node = document.querySelector<HTMLElement>(
+    `.battle__deck[data-deck-side="${side}"] .battle__deck-top`,
+  )
+  return node === null ? null : node.getBoundingClientRect()
+}
+
+/**
  * 让一张已经停在屏幕上的技能卡飞向战场某个格子，缩到格子大小的同时淡出，落地再交给调用方。
  *
  * 不走 Flip：Flip 是"同一张牌换了个容器"，而这里目标格子本来就在场上、也不会动，
@@ -2234,10 +2620,13 @@ function tileOf(
 function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): void {
   const from = node.getBoundingClientRect()
   const to = tile.getBoundingClientRect()
+  // 位移要除以舞台缩放：两个 rect 量到的是缩放之后的屏幕像素，而 GSAP 的 x / y 写的是
+  // 舞台内像素（口径见 ui/battleStage.ts）。scale 是纯比值，两个宽度相除时自然抵消，不用管。
+  const { scale } = battleStageMetrics()
   gsap.to(node, {
     // 变换原点在正中，所以只要把两个矩形的中心对上，缩放多少都不影响落点。
-    x: `+=${to.left + to.width / 2 - (from.left + from.width / 2)}`,
-    y: `+=${to.top + to.height / 2 - (from.top + from.height / 2)}`,
+    x: `+=${(to.left + to.width / 2 - (from.left + from.width / 2)) / scale}`,
+    y: `+=${(to.top + to.height / 2 - (from.top + from.height / 2)) / scale}`,
     scale: from.width === 0 ? 1 : to.width / from.width,
     autoAlpha: 0,
     duration: SKILL_FLIGHT_DUR,
@@ -2247,12 +2636,17 @@ function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): 
   })
 }
 
-/** 右侧栏那行状态提示：现在该干什么。 */
-function statusTextOf(view: MatchView, state: GameState, mySeat: PlayerId): string {
-  if (view.status !== 'playing') return '对局结束'
-  if (state.phase === 'quiz') return '场上 AI 答题中…'
-  if (state.activePlayer === mySeat) return '轮到你出牌'
-  return `${state.players[state.activePlayer].name} 出牌中…`
+/**
+ * 战场中线小匾上跟在回合数后面的那半句：现在轮到谁。
+ *
+ * 措辞比侧栏那行（statusTextOf）短一半：小匾夹在两行小卡中间，只有一行的高度，
+ * 长句会把匾撑得比中线还显眼。
+ * 对局结束或中断后返回 null，匾上只留回合数——那时候已经没有"谁出牌"这回事了。
+ */
+function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string | null {
+  if (view.status !== 'playing') return null
+  if (state.phase === 'quiz') return '答题中'
+  return state.activePlayer === mySeat ? '你出牌' : '对方出牌'
 }
 
 /** 结算层的大标题。平局是正经结果之一（总分相同），不是异常。 */
@@ -2262,42 +2656,294 @@ function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): str
   return state.winner === mySeat ? '你赢了' : '你输了'
 }
 
-/** 侧栏里的一块玩家面板：英雄、名字、当前总分、手牌和牌堆张数。 */
-function PlayerPanel({ player }: { player: PlayerState }) {
+/**
+ * 「下一题」牌匾的全部图形，画在 168×118 的坐标系里（就是匾体的设计尺寸）。
+ *
+ * 三道框线由外到内依次收紧 5px 和 9px，越靠里越细，这是「繁复」看着有层次的关键：
+ * 只画一道线的话不管加多少卷草都还是一块普通的圆角牌子。
+ */
+const PLAQUE_OUTLINE =
+  'M22 6H146C155 6 162 13 162 22V96C162 105 155 112 146 112H22C13 112 6 105 6 96V22C6 13 13 6 22 6Z'
+const PLAQUE_MID =
+  'M25 11H143C151 11 157 17 157 25V93C157 101 151 107 143 107H25C17 107 11 101 11 93V25C11 17 17 11 25 11Z'
+const PLAQUE_INNER =
+  'M28 15H140C147 15 153 21 153 28V90C153 97 147 103 140 103H28C21 103 15 97 15 90V28C15 21 21 15 28 15Z'
+
+/** 四个角的卷草：只画左上角这一份，另外三个靠下面的镜像变换摆出来。 */
+const PLAQUE_CORNER_ARC = 'M18 34C18 25 25 18 34 18'
+const PLAQUE_CORNER_LEAF = 'M23 31C25 25 29 22 34 23C30 26 26 30 24 34Z'
+
+/**
+ * 把左上角那份卷草分别摆到四个角。
+ *
+ * 用镜像而不是旋转：旋转会让卷草的卷曲方向绕着圈走，四个角看起来像在转风车；
+ * 镜像出来的是左右上下对称，才是牌匾该有的样子。
+ * 第一项是不动的左上角，写成 translate(0,0) 而不是省略，是为了拿它当 React 的 key。
+ */
+const PLAQUE_CORNER_TRANSFORMS = [
+  'translate(0,0)',
+  'translate(168,0) scale(-1,1)',
+  'translate(0,118) scale(1,-1)',
+  'translate(168,118) scale(-1,-1)',
+]
+
+/** 上下正中骑在框线上的冠饰：一颗菱形宝石加两撇卷须。填充和描边分开画，卷须才不会被填成楔形。 */
+const PLAQUE_CREST_GEM = 'M84 0L89.5 6L84 12L78.5 6Z'
+const PLAQUE_CREST_WING = 'M66 6C71 1 76.5 2 78 6M102 6C97 1 91.5 2 90 6'
+
+/** 左右两侧腰线上的小菱形铆钉，正好骑在外框线上。 */
+const PLAQUE_SIDE_STUDS = 'M6 53L10 59L6 65L2 59ZM162 53L166 59L162 65L158 59Z'
+
+/**
+ * Token 那颗四芒星，和站点图标（public/favicon.svg）是同一份路径。
+ * 尖端留了 1 单位宽的平口而不是收成一个点，缩小之后边缘才不会被抗锯齿抹掉。
+ */
+const TOKEN_STAR_PATH =
+  'M49.5 4L50.5 4L57 43L96 49.5L96 50.5L57 57L50.5 96L49.5 96L43 57L4 50.5L4 49.5L43 43Z'
+
+/**
+ * Token 上限到几点为止还排成一列。
+ *
+ * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列，
+ * 正好对上"上限每轮 +2"的节奏：第 3 轮 8 点是一列的最后一轮，第 4 轮 10 点起变两列。
+ *
+ * 两列是目前的上限。题库现在 5 道题（也就是一局 5 轮），最后一轮上限 12 点、折成 6 行，
+ * 侧栏还很宽裕；题库要是扩到十几道，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
+ */
+const TOKEN_SINGLE_COLUMN_MAX = 8
+
+/**
+ * 右侧栏顶上那块「下一题」牌匾。
+ *
+ * 只报类别不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
+ *
+ * 整块匾是画出来的而不是一张切图：类别名有三个字也有五个字（见 ui/labels.ts），
+ * 位图就得为每种长度各出一张，而且换一版题库分类就要重新导出。
+ * 框线走 SVG 才好套手绘滤镜——直接给 div 加 border 再 filter，里面的字会跟着抖歪
+ *（PlaqueButton 和回合牌匾同理，见各自的 __frame）。
+ */
+function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
   return (
-    <div className="battle__player-panel" data-player={player.id}>
-      <HeroBadge hero={player.hero} skillUsed={player.heroSkillUsed} />
-      <span className="battle__player-name">{player.name}</span>
-      <span className="battle__player-score">{player.score}</span>
-      <span className="battle__player-piles">
-        手牌 {player.hand.length} · 牌堆 {player.deck.length}
+    <div className="battle__next-plaque">
+      {/* 两根挂绳，让匾看着是吊在侧栏顶上的。一个容器加两个伪元素，比两个空 span 省 DOM。 */}
+      <span className="battle__next-plaque-cords" aria-hidden="true" />
+      <div className="battle__next-plaque-body">
+        <svg className="battle__next-plaque-art" viewBox="0 0 168 118" aria-hidden="true">
+          <path className="battle__next-plaque-paper" d={PLAQUE_OUTLINE} />
+          <path className="battle__next-plaque-rim" d={PLAQUE_OUTLINE} />
+          <path className="battle__next-plaque-rim battle__next-plaque-rim--thin" d={PLAQUE_MID} />
+          <path className="battle__next-plaque-rim battle__next-plaque-rim--hair" d={PLAQUE_INNER} />
+          {/* 四个角的卷草各画一份，靠镜像变换摆位：同一段路径写四遍太长，也容易改漏其中一个。 */}
+          {PLAQUE_CORNER_TRANSFORMS.map((transform) => (
+            <g key={transform} className="battle__next-plaque-scroll" transform={transform}>
+              <path className="battle__next-plaque-scroll-arc" d={PLAQUE_CORNER_ARC} />
+              <path className="battle__next-plaque-scroll-leaf" d={PLAQUE_CORNER_LEAF} />
+            </g>
+          ))}
+          {/* 上下中央那颗骑在框线上的菱形冠饰，同样靠镜像摆下面那颗。 */}
+          {['translate(0,0)', 'translate(0,118) scale(1,-1)'].map((transform) => (
+            <g key={transform} className="battle__next-plaque-crest" transform={transform}>
+              <path className="battle__next-plaque-crest-gem" d={PLAQUE_CREST_GEM} />
+              <path className="battle__next-plaque-crest-wing" d={PLAQUE_CREST_WING} />
+            </g>
+          ))}
+          <path className="battle__next-plaque-stud" d={PLAQUE_SIDE_STUDS} />
+        </svg>
+        <span className="battle__next-plaque-eyebrow">下一题</span>
+        <span className="battle__next-plaque-title">{QUESTION_CATEGORY_LABELS[category]}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 剩余 Token：一颗四芒星＝一点，发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
+ *
+ * 星星**从下往上**烧：最底下那颗是第 1 点，越往上编号越大，花钱是从顶上往下灭的，
+ * 像一格格烧下去的蜡烛。数字那行照旧压在星星底下，当这一块的落款。
+ *
+ * 上限 8 点以内排成一列，超过折成两列——上限每轮 +2（见 core 的 TOKEN_MAX_GROWTH），
+ * 一局打到后面有十几点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
+ */
+function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
+  const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
+  return (
+    <div className="battle__tokens">
+      <div className="battle__token-grid" style={{ '--token-rows': rows } as CSSProperties}>
+        {Array.from({ length: max }, (_, index) => {
+          // index 是格子号，DOM 顺序就是视觉顺序：左列从上到下，再右列
+          //（CSS 那边 grid-auto-flow: column）。Token 却是从下往上数的，
+          // 所以这里把格子号翻译成"它是这一列自下而上的第几点"。
+          const column = Math.floor(index / rows)
+          const point = column * rows + (rows - 1 - (index % rows))
+          return <TokenStar key={point} spent={point >= tokens} />
+        })}
+      </div>
+      <span className="battle__token-count">
+        {tokens}/{max} token
       </span>
     </div>
   )
 }
 
 /**
- * 玩家面板左边那张小英雄牌。
- *
- * 英雄牌不进牌组、不上战场，所以它不走 BoardTile 那套（没有 Flip、没有放大查看），
- * 只是把同一份卡面按 --hero-card-scale 缩小画一遍，看得到名字和技能就够了。
- * 技能用掉之后整块置灰、卡下面那行标签变成「Debug 已用」——Debug 一局只发动一次，
- * 玩家得能一眼看出这张牌还能不能指望上。
+ * 一颗 Token。图形就是站点图标那颗四芒星（public/favicon.svg），只按状态换色。
+ * 整排星星都不进无障碍树：底下那行「7/12 token」已经把同一件事说全了。
  */
-function HeroBadge({ hero, skillUsed }: { hero: HeroId | null; skillUsed: boolean }) {
-  if (hero === null) return null
-  const card = getHero(hero)
+function TokenStar({ spent }: { spent: boolean }) {
   return (
-    <div
-      className={skillUsed ? 'battle__hero battle__hero--used' : 'battle__hero'}
-      // 卡面缩到 60 多像素宽，技能说明那几行字实际读不清，鼠标停一下能看全文。
-      title={`${card.name}（${card.enName}）｜${card.skillName}：${card.skillText}`}
+    <svg
+      className="battle__token-star"
+      data-spent={spent ? 'true' : undefined}
+      viewBox="0 0 100 100"
+      aria-hidden="true"
     >
-      <div className="battle__hero-card">
-        <HandCardFace card={heroCardData(card)} />
+      <path d={TOKEN_STAR_PATH} />
+    </svg>
+  )
+}
+
+/**
+ * 侧栏里的一块玩家面板：一张占满整块的英雄牌，卡堆压在卡面一角
+ *（我方在右下、对方在右上，上下镜像，见 styles.css 的 .battle__deck）。
+ *
+ * 面板上只有这两样东西。得分和手牌张数不画：比分顶栏正中已经有一份，手牌张数看两排扇形就够。
+ * 玩家名也不画：上下两块本来就是"上面是对方、下面是我"的固定分工，
+ * 再压一条名字在原画上只会挡住脸。谁是谁由中间那条分界线和位置说清楚。
+ */
+function PlayerPanel({
+  player,
+  side,
+  deckCount,
+  heroHeld,
+  onInspectHero,
+}: {
+  player: PlayerState
+  /** 这块面板是谁的。卡堆靠它被发牌动画找到（见 BattleField 的 dealOriginOf）。 */
+  side: DealSide
+  /** 卡堆上要显示的张数，含还压在堆上没起飞的新牌（见 BattleField 的 dealPending）。 */
+  deckCount: number
+  /** 这张英雄牌此刻正被放大查看，原位要让出来（同战场小卡的 held）。 */
+  heroHeld: boolean
+  onInspectHero: (player: PlayerState) => void
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  useHeroCardScale(panelRef)
+  const hero = player.hero === null ? null : getHero(player.hero)
+  const art = hero === null ? null : heroArtSrc(hero.id)
+  return (
+    <div className="battle__player-panel" data-player={player.id} ref={panelRef}>
+      <div className={heroHeld ? 'battle__hero battle__hero--held' : 'battle__hero'}>
+        {hero === null ? null : (
+          <>
+            <div
+              className={
+                player.heroSkillUsed
+                  ? 'battle__hero-card battle__hero-card--used'
+                  : 'battle__hero-card'
+              }
+              // 放大查看是一次跨容器的 FLIP，父组件靠这个 id 把侧栏这张和展示卡对上号。
+              data-flip-id={heroFlipId(player.id)}
+              role="button"
+              tabIndex={0}
+              aria-label={`查看英雄 ${hero.name}`}
+              // 原画卡上没有技能文字，鼠标停一下能看全文；
+              // 点开放大则是把同一张原画飞到中央，技能写在卡下方的字幕里（见 handleInspectHero）。
+              title={`${hero.name}（${hero.enName}）｜${hero.skillName}：${hero.skillText}`}
+              // 走 pointerdown 而不是 click，理由同战场小卡：按下就该有反应。
+              onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
+                event.stopPropagation()
+                onInspectHero(player)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                // 空格在这个位置的默认行为是把页面往下滚一屏，回车也可能被外层当成提交，都不要。
+                event.preventDefault()
+                onInspectHero(player)
+              }}
+            >
+              {/* 有原画就直接铺整张图（名字和英文名已经画在图里）；
+                  没配图的英雄退回通用的文字卡面，至少还看得出是谁、技能是什么。 */}
+              {art === null ? (
+                <HandCardFace card={heroCardData(hero)} />
+              ) : (
+                <img className="battle__hero-art" src={art} alt="" draggable={false} />
+              )}
+            </div>
+            {/* 技能用掉之后卡面压灰，再加这枚角标点明原因——只压灰的话会被当成"这张卡没启用"。
+                英雄技能一局只发动一次，玩家得能一眼看出还能不能指望上它。 */}
+            {player.heroSkillUsed ? <span className="battle__hero-used">技能已用</span> : null}
+          </>
+        )}
+        <DeckPile side={side} count={deckCount} />
       </div>
-      <span className="battle__hero-tag">
-        {skillUsed ? `${card.skillName} 已用` : card.skillName}
+    </div>
+  )
+}
+
+/**
+ * 把面板量出来的大小换算成英雄牌的缩放系数，写成 CSS 变量 --hero-card-scale。
+ *
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面那个盒子按换算后的尺寸占位，
+ * 里面那张卡整体 scale，字和插画跟着一起变，而不是另画一套卡面。
+ *（换成原画之后卡面里其实只有一张图，缩放这条路仍然留着——没配图的英雄还要退回文字卡面。）
+ *
+ * 取宽高两边能容下的较小值，也就是"2:3 塞满这块面板"。不给卡堆留位：卡堆现在整个压在
+ * 卡面里面（见 styles.css 的 .battle__deck），不再往外探出去顶雕花框。
+ *
+ * 系数直接写在 DOM 节点的 style 上、不走 React state：走 state 的话每量一次都要重渲染
+ * 整个对局界面。这个变量只喂给 CSS 的宽高和 scale，而 GSAP 从头到尾不碰这几个元素的
+ * transform，两边不会抢同一个属性。CSS 那边给了默认值，所以第一帧量出来之前也不会画成 0。
+ *
+ * 对局界面现在锁在 16:9 舞台里（见 styles.css 的"对局界面的 16:9 舞台"），面板尺寸恒定，
+ * 这一段实际上只会在挂载时算一次。仍然留着 ResizeObserver 而不是写死一个数：
+ * 量出来的口径不依赖"侧栏多宽、内边距多少"，改版式时这里不用跟着手工对表。
+ * clientWidth / clientHeight 量的是**布局**尺寸，祖先身上那个 transform: scale() 不影响它，
+ * 拿到的已经是舞台内像素，和 CARD_WIDTH / CARD_HEIGHT 同一套口径，不需要再过 battleStage 换算。
+ */
+function useHeroCardScale(ref: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (node === null) return
+    const apply = () => {
+      // 面板自己的大小由左侧栏那张 1fr / 1fr 的网格定死，和里面这张卡画多大无关，
+      // 所以改这个变量不会反过来改面板尺寸，ResizeObserver 不会陷进循环。
+      const scale = Math.min(node.clientWidth / CARD_WIDTH, node.clientHeight / CARD_HEIGHT)
+      node.style.setProperty('--hero-card-scale', String(Math.max(scale, 0)))
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [ref])
+}
+
+/**
+ * 卡堆：几张错位叠着的牌背，剩余张数用一个大数字压在最上面那张的正中间。
+ *
+ * 最上面那张不是装饰，它同时是发牌飞行的起点：两排扇形靠 data-deck-side 找到这块，
+ * 量它的位置当新牌的起飞点（见 BattleField 的 dealOriginOf）。所以它必须是一个真实尺寸的盒子。
+ * 它是素面的（样式全在 .battle__deck-top），刻意不用对手手牌那张带纹章的隐藏牌背
+ *（CardBackHidden）：那套花纹和压在上面的大数字抢眼，读数要费一下劲。
+ *
+ * 数字放中间而不是做成角上的小徽章：卡堆整个压在英雄牌上，边上没地方挂徽章，
+ * 而"还剩几张"是对局里要一眼扫到的数（字号和配色见 .battle__deck-count）。
+ * 张数为 0 时变红：牌堆空了之后每轮补牌都会白抽一次（引擎里 drawCards 直接返回），
+ * 这件事画面上没有别的地方说得出来。
+ */
+function DeckPile({ side, count }: { side: DealSide; count: number }) {
+  return (
+    <div className="battle__deck" data-deck-side={side} aria-label={`牌堆剩余 ${count} 张`}>
+      {/* 底下两张只画出"这摞有厚度"，位置和圆角全在 CSS 里，不带任何牌面信息。 */}
+      <span className="battle__deck-stack battle__deck-stack--far" aria-hidden="true" />
+      <span className="battle__deck-stack battle__deck-stack--near" aria-hidden="true" />
+      <div className="battle__deck-top" aria-hidden="true" />
+      <span
+        className={
+          count === 0 ? 'battle__deck-count battle__deck-count--empty' : 'battle__deck-count'
+        }
+      >
+        {count}
       </span>
     </div>
   )
@@ -2391,9 +3037,12 @@ function BoardTile({
  */
 function FoeHand({
   hand,
+  tokens,
   onPlay,
 }: {
   hand: readonly CardInstance[]
+  /** 对方这一轮还剩多少 Token。买不起的牌压暗，免得点了半天只收到一句"Token 不够"。 */
+  tokens: number
   onPlay: (instance: CardInstance) => void
 }) {
   return (
@@ -2405,6 +3054,8 @@ function FoeHand({
           className="battle__foe-card"
           // 强制展示是一次跨容器的 FLIP，这张牌打出去时就是从这个位置起飞的（见 startReveal）。
           data-flip-id={instance.instanceId}
+          // 只是压暗，不拦点击：测试房本来就是拿来试各种被拒场景的。
+          data-unaffordable={getCard(instance.cardId).tokenCost > tokens ? 'true' : undefined}
           title="点一下替对方打出这张牌"
           onPointerDown={() => onPlay(instance)}
         >
@@ -2426,7 +3077,14 @@ function handCardOfInstance(instance: CardInstance): HandCardData {
 function handCardOfDefinition(cardId: CardId): HandCardData {
   const card = getCard(cardId)
   // backText 走 ui/cardText.ts 那一份：图鉴页也显示同一段话，拼法只留一处。
-  const base = { id: card.id, definitionId: card.id, name: card.name, text: card.text, backText: cardBackText(card) }
+  const base = {
+    id: card.id,
+    definitionId: card.id,
+    name: card.name,
+    text: card.text,
+    backText: cardBackText(card),
+    tokenCost: card.tokenCost,
+  }
   if (card.kind === 'ai') {
     return { ...base, kind: 'ai', model: card.model }
   }

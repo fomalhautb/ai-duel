@@ -1,0 +1,950 @@
+/* ============================================================
+   /room 匹配房的私有样式
+   ------------------------------------------------------------
+   只放这一页自己用得上的东西。凡是别的页面也会用到的一律留在
+   src/ui/paper/paper.css 或 styles.css，别往这搬。
+   页面私有类统一加 room- 前缀（.room / .room__*），避免和 styles.css 里
+   .home / .battle 那些全站类撞名，这一条和 hero.css、deck.css、design.css 同源。
+
+   ------------------------------------------------------------
+   视觉件全是切片素材
+   ------------------------------------------------------------
+   除了文字、状态点和输入框里那层淡底，画面上看得见的东西都是 <img>：
+   返回箭头、书本、标题花饰、面板双线框、房间码匾、复制框、分隔线、输入框、
+   加入按钮、两块横幅、底部装饰。
+
+   素材来源是一张去掉了背景和文字的整图 assets/room-ui-sheet.png，
+   用 assets/slice-room-ui.py 切成一张张 webp 放进 public/room/。
+   换了素材图就重跑那个脚本，它会把切片和下面要用的落位数字一起打出来。
+
+   ------------------------------------------------------------
+   坐标怎么来的
+   ------------------------------------------------------------
+   和 /hero 一样是「固定宽高比的舞台 + 容器查询单位」：舞台按 1672:941 撑到视口里
+   最大的那一档，里面所有横向尺寸写成 cqi（= 舞台宽的百分之一），换窗口只是整体等比缩放。
+
+   素材图正好是舞台的 2 倍，而且每个元素都画在它该在的位置上，所以落位不用自己量：
+   切片脚本会把每张切片的包围盒折算成 CSS 值直接打出来，照抄即可。
+   下面每处注释里标的 px 就是素材图上的原始读数（原图坐标，是舞台的 2 倍）。
+
+   直接挂在舞台上的元素，纵向用舞台高的百分比（脚本表「落位 A」）：舞台宽高比钉死，
+   百分比和 cqi 等价，但百分比能直接对上「第几行像素 / 941」。
+   面板内部的元素改用 cqi（脚本表「落位 B」）：那里的百分比是相对面板自己的宽高算的，
+   跟舞台百分比对不上；cqi 始终是舞台宽的百分之一，横纵都能用。
+   ============================================================ */
+
+.room {
+  /* 米金字色，三档和 /hero 完全一致——两页背景是同一张图，字色不统一会很扎眼。 */
+  --room-title: #e9dcba;
+  --room-sub: #bfae90;
+  --room-ink: #c9b48c;
+  --room-ink-lit: #f2e5c2;
+  --room-gold: #d2b47d;
+  /* 匾额上的深墨字色，浅色板面上放米白字看不清（同 hero__confirm-label）。 */
+  --room-plaque-ink: #2c3138;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  /* 留边底色跟着背景图边缘走（hero-bg.webp 四条边平均色 rgb(18 22 26)），
+     对不上就会在画面四周描出一圈看得见的亮边。理由详见 hero.css 同一处。 */
+  background-color: #12161a;
+  /* 很淡的暗角，只让四周比中间沉一点。不能用全局的 --vignette：那一档是给纸色底调的暖棕，
+     叠在这页近黑的底上是把四角提**亮**，方向正好反过来（详见 hero.css）。 */
+  background-image: radial-gradient(
+    ellipse 130% 100% at 50% 42%,
+    rgb(0 0 0 / 0%) 45%,
+    rgb(0 0 0 / 22%) 100%
+  );
+  user-select: none;
+  /* 整页是等图加载完才挂上来的（见 RoomScreen.tsx），从深色 loader 硬切过来会跳一下，
+     用一段短淡入接住。时长和首页 / hero 取同一档，别演变成进场动画。 */
+  animation: room-fade-in 0.36s ease-out;
+}
+
+@keyframes room-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.room__stage {
+  /* inline-size 而不是 size：这一页的 cqi 只跟宽度走，inline-size 不要求容器有确定高度。 */
+  container-type: inline-size;
+  position: relative;
+  /* 纸纹是宿主 .room 的 ::before / ::after，其中 ::after 排在所有子元素之后、
+     默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero 同一处理）。 */
+  z-index: 1;
+  width: min(100vw, 100vh * 1672 / 941);
+  aspect-ratio: 1672 / 941;
+}
+
+/* 切片素材共用：一律块级，且不许被浏览器的默认最小尺寸撑变形。
+   每张的具体 width / height 都写死成 cqi 或 %，不用 auto——auto 要等图解码完才知道，
+   中间会有一帧版面是错的。 */
+.room__bg,
+.room__back-arrow,
+.room__book,
+.room__flourish,
+.room__substar,
+.room__panel-frame,
+.room__code-plate,
+.room__copy-frame,
+.room__divider,
+.room__input-frame,
+.room__join-plate,
+.room__banner-art,
+.room__foot {
+  display: block;
+}
+
+/*
+ * 背景整幅图，和 /hero 共用同一张。四条边羽化：切图四角的亮度并不完全均匀，
+ * 下面是一整片纯色，硬接缝处总能看出一点色差，化开就没有硬边可以贴着显形。
+ * 两条渐变一横一纵、intersect 取交集——默认的 add 是并集，一条边都虚不起来。
+ */
+.room__bg {
+  --room-bg-feather: 1.2cqi;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      black var(--room-bg-feather),
+      black calc(100% - var(--room-bg-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      black var(--room-bg-feather),
+      black calc(100% - var(--room-bg-feather)),
+      transparent
+    );
+  mask-composite: intersect;
+  /* 纯画面，绝不能吃掉按钮和输入框的点击。 */
+  pointer-events: none;
+}
+
+/* ============================================================
+   返回 / 新手教程
+   ============================================================ */
+
+/*
+ * 两块都是「图标 + 文字」的一行。定位锚的是图标：素材上箭头画在
+ * (115,110)-(204,188)、书本画在 (2842,115)-(2948,194)，折算成舞台是
+ * 箭头 left 3.44cqi / top 5.84%、书本 left 84.99cqi / top 6.11%。
+ * 这里的 left / top 是把 padding 减掉之后的值（padding 是为了把点击区从
+ * 「只有那两个字」撑到一个手指按得中的方块，纯视觉位置不该跟着 padding 挪）：
+ * 横向减 0.5cqi，纵向减 0.4cqi（= 0.71% 的舞台高）。
+ *
+ * 教程那块也用 left 锚定而不是像以前那样 right 锚定：书本在素材里的位置是定死的，
+ * 从右边推过去还得把文字宽度算进来，直接锚图标最省事。
+ */
+.room__back,
+.room__tutorial {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 1.04cqi;
+  padding: 0.4cqi 0.5cqi;
+  border: none;
+  background: none;
+  color: var(--room-ink);
+  font-size: 1.15cqi;
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+
+.room__back {
+  top: 5.13%;
+  left: 2.94cqi;
+  cursor: pointer;
+  /* 只有返回按钮会变色，所以过渡也只写在它身上（教程那块不响应 hover，见下）。 */
+  transition: color 0.18s ease;
+}
+
+.room__tutorial {
+  top: 5.4%;
+  left: 84.49cqi;
+  /* 教程页已经删掉还没重做（见 HomeScreen.tsx 文件头），这块只有「能读」没有「能按」：
+     光标保持默认，也不给 hover 变色——悬停有反馈是最明显的「可点」暗示。
+     它在 HTML 里也是 span 不是 button。 */
+  cursor: default;
+}
+
+.room__back:hover {
+  color: var(--room-ink-lit);
+}
+
+/* 箭头单独一层，hover 时只有它左移 + 提亮。
+   箭头是张图，没法跟着 currentColor 走，用 brightness 顶上去当「变亮」。
+   transform 写在这里不违反「transform 归 GSAP」那条：GSAP 只碰 .room__back 本身，
+   父子各自一套 transform 互不覆盖。 */
+.room__back-arrow {
+  width: 2.66cqi;
+  /* 高度用 cqi 不用 %：这张图的父元素是高度自适应的按钮，% 算不出来。 */
+  height: 2.33cqi;
+  transition:
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.room__back:hover .room__back-arrow {
+  transform: translateX(-0.3cqi);
+  filter: brightness(1.25);
+}
+
+.room__back:focus-visible {
+  outline: 0.12cqi solid var(--room-ink-lit);
+  outline-offset: 0.2cqi;
+}
+
+.room__book {
+  width: 3.17cqi;
+  height: 2.36cqi;
+}
+
+/* ============================================================
+   标题区
+   ============================================================ */
+
+/*
+ * 标题和副标题包在一个绝对定位的块里，两行按正常流排：
+ * 这样 GSAP 可以整块写 yPercent 做入场，而不用担心和定位用的 translateY(-50%)
+ * 撞在同一个 transform 上。
+ *
+ * top 是对着素材反推的：花饰那条横线画在原图 y=252，也就是舞台 126px，
+ * 标题要骑在这条线上，所以行盒（高 6.2cqi = 103.7px）的顶边落在 126 - 51.9 = 74.2px
+ * = 舞台高的 7.88%。
+ */
+.room__head {
+  position: absolute;
+  top: 7.88%;
+  right: 0;
+  left: 0;
+  text-align: center;
+}
+
+.room__title {
+  margin: 0;
+  color: var(--room-title);
+  /* 比 /hero 的 2.85cqi 大一档：那一页的主角是七张卡，这一页画面上就这一个视觉重心。 */
+  font-size: 6.2cqi;
+  /* 600 是这套字体里「厚重但不发糊」的一档。Noto Serif SC 只引了 300~700，别写出界。 */
+  font-weight: 600;
+  line-height: 1;
+  /* 往右下压一道硬边影子，再垫一层散开的暗色，让字从夜空里浮出来（同首页、hero 做法）。 */
+  text-shadow:
+    0.12cqi 0.16cqi 0 rgb(12 16 22 / 55%),
+    0 0.3cqi 0.9cqi rgb(8 12 18 / 55%);
+}
+
+/*
+ * 副标题同样骑在小星那条线上：线画在原图 y=402（舞台 201px），
+ * 字号 1.55cqi = 25.9px，行盒顶边落在 201 - 13 = 188px；
+ * 标题行盒底边在 177.8px，两者相差 10.2px = 0.61cqi，就是下面这个 margin。
+ * 字距会在最后一个字后面也留一格，不收掉整行看起来是偏左的。
+ */
+.room__subtitle {
+  margin: 0.61cqi 0 0 0;
+  margin-right: -0.35em;
+  color: var(--room-sub);
+  font-size: 1.55cqi;
+  /* 300 是引进来的最细一档，副标题要明显比标题轻。 */
+  font-weight: 300;
+  letter-spacing: 0.35em;
+  line-height: 1;
+}
+
+/*
+ * 标题两侧的花饰和副标题两侧的小星。
+ *
+ * 它们不放进 .room__head 里：那个块是高度自适应的，% 的 top / height 在里面算不出来，
+ * 挂到舞台上就能直接抄脚本给的舞台落位。入场动画靠 GSAP 单独点名（见 RoomScreen.tsx）。
+ */
+.room__flourish,
+.room__substar {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* 素材 (871,204)-(1239,291) */
+.room__flourish--left {
+  top: 10.84%;
+  left: 26.05cqi;
+  width: 11cqi;
+  height: 4.62%;
+}
+
+/* 素材 (2113,204)-(2473,287) */
+.room__flourish--right {
+  top: 10.84%;
+  left: 63.19cqi;
+  width: 10.77cqi;
+  height: 4.41%;
+}
+
+/* 素材 (1192,387)-(1269,420) */
+.room__substar--left {
+  top: 20.56%;
+  left: 35.65cqi;
+  width: 2.3cqi;
+  height: 1.75%;
+}
+
+/* 素材 (2079,387)-(2154,419) */
+.room__substar--right {
+  top: 20.56%;
+  left: 62.17cqi;
+  width: 2.24cqi;
+  height: 1.7%;
+}
+
+/* ============================================================
+   中央面板
+   ------------------------------------------------------------
+   面板底图是双线框，内芯是透明的（切图脚本专门把框里那一块抹掉了），
+   星空背景直接从中间透出来。框里那几件（房间码匾、复制框、分隔线、输入框、
+   加入按钮）是各自独立的切片，绝对定位压在框上。
+
+   .room__panel 这个盒子的尺寸就是底图的落位，所以里面的元素可以直接抄
+   脚本表「落位 B」那组相对面板的 cqi。
+   ============================================================ */
+
+/* 素材 (279,473)-(3063,1227) */
+.room__panel {
+  position: absolute;
+  top: 25.13%;
+  left: 8.34cqi;
+  width: 83.25cqi;
+  height: 40.06%;
+}
+
+.room__panel-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/*
+ * 两栏的文字（栏标题 / 说明 / 状态 / 报错）。素材里没有文字，这几行全是 HTML。
+ *
+ * 每栏的盒子横向就框住这一栏那组素材的左右两端，于是文字居中 = 对齐这组素材的中心：
+ * 左栏是码匾左边缘 4.61cqi 到复制框右边缘 39.65cqi，右栏是输入框左边缘 43.90cqi
+ * 到加入按钮右边缘 79.51cqi。两栏都不是面板的精确一半，照素材来才不会错位。
+ *
+ * 栏里每一行都是绝对定位而不是靠 margin 顺排：说明行在连不上时会整行消失，
+ * 顺排的话下面的状态行会往上跳到码匾上去。
+ */
+.room__col {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  /* 纯文字，别挡住压在同一片区域上的按钮和输入框。 */
+  pointer-events: none;
+}
+
+.room__col--host {
+  left: 4.61cqi;
+  width: 35.04cqi;
+}
+
+.room__col--join {
+  left: 43.9cqi;
+  width: 35.61cqi;
+}
+
+.room__col-title,
+.room__hint,
+.room__status,
+.room__connect-error,
+.room__error {
+  position: absolute;
+  right: 0;
+  left: 0;
+  margin: 0;
+  text-align: center;
+}
+
+.room__col-title {
+  top: 3.4cqi;
+  margin-right: -0.22em;
+  color: #e2d5b5;
+  font-size: 1.9cqi;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  line-height: 1;
+}
+
+/* 素材 (1642,530)-(1702,1181)，竖分隔线含上下箭头尖和中部圆饰。 */
+.room__divider {
+  position: absolute;
+  top: 1.7cqi;
+  left: 40.76cqi;
+  width: 1.79cqi;
+  height: 19.47cqi;
+  pointer-events: none;
+}
+
+/* ============================================================
+   左栏：你的房间码
+   ============================================================ */
+
+/* 素材 (433,701)-(1419,961)：羊皮纸匾，两侧的四角星已经画在图里了。
+   房间码是展示块不是按钮：不给光标、不给 hover，别让人以为点它能复制。 */
+.room__code {
+  position: absolute;
+  top: 6.82cqi;
+  left: 4.61cqi;
+  width: 29.49cqi;
+  height: 7.78cqi;
+}
+
+.room__code-plate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 数字（和「连接中 / 未连接」占位）压在匾额正中。 */
+.room__code-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.room__code-value {
+  /* 末位数字后面那格字距照例收掉，四位数才真的落在板面正中。 */
+  margin-right: -0.32em;
+  color: #262b33;
+  font-size: 3.6cqi;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  line-height: 1;
+}
+
+/* 还没连上时板面上的占位字：比数字小得多、也淡得多，一眼看得出这里还没有内容。 */
+.room__code-pending {
+  margin-right: -0.2em;
+  color: rgb(60 56 44 / 70%);
+  font-size: 1.6cqi;
+  letter-spacing: 0.2em;
+  line-height: 1;
+}
+
+/* 素材 (1429,735)-(1605,940)：只有一圈金线，内芯透明，深色背景直接透上来。 */
+.room__copy {
+  position: absolute;
+  top: 7.83cqi;
+  left: 34.39cqi;
+  width: 5.26cqi;
+  height: 6.13cqi;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.room__copy-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 图标和文字用金铜色而不是别的匾额上那种深墨色：这块的内芯是透的，
+   底下是近黑的星空，深墨字在上面根本看不清。 */
+.room__copy-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35cqi;
+  color: var(--room-ink);
+}
+
+.room__copy-icon {
+  width: 1.5cqi;
+  height: 1.5cqi;
+}
+
+.room__copy-label {
+  font-size: 1cqi;
+  font-weight: 600;
+  line-height: 1;
+  /* 「已复制」比「复制」宽一个字，框窄，不许折行。 */
+  white-space: nowrap;
+}
+
+.room__hint {
+  top: 15.9cqi;
+  color: var(--room-sub);
+  font-size: 1.05cqi;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.room__status {
+  top: 18.1cqi;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6cqi;
+  font-size: 1.1cqi;
+  line-height: 1;
+}
+
+.room__status--waiting {
+  color: #97b487;
+}
+
+.room__status--failed {
+  color: #c9847a;
+}
+
+.room__status--connecting {
+  color: #8a8064;
+}
+
+/*
+ * 状态点：一圈描边的外环套一颗实心内芯，两者同色。
+ * 呼吸只改 opacity 不改大小——尺寸一变，右边那行字会跟着 flex 重排抖动。
+ */
+.room__dot {
+  position: relative;
+  width: 0.65cqi;
+  height: 0.65cqi;
+  border: 0.06cqi solid currentcolor;
+  border-radius: 50%;
+  flex: none;
+  animation: room-dot-breathe 2s ease-in-out infinite;
+}
+
+.room__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.3cqi;
+  height: 0.3cqi;
+  margin: -0.15cqi 0 0 -0.15cqi;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+/*
+ * 连不上服务器时状态行下面那条原因。消息里可能带一整条服务器地址，
+ * 限宽 + anywhere 让它老实折行，而不是把这一栏顶宽。
+ * 两行以内都还落在面板框里，再长会探出框底一点——只有连不上时才会出现，先不为它压缩版面。
+ */
+.room__connect-error {
+  top: 20cqi;
+  max-width: 32cqi;
+  margin-right: auto;
+  margin-left: auto;
+  color: #c9847a;
+  font-size: 1.05cqi;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* 起止都停在 1，循环首尾接得上，不会每轮开头顿一下。 */
+@keyframes room-dot-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ============================================================
+   右栏：加入对方房间
+   ============================================================ */
+
+/*
+ * form 平铺满整个面板，只是个「敲回车也能加入」的语义外壳，本身不参与排版：
+ * 输入框和加入按钮各自按素材落位绝对定位，坐标系和面板的其他子元素完全一致。
+ * 自己不吃点击，免得盖住左栏那两块。
+ */
+.room__form {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 素材 (1747,740)-(2512,957)：金线圆角框，内芯透明。 */
+.room__field {
+  position: absolute;
+  top: 7.98cqi;
+  left: 43.9cqi;
+  width: 22.88cqi;
+  height: 6.49cqi;
+  pointer-events: auto;
+}
+
+/*
+ * 真输入框叠在框图下面：自己不画边框，只在框内衬一层很淡的暗底，
+ * 让米金色的字在夜空上仍然读得出来。inset 是照框线的粗细留的，不是素材落位。
+ */
+.room__input {
+  position: absolute;
+  inset: 0.45cqi 0.7cqi;
+  padding: 0 0.7cqi;
+  border: none;
+  border-radius: 0.45cqi;
+  background: rgb(8 13 20 / 35%);
+  /* styles.css 已经统一把表单控件的 font-family 收回来了，但字号还是浏览器自带的那一档，
+     这里必须自己写死，否则输入框里的字和整页的尺度对不上。 */
+  font-size: 1.3cqi;
+  color: var(--room-title);
+  letter-spacing: 0.15em;
+}
+
+.room__input::placeholder {
+  color: rgb(160 146 116 / 50%);
+}
+
+.room__input:focus {
+  /* outline 会在圆角外画一圈方边，和这套细描边的调子不合；
+     改成给框图打一圈金色光晕（框图排在输入框后面，所以用后继兄弟选择器点它）。 */
+  outline: none;
+}
+
+/* 房间还没连上时输入框是 disabled 的。浏览器默认会把它整个洗灰，
+   这里自己给一档轻一点的淡化，和右边按钮的 opacity: .55 对得上。 */
+.room__input:disabled {
+  color: rgb(233 220 186 / 55%);
+  cursor: not-allowed;
+}
+
+.room__input-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 框图压在输入框上面（内芯透明，不挡字），点击要能穿过去落到输入框上。 */
+  pointer-events: none;
+  transition: filter 0.16s ease;
+}
+
+.room__input:focus ~ .room__input-frame {
+  filter: drop-shadow(0 0 0.45cqi var(--room-gold));
+}
+
+/* 素材 (2530,756)-(2938,951)：实心纸匾，文字压在正中。 */
+.room__join {
+  position: absolute;
+  top: 8.46cqi;
+  left: 67.31cqi;
+  width: 12.20cqi;
+  height: 5.83cqi;
+  padding: 0;
+  border: none;
+  background: none;
+  pointer-events: auto;
+}
+
+.room__join-plate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.room__join-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 末字后面那格字距照例收掉。 */
+  margin-right: -0.08em;
+  color: var(--room-plaque-ink);
+  font-size: 1.5cqi;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 出错时才有字。绝对定位，所以空着的时候也不会让别的行跳位。 */
+.room__error {
+  top: 18.1cqi;
+  color: #c9847a;
+  font-size: 1.05cqi;
+  line-height: 1.3;
+}
+
+/* ============================================================
+   底部两块横幅按钮
+   ------------------------------------------------------------
+   卡背、月桂徽章、右端的「>」都画在素材里了，HTML 只补一行文字。
+   ============================================================ */
+
+/* 素材 (411,1275)-(1654,1619) */
+.room__banner--deck {
+  top: 67.75%;
+  left: 12.29cqi;
+  width: 37.17cqi;
+  height: 18.28%;
+}
+
+/* 素材 (1688,1275)-(2950,1620)。两块的宽高差几个像素是素材本来就有的，不去抹平。 */
+.room__banner--hero {
+  top: 67.75%;
+  left: 50.48cqi;
+  width: 37.74cqi;
+  height: 18.33%;
+}
+
+/*
+ * GSAP 入场的位移专用层。
+ *
+ * 位移不能写在 .room__banner 上：那个元素挂着 transition: transform（给 hover 上浮和按下下压用），
+ * GSAP 每帧写进行内样式的 transform 都会被这条 160ms 过渡再插值一遍，
+ * 补间跑不出自己的缓动曲线，收尾还要再飘一段。父子各管一套 transform 就互不干扰
+ * （同 .room__back 和它里面那个箭头的分工）。这一层自己不带任何过渡。
+ */
+.room__banner-lift {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.room__banner-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * 横幅上的文字。
+ *
+ * 居中的范围不是整块横幅，而是横幅中间那片空纸——素材左边的图标和右边的「>」差得很远
+ * （左横幅：三张卡背占 41~222，「>」只有 562~583；右横幅：月桂徽章 53~166，「>」557~578，
+ * 都是相对横幅左上角的舞台 px），对整块横幅居中的话文字会紧贴甚至压到左边的图标上。
+ * 所以两侧各用 padding 把图标和箭头那两段让开，剩下的空纸再居中，两块横幅的观感才一致。
+ *
+ * padding 的数值 = 图标右缘 / 箭头左缘到横幅两端的距离，换成 cqi（舞台 px / 16.72）。
+ * 素材换了要重新量：读数取文字所在那条横带里的最外沿，不是整张图的包围盒。
+ */
+.room__banner-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 末字后面那格字距不占位，否则「居中」会整体偏左半格。 */
+  margin-right: -0.12em;
+  color: var(--room-plaque-ink);
+  font-size: 2.1cqi;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+/* 左横幅：卡背到 222、「>」从 562.5 起，横幅本身宽 621.5。 */
+.room__banner--deck .room__banner-label {
+  padding-left: 13.28cqi;
+  padding-right: 3.53cqi;
+}
+
+/* 右横幅：徽章到 166.5、「>」从 557.5 起，横幅本身宽 631。 */
+.room__banner--hero .room__banner-label {
+  padding-left: 9.96cqi;
+  padding-right: 4.4cqi;
+}
+
+/* ============================================================
+   三块可按的素材（复制 / 加入 / 两块横幅）共用的交互
+   ------------------------------------------------------------
+   一套统一的表现：hover 上浮一点并提亮、按下压回去并压暗、focus-visible 用两道 drop-shadow
+   描出轮廓、disabled 淡化。
+
+   位移量、亮度档位和过渡时长都照抄首页「开始游戏」按钮（styles.css 的 .home__start），
+   全站的主按钮按下去要是同一种手感；哪边改了数值，另一边也得跟着改。
+   （.home__start 静置还带一段上下浮动的 keyframes，那是首页主 CTA 独有的氛围，这页不搬。）
+
+   投影用 drop-shadow 不用 box-shadow：box-shadow 描的是矩形边框盒，
+   而素材是带斜角、四周还留了透明余量的图，只有 drop-shadow 跟得上真实轮廓；
+   焦点圈同理不能用 outline。
+   ============================================================ */
+
+.room__banner {
+  position: absolute;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.room__copy,
+.room__join,
+.room__banner {
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    filter 0.16s ease;
+}
+
+/* 悬停时轻轻抬起来一点，像被指到的那块从台面上浮了起来。位移三块共用。 */
+.room__copy:hover:not(:disabled),
+.room__join:hover:not(:disabled),
+.room__banner:hover {
+  transform: translateY(-0.4cqi);
+}
+
+/* 按下时反过来压进去，像真的被按到了台面上。
+   这条排在 hover 之后：两边特异性相同，靠顺序让「按住」盖过「悬停」。 */
+.room__copy:active:not(:disabled),
+.room__join:active:not(:disabled),
+.room__banner:active {
+  transform: translateY(0.15cqi);
+}
+
+.room__copy:disabled,
+.room__join:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/*
+ * 加入按钮和两块横幅是实心纸，静止时就投一道影子浮在背景上，按下时影子收紧。
+ * 两档都写成变量：两者的尺度不一样，横幅的影子要更远更散，但「按下收紧」这套关系是共用的。
+ *
+ * 复制按钮不在这一组里：它的内芯是透明的，只有一圈细金线，
+ * 给一圈线投影只会糊成一条双线，所以它静止时不带影子，只留亮度变化和焦点圈。
+ */
+.room__join {
+  --room-shadow: drop-shadow(0 0.25cqi 0.4cqi rgb(4 8 14 / 45%));
+  --room-shadow-tight: drop-shadow(0 0.08cqi 0.18cqi rgb(4 8 14 / 45%));
+}
+
+.room__banner {
+  --room-shadow: drop-shadow(0 0.45cqi 0.9cqi rgb(4 8 14 / 50%));
+  --room-shadow-tight: drop-shadow(0 0.15cqi 0.35cqi rgb(4 8 14 / 50%));
+}
+
+.room__join,
+.room__banner {
+  filter: var(--room-shadow);
+}
+
+/* 提亮和压暗都用 .home__start 那两档（1.06 / 0.94）；影子的松紧是这一页自己的补充。 */
+.room__join:hover:not(:disabled),
+.room__banner:hover {
+  filter: var(--room-shadow) brightness(1.06);
+}
+
+.room__join:active:not(:disabled),
+.room__banner:active {
+  filter: var(--room-shadow-tight) brightness(0.94);
+}
+
+.room__join:focus-visible,
+.room__banner:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) var(--room-shadow);
+}
+
+/* 键盘按住空格时 :focus-visible 和 :active 同时命中，而 filter 是整条覆盖不是叠加，
+   写在后面的 :focus-visible 会把 :active 那份压掉。这条特异性更高，把两边合起来写一遍。 */
+.room__join:focus-visible:active,
+.room__banner:focus-visible:active {
+  filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) var(--room-shadow-tight) brightness(0.94);
+}
+
+.room__copy:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.room__copy:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.room__copy:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit));
+}
+
+.room__copy:focus-visible:active {
+  filter: drop-shadow(0 0 0.25cqi var(--room-ink-lit))
+    drop-shadow(0 0 0.25cqi var(--room-ink-lit)) brightness(0.94);
+}
+
+/* ============================================================
+   收尾装饰 / 开发入口
+   ============================================================ */
+
+/* 素材 (1284,1659)-(2058,1789)：中央一颗星加两侧的线，给整页收个尾。
+   浓淡就按素材画的来，不再另外压透明度——它和标题那两组花饰是同一套笔触。 */
+.room__foot {
+  position: absolute;
+  top: 88.15%;
+  left: 38.4cqi;
+  width: 23.15cqi;
+  height: 6.91%;
+  pointer-events: none;
+}
+
+/* 开发期入口，压到角落里：这个功能正式版不留，但现在天天要用。 */
+.room__dev {
+  position: absolute;
+  bottom: 3%;
+  left: 3.09cqi;
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgb(160 146 116 / 45%);
+  font-size: 0.95cqi;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.room__dev:hover,
+.room__dev:focus-visible {
+  color: var(--room-ink);
+}
+
+/* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时，状态点的呼吸停在最亮那一档。
+   做法同 hero.css / styles.css 里的同名块。 */
+@media (prefers-reduced-motion: reduce) {
+  .room {
+    animation: none;
+  }
+
+  .room__back,
+  .room__back-arrow,
+  .room__copy,
+  .room__join,
+  .room__banner,
+  .room__input-frame,
+  .room__dev {
+    transition-duration: 1ms;
+  }
+
+  .room__dot {
+    animation: none;
+  }
+}

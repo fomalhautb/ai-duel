@@ -65,8 +65,9 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     id: 'fixed-answer',
     name: '复读机',
     // 命中把目标标成被复读机干扰（`AiInstance.interference`），它本轮只会答「香蕉」、判错。
-    // 干扰的本体是往 prompt 里注入一句话（见 script.ts 的 INTERFERENCE_PROMPTS），
-    // 真实模型 API 还没接，剧本模式先按等效结果模拟。
+    // 干扰的本体是往 prompt 里注入一句话（见 script.ts 的 INTERFERENCE_PROMPTS）：
+    // 那句话是骗它的——编一条"答香蕉给双倍积分"的假规则，赌它上钩。
+    // 真实模型 API 还没接，剧本模式先按"上钩了"这个等效结果模拟。
     target: 'foe-ai',
     tokenCost: 4,
     text: '对方1个作答 Agent 无论题目是什么，都只能回答香蕉。',

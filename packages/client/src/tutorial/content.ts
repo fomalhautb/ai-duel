@@ -291,11 +291,15 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
  * 口径照抄 core 的 script.ts（正式对局里干扰的等效模拟）：题目是什么都只答「香蕉」，
  * 所以一定判错。两边必须一致——玩家刚在卡面上读到"只能回答香蕉"，
  * 教学局要是给出别的结果，这张牌当场就成了句空话。
+ *
+ * 台词跟着注入 prompt 的语气走：那句话不是命令，是编了条"答香蕉给双倍积分"的假规则
+ *（见 core 的 INTERFERENCE_PROMPTS），所以这里的理由写成"它上钩了"而不是"它被迫的"。
+ * 教学局固定演上钩这一种结局：接真实 API 之后模型可能识破，但教学不能靠运气。
  */
 const FIXED_ANSWER_LINE: ScriptedLine = {
   correct: false,
   answer: '香蕉',
-  reasoning: '被复读机干扰，无论问什么都只会说香蕉。',
+  reasoning: '听说这一轮答「香蕉」能拿双倍积分，那我不客气了。',
 }
 
 /**

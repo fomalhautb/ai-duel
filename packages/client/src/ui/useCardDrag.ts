@@ -262,20 +262,21 @@ export interface UseCardDragOptions {
    */
   onTap?: (id: string, drag: CardDragInfo) => void
   /**
-   * enabled 为 false 时按下了这张牌，给调用方一个做「拒绝反馈」的钩子。
+   * enabled 为 false 时按下了这张牌，给调用方一个自行处置的钩子。
    *
    * 被 enabled 挡掉的按下什么都不会发生：既没有拖拽也没有 onTap，玩家点了半天没动静，
-   * 分不清是"现在不能出"还是"界面卡了"。手牌就靠它做摇头加小字提示
-   *（见 HandFan 的 handleLockedPress）。
+   * 分不清是"现在不能出"还是"界面卡了"。手牌就靠它做反馈：鼠标摇头加小字提示，
+   * 触屏则把这一下改判成"点开看牌"（见 HandFan 的 handleLockedPress）。
+   * 第二个参数就是这次按下的 pointerType，两条路全靠它分。
    *
    * 只认这一条闸，另外两条不给：按在 ignoreSelector 上压根不是"想出这张牌"；
    * 被 canDrag 挡掉的那些同样静默，但那是调用方自己按牌况判的（手牌那边是"已经打出、
    * 正在等受理"和"这一轮的 Token 买不起"），它想反馈的话在 canDrag 里就能做
    *（手牌那边买不起的那一档就是这么摇头弹提示的），不必绕这个钩子。
    *
-   * 只是通知，调不调都不改变这次按下被忽略这个结果。
+   * 只是通知，调不调都不改变"这次按下不会起拖也不会有 onTap"这个结果。
    */
-  onLockedPress?: (id: string) => void
+  onLockedPress?: (id: string, pointerType: string) => void
 }
 
 /** 绑到卡牌根节点上的那几个事件。 */
@@ -515,7 +516,9 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
       return
     }
     if (opts.enabled === false) {
-      opts.onLockedPress?.(id)
+      // 连指针类型一起交给调用方：手牌在对方回合里虽然不能出牌，
+      // 但触屏仍要把这一下当成"点开看牌"；鼠标那条继续给拒绝反馈。
+      opts.onLockedPress?.(id, event.pointerType)
       return
     }
     if (opts.canDrag !== undefined && !opts.canDrag(id)) return

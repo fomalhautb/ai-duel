@@ -1200,9 +1200,33 @@ export function HandFan({
     if (tip !== null) showLockTip(slot, tip)
   })
 
-  /** 整排锁着的时候按下了某张牌（被 useCardDrag 的 enabled 挡掉的那一记）。 */
-  const handleLockedPress = (id: string) =>
-    refusePlay(id, lockReason === null ? null : LOCK_TIP_TEXT[lockReason])
+  /**
+   * 整排锁着的时候按下了某张牌（被 useCardDrag 的 enabled 挡掉的那一记）。两种输入分两条路。
+   *
+   * 鼠标：摇头加小字提示。桌面上想看清一张牌把指针移上去就行（见 styles.css 里
+   * [data-locked] 那条 :hover 恢复本色），所以这时候点下去只可能是"我想出这张"，该被拒绝。
+   *
+   * 触屏：改判成"点开看牌"，和自己回合里点牌选中走同一条路——牌抬起放大、
+   * 右上角的问号跟着淡入（问号热区归 ignoreSelector 单独放行，锁着也能点着翻面）。
+   * 触屏没有 hover 可用，不给这条路的话轮到对方时手机上就完全看不清自己手里是什么牌。
+   * 这里的选中只有"看"这一层意思：那颗「打出」判了 effectiveDisabled，锁着时不会渲染。
+   *
+   * 选中发生在按下那一刻（钩子本身就挂在 pointerdown 上），而自己回合里的选中是松手才算
+   *（走 onTap）。两边差这一拍是可以接受的：锁着时误选最多是牌白抬一下，
+   * 点别处或再点一次就收，绝不会误出牌。
+   */
+  const handleLockedPress = (id: string, pointerType: string) => {
+    if (pointerType === 'mouse') {
+      refusePlay(id, lockReason === null ? null : LOCK_TIP_TEXT[lockReason])
+      return
+    }
+    // frozen 期间不受理：屏幕上正演着别的东西，这时抬起一张牌只是添乱
+    //（frozen 那个 layout effect 也会立刻把选中态收掉，抬起来也留不住）。
+    if (frozen) return
+    // 已经打出、正在等父组件受理的牌不该再被抬起来，和 handleTap 那边同一条闸。
+    if (playedRef.current.has(id)) return
+    setSelected(selectedIdRef.current === id ? null : id)
+  }
 
   /** 解锁那一下整排牌的回弹，从左到右挨个来。传进来的是每张牌的 tilt 层，顺序即扇形从左到右。 */
   const playWake = contextSafe((tilts: HTMLElement[]) => {
@@ -1458,6 +1482,9 @@ export function HandFan({
       setSelected(null)
       return
     }
+    // 反过来解锁那一下也要收：锁着时的选中是"点开看牌"（见 handleLockedPress），
+    // 留着的话轮到自己时它会凭空长出一颗「打出」，变成玩家没点过的待出牌状态。
+    setSelected(null)
     for (const id of playedRef.current) {
       // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
       // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
@@ -1639,6 +1666,10 @@ export function HandFan({
                （CSS 里只写 filter 和 cursor，都是 GSAP 碰不到的属性，见 [data-locked] 那段）。
                拖不动点不出那件事归上面 canDrag 管，不写在 CSS 里。 */
             data-unplayable={blocked.has(card.id) ? 'true' : undefined}
+            /* 触屏点开看的那张牌。只有一处样式用它：灰墨态下把这张恢复本色
+               （见 styles.css [data-locked] 那节），效果和桌面 :hover 那条对齐。
+               抬起放大不归它管，那是 applyLayout 按 selectedId 排的。 */
+            data-selected={selectedId === card.id ? 'true' : undefined}
             ref={(el) => {
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)

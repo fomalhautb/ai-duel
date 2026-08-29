@@ -13,9 +13,11 @@
  * 鼠标和触屏共用这一台状态机：走的是原生 pointer 事件，两种输入进来的事件形状一样，
  * 不用各写一套。多指仍然不管——只认第一根按下的指针（见 DragState.pointerId），
  * 第二根手指按上来不会把牌抢走，也不会开出第二次拖拽。
- * 触屏那边还有两处要调用方配合：被拖的元素必须自己写 `touch-action: none`（或 `pan-y`），
- * 否则手指一动浏览器就当成滚动页面、把这次拖拽整个收走；以及牌该不该抬到手指上方避开遮挡，
- * 那件事只有调用方知道该抬多少，靠 targetOf 里的 CardDragInfo.pointerType 自己判。
+ * 触屏那边还有三处要调用方配合：被拖的元素必须自己写 `touch-action: none`（或 `pan-y`），
+ * 否则手指一动浏览器就当成滚动页面、把这次拖拽整个收走；牌坐在竖向滚动区里（写的是 pan-y）时
+ * 还要开 touchScrollGuard，起拖判定才会换成"横滑或长按"，不然滚列表每次都先把牌抓起来
+ * 再被浏览器扔回去；以及牌该不该抬到手指上方避开遮挡，那件事只有调用方知道该抬多少，
+ * 靠 targetOf 里的 CardDragInfo.pointerType 自己判。
  */
 
 import { useLayoutEffect, useRef } from 'react'
@@ -29,6 +31,48 @@ import { battleStageMetrics } from './battleStage'
  * 4px 足够吸收按鼠标时手抖带出来的一两个像素，又不至于让人觉得"拖了半天才动"。
  */
 export const DRAG_THRESHOLD = 4
+/**
+ * 触屏起拖要走过的**横向**位移，比鼠标那 4px 大得多。
+ *
+ * 手指落点几乎必然压在某张牌上（卡池是一整块铺满的滚动区），而 4px 在触屏上根本算不上
+ * 一次动作——手指按下去那一下的接触点漂移就有这么多。滚一屏卡因此每次都会先把牌抓起来，
+ * 等浏览器认定这是滚动再补一发 pointercancel 把牌扔回去，画面上就是牌乱跳。
+ * 14px 大到吸收得住起手的漂移，又小到横着一划就能把牌拖出去。
+ */
+export const TOUCH_DRAG_THRESHOLD = 14
+/**
+ * 触屏方向锁：竖向位移一旦到这个数，这次按下就判成"玩家在滚列表"，整个作废。
+ *
+ * 比 TOUCH_DRAG_THRESHOLD 小是故意的——两条线之间的那段里，竖向先到就认滚动，
+ * 让滚动赢在前面。滚列表是这一页最高频的动作，误起拖的代价（牌跳一下）
+ * 比误判成滚动（再横划一次）难受得多。
+ */
+export const TOUCH_SCROLL_SLOP = 8
+/**
+ * 横向要压过竖向这么多倍才算横滑。
+ *
+ * 只看"横向够不够长"挡不住斜着划：手指走一条 45° 的线时横竖分量一样大，
+ * 横向照样能过阈值。1.2 留了一点容差——手指划的横线本来就不可能是水平的。
+ */
+export const TOUCH_AXIS_RATIO = 1.2
+/**
+ * 触屏按住不动多久算"我要拖这张牌"。
+ *
+ * 方向锁只放行横滑，竖着起手的拖拽就没路了（卡池和牌组面板虽然左右并排，
+ * 玩家不一定从横向起手）。长按是第二条路，同 iOS 长按重排列表：按住不动，牌抬起来，
+ * 之后爱往哪拖往哪拖。300ms 是长按的常见口径，短到不觉得卡，长到不会在滚动途中误触发。
+ *
+ * 有一处够不着：长按把牌抬起来之后再竖着拖，浏览器仍可能按 pan-y 把这次触摸收去滚动
+ * （touch-action 在 touchstart 那一刻就定死了，事后改样式不算数），那时 hook 收到
+ * pointercancel 按取消处理、牌回原位。卡池和牌组面板本来就是左右并排，竖着拖没有落点，
+ * 所以不额外补救。
+ */
+export const TOUCH_HOLD_DELAY = 300
+/**
+ * 长按期间允许的抖动。超过就不算"按住不动"，这次按下交还给方向锁去判。
+ * 和 TOUCH_SCROLL_SLOP 取同一个数：手指移到判成滚动的那条线上时，长按也正好失效。
+ */
+export const TOUCH_HOLD_TOLERANCE = 8
 /**
  * 拖拽时的放大倍数：比静置（1）大一点，好认出"这张牌被抓在手上"，
  * 又不能大到把落点区盖住——拖着的牌是要去找落点的，看不见落在哪就没法瞄准。
@@ -53,6 +97,26 @@ export const DRAG_POSE_DUR = 0.25
  * 卡牌中心会跟着位移，交给这个缓动去追，画面上就看不到跳变。
  */
 export const DRAG_FOLLOW_DUR = 0.18
+
+/**
+ * 触屏在滚动区里按下之后，这一段位移意味着什么。
+ *
+ * - `drag`：横滑够长、方向也够横，起拖；
+ * - `scroll`：竖向先跑出去了，这次按下让给滚动，整个作废；
+ * - `wait`：还看不出来，继续等下一次移动（长按计时器仍在跑）。
+ *
+ * 单拎出来是为了能在没有 DOM 的测试里直接验这套门限（见 test/cardDragTouch.test.ts）。
+ */
+export type TouchGesture = 'drag' | 'scroll' | 'wait'
+
+export function touchGestureOf(dx: number, dy: number): TouchGesture {
+  const adx = Math.abs(dx)
+  const ady = Math.abs(dy)
+  // 竖向和横向一样长（正好 45°）也算滚动：这种手势看不出想拖，让给滚动更不容易惹人烦。
+  if (ady >= TOUCH_SCROLL_SLOP && ady >= adx) return 'scroll'
+  if (adx >= TOUCH_DRAG_THRESHOLD && adx >= ady * TOUCH_AXIS_RATIO) return 'drag'
+  return 'wait'
+}
 
 /**
  * useGSAP 返回的那个 contextSafe 的签名。
@@ -138,6 +202,22 @@ export interface UseCardDragOptions {
   dragScale?: number
   /** 拖拽时写给 GSAP 的 zIndex，默认 DRAG_Z。 */
   dragZ?: number
+  /**
+   * 这张牌坐在一块竖向滚动区里（元素上写的是 `touch-action: pan-y`）。
+   *
+   * 打开之后，触屏的起拖判定从"任意方向走过 DRAG_THRESHOLD"换成两条路：横着划出
+   * TOUCH_DRAG_THRESHOLD（且横向压过竖向 TOUCH_AXIS_RATIO 倍），或者按住不动
+   * TOUCH_HOLD_DELAY。竖向先走过 TOUCH_SCROLL_SLOP 则判成滚动，这次按下整个作废——
+   * 连 onTap 都不给，滚个列表不该顺手把牌点开。
+   *
+   * 光靠 CSS 的 pan-y 挡不住这件事：浏览器认定"这是滚动"要比 4px 慢，等它补那一发
+   * pointercancel 时牌已经被抬起来又扔回去，画面上就是牌乱跳；斜着划的时候浏览器
+   * 干脆不接管，那就是一次真的误拖。
+   *
+   * 鼠标不受影响（没有"滚动手势"这回事），写 `touch-action: none` 的地方也不用开
+   * ——那种元素上的手势本来就全归我们，没人跟它抢。
+   */
+  touchScrollGuard?: boolean
   /**
    * 按在匹配这个选择器的元素（或它的后代）上不算抓牌。
    * 卡面上另有用途的小控件靠它让开，比如手牌的问号热区只管翻面、不该把牌抓起来。
@@ -249,6 +329,11 @@ interface DragState extends CardDragInfo {
   /** 起拖那一刻元素的 x / y，只有没给 targetOf、走默认位移跟随时才有意义。 */
   baseX: number
   baseY: number
+  /**
+   * 长按起拖的计时器 id，没排（鼠标、或没开 touchScrollGuard）就是 null。
+   * 收尾时必须清掉：这次按下都作废了，计时器到点还会把牌抓起来。
+   */
+  holdTimer: number | null
   /** gsap.quickTo 出来的跟随函数，进入拖拽时才建。 */
   moveX: ((value: number) => void) | null
   moveY: ((value: number) => void) | null
@@ -347,6 +432,7 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     const drag = dragRef.current
     if (drag === null) return null
     dragRef.current = null
+    if (drag.holdTimer !== null) window.clearTimeout(drag.holdTimer)
     markZones(false, null)
     // 用 drag.element 而不是让调用方再查一遍：最需要收尾的那条路径（拖到一半这张牌
     // 被调用方从列表里拿掉了）上，节点这一帧已经从 DOM 里摘走、调用方的登记表里也没了，
@@ -356,6 +442,25 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     // 卡组页是上一次拖拽的归位），不能顺手杀掉。判据是 owned 不是 active，理由见那里。
     if (drag.owned) gsap.killTweensOf(drag.element)
     return drag
+  }
+
+  /** 这次按下要不要走"滚动优先"那套判定：开了闸门、而且不是鼠标按的。 */
+  const isTouchGuarded = (drag: DragState) =>
+    optionsRef.current.touchScrollGuard === true && drag.pointerType !== 'mouse'
+
+  /**
+   * 走过的这点位移够不够起拖。
+   *
+   * 鼠标（以及没开 touchScrollGuard 时）还是原来那条：任意方向过 DRAG_THRESHOLD。
+   * 触屏在滚动区里则按方向分：竖向先跑出去就判成滚动，把这次按下整个收掉（endDrag 不带回调，
+   * 牌一动没动，也就没有原位要回；dragRef 一空，后面的 move / up 全部自然落空，
+   * 这根手指再横划回来也不会突然把牌抓起来）。
+   */
+  const shouldBeginDrag = (drag: DragState, dx: number, dy: number) => {
+    if (!isTouchGuarded(drag)) return Math.hypot(dx, dy) >= DRAG_THRESHOLD
+    const gesture = touchGestureOf(dx, dy)
+    if (gesture === 'scroll') endDrag()
+    return gesture === 'drag'
   }
 
   /** 真正进入拖拽：让调用方先收拾旧状态，然后换姿态、接管跟随。 */
@@ -418,7 +523,7 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     // 触屏上这一下**挡不住滚动**：手指的滚动手势是浏览器在另一条线程上先斩后奏的，
     // 只有 CSS 的 touch-action 拦得住，所以被拖的元素必须自己写上（见文件头）。
     event.preventDefault()
-    dragRef.current = {
+    const next: DragState = {
       id,
       element: event.currentTarget,
       pointerId: event.pointerId,
@@ -431,8 +536,24 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
       owned: false,
       baseX: 0,
       baseY: 0,
+      holdTimer: null,
       moveX: null,
       moveY: null,
+    }
+    dragRef.current = next
+    // 长按起拖：方向锁只放行横滑，这是留给"竖着起手也想拖"的第二条路（见 TOUCH_HOLD_DELAY）。
+    // 起拖那一刻牌就抬起来放大，本身就是"抓住了"的反馈，不用再另做提示。
+    if (isTouchGuarded(next)) {
+      const fire = wrap(() => {
+        const drag = dragRef.current
+        // 这次按下已经没了（判成滚动、松手、被打断），或者早就横划起拖了，都不用再管。
+        if (drag !== next || drag.active) return
+        drag.holdTimer = null
+        // 手指抖出容差就不算按住不动。计时器和最后一次移动谁先到没准，这里按当前位置再核一次。
+        if (Math.hypot(drag.x - drag.originX, drag.y - drag.originY) > TOUCH_HOLD_TOLERANCE) return
+        beginDrag(drag)
+      })
+      next.holdTimer = window.setTimeout(fire, TOUCH_HOLD_DELAY)
     }
     // 立刻捕获指针：后面就算光标跑出卡面（拖拽时必然会），move / up 也还是发到这张牌上。
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -446,7 +567,7 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     if (!drag.active) {
       const dx = event.clientX - drag.originX
       const dy = event.clientY - drag.originY
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+      if (!shouldBeginDrag(drag, dx, dy)) return
       beginDrag(drag)
       // 调用方在 onDragStart 里把这次拖拽收掉了（见 beginDrag），跟随函数根本没建起来。
       if (dragRef.current !== drag) return
@@ -475,7 +596,11 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     endDrag()
     // 没过阈值就是原地点了一下。这时元素还停在按下之前的位置，没挪过，也就谈不上归位。
     if (!wasActive) {
-      if (enabled) opts.onTap?.(id, drag)
+      // 触屏在滚动区里还有第三种结局：斜着划了一大段，既没横到能起拖、竖向也没到判滚动那条线。
+      // 那不是"点了一下"，不该把放大层弹出来，所以手指挪出容差就不算点击。
+      const moved = Math.hypot(drag.x - drag.originX, drag.y - drag.originY)
+      const tapped = !isTouchGuarded(drag) || moved <= TOUCH_HOLD_TOLERANCE
+      if (enabled && tapped) opts.onTap?.(id, drag)
       return
     }
     // 落在别处、落进只吃高亮的区域、或者拖到一半被关掉 enabled，都是取消。

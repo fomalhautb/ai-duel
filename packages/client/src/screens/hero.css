@@ -28,6 +28,12 @@
   --hero-ink-lit: #f2e5c2;
   /* 选中框那条亮线，设计稿实测 (210,180,125)。 */
   --hero-gold: #d2b47d;
+  /*
+   * 匾额按钮（.plaque-button）底纹用的噪声图。它原本只定义在 .battle 上，
+   * 而 background-image 里只要有一个变量取不到值，整条声明（连同那道高光渐变）就会被丢掉，
+   * 按钮会变成一块纯色。值和 styles.css 里 .battle 那份一模一样，改一处要同时改另一处。
+   */
+  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
   display: grid;
   place-items: center;
   height: 100%;
@@ -157,9 +163,9 @@
   transform: translateX(-0.3cqi);
 }
 
+/* 同 .hero__card：不画焦点框，理由见那一条。 */
 .hero__back:focus-visible {
-  outline: 2px solid var(--hero-ink-lit);
-  outline-offset: 0.2cqi;
+  outline: none;
 }
 
 /* ============================================================
@@ -254,8 +260,10 @@
  */
 .hero__grid {
   position: absolute;
-  /* 第一排卡顶边 y=154px。 */
-  top: 14.26%;
+  /* 原设计稿里第一排卡顶边在 y=154px（14.26%），那是给底下那颗常驻确认按钮留位置的。
+     按钮挪进详情之后底部空出一大块，整组卡看着就靠上了，所以整体下压到 19%，
+     让两排卡在标题和舞台底边之间大致居中。 */
+  top: 19%;
   right: 0;
   left: 0;
   display: flex;
@@ -272,8 +280,8 @@
 
 /*
  * 一张卡。这一层只管布局和键盘焦点，不参与任何动画——
- * 动的是里面的 .hero__card-lift，分开是为了让「布局位置」和「GSAP 写的 transform」
- * 各占一个元素，互相不会覆盖。
+ * 动的是里面的 .hero__card-lift（上浮 / 弹跳）和再里面的 .hero__card-tilt（跟指针倾斜），
+ * 分开是为了让「布局位置」和「GSAP 写的 transform」各占一个元素，互相不会覆盖。
  */
 .hero__card {
   position: relative;
@@ -287,10 +295,19 @@
   cursor: pointer;
 }
 
-/* 描边落在金框外面一点，选中和聚焦同时出现时两圈线不会叠在一起。 */
+/*
+ * 不画键盘焦点框。
+ *
+ * 关掉详情时焦点会还给点开的那张卡（HeroScreen 里的焦点转移），而 ESC 关闭属于键盘操作，
+ * :focus-visible 会命中，卡上就会凭空多出一圈金线——它和「选中」「hover」都没关系，
+ * 只会让人以为选中了什么。产品上明确要求去掉。
+ *
+ * 代价是键盘用户看不到焦点落在哪张卡上。详情打开期间背景挂了 inert、退出时焦点回到原卡，
+ * 顺序本身是对的，只是没有可见提示；将来要补回来的话，做成和金框不一样的样式
+ * （比如卡面压暗一档）再回来改这里。
+ */
 .hero__card:focus-visible {
-  outline: 2px solid var(--hero-ink-lit);
-  outline-offset: 0.95cqi;
+  outline: none;
 }
 
 /* GSAP 写入场 / hover 上浮 / 选中 pop 的那一层。这里不写任何 transition：
@@ -298,64 +315,62 @@
 .hero__card-lift {
   position: absolute;
   inset: 0;
+  /* perspective 只作用于直接子元素，也就是下面那层倾斜层。数值按卡宽等比给：
+     手牌那边是 150px 宽的卡配 1000px，这里 12.5cqi 宽就配 83cqi。 */
+  perspective: 83cqi;
+}
+
+/*
+ * 跟着指针倾斜的那一层（attachCardTilt 写 rotationX / rotationY 到这里）。
+ * 必须和上浮层分开：上浮 / pop 归 HeroScreen 自己的补间写在 .hero__card-lift 上，
+ * 一层 transform 只许一个人写（理由见 ui/cardTilt.ts 开头）。
+ *
+ * 圆角和裁剪也放这层：高光是铺满整层的一块渐变，不裁就会漏出卡片圆角之外的直角。
+ * 投影同样挂这层——外投影画在盒子外面，不会被自己的 overflow 裁掉。
+ */
+.hero__card-tilt {
+  position: absolute;
+  inset: 0;
+  /* 圆角大小对齐手牌（150px 宽的卡是 8px），换算到 12.5cqi 宽约 0.67cqi。 */
+  border-radius: 0.67cqi;
+  overflow: hidden;
+  box-shadow: 0 0.45cqi 1.1cqi rgb(4 8 14 / 40%);
 }
 
 .hero__card-img {
   display: block;
   width: 100%;
   height: 100%;
-  /* 卡面的装饰边框和名字牌都画在图里，这里不需要再叠任何东西。 */
-  box-shadow: 0 0.45cqi 1.1cqi rgb(4 8 14 / 40%);
 }
 
 /*
- * 选中态的金色双线框。
- *
- * 两条线的位置是从设计稿量的：外面那条暗金线离卡边 13px（0.68cqi），
- * 里面那条亮金线离卡边 7.5px（0.39cqi），两条都是 2px 粗。
- * ::after 的 inset 相对的是本元素的 padding box（已经在 border 里面了），
- * 所以 0.19cqi 加上外框 0.1cqi 的边宽正好把亮线推到 -0.39cqi 处。
- *
- * 只动 opacity，不动 transform：这一层和 .hero__card-lift 里的图片一起被父层带着走，
- * 自己再叠一层 transform 只会和 GSAP 打架。
+ * hover 时浮在卡面下方的提示条。只切 opacity，不动 transform：
+ * 这一层被 GSAP 写着 transform 的祖先带着走，自己再叠一层只会打架。
+ * 只在真有悬停能力的设备上出现——触屏没有 hover，提示会一直亮着。
  */
-.hero__card-frame {
+.hero__card-hint {
   position: absolute;
-  inset: -0.68cqi;
-  border: 0.1cqi solid rgb(168 143 92 / 55%);
-  border-radius: 0.25cqi;
+  bottom: 0.9cqi;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.35cqi 0.9cqi;
+  border: 0.06cqi solid rgb(210 180 125 / 45%);
+  border-radius: 0.9cqi;
+  background: rgb(10 14 20 / 72%);
+  color: var(--hero-ink-lit);
+  font-size: 0.86cqi;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  line-height: 1;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.22s ease;
+  transition: opacity 0.18s ease;
 }
 
-.hero__card-frame::after {
-  content: '';
-  position: absolute;
-  inset: 0.19cqi;
-  border: 0.11cqi solid var(--hero-gold);
-  border-radius: 0.15cqi;
-  /* 很轻的一圈金色泛光，让选中的卡从暗底里浮一点点出来，别做成发光灯管。 */
-  box-shadow: 0 0 1.4cqi 0.1cqi rgb(210 180 125 / 22%);
-}
-
-.hero__card.is-selected .hero__card-frame {
-  opacity: 1;
-}
-
-/*
- * 点「确认英雄」时那一下金光。垫在卡片图底下，光只从卡的四周漏出来。
- * 平时 visibility: hidden 而不是只有 opacity: 0——七张卡各挂一圈大范围 box-shadow，
- * 浏览器并不保证会跳过全透明元素的绘制。GSAP 用 autoAlpha 驱动，它会自己管 visibility。
- */
-.hero__card-pulse {
-  position: absolute;
-  inset: -0.7cqi;
-  border-radius: 0.3cqi;
-  box-shadow: 0 0 2.2cqi 0.5cqi rgb(226 196 132 / 65%);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+@media (hover: hover) {
+  .hero__card:hover .hero__card-hint {
+    opacity: 1;
+  }
 }
 
 /* ============================================================
@@ -363,161 +378,307 @@
    ============================================================ */
 
 /*
- * 羊皮纸匾额。设计稿上从外往里数是：2px 描边 → 4px 底 → 2px 内衬线 → 底，
- * 四个角都是 45° 斜切。
+ * 详情底部那颗「确认英雄」直接用对战里「结束出牌」那颗匾额按钮（ui/PlaqueButton），
+ * 只把配色换成米白——原来那套自己拿 clip-path 拼的八边形整个撤了，
+ * 同一个产品里不该有两颗长得不一样的主按钮。
  *
- * 为什么套一层又一层而不是「一个元素 + border + clip-path」：
- * clip-path 会把 border 的四个角一起切掉，斜边上就没有线了，而设计稿的斜边是有线的。
- * 改成一层套一层、每层各自 clip 成小一号的八边形，父层的底色就会在斜边上
- * 自然露出等宽的一条——这才是设计稿里那个形状。
- * 每层的斜切尺寸要比外面一层小掉正好一个 padding 的量，斜边才平行。
+ * 配色思路和首页那块铜牌一致：浅色板面配深墨字。对战那身墨蓝底米白字放在这一页
+ * 会和暗背景糊成一片，主按钮得是画面上最亮的那一块。
  *
- * 最外的 .hero__confirm 只是个不裁剪的外壳，八边形从 .hero__confirm-edge 才开始：
- * 同一个元素上 filter 的结果会被自己的 clip-path 再裁一遍（裁剪发生在滤镜之后），
- * 投影和焦点圈全落在八边形之外、一个像素都留不下（styles.css 的 .plaque-button 已经踩过一次）。
- * 拆成两层之后，父层的 drop-shadow 描的是被裁子元素的真实八边形轮廓，影子才露得出来。
+ * 选择器都多带一级 .hero：不加的话和 styles.css 里的 .plaque-button 特异性相同，
+ * 谁赢取决于两份样式表的加载先后，按钮会变回墨蓝。
  */
-.hero__confirm {
-  position: absolute;
-  /* 设计稿：宽 384px、高 81px、顶边 y=959px。left 用 50% 配负 margin 而不是
-     translateX(-50%)，把 transform 整个留给下面的按下效果，省得两者互相覆盖。 */
-  top: 88.8%;
-  left: 50%;
+.hero .hero__confirm {
+  --plaque-fill: #e7ddc6;
+  --plaque-edge: #8f7c56;
+  --plaque-line: rgb(120 100 66 / 55%);
+  /* 深墨字，和首页铜牌上那行字取同一档：浅色板面上放米白字看不清。 */
+  color: #2c3138;
+  /*
+   * 尺寸改写成 cqi，跟着舞台一起缩放。.plaque-button 那份是给对战页写的固定 px
+   * （224×68、字号 clamp(18px, 1.5vw, 24px)），放在这一页会出两个问题：
+   * 大屏上按钮不长个儿，反而比周围按 cqi 放大的正文还小；
+   * 而它的宽度 min(224px, 100%) 里那个百分比，在「收缩到内容」的按钮行里会绕回来
+   * 问这一行有多宽，算出的行宽比两颗按钮实际需要的还窄，旁边的返回键就被挤成一列字
+   * （见 .hero__detail-back）。写死 cqi 两个问题一起解决。
+   * 高度和内边距都是按 224:68 这个原始比例换算的，不能照搬旧稿那块八边形的 384×81：
+   * 匾额的框线是一张 viewBox="0 0 224 68"、preserveAspectRatio="none" 的 SVG，
+   * 比例一变，四角的切角和那两颗星就会被横向拉长。
+   */
   width: 20cqi;
-  height: 4.22cqi;
-  margin-left: -10cqi;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  /* 投影用 drop-shadow 不用 box-shadow：box-shadow 描的是矩形边框盒，
-     而真正的形状是子元素裁出来的八边形，只有 drop-shadow 跟得上。 */
-  filter: drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%));
-  transition:
-    transform 0.14s ease,
-    filter 0.14s ease;
+  height: 6.07cqi;
+  padding: 0 2.68cqi;
+  font-size: 1.72cqi;
 }
 
-.hero__confirm-edge,
-.hero__confirm-plate,
-.hero__confirm-rule,
-.hero__confirm-face {
+/* 这两笔在 .plaque-button 里是写死的浅灰，本来是配墨蓝底的；
+   换成浅色板面之后要压深一档，否则四角的短线和那两颗星几乎看不见。 */
+.hero .hero__confirm .plaque-button__corner {
+  stroke: rgb(120 100 66 / 45%);
+}
+
+.hero .hero__confirm .plaque-button__spark {
+  fill: #a08c68;
+}
+
+.hero .hero__confirm:hover {
+  --plaque-fill: #f2e9d5;
+  --plaque-line: rgb(120 100 66 / 75%);
+  color: #1f242a;
+}
+
+/*
+ * 键盘焦点圈画在按钮**里面**。
+ * .plaque-button 自己带 clip-path 裁出八角形，而裁剪发生在描边之后——
+ * 它那条 outline（styles.css）整圈都落在八角形之外，一个像素都留不下，
+ * 焦点等于没有提示。改成给覆盖层 ::before 加一圈内描边，它在裁剪范围之内，跑不掉。
+ * ::before 原本那两道内阴影要一起写回来：box-shadow 是整条覆盖不是叠加。
+ */
+.hero .hero__confirm:focus-visible {
+  outline: none;
+}
+
+.hero .hero__confirm:focus-visible::before {
+  box-shadow:
+    inset 0 0 0 0.16cqi var(--hero-gold),
+    inset 0 2px 0 rgb(255 255 255 / 8%),
+    inset 0 -7px 9px rgb(4 8 15 / 28%);
+}
+
+/*
+ * 键盘按住空格时焦点和按下会同时命中，而 box-shadow 是整条覆盖不是叠加：
+ * 上面那条特异性更高，会把 styles.css 里按下态那圈凹陷阴影整个压掉，
+ * 按钮看起来就没被按下去。这条把两边合起来写一遍。
+ * data-pressed 也要认：PlaqueButton 用它撑住最短按压时长，点得再快也要按满 70ms。
+ */
+.hero .hero__confirm:focus-visible:active::before,
+.hero .hero__confirm:focus-visible[data-pressed='true']::before {
+  box-shadow:
+    inset 0 0 0 0.16cqi var(--hero-gold),
+    inset 0 7px 13px rgb(4 8 15 / 58%),
+    inset 0 -2px 0 rgb(212 168 126 / 30%);
+}
+
+/* ============================================================
+   技能详情（点开一张卡）
+   ============================================================ */
+
+/*
+ * 整块详情层。渲染在舞台内部（所以 cqi 照常可用），但自己是 position: fixed，
+ * 好把舞台之外的留边也一起压暗——舞台祖先没有 transform / filter，
+ * fixed 不会被它们的 overflow: hidden 裁掉。
+ *
+ * z-index 是必须的：详情要盖住底下的卡牌，而卡牌那层自己带层叠上下文，光靠 DOM 顺序压不住。
+ * 这一层同时也是详情内部两档层级（遮罩 0、内容 1）的层叠上下文，那两档只在这层里面有意义。
+ */
+.hero__detail {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* 内容和底下那排按钮之间 60px。 */
+  gap: 3.1cqi;
+}
+
+/*
+ * 大卡 + 技能描述这一行。按钮排在它下面，所以外面那层是竖的。
+ *
+ * position + z-index 有两件事要管：一是压在遮罩上面（遮罩是定位元素，不定位的兄弟会被它糊住），
+ * 二是压过底下那排按钮——卡飞进来的路上比落位后大得多，第二排卡的起飞位置正好和
+ * 「确认英雄」那块不透明的米白匾额重叠，同级同值时后写的按钮行会赢，卡的下半截会被切掉。
+ */
+.hero__detail-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  /* 大卡到描述面板之间 92px。 */
+  gap: 4.8cqi;
+}
+
+/*
+ * 压暗 + 模糊的遮罩。这一页自己写一份，不复用对战那块 .reveal-overlay：
+ * 那边压 50% 黑、模糊 7px，底下是浅色羊皮纸的战场，够用了；
+ * 这一页底下是七张高对比的人物卡，同样的档位卡面还是亮得刺眼，
+ * 技能文字压在人脸上根本读不了。所以压到 82%、模糊翻一倍，再顺手降一点饱和度，
+ * 让背景整个退成一块暗底。
+ *
+ * 两件事分开做是有意的：backdrop-filter 在部分环境下会被跳过（祖先一旦成了 backdrop root
+ * 就可能失效），那时候光靠 82% 的压暗仍然读得清，不至于整个功能塌掉。
+ *
+ * position: fixed 是为了连舞台之外的留边一起压暗；z-index 压到 0 让详情内容排在它前面
+ * （内容那两层写了 z-index: 1）。默认 visibility: hidden 由 GSAP 的 autoAlpha 开关，
+ * 关着的时候不吃指针事件。
+ */
+.hero__detail-veil {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  background: rgb(5 8 12 / 82%);
+  backdrop-filter: blur(14px) saturate(0.75);
+  opacity: 0;
+  visibility: hidden;
+}
+
+/*
+ * 左边那张放大的卡。它是 Flip 的落点，必须真的排在流里——
+ * 位置由 flex 算出来，Flip 才知道要飞到哪。
+ *
+ * 这一层只管位置、投影和 perspective，圆角和裁剪都挪进里面的倾斜层，
+ * 分工和卡槽那边（.hero__card-lift / .hero__card-tilt）完全一致：
+ * Flip 写这一层的 transform，倾斜写里面那层，两者不抢同一个属性。
+ *
+ * z-index 比右边的技能面板再高一档：飞进来的路上卡会比落位后大不少，
+ * 中途会压到面板那一侧，压不住的话卡会被文字切掉半张。
+ */
+.hero__detail-card {
+  position: relative;
+  z-index: 2;
+  width: 22cqi;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  border-radius: 0.67cqi;
+  /* 数值按卡宽等比给，和卡槽那边同一个口径（12.5cqi 配 83cqi）。 */
+  perspective: 146cqi;
+  box-shadow: 0 1.2cqi 2.6cqi rgb(4 8 14 / 60%);
+}
+
+/* 跟着指针倾斜的那一层，结构和卡槽里的 .hero__card-tilt 一样：
+   高光铺满整层，不裁就会漏出圆角之外的直角。 */
+.hero__detail-card-tilt {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.hero__detail-img {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-/* 最外那圈 2px 描边。 */
-.hero__confirm-edge {
-  padding: 0.11cqi;
-  background: #b8a17a;
-  clip-path: polygon(
-    0.7cqi 0,
-    calc(100% - 0.7cqi) 0,
-    100% 0.7cqi,
-    100% calc(100% - 0.7cqi),
-    calc(100% - 0.7cqi) 100%,
-    0.7cqi 100%,
-    0 calc(100% - 0.7cqi),
-    0 0.7cqi
-  );
+/* 右边的技能描述。宽度钉死，免得英雄名字长短不一时面板跟着抽动。 */
+.hero__detail-info {
+  width: 30cqi;
+  color: var(--hero-sub);
 }
 
-.hero__confirm-plate {
-  padding: 0.21cqi;
-  background: linear-gradient(to bottom, #e4d7be 0%, #d5c5a7 55%, #dccbaf 100%);
-  clip-path: polygon(
-    0.59cqi 0,
-    calc(100% - 0.59cqi) 0,
-    100% 0.59cqi,
-    100% calc(100% - 0.59cqi),
-    calc(100% - 0.59cqi) 100%,
-    0.59cqi 100%,
-    0 calc(100% - 0.59cqi),
-    0 0.59cqi
-  );
-}
-
-/* 内衬线本身就是一整块底色，靠上下两层把它压成一条 2px 的边。 */
-.hero__confirm-rule {
-  padding: 0.11cqi;
-  background: rgb(120 100 66 / 35%);
-  clip-path: polygon(
-    0.38cqi 0,
-    calc(100% - 0.38cqi) 0,
-    100% 0.38cqi,
-    100% calc(100% - 0.38cqi),
-    calc(100% - 0.38cqi) 100%,
-    0.38cqi 100%,
-    0 calc(100% - 0.38cqi),
-    0 0.38cqi
-  );
-}
-
-.hero__confirm-face {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* 星心到文字边缘设计稿量得 75px。 */
-  gap: 3.9cqi;
-  background: linear-gradient(to bottom, #e4d7be 0%, #d5c5a7 55%, #dccbaf 100%);
-  clip-path: polygon(
-    0.27cqi 0,
-    calc(100% - 0.27cqi) 0,
-    100% 0.27cqi,
-    100% calc(100% - 0.27cqi),
-    calc(100% - 0.27cqi) 100%,
-    0.27cqi 100%,
-    0 calc(100% - 0.27cqi),
-    0 0.27cqi
-  );
-}
-
-.hero__confirm-label {
-  /* 深墨色，从设计稿字形里取的最暗像素。浅色匾额上放米白字看不清，这一点和首页那块铜牌同理。 */
-  color: #2c3138;
-  font-size: 1.72cqi;
+.hero__detail-name {
+  margin: 0;
+  color: var(--hero-title);
+  font-size: 2.2cqi;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  /* 字距会在最后一个字后面也留一格，不收掉整行看起来是偏左的。 */
-  margin-right: -0.06em;
+  line-height: 1.2;
+}
+
+.hero__detail-en {
+  margin: 0.4cqi 0 0;
+  color: var(--hero-ink);
+  font-size: 1.05cqi;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+}
+
+/* 名字和技能列表之间的分隔线，和标题两侧的细线同一档亮度。 */
+.hero__detail-rule {
+  height: 2px;
+  margin: 1.4cqi 0;
+  background: linear-gradient(to right, rgb(216 201 163 / 30%), rgb(216 201 163 / 0%));
+}
+
+.hero__detail-skill + .hero__detail-skill {
+  margin-top: 1.4cqi;
+}
+
+.hero__detail-skill-name {
+  margin: 0;
+  color: var(--hero-gold);
+  font-size: 1.35cqi;
+  font-weight: 600;
   line-height: 1;
 }
 
-.hero__confirm-star {
-  width: 0.86cqi;
-  height: 0.86cqi;
-  /* 星比正文淡一档，是装饰不是内容。 */
-  color: #a08c68;
+.hero__detail-skill-text {
+  margin: 0.6cqi 0 0;
+  font-size: 1.05cqi;
+  font-weight: 300;
+  line-height: 1.7;
+}
+
+/* 底下那排按钮。压在遮罩之上、大卡那一行之下（比它低一档，理由见 .hero__detail-body）。 */
+.hero__detail-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 3.1cqi;
+}
+
+/* 「返回」做成轻量的文字按钮，和右边那块匾额分出主次——
+   样式照抄页面左上角那颗返回键（.hero__back），只是不参与定位。
+   flex: none + nowrap 是保险：这一行的宽度是「收缩到内容」算出来的，一旦右边那块匾额的
+   宽度里再出现百分比（.plaque-button 原本写的是 min(224px, 100%)），百分比会绕回来问
+   这一行有多宽，算出的行宽比两颗按钮实际需要的还窄，被挤的就是这颗可收缩的按钮——
+   挤到一个字宽时「返回」两个字各占一行，看起来就是文字竖过来了。
+   现在匾额的宽度已经在本文件里改成了 cqi，但这两笔留着：换个写法就再踩一次不值当。 */
+.hero__detail-back {
+  display: flex;
   flex: none;
+  white-space: nowrap;
+  align-items: center;
+  gap: 1.04cqi;
+  padding: 0.4cqi 0.5cqi;
+  border: none;
+  background: none;
+  color: var(--hero-ink);
+  /* 比左上角那颗返回大一档：这里它是详情仅有的两个出口之一，不能比正文还小。 */
+  font-size: 1.5cqi;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.18s ease;
 }
 
-.hero__confirm:hover {
-  filter: drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%)) brightness(1.05);
+/* 箭头和文字都套上全站公用的手绘滤镜（HandDrawnFilterDefs 里的 rough-1），
+   和匾额按钮上的字、首页铜牌上的字是同一种抖法。
+   滤镜加在这两个子元素上而不是按钮本身：按钮那层是个带 padding 的命中区，
+   滤镜会连同它将来可能加的背景 / 描边一起抖，而这里只想让线条和字看起来是手绘的；
+   顺带滤镜会给元素开一个新的层叠上下文和裁剪区，套在命中区那层容易牵连别的布局。 */
+.hero__detail-back .hero__back-arrow,
+.hero__detail-back-label {
+  filter: url('#ai-duel-rough-icon');
 }
 
-/* 按下时整块压进去：往下挪一点，同时把影子收紧，像真的被按到了台面上。 */
-.hero__confirm:active {
-  transform: translateY(0.18cqi);
-  filter: drop-shadow(0 0.12cqi 0.25cqi rgb(4 8 14 / 55%)) brightness(0.96);
+.hero__detail-back .hero__back-arrow {
+  width: 1.56cqi;
+  height: 1.02cqi;
 }
 
-/* 焦点圈也不能用 outline：outline 描的是矩形边框盒，会在八边形的四个斜角外露出来。
-   改用两道叠加的 drop-shadow 描轮廓，形状跟着子元素的裁剪走。 */
-.hero__confirm:focus-visible {
+.hero__detail-back:hover {
+  color: var(--hero-ink-lit);
+}
+
+.hero__detail-back:hover .hero__back-arrow {
+  transform: translateX(-0.3cqi);
+}
+
+/* 同 .hero__card：不画焦点框。详情一打开焦点就落在这颗键上，画出来就是一圈突兀的金线。 */
+.hero__detail-back:focus-visible {
   outline: none;
-  filter: drop-shadow(0 0 0.25cqi var(--hero-ink-lit)) drop-shadow(0 0 0.25cqi var(--hero-ink-lit))
-    drop-shadow(0 0.35cqi 0.5cqi rgb(4 8 14 / 55%));
 }
 
-/* 键盘按住空格时 :focus-visible 和 :active 同时命中，而 filter 是整条覆盖不是叠加，
-   写在后面的 :focus-visible 会把 :active 那份压掉。这条特异性更高，把两边合起来写一遍。 */
-.hero__confirm:focus-visible:active {
-  filter: drop-shadow(0 0 0.25cqi var(--hero-ink-lit)) drop-shadow(0 0 0.25cqi var(--hero-ink-lit))
-    drop-shadow(0 0.12cqi 0.25cqi rgb(4 8 14 / 55%)) brightness(0.96);
+/* 打开详情时，卡槽里那张卡先藏起来：屏幕中央和原位同时出现两张一模一样的卡会穿帮。
+   用 visibility 不用 display：留着盒子，飞回时 Flip 量到的落点才是对的。 */
+.hero__card.is-zoomed .hero__card-lift {
+  visibility: hidden;
 }
 
-/* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时。做法同首页（见 styles.css 的同名块）。 */
+/* 减弱动效：整页淡入直接关掉，其余过渡压成 1ms 当作瞬时。做法同首页（见 styles.css 的同名块）。
+   确认按钮不用列在这儿：它是 .plaque-button，styles.css 里已经有自己那份同类规则。 */
 @media (prefers-reduced-motion: reduce) {
   .hero {
     animation: none;
@@ -525,8 +686,9 @@
 
   .hero__back,
   .hero__back-arrow,
-  .hero__card-frame,
-  .hero__confirm {
+  .hero__card-hint,
+  .hero__detail-back,
+  .hero__detail-back .hero__back-arrow {
     transition-duration: 1ms;
   }
 }

@@ -1,7 +1,7 @@
 /**
  * 选择英雄页（/hero）。
  *
- * 纯 UI demo：照着一张 1920×1080 的设计稿复原出选人界面，选中态、hover、确认脉冲都做全了，
+ * 纯 UI demo：照着一张 1920×1080 的设计稿复原出选人界面，hover、放大看技能都做全了，
  * 但一步也不往外走——不导航、不写存档、不碰 MatchSession。真要接对局时改的是
  * 下面 handleConfirm 里那一处，别的地方都不用动。
  *
@@ -11,33 +11,55 @@
  * 和首页不同的是这里加了 .on-dark：留边是近黑的深蓝（跟着背景图边缘色走），
  * 纸纹在深色上要换成「反相 + screen」那一档，否则会糊出一块块黑斑。
  *
- * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 → 确认按钮。
- * 顺序完全由 JSX 的先后决定，舞台里没有一处 z-index（舞台自己那个是用来压住外层纸纹的，
- * 和内部层叠无关）。
+ * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 → 技能详情层。
+ * 顺序基本由 JSX 的先后决定；只有技能详情那一层用了 z-index 把自己抬到卡牌之上
+ * （它内部的遮罩和内容也各写了一档，见 hero.css）。舞台自己那个 z-index 是用来压住
+ * 外层纸纹的，和内部层叠无关。
  *
  * 素材：public/hero/ 下背景 3344×1882（设计稿的 2x），七张人物卡 768×1152（2:3）。
- * 卡面自带装饰边框和名字牌，所以页面上不再叠任何文字。
+ * 卡面自带装饰边框和名字牌，所以卡阵上只额外叠了 hover 时那条「点击查看技能」，
+ * 名字一律读卡面自己的（详情面板里那行标题是另一回事，见下面 HEROES）。
  * 原图在仓库 assets/人物卡简介/*.png（1024×1536），要更清晰可以从那儿按更大尺寸重导，
  * 同名覆盖即可，代码一行不用改——卡片是 width/height: 100% 铺满卡槽的。
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { Flip } from 'gsap/Flip'
 import { LoadingScreen } from '../ui/LoadingScreen'
+import { PlaqueButton } from '../ui/PlaqueButton'
+import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { attachCardTilt } from '../ui/cardTilt'
+import type { CardTiltHandle } from '../ui/cardTilt'
+import {
+  fadeVeilIn,
+  fadeVeilOut,
+  ZOOM_FLIGHT_Z,
+  ZOOM_IN_DUR,
+  ZOOM_IN_EASE,
+  ZOOM_OUT_DUR,
+  ZOOM_OUT_EASE,
+} from '../ui/CardZoomOverlay'
 import './hero.css'
 
-gsap.registerPlugin(useGSAP)
+gsap.registerPlugin(useGSAP, Flip)
 
 /**
  * 七位英雄，顺序就是设计稿上从左到右、从上到下的摆放顺序。
  *
  * 这份数据**不是**从 core 读的：packages/core/src/heroes.ts 里眼下只有格蕾丝·霍珀一位，
  * 而这一页是照设计稿先行的 UI demo，要把七张卡都摆出来。
- * 名字和英文名已经画在卡面图里了，所以这两个字段在页面上并不显示，
- * 只用来给 <img> 写 alt，以及将来接线时按 id 对上 core 的英雄表。
+ * name 有两处会被人看见 / 听见：技能详情面板上那行标题（.hero__detail-name），
+ * 以及卡片按钮的 aria-label 和卡面图的 alt。
+ * enName 只有详情面板那行小字（.hero__detail-en）在用。
+ * 卡阵上不显示这两个字段——那里的名字是画在卡面图里的。
+ *
+ * 所以改这两个字段等于改详情面板的排版：.hero__detail-info 宽度钉死 30cqi，
+ * 名字太长不会把面板撑开，而是换行把底下的分隔线和技能列表整体往下顶。
+ * id 则是将来接线时按它对上 core 的英雄表。
  * core 补齐七位之后，这个数组就该整个换成 Object.values(HEROES)。
  *
  * as const 是为了让 HEROES[0] 有确定类型（tsconfig 开了 noUncheckedIndexedAccess，
@@ -58,7 +80,11 @@ type HeroId = (typeof HEROES)[number]['id']
 /** 第一排 4 张、第二排 3 张，切分点写成常量免得两处魔数对不上。 */
 const FIRST_ROW_COUNT = 4
 
-/** 默认就选中第一位：选中态是这一页的主要看点，不该等玩家点一下才出现。 */
+/**
+ * 默认选中第一位。
+ * 选中在页面上没有任何标记（金框和光环都撤了），这份默认值只是给「确认英雄」兜个底：
+ * 玩家一次卡都没点开就直接确认时，走的就是这一位。
+ */
 const DEFAULT_HERO_ID: HeroId = HEROES[0].id
 
 /**
@@ -81,8 +107,26 @@ const CARD_HOVER_LIFT = -2
 const CARD_HOVER_SCALE = 1.035
 /** 上浮和落回同一个时长，来回扫动时不会一边快一边慢。 */
 const CARD_HOVER_DUR = 0.25
-/** 选中 / 确认时那一下弹跳的峰值。比 hover 再大一点点，一眼看得出是「刚被选中」而不是「指针路过」。 */
-const CARD_POP_SCALE = 1.08
+/**
+ * 卡面跟着指针倾斜的最大角度。
+ * 比首页展示卡（6°）大一档：这一页的卡更大、又是正对着看的，6° 几乎看不出来。
+ */
+const CARD_TILT_DEG = 8
+
+/**
+ * 技能占位文案。core 里眼下没有英雄技能这份数据（packages/core/src/heroes.ts 只有属性），
+ * 所以七位英雄先共用同一组占位撑住排版，等技能真做出来再按 heroId 取。
+ */
+const PLACEHOLDER_SKILLS = [
+  {
+    name: '技能一（待定）',
+    text: '技能效果待设计。这里会写这位英雄的主动技能：消耗多少能量、影响哪些单位、持续几回合。',
+  },
+  {
+    name: '技能二（待定）',
+    text: '技能效果待设计。这里会写这位英雄的被动或大招，以及它的触发条件。',
+  },
+] as const
 
 /**
  * 系统的「减少动效」开关。每次现读不缓存：这个设置能在页面开着的时候改，
@@ -112,14 +156,32 @@ function HeroStage() {
   const [, navigate] = useLocation()
   const [selectedId, setSelectedId] = useState<HeroId>(DEFAULT_HERO_ID)
   const rootRef = useRef<HTMLDivElement>(null)
-  /** 每张卡的按钮节点，确认时要拿选中那张来播脉冲。存 ref 不存 state：它只被事件回调读。 */
-  const cardsRef = useRef(new Map<HeroId, HTMLButtonElement>())
   /**
-   * 指针当前停在哪张卡上。
-   * 选中 pop 结束后卡要落回「静止大小」，而静止大小取决于指针还在不在卡上——
-   * 不记这一笔的话，鼠标点完不动，卡会从 pop 缩回 1 而不是缩回 hover 的 1.035，看着像掉下去了。
+   * 每张卡的按钮节点。两处要用：详情飞回时拿它当落点，关闭详情后把焦点还给它。
+   * 存 ref 不存 state：它只被事件回调和 effect 读，进 state 只会白白多几次重渲染。
    */
-  const hoveredRef = useRef<HTMLElement | null>(null)
+  const cardsRef = useRef(new Map<HeroId, HTMLButtonElement>())
+  /** 正在看技能的那位英雄；null = 详情没开。 */
+  const [detailId, setDetailId] = useState<HeroId | null>(null)
+  /** 每张卡的倾斜句柄。打开详情前要先收手，否则 Flip 量到的是一张斜着的卡的外接矩形。 */
+  const tiltsRef = useRef(new Map<HeroId, CardTiltHandle>())
+  const veilRef = useRef<HTMLDivElement>(null)
+  const detailCardRef = useRef<HTMLDivElement>(null)
+  /** 详情里那张大卡的倾斜句柄。关详情时要手动摘掉，见下面挂它的那个 effect。 */
+  const detailTiltRef = useRef<CardTiltHandle | null>(null)
+  /** 详情里那颗「返回」。详情一打开就把焦点挪到它上面，键盘用户不至于卡在遮罩后面。 */
+  const detailBackRef = useRef<HTMLButtonElement>(null)
+  /** 详情关掉之后要把焦点还给哪张卡。null = 不用还（比如根本没开过）。 */
+  const restoreFocusRef = useRef<HeroId | null>(null)
+  /** 待播的「飞进详情」，记的是卡槽里那张卡起飞前的位置。 */
+  const flipInRef = useRef<Flip.FlipState | null>(null)
+  /** 待播的「飞回卡槽」，记的是详情大卡关闭前的位置。 */
+  const flipBackRef = useRef<Flip.FlipState | null>(null)
+  /**
+   * 详情里正在展示的英雄。
+   * 飞回那一程跑的时候 detailId 已经被清空了，落点是哪张卡只能靠这一份同步副本去找。
+   */
+  const detailHeroRef = useRef<HeroId | null>(null)
 
   const { contextSafe } = useGSAP(
     () => {
@@ -153,20 +215,26 @@ function HeroStage() {
             { opacity: 0, yPercent: 3, scale: 0.96, duration: 0.55, stagger: 0.05 },
             0.1,
           )
-          // 确认按钮压到最后：卡还没摆完就先亮出「确认」，等于催玩家点一个还没看清的选择。
-          // 只淡入不动 transform——按下效果是 CSS 的 :active 在写 transform，两边不能碰同一个属性。
-          .from('.hero__confirm', { opacity: 0, duration: 0.4 }, 0.8)
       }
 
       cards.forEach((card, index) => {
         const lift = lifts[index]
-        if (lift === undefined || lift === null) return
+        const hero = HEROES[index]
+        if (lift === undefined || lift === null || hero === undefined) return
+
+        // 倾斜写在最里面那层（.hero__card-tilt）：上浮 / pop 归下面几条补间写在 lift 上，
+        // 一层 transform 只许一个人写，理由见 ui/cardTilt.ts 开头。
+        const tilt = attachCardTilt(card, { tiltLayer: '.hero__card-tilt', maxTilt: CARD_TILT_DEG })
+        tiltsRef.current.set(hero.id, tilt)
+        unbinds.push(() => {
+          tiltsRef.current.delete(hero.id)
+          tilt.detach()
+        })
 
         const enter = (event: PointerEvent) => {
           // 触屏上 pointerenter 也会触发，而手指抬起后不会有 pointerleave，卡就一直吊在上面。
           // 悬停本来就是鼠标才有的语义，非鼠标直接不进入这套状态。
           if (event.pointerType !== 'mouse') return
-          hoveredRef.current = card
           gsap.to(lift, {
             yPercent: CARD_HOVER_LIFT,
             scale: CARD_HOVER_SCALE,
@@ -178,7 +246,6 @@ function HeroStage() {
         }
         const leave = (event: PointerEvent) => {
           if (event.pointerType !== 'mouse') return
-          if (hoveredRef.current === card) hoveredRef.current = null
           gsap.to(lift, {
             yPercent: 0,
             scale: 1,
@@ -203,79 +270,227 @@ function HeroStage() {
     { scope: rootRef },
   )
 
-  /** 卡的「静止大小」：指针还压在上面就停在 hover 那一档，否则回到 1。 */
-  function restScaleOf(card: HTMLElement) {
-    return hoveredRef.current === card ? CARD_HOVER_SCALE : 1
+  /*
+   * 记下选了谁。
+   *
+   * 这里**不**播任何「被点到」的动画：点击同一拍就会给卡挂上 is-zoomed
+   * （.hero__card.is-zoomed .hero__card-lift 是 visibility: hidden，见 hero.css），
+   * 而 GSAP 的补间要等下一帧才写第一个值——补间从头到尾跑在一个已经看不见的元素上。
+   * 点击的反馈全部交给紧接着那段飞进详情的动画。
+   *
+   * 选中本身在页面上没有任何标记，它只是「确认英雄」将来要带走的那个值。
+   */
+  const selectHero = (hero: HeroId) => {
+    setSelectedId(hero)
   }
 
   /*
-   * 选中。金框只切 opacity（CSS 过渡，见 hero.css），这里额外给卡本身补一下弹跳，
-   * 让「换人」这件事有个落点，不然七张卡里只有一圈线在闪。
-   * keyframes 的最后一帧收在 restScaleOf 上而不是写死 1，理由见 hoveredRef 的注释。
-   * contextSafe 包一层：这个 tween 是在 useGSAP 回调之外创建的，包了才会被同一个 context 回收。
+   * 点一张卡：记下选的是谁，再把技能详情打开。
+   *
+   * 顺序很关键——Flip.getState 必须在 React 把卡槽那张卡藏起来**之前**同步量好，
+   * 那一刻量到的才是真正的起飞位置（.hero__card.is-zoomed 会在下一次提交里把它藏掉）。
+   * 量之前还要先让倾斜收手并当场归零：卡歪着时 getBoundingClientRect 给的是外接矩形，
+   * 拿它当起点会让飞行头一帧突然缩一下。
    */
-  const selectHero = contextSafe((hero: HeroId, card: HTMLButtonElement) => {
-    if (hero === selectedId) return
-    setSelectedId(hero)
-    const lift = card.querySelector<HTMLElement>('.hero__card-lift')
-    if (lift === null) return
-    gsap.to(lift, {
-      keyframes: [
-        { scale: CARD_POP_SCALE, duration: 0.14, ease: 'power2.out' },
-        { scale: restScaleOf(card), duration: 0.26, ease: 'power2.inOut' },
-      ],
-      overwrite: 'auto',
-    })
+  const openHero = contextSafe((hero: HeroId, card: HTMLButtonElement) => {
+    selectHero(hero)
+    // 上一次飞回如果被打断（补间没跑完 onComplete 就不会来），那次抬高的层级会一直留在卡上。
+    // 每次打开先抹掉，卡就不会莫名其妙地压在别的东西上面。
+    card.style.zIndex = ''
+    const tiltLayer = card.querySelector<HTMLElement>('.hero__card-tilt')
+    if (tiltLayer === null) return
+    tiltsRef.current.get(hero)?.reset()
+    gsap.set(tiltLayer, { rotationX: 0, rotationY: 0 })
+    flipInRef.current = Flip.getState(tiltLayer)
+    detailHeroRef.current = hero
+    setDetailId(hero)
   })
+
+  /** 关详情。同样得趁大卡还在屏幕上，先量下它此刻的位置当飞回的起点。 */
+  const closeDetail = contextSafe(() => {
+    if (detailId === null) return
+    const card = detailCardRef.current
+    if (card !== null) flipBackRef.current = Flip.getState(card)
+    // 焦点这时还在详情里那两颗按钮上，而它们马上就要被卸载——不还回去的话焦点会掉回 body，
+    // 键盘用户得从页面开头重新 Tab 一遍。detailHeroRef 不能用：飞回那段动画会把它清掉。
+    restoreFocusRef.current = detailId
+    setDetailId(null)
+  })
+
+  /** ESC 的监听里要调最新的那份 closeDetail，但它每次渲染都是新函数，进依赖会让监听反复重挂。 */
+  const closeDetailRef = useRef(closeDetail)
+  closeDetailRef.current = closeDetail
 
   /*
-   * 确认。眼下只播一段金光脉冲，不导航也不落任何状态——这一页是纯 UI demo。
+   * 确认。眼下只是把详情关掉，不导航也不落任何状态——这一页是纯 UI demo。
+   * 选中谁已经在打开详情那一刻记进 selectedId 了，这里不用再设一次。
+   *
    * TODO：将来「带着英雄进房间」接在这里，大致是把 selectedId 塞进 MatchSession
-   * 或存档，再 navigate('/room')。动画照播，把跳转排在 onComplete 上即可。
+   * 或存档，再 navigate('/room')。飞回的动画照播，把跳转排在它后面即可。
    */
-  const handleConfirm = contextSafe(() => {
-    const card = cardsRef.current.get(selectedId)
-    if (card === undefined) return
-    const lift = card.querySelector<HTMLElement>('.hero__card-lift')
-    const pulse = card.querySelector<HTMLElement>('.hero__card-pulse')
-    if (lift === null || pulse === null) return
+  const handleConfirm = () => {
+    closeDetail()
+  }
 
-    // autoAlpha 而不是 opacity：光晕平时是 visibility: hidden 的，
-    // autoAlpha 会连 visibility 一起管，不用自己配一套延迟切换（见 hero.css 的说明）。
-    gsap
-      .timeline()
-      .to(
-        lift,
-        {
-          keyframes: [
-            { scale: CARD_POP_SCALE, duration: 0.16, ease: 'power2.out' },
-            { scale: restScaleOf(card), duration: 0.34, ease: 'power2.inOut' },
-          ],
-          overwrite: 'auto',
+  /*
+   * 详情的进 / 出。两个分支各管一程：detailId 从空变成有人时飞进屏幕中央，
+   * 从有人变回空时飞回卡槽。做法和 ui/CardZoomOverlay 那条链路一致，
+   * 只是这一页展示的内容（大卡 + 技能面板）是自己的，没法直接复用那个组件。
+   *
+   * 遮罩也归这里开关：.hero__detail-veil 平时是 opacity: 0 + visibility: hidden，
+   * 全靠 fadeVeilIn / fadeVeilOut 的 autoAlpha 推起来（挂在 React 状态上的话，
+   * 详情一关元素就没了，那 0.3s 的淡出根本演不出来）。
+   */
+  useGSAP(
+    () => {
+      const veil = veilRef.current
+      if (veil === null) return
+      // 减少动效时把飞行压成瞬时，但不取消：取消了卡会凭空出现在屏幕中央，反而更难跟上。
+      const reduced = prefersReducedMotion()
+
+      const pending = flipInRef.current
+      if (pending !== null && detailId !== null) {
+        flipInRef.current = null
+        const card = detailCardRef.current
+        if (card === null) return
+        fadeVeilIn(veil)
+        // scale 而不是 width / height：卡里的画一起放大，看着才像同一张卡在变大。
+        Flip.from(pending, {
+          targets: card,
+          duration: reduced ? 0 : ZOOM_IN_DUR,
+          ease: ZOOM_IN_EASE,
+          scale: true,
+        })
+        return
+      }
+
+      const back = flipBackRef.current
+      if (back === null || detailId !== null) return
+      flipBackRef.current = null
+      const hero = detailHeroRef.current
+      detailHeroRef.current = null
+      fadeVeilOut(veil)
+      // 卡槽那张卡此刻已经跟着 state 恢复可见了：useGSAP 是 layout effect，
+      // 恢复可见和 Flip 把它摆回起飞位置发生在同一次绘制之前，中间不会闪。
+      const originCard = hero === null ? null : (cardsRef.current.get(hero) ?? null)
+      const origin = originCard?.querySelector<HTMLElement>('.hero__card-tilt') ?? null
+      if (originCard === null || origin === null) return
+      /*
+       * 飞回途中要压过正在淡出的遮罩（遮罩 0.3s 淡完，而飞行有 0.6s），层级得自己给。
+       *
+       * 不能用 Flip 的 zIndex 选项：它把层级写在飞行目标（也就是倾斜层）上，
+       * 而外面那层 .hero__card-lift 有 perspective、还常年挂着 GSAP 写的 inline transform，
+       * 两者都会开一个新的层叠上下文，写在里面的 z-index 只在那一层内部排序，
+       * 爬不到 z-index: 10 的详情层之上——实测卡的前半程就糊在遮罩后面。
+       * 写在卡槽本体（.hero__card，position: relative 且没有自己的层叠上下文）上才管用。
+       *
+       * 直接改 style 不走 gsap.set：这是一次性的层级开关，不需要补间，
+       * 也就不用为它在 context 里留一条零时长补间的记录。
+       */
+      originCard.style.zIndex = String(ZOOM_FLIGHT_Z)
+      Flip.from(back, {
+        targets: origin,
+        duration: reduced ? 0 : ZOOM_OUT_DUR,
+        ease: ZOOM_OUT_EASE,
+        scale: true,
+        onComplete: () => {
+          originCard.style.zIndex = ''
         },
-        0,
-      )
-      .fromTo(
-        pulse,
-        { autoAlpha: 0, scale: 0.94 },
-        { autoAlpha: 1, scale: 1, duration: 0.18, ease: 'power2.out' },
-        0,
-      )
-      // 亮到顶之后一边散开一边淡掉，像光被推出去而不是被关掉。
-      .to(pulse, { autoAlpha: 0, scale: 1.14, duration: 0.6, ease: 'power2.out' }, 0.18)
-  })
+      })
+    },
+    { dependencies: [detailId] },
+  )
+
+  /*
+   * 放大后的大卡照样跟着指针倾斜、照样有反光——卡槽里那张有的，这里一样有。
+   *
+   * 单独一个 effect，不跟上面那段飞行写在一起：那段是靠 flipInRef「用一次就清空」触发的，
+   * 只有真带着起飞状态的那一次才会走进分支；一旦这个 effect 因为别的原因重跑
+   * （开发期的热替换、以后往依赖里再加一个值），倾斜就装不上了。这里只认 detailId。
+   *
+   * 摘除是自己记一个句柄手动做的，不靠回调返回 cleanup：@gsap/react 在「依赖非空」时
+   * 会把清理推迟到组件卸载（它的 deferCleanup 分支），返回的 detach 在详情关掉时根本不跑，
+   * 每开一次就攒下一个挂在已卸载节点上的句柄和一个没被 kill 的子 context。
+   * 给它传 revertOnUpdate 也能让 cleanup 按时跑，但那等于把「什么时候摘」交给库里一个
+   * 容易读错的分支；自己记一个句柄，摘除的时机在这段代码里一眼看得到。
+   *
+   * 倾斜写在里面的 .hero__detail-card-tilt 上，Flip 写的是外面那层，飞行途中两者不抢同一个
+   * transform。不传 hoverScale：这张卡多大归 Flip 管，倾斜那边再碰一次 scale 就打架了。
+   */
+  useGSAP(
+    () => {
+      // 先把上一次的摘干净：详情关掉、或者换了一位英雄，旧句柄攥着的都是已经卸载的节点。
+      detailTiltRef.current?.detach()
+      detailTiltRef.current = null
+      if (detailId === null) return
+      const card = detailCardRef.current
+      if (card === null) return
+      detailTiltRef.current = attachCardTilt(card, {
+        tiltLayer: '.hero__detail-card-tilt',
+        maxTilt: CARD_TILT_DEG,
+      })
+    },
+    { dependencies: [detailId] },
+  )
+
+  // 组件卸载时补最后一次摘除：上面那个 effect 只在 detailId 变化时跑，卸载时轮不到它。
+  useEffect(
+    () => () => {
+      detailTiltRef.current?.detach()
+      detailTiltRef.current = null
+    },
+    [],
+  )
+
+  /*
+   * 焦点转移。详情在行为上是个模态框：打开时把焦点送进去，关闭时还给点开的那张卡。
+   *
+   * 背景那几块（返回、标题、七张卡）打开期间挂 inert，浏览器会连焦点带指针事件一起停掉，
+   * 这样就不用自己写一套 focus trap——Tab 到头会走到浏览器界面，而不是溜到遮罩背后的卡上。
+   */
+  useEffect(() => {
+    if (detailId !== null) {
+      detailBackRef.current?.focus()
+      return
+    }
+    const hero = restoreFocusRef.current
+    if (hero === null) return
+    restoreFocusRef.current = null
+    cardsRef.current.get(hero)?.focus()
+  }, [detailId])
+
+  // ESC 关详情。只在开着的时候挂监听，免得这一页平时也拦一个全局按键。
+  useEffect(() => {
+    if (detailId === null) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeDetailRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [detailId])
+
+  /** 详情要展示的那位英雄。detailId 为空时是 undefined，详情层里只留遮罩。 */
+  const detailHero = HEROES.find((hero) => hero.id === detailId)
 
   return (
     <div className="hero grain on-dark" ref={rootRef}>
+      {/* 匾额按钮的框线和文字都引用这里定义的滤镜，页面上必须渲染一份。 */}
+      <HandDrawnFilterDefs />
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
-        <button type="button" className="hero__back" onClick={() => navigate('/')}>
+        {/* 详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。 */}
+        <button
+          type="button"
+          className="hero__back"
+          inert={detailId !== null}
+          onClick={() => navigate('/')}
+        >
           <BackArrow />
           返回
         </button>
 
-        <div className="hero__head">
+        <div className="hero__head" inert={detailId !== null}>
           <h1 className="hero__title">
             <span className="hero__flourish" aria-hidden="true">
               <i className="hero__flourish-line" />
@@ -291,35 +506,41 @@ function HeroStage() {
         </div>
 
         {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
-        <div className="hero__grid">
+        <div className="hero__grid" inert={detailId !== null}>
           {[HEROES.slice(0, FIRST_ROW_COUNT), HEROES.slice(FIRST_ROW_COUNT)].map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => (
                 <button
                   key={hero.id}
                   type="button"
-                  className={`hero__card${hero.id === selectedId ? ' is-selected' : ''}`}
-                  // aria-pressed 而不是 aria-checked：这是一组「按下去就保持按下」的按钮，
-                  // 读屏会念成「已按下 / 未按下」，正好是选中与否。
-                  aria-pressed={hero.id === selectedId}
+                  className={`hero__card${hero.id === detailId ? ' is-zoomed' : ''}`}
+                  // 不写 aria-pressed：选中在页面上已经没有任何可见标记了，读屏念「已按下」
+                  // 反而和眼睛看到的对不上。这颗按钮的实际行为是「打开这位英雄的技能详情」，
+                  // 所以标题写成那句，再用 haspopup 说明点下去会弹出一个对话框。
+                  aria-label={`查看 ${hero.name} 的技能`}
+                  aria-haspopup="dialog"
                   ref={(node) => {
                     if (node === null) cardsRef.current.delete(hero.id)
                     else cardsRef.current.set(hero.id, node)
                   }}
-                  onClick={(event) => selectHero(hero.id, event.currentTarget)}
+                  onClick={(event) => openHero(hero.id, event.currentTarget)}
                 >
-                  {/* 光晕垫在卡片图底下，光只从四周漏出来；确认时才亮一下。 */}
-                  <span className="hero__card-pulse" aria-hidden="true" />
                   <span className="hero__card-lift">
-                    <img
-                      className="hero__card-img"
-                      src={`/hero/card-${hero.id}.webp`}
-                      alt={hero.name}
-                      draggable={false}
-                    />
-                    {/* 金框放在 lift 里面，跟着 hover 上浮和 pop 一起动：
-                        留在外面的话卡一抬起来就会从自己的框里跑出去。 */}
-                    <span className="hero__card-frame" aria-hidden="true" />
+                    {/* 倾斜和圆角裁剪都在这一层，高光跟着一起被裁（见 hero.css）。 */}
+                    {/* data-flip-id 是 Flip 的配对键：起点（这一层）和详情里那张大卡
+                        根本不是同一个节点，只有这个属性对得上，Flip 才会把两者当成
+                        同一张卡来补间。缺了它 Flip.from 什么都不做，卡就是硬切过去的。 */}
+                    <span className="hero__card-tilt" data-flip-id={`hero-card-${hero.id}`}>
+                      <img
+                        className="hero__card-img"
+                        src={`/hero/card-${hero.id}.webp`}
+                        alt={hero.name}
+                        draggable={false}
+                      />
+                      {/* 跟着指针跑的那块反光，样式和手牌共用 .card-glare（styles.css）。 */}
+                      <span className="card-glare" />
+                    </span>
+                    <span className="hero__card-hint">点击查看技能</span>
                   </span>
                 </button>
               ))}
@@ -327,21 +548,74 @@ function HeroStage() {
           ))}
         </div>
 
-        <button type="button" className="hero__confirm" onClick={handleConfirm}>
-          {/* 层层嵌套是为了做出设计稿那圈「描边 + 内衬线」的八边形；八边形从 edge 这层才开始，
-              button 自己不裁剪，好让它的投影和焦点圈不被裁掉。理由都在 hero.css。 */}
-          <span className="hero__confirm-edge">
-            <span className="hero__confirm-plate">
-              <span className="hero__confirm-rule">
-                <span className="hero__confirm-face">
-                  <Sparkle className="hero__confirm-star" />
-                  <span className="hero__confirm-label">确认英雄</span>
-                  <Sparkle className="hero__confirm-star" />
-                </span>
-              </span>
-            </span>
-          </span>
-        </button>
+        {/* 技能详情。遮罩是常驻节点（GSAP 用 autoAlpha 开关它），
+            大卡只有开着的时候才渲染——Flip 每次都要一个新挂载的落点。 */}
+        {/* 行为上就是个模态框，语义也照着写：读屏进来会念标题、并把背景当成不可达
+            （背景那几块另外挂了 inert）。关着的时候整层不吃指针事件。 */}
+        <div
+          className="hero__detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label={detailHero === undefined ? undefined : `${detailHero.name} 的技能`}
+          aria-hidden={detailId === null || undefined}
+          style={detailId === null ? { pointerEvents: 'none' } : undefined}
+        >
+          {/* 压暗 + 模糊的遮罩。这一页自己一份，没复用对战那块 .reveal-overlay——
+              背景是七张高对比的人物卡，得压得更暗、糊得更狠才读得清技能（理由见 hero.css）。 */}
+          <div className="hero__detail-veil" ref={veilRef} aria-hidden="true" />
+          {detailHero === undefined ? null : (
+            <>
+              <div className="hero__detail-body">
+                <div
+                  className="hero__detail-card"
+                  ref={detailCardRef}
+                  data-flip-id={`hero-card-${detailHero.id}`}
+                >
+                  {/* 结构和卡槽里那张一样：外层归 Flip 写 transform，里面这层归倾斜写，
+                      高光跟着一起被圆角裁掉。 */}
+                  <div className="hero__detail-card-tilt">
+                    <img
+                      className="hero__detail-img"
+                      src={`/hero/card-${detailHero.id}.webp`}
+                      alt={detailHero.name}
+                      draggable={false}
+                    />
+                    <span className="card-glare" />
+                  </div>
+                </div>
+                <div className="hero__detail-info">
+                  <h2 className="hero__detail-name">{detailHero.name}</h2>
+                  <p className="hero__detail-en">{detailHero.enName}</p>
+                  <div className="hero__detail-rule" />
+                  {PLACEHOLDER_SKILLS.map((skill) => (
+                    <div className="hero__detail-skill" key={skill.name}>
+                      <h3 className="hero__detail-skill-name">{skill.name}</h3>
+                      <p className="hero__detail-skill-text">{skill.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 详情只能从这两颗按钮（或 ESC）退出：点空白处会关掉，
+                  就没法在大卡上随便挪指针看画，所以那条去掉了。 */}
+              <div className="hero__detail-actions">
+                <button
+                  type="button"
+                  className="hero__detail-back"
+                  ref={detailBackRef}
+                  onClick={closeDetail}
+                >
+                  <BackArrow />
+                  <span className="hero__detail-back-label">返回</span>
+                </button>
+                {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。 */}
+                <PlaqueButton className="hero__confirm" onClick={handleConfirm}>
+                  确认英雄
+                </PlaqueButton>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

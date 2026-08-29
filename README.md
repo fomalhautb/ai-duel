@@ -1,4 +1,4 @@
-<h1 align="center">出牌吧！AI！</h1>
+<h1 align="center">出牌吧，AI！</h1>
 
 <p align="center">这题你AI会吗</p>
 

@@ -3177,36 +3177,88 @@ body:has(.battle) {
 
 /* ---------- 结算层 ---------- */
 
-/* 盖满整屏，所以下面的对局点不到了。 */
+/* 盖满整屏并压暗战场，保留足够的背景信息承接结算底板的环境色。 */
 .battle__result {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
   align-items: center;
   justify-content: center;
-  background: rgb(18 22 30 / 88%);
+  overflow: hidden;
+  background: rgb(8 12 20 / 78%);
+  backdrop-filter: blur(2px) saturate(72%);
+}
+
+/*
+ * 结算底板跟随 1672×941 的设计舞台整体缩放。位图四周带透明装饰，3:2 容器必须完整保留，
+ * 不能按中间纸张的边缘裁切。
+ */
+.battle__result-panel {
+  position: relative;
+  width: 900px;
+  aspect-ratio: 3 / 2;
+}
+
+/*
+ * 只给底板位图做轻微环境染色，不能把文字和按钮一起套 filter。少量透明与降饱和让羊皮纸
+ * 吸收战场的深蓝灰色调，同时保留暖金色装饰。
+ */
+.battle__result-panel::before {
+  position: absolute;
+  inset: 0;
+  background: url('/battle/final-victory-bg.png') center / contain no-repeat;
+  content: '';
+  opacity: 0.95;
+  filter:
+    saturate(88%)
+    brightness(94%)
+    contrast(97%)
+    drop-shadow(0 26px 44px rgb(0 0 0 / 48%))
+    drop-shadow(0 0 30px rgb(224 177 99 / 12%));
+}
+
+/* 文字区按底图留白定位：标题在放射纹中心，比分完整落到中央装饰线下方。 */
+.battle__result-content {
+  position: absolute;
+  z-index: 1;
+  top: 31%;
+  right: 18%;
+  left: 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #242a35;
+  text-align: center;
 }
 
 .battle__result-title {
-  margin: 0;
-  color: #ffeec5;
-  font-size: 44px;
+  margin: 0 0 70px;
+  color: #252b35;
+  font-size: 70px;
   font-weight: 700;
-  letter-spacing: 0.2em;
-  text-indent: 0.2em;
-  text-shadow: 0 4px 22px rgb(6 10 18 / 80%);
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  text-shadow: 0 2px 0 rgb(255 250 236 / 70%);
 }
 
 /* 最终比分。对局中断（对手断线）时没有比分可言，那种情况这一行整个不渲染。 */
 .battle__result-score {
-  margin: -8px 0 0;
-  color: rgb(255 238 197 / 78%);
-  font-size: 20px;
-  letter-spacing: 0.16em;
-  text-indent: 0.16em;
+  margin: 0 0 34px;
+  color: #313640;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+}
+
+.battle__result-score strong {
+  color: #8d4033;
+  font-size: 1.18em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .battle__result-actions {
@@ -3229,6 +3281,65 @@ body:has(.battle) {
 .battle__result-actions button:hover {
   border-color: #cb9d7b;
   background: rgb(48 63 92 / 92%);
+}
+
+/* 结算底板内的两个原有按钮只换外观，不改变 MatchScreen 传入的点击逻辑。 */
+.battle__result .battle__result-actions {
+  gap: 32px;
+}
+
+.battle__result .battle__result-actions button {
+  position: relative;
+  min-width: 224px;
+  min-height: 66px;
+  padding: 10px 30px;
+  border: 1px solid #aa8751;
+  border-radius: 5px;
+  outline: 1px solid rgb(218 181 113 / 48%);
+  outline-offset: -6px;
+  background:
+    linear-gradient(90deg, transparent 0 8%, rgb(220 181 110 / 22%) 8.2% 8.7%, transparent 9% 91%, rgb(220 181 110 / 22%) 91.3% 91.8%, transparent 92%),
+    linear-gradient(180deg, #293345 0%, #1c2534 52%, #151e2c 100%);
+  box-shadow:
+    0 5px 0 #111827,
+    0 10px 18px rgb(8 11 17 / 28%),
+    inset 0 1px 0 rgb(255 239 200 / 16%);
+  color: #ede1c8;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 76%);
+  transition:
+    translate 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.battle__result .battle__result-actions button:hover {
+  translate: 0 -2px;
+  border-color: #d4ae6b;
+  background:
+    linear-gradient(90deg, transparent 0 8%, rgb(238 201 130 / 28%) 8.2% 8.7%, transparent 9% 91%, rgb(238 201 130 / 28%) 91.3% 91.8%, transparent 92%),
+    linear-gradient(180deg, #344158 0%, #222e41 52%, #192437 100%);
+  box-shadow:
+    0 7px 0 #111827,
+    0 14px 22px rgb(8 11 17 / 32%),
+    inset 0 1px 0 rgb(255 239 200 / 22%);
+  filter: brightness(1.06);
+}
+
+.battle__result .battle__result-actions button:active {
+  translate: 0 2px;
+  box-shadow:
+    0 2px 0 #111827,
+    0 6px 12px rgb(8 11 17 / 24%);
+}
+
+.battle__result .battle__result-actions button:focus-visible {
+  outline: 2px solid #f0cb83;
+  outline-offset: 3px;
 }
 
 /* ---------- dev 测试面板 ---------- */

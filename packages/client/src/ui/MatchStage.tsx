@@ -2434,13 +2434,17 @@ function BattleField({
 
       {finished ? (
         <div className="battle__result">
-          <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
-          {view.status === 'aborted' ? null : (
-            <p className="battle__result-score">
-              最终比分 {me.score} : {foe.score}
-            </p>
-          )}
-          <div className="battle__result-actions">{resultActions}</div>
+          <div className="battle__result-panel">
+            <div className="battle__result-content">
+              <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
+              {view.status === 'aborted' ? null : (
+                <p className="battle__result-score">
+                  最终比分 <strong>{me.score} : {foe.score}</strong>
+                </p>
+              )}
+              <div className="battle__result-actions">{resultActions}</div>
+            </div>
+          </div>
         </div>
       ) : null}
 

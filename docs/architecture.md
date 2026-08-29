@@ -1348,6 +1348,7 @@ value { "ownedCards": ["..."], "wins": 3, "savedHero": "grace-hopper", "tutorial
 - `saveHero(hero)` 记下这次确认的英雄，下次进选英雄那一步时预填。
 - `markTutorialDone()` 记下新手教程走完了（走到完成页、或中途点了「跳过教程」都会调）。
 - `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
+  它只清这一个 key，牌组那份得另外调 `deckStore` 的 `resetDecks()`——首页那颗按钮两个一起调。
 
 牌组不在这份存档里：玩家能存多套、还要能改名删除，那份数据自己一个 key，见 `save/deckStore.ts`。
 

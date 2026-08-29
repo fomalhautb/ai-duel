@@ -23,6 +23,7 @@ import {
   MAX_DECKS,
   renameDeck,
   resetDeckStoreCacheForTest,
+  resetDecks,
   setCurrentDeck,
   updateDeckCards,
 } from '../src/save/deckStore'
@@ -151,6 +152,22 @@ describe('牌组存档', () => {
       loadDecks()
       deleteDeck('preset-balanced')
       expect(loadDecks().decks.map((deck) => deck.id)).not.toContain('preset-balanced')
+    })
+
+    // 首页那颗「重置存档」调的就是 resetDecks。它和 save.ts 的 resetSave 是两份存档，
+    // 漏掉这一半的话，重置完还留着上次改过的牌组，三套预设永远回不来。
+    it('resetDecks 把改过、删过的牌组清掉，重新播回三套预设', () => {
+      loadDecks()
+      renameDeck('preset-balanced', '我的牌组')
+      deleteDeck('preset-low-cost')
+      createDeck()
+
+      const data = resetDecks()
+      expect(data.decks.map((deck) => deck.id)).toEqual(PRESET_IDS)
+      expect(data.decks.map((deck) => deck.name)).toEqual(['默认卡组', '低费流', '强卡流'])
+      expect(data.currentId).toBe('preset-balanced')
+      // 也得写回磁盘：只改内存的话刷新一次又回到旧牌组。
+      expect(loadDecks()).toEqual(data)
     })
   })
 

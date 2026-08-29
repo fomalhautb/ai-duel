@@ -97,7 +97,8 @@ function answersFor(state: GameState, wrong: InstanceId[] = []): AnswerResult[] 
   return [...state.players[0].board, ...state.players[1].board].map((ai) => ({
     instanceId: ai.instanceId,
     correct: !wrong.includes(ai.instanceId),
-    answerText: '占位回答',
+    answer: '占位',
+    reasoning: '占位理由',
   }))
 }
 
@@ -107,6 +108,14 @@ function toQuiz(state: GameState) {
     { type: 'END_PLAY', player: state.activePlayer },
     { type: 'END_PLAY', player: other(state.activePlayer) },
   ]).state
+}
+
+/** 结算阶段双方都点确认：这一步之后才会推进下一轮或结束整局。 */
+function confirmBoth(state: GameState) {
+  return run(state, [
+    { type: 'CONFIRM_ROUND', player: 0 },
+    { type: 'CONFIRM_ROUND', player: 1 },
+  ])
 }
 
 describe('开局', () => {
@@ -553,7 +562,7 @@ describe('Token', () => {
     ])
   })
 
-  it('每轮结算后补满并抬高上限，省下的不跨轮累积', () => {
+  it('每轮双方确认后补满并抬高上限，省下的不跨轮累积', () => {
     const game = newGame({ deck0: deckOf('gpt-3-5'), deck1: deckOf('gpt-3-5') })
     // 甲花掉 2 点，乙一点没花——下一轮两边一样满。
     const played = execute(game.state, {
@@ -562,7 +571,10 @@ describe('Token', () => {
       instanceId: handCard(game.state, 0, 'gpt-3-5').instanceId,
     }).state
     const quiz = toQuiz(played)
-    const next = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    // 结算期间额度保持本轮的样子，界面靠它显示"本轮消耗"。
+    expect(settle.players[0].tokens).toBe(INITIAL_TOKEN_MAX - getCard('gpt-3-5').tokenCost)
+    const next = confirmBoth(settle).state
 
     expect(next.round).toBe(2)
     for (const player of next.players) {
@@ -578,6 +590,8 @@ describe('Token', () => {
       if (state.phase === 'play') {
         maxes.push(state.players[0].tokenMax)
         state = toQuiz(state)
+      } else if (state.phase === 'settle') {
+        state = confirmBoth(state).state
       } else {
         state = execute(state, { type: 'SUBMIT_ANSWERS', results: answersFor(state) }).state
       }
@@ -642,7 +656,7 @@ describe('答题结算', () => {
     ]).state
   }
 
-  it('答错的罚下进弃牌堆，答对的留场，按存活数计分', () => {
+  it('答错的罚下进弃牌堆，答对的留场，最后停在结算阶段', () => {
     const quiz = twoVsOne()
     const [survivor, doomed] = board(quiz, 0)
     const theirs = board(quiz, 1)[0]!
@@ -654,58 +668,77 @@ describe('答题结算', () => {
     expect(board(result.state, 0).map((a) => a.instanceId)).toEqual([survivor!.instanceId])
     expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([doomed!.instanceId])
     expect(board(result.state, 1).map((a) => a.instanceId)).toEqual([theirs.instanceId])
+    // 双方各答对 1 个、各花 4 点，两条判据都平，所以各拿 1 分。
     expect(result.state.players.map((p) => p.score)).toEqual([1, 1])
 
     // 事件序：逐个揭晓回答，答错的紧跟一条罚下，最后统一计分。
-    expect(result.events.slice(0, 5)).toEqual([
+    expect(result.events).toEqual([
       {
         type: 'AI_ANSWERED',
         instanceId: survivor!.instanceId,
         owner: 0,
+        cardId: 'gpt-3-5',
         correct: true,
-        answerText: '占位回答',
+        answer: '占位',
+        reasoning: '占位理由',
       },
       {
         type: 'AI_ANSWERED',
         instanceId: doomed!.instanceId,
         owner: 0,
+        cardId: 'gpt-3-5',
         correct: false,
-        answerText: '占位回答',
+        answer: '占位',
+        reasoning: '占位理由',
       },
       { type: 'AI_ELIMINATED', instanceId: doomed!.instanceId, owner: 0 },
       {
         type: 'AI_ANSWERED',
         instanceId: theirs.instanceId,
         owner: 1,
+        cardId: 'claude-5-sonnet',
         correct: true,
-        answerText: '占位回答',
+        answer: '占位',
+        reasoning: '占位理由',
       },
-      { type: 'ROUND_SCORED', gains: [1, 1], scores: [1, 1] },
+      { type: 'ROUND_SCORED', gains: [1, 1], scores: [1, 1], correct: [1, 1], spent: [4, 4] },
     ])
+
+    // 计分完就停下等确认：这一批里没有下一轮的任何动静。
+    expect(result.state.phase).toBe('settle')
+    expect(result.state.settleConfirmed).toEqual([false, false])
+    expect(result.state.round).toBe(1)
+    expect(result.state.firstPlayer).toBe(0)
+    expect(result.events.some((e) => e.type === 'ROUND_STARTED')).toBe(false)
+    expect(result.events.some((e) => e.type === 'CARD_DRAWN')).toBe(false)
   })
 
-  it('全对时按上场数量拉开分差，得分逐轮累加', () => {
+  it('答对数多的一方拿这一分，得分逐轮累加', () => {
     const quiz = twoVsOne()
     const first = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
-    expect(first.state.players.map((p) => p.score)).toEqual([2, 1])
+    expect(first.state.players.map((p) => p.score)).toEqual([1, 0])
     expect(first.events.find((e) => e.type === 'ROUND_SCORED')).toEqual({
       type: 'ROUND_SCORED',
-      gains: [2, 1],
-      scores: [2, 1],
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [2, 1],
+      spent: [4, 4],
     })
 
-    // 第 2 轮双方都不再出牌，场上还是上一轮留下的 AI，分数照样加。
-    const second = execute(toQuiz(first.state), {
+    // 第 2 轮双方都不再出牌，场上还是上一轮留下的 AI，甲照样多答对一个。
+    const round2 = confirmBoth(first.state).state
+    const second = execute(toQuiz(round2), {
       type: 'SUBMIT_ANSWERS',
-      results: answersFor(first.state),
+      results: answersFor(round2),
     })
-    expect(second.state.players.map((p) => p.score)).toEqual([4, 2])
+    expect(second.state.players.map((p) => p.score)).toEqual([2, 0])
   })
 
-  it('结算后交换先后手、各补 ROUND_DRAW_SIZE 张牌、宣告下一轮', () => {
+  it('双方确认后才交换先后手、各补 ROUND_DRAW_SIZE 张牌、宣告下一轮', () => {
     const quiz = twoVsOne()
     const handsBefore = quiz.players.map((p) => p.hand.length)
-    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const result = confirmBoth(settle)
 
     expect(result.state.round).toBe(2)
     expect(result.state.firstPlayer).toBe(1)
@@ -729,17 +762,19 @@ describe('答题结算', () => {
     expect(result.events.at(-1)).toEqual({ type: 'PLAY_TURN_STARTED', player: 1 })
   })
 
-  it('场上一个 AI 都没有时提交空结果，这轮拿 0 分但对局继续', () => {
+  it('场上一个 AI 都没有时提交空结果，两边全平各拿 1 分，对局继续', () => {
     const quiz = toQuiz(newGame().state)
     const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] })
 
     expect(result.events.find((e) => e.type === 'ROUND_SCORED')).toEqual({
       type: 'ROUND_SCORED',
-      gains: [0, 0],
-      scores: [0, 0],
+      gains: [1, 1],
+      scores: [1, 1],
+      correct: [0, 0],
+      spent: [0, 0],
     })
-    expect(result.state.round).toBe(2)
-    expect(result.state.phase).toBe('play')
+    expect(result.state.phase).toBe('settle')
+    expect(confirmBoth(result.state).state.round).toBe(2)
   })
 
   it('结果与场上 AI 对不上时整条拒绝', () => {
@@ -755,7 +790,10 @@ describe('答题结算', () => {
     expect(
       execute(quiz, {
         type: 'SUBMIT_ANSWERS',
-        results: [...full, { instanceId: '幽灵', correct: true, answerText: '占位回答' }],
+        results: [
+          ...full,
+          { instanceId: '幽灵', correct: true, answer: '占位', reasoning: '占位理由' },
+        ],
       }).events,
     ).toEqual([reject])
     // 同一个 AI 提交两次（数量对得上，但漏了另一个）
@@ -777,12 +815,200 @@ describe('答题结算', () => {
   })
 })
 
+describe('回合确认', () => {
+  /** 摆一个刚算完分、停在结算阶段的局面（双方各一个 AI，两条判据都平）。 */
+  function settlePhase() {
+    const game = newGame({ deck0: deckOf('gpt-3-5'), deck1: deckOf('gpt-3-5') })
+    const quiz = run(game.state, [
+      { type: 'PLAY_CARD', player: 0, instanceId: handCard(game.state, 0, 'gpt-3-5').instanceId },
+      { type: 'END_PLAY', player: 0 },
+    ]).state
+    const both = run(quiz, [
+      { type: 'PLAY_CARD', player: 1, instanceId: handCard(quiz, 1, 'gpt-3-5').instanceId },
+      { type: 'END_PLAY', player: 1 },
+    ]).state
+    return execute(both, { type: 'SUBMIT_ANSWERS', results: answersFor(both) }).state
+  }
+
+  it('只有一方确认时局面不动，只发一条 ROUND_CONFIRMED', () => {
+    const settle = settlePhase()
+    const result = execute(settle, { type: 'CONFIRM_ROUND', player: 0 })
+
+    expect(result.events).toEqual([{ type: 'ROUND_CONFIRMED', player: 0 }])
+    expect(result.state.settleConfirmed).toEqual([true, false])
+    expect(result.state.phase).toBe('settle')
+    expect(result.state.round).toBe(1)
+    expect(result.state.players[0].hand.length).toBe(settle.players[0].hand.length)
+  })
+
+  it('同一方确认两次时第二次被拒', () => {
+    const once = execute(settlePhase(), { type: 'CONFIRM_ROUND', player: 0 }).state
+    const result = execute(once, { type: 'CONFIRM_ROUND', player: 0 })
+
+    expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '这一轮你已经确认过了' }])
+    expect(result.state).toBe(once)
+  })
+
+  it('不在结算阶段确认会被拒', () => {
+    const game = newGame()
+    const play = execute(game.state, { type: 'CONFIRM_ROUND', player: 0 })
+    expect(play.events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '现在不是回合结算阶段' },
+    ])
+    expect(play.state).toBe(game.state)
+
+    const quiz = toQuiz(game.state)
+    expect(execute(quiz, { type: 'CONFIRM_ROUND', player: 1 }).events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '现在不是回合结算阶段' },
+    ])
+  })
+
+  it('双方都确认后才推进：轮次 +1、额度补满并涨上限、本轮消耗清零、双方补牌', () => {
+    const settle = settlePhase()
+    expect(settle.players.map((p) => p.roundTokenSpent)).toEqual([2, 2])
+    const handsBefore = settle.players.map((p) => p.hand.length)
+    const result = confirmBoth(settle)
+
+    expect(result.state.phase).toBe('play')
+    expect(result.state.round).toBe(2)
+    expect(result.state.settleConfirmed).toEqual([true, true])
+    for (const player of result.state.players) {
+      expect(player.tokenMax).toBe(INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH)
+      expect(player.tokens).toBe(player.tokenMax)
+      expect(player.roundTokenSpent).toBe(0)
+    }
+    expect(result.state.players.map((p) => p.hand.length)).toEqual(
+      handsBefore.map((n) => n + ROUND_DRAW_SIZE),
+    )
+    // 两条确认各自留下一条事件，推进产生的那批全部跟在第二条后面。
+    expect(result.events.slice(0, 2)).toEqual([
+      { type: 'ROUND_CONFIRMED', player: 0 },
+      { type: 'ROUND_CONFIRMED', player: 1 },
+    ])
+  })
+})
+
+describe('回合计分', () => {
+  /**
+   * 逐张凭空造牌再打出去。造出来的牌一定落在手牌末尾，所以取 at(-1) 就是它。
+   * 走调试指令是为了绕开出牌轮次，一次把双方的场都摆好。
+   */
+  function deployAll(state: GameState, player: PlayerId, cards: CardId[]): GameState {
+    let current = state
+    for (const cardId of cards) {
+      const added = execute(current, { type: 'DEBUG_ADD_CARD', player, cardId }).state
+      const card = added.players[player].hand.at(-1)!
+      current = execute(added, {
+        type: 'DEBUG_PLAY_CARD',
+        player,
+        instanceId: card.instanceId,
+      }).state
+    }
+    return current
+  }
+
+  /**
+   * 摆一个算完分的局面：双方各按给定的卡摆场，全部答对。
+   * 用不同费用的卡就能造出"答对数相同、消耗不同"的局面。
+   */
+  function scoreWith(cards0: CardId[], cards1: CardId[]) {
+    const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2') })
+    const both = deployAll(deployAll(game.state, 0, cards0), 1, cards1)
+    const quiz = execute(both, { type: 'DEBUG_SKIP_TO_QUIZ' }).state
+    return execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+  }
+
+  function scoredEvent(result: ReturnType<typeof scoreWith>) {
+    return result.events.find((e) => e.type === 'ROUND_SCORED')
+  }
+
+  it('答对数多的一方拿 1 分，另一方 0 分', () => {
+    // 甲两张 1 点、乙一张 2 点：甲答对 2 个，乙 1 个。
+    const result = scoreWith(['gpt-2', 'gpt-2'], ['gpt-3-5'])
+    expect(scoredEvent(result)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [2, 1],
+      spent: [2, 2],
+    })
+  })
+
+  it('答对数相同时消耗少的一方拿 1 分', () => {
+    // 双方各一个 AI，甲花 1 点、乙花 2 点。
+    const result = scoreWith(['gpt-2'], ['gpt-3-5'])
+    expect(scoredEvent(result)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [1, 1],
+      spent: [1, 2],
+    })
+  })
+
+  it('答对数和消耗都相同时双方各拿 1 分', () => {
+    const result = scoreWith(['gpt-3-5'], ['gpt-3-5'])
+    expect(scoredEvent(result)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 1],
+      scores: [1, 1],
+      correct: [1, 1],
+      spent: [2, 2],
+    })
+  })
+
+  it('spent 就是本轮打出的牌的费用和，技能牌也算在内', () => {
+    // 占位技能 1 点：它不上场，所以不影响答对数，但照样计入消耗，
+    // 于是甲多花了这 1 点，平局的第二判据就倒向乙。
+    const result = scoreWith(['gpt-2', 'placeholder-skill'], ['gpt-2'])
+    expect(scoredEvent(result)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [0, 1],
+      scores: [0, 1],
+      correct: [1, 1],
+      spent: [2, 1],
+    })
+  })
+
+  it('进下一轮后本轮消耗清零，上一轮的花费不会带过来', () => {
+    const settle = scoreWith(['gpt-2'], ['gpt-3-5']).state
+    expect(settle.players.map((p) => p.roundTokenSpent)).toEqual([1, 2])
+
+    const round2 = confirmBoth(settle).state
+    expect(round2.players.map((p) => p.roundTokenSpent)).toEqual([0, 0])
+
+    // 第 2 轮甲什么都不打、乙打一张，判据就该反过来倒向甲。
+    const played = execute(round2, {
+      type: 'DEBUG_ADD_CARD',
+      player: 1,
+      cardId: 'gpt-2',
+    }).state
+    const deployed = execute(played, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: played.players[1].hand.at(-1)!.instanceId,
+    }).state
+    const quiz = execute(deployed, { type: 'DEBUG_SKIP_TO_QUIZ' }).state
+    const scored = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    expect(scored.events.find((e) => e.type === 'ROUND_SCORED')).toMatchObject({
+      // 场上是上一轮留下的各一个 + 乙新上的一个：乙答对 2 个，这一分归乙。
+      correct: [1, 2],
+      spent: [0, 1],
+      gains: [0, 1],
+    })
+  })
+})
+
 describe('胜负', () => {
-  /** 只有一道题的一局：第一次结算就是最后一轮。 */
+  /**
+   * 只有一道题的一局：第一次结算就是最后一轮。
+   * 双方用同一张卡摆场，这样"出几个 AI"同时决定答对数和消耗，
+   * 数量相同时两条判据都平，正好能测出平局。
+   */
   function oneRoundGame(aiCount0: number, aiCount1: number) {
     const game = newGame({
       deck0: deckOf('gpt-3-5'),
-      deck1: deckOf('claude-5-sonnet'),
+      deck1: deckOf('gpt-3-5'),
       questions: [QUESTION_POOL[0]!],
     })
     const play = (player: PlayerId, count: number): Command[] =>
@@ -797,10 +1023,14 @@ describe('胜负', () => {
     ]).state
   }
 
-  it('打满最后一轮后分高的一方获胜', () => {
+  it('最后一轮双方确认后分高的一方获胜', () => {
     const quiz = oneRoundGame(2, 1)
-    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    // 算完分只到 settle，终局要等双方点确认。
+    expect(settle.state.phase).toBe('settle')
+    expect(settle.events.some((e) => e.type === 'GAME_OVER')).toBe(false)
 
+    const result = confirmBoth(settle.state)
     expect(result.state.phase).toBe('finished')
     expect(result.state.winner).toBe(0)
     expect(result.state.round).toBe(result.state.totalRounds)
@@ -811,8 +1041,10 @@ describe('胜负', () => {
   })
 
   it('总分相同时判平局', () => {
+    // 双方各一个 AI、各花 2 点，两条判据都平，所以各拿 1 分。
     const quiz = oneRoundGame(1, 1)
-    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const result = confirmBoth(settle)
 
     expect(result.state.winner).toBe('draw')
     expect(result.events.at(-1)).toEqual({ type: 'GAME_OVER', winner: 'draw' })
@@ -820,12 +1052,17 @@ describe('胜负', () => {
 
   it('对局结束后一切指令都被拒', () => {
     const quiz = oneRoundGame(1, 0)
-    const finished = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const finished = confirmBoth(settle).state
     expect(finished.phase).toBe('finished')
 
     const result = execute(finished, { type: 'DEBUG_SKIP_TO_QUIZ' })
     expect(result.events).toEqual([{ type: 'COMMAND_REJECTED', reason: '对局已结束' }])
     expect(result.state).toBe(finished)
+    // 确认指令也一样，结算阶段已经过去了。
+    expect(execute(finished, { type: 'CONFIRM_ROUND', player: 0 }).events).toEqual([
+      { type: 'COMMAND_REJECTED', reason: '对局已结束' },
+    ])
   })
 
   it('用剧本从头打到尾能正常收场', () => {
@@ -859,6 +1096,11 @@ describe('胜负', () => {
         const ended = execute(state, { type: 'END_PLAY', player: seat })
         state = ended.state
         events.push(...ended.events)
+      } else if (state.phase === 'settle') {
+        // 结算停在这里等两位玩家各自点确认，界面上那两下在这里补齐。
+        const confirmed = confirmBoth(state)
+        state = confirmed.state
+        events.push(...confirmed.events)
       } else {
         // driver 就是这么干的：拿本轮题目和场上全部 AI 去查剧本，再把结果喂回引擎。
         const question = state.questions[state.round - 1]!
@@ -876,6 +1118,8 @@ describe('胜负', () => {
     expect(state.round).toBe(state.totalRounds)
     expect(state.winner).not.toBeNull()
     expect(events.filter((e) => e.type === 'ROUND_SCORED')).toHaveLength(state.totalRounds)
+    // 每轮两条确认，一条都不能少。
+    expect(events.filter((e) => e.type === 'ROUND_CONFIRMED')).toHaveLength(state.totalRounds * 2)
     expect(events.filter((e) => e.type === 'GAME_OVER')).toHaveLength(1)
     expect(events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
   })
@@ -1224,7 +1468,11 @@ describe('题库与剧本', () => {
     expect(new Set(QUESTION_POOL.map((q) => q.category))).toEqual(
       new Set(['bias', 'vision', 'brainteaser']),
     )
-    expect(QUESTION_POOL.every((q) => q.text.length > 0 && q.answer.length > 0)).toBe(true)
+    expect(
+      QUESTION_POOL.every(
+        (q) => q.text.length > 0 && q.answer.length > 0 && q.explanation.length > 0,
+      ),
+    ).toBe(true)
   })
 
   it('保留用户点名的那道脑筋急转弯原文', () => {
@@ -1242,7 +1490,8 @@ describe('题库与剧本', () => {
           { instanceId: 'x', cardId: card.id, owner: 0 },
         ])
         expect(answer!.instanceId).toBe('x')
-        expect(answer!.answerText.length).toBeGreaterThan(0)
+        expect(answer!.answer.length).toBeGreaterThan(0)
+        expect(answer!.reasoning.length).toBeGreaterThan(0)
         expect(typeof answer!.correct).toBe('boolean')
       }
     }

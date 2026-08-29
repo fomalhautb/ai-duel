@@ -1635,8 +1635,18 @@ export function HandFan({
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)
             }}
-            onPointerEnter={() => handleEnter(card.id)}
-            onPointerLeave={() => handleLeave(card.id)}
+            /* 抬牌只给鼠标。触屏上手指划过手牌会一路发 enter，牌被一张张抬起来，
+               看着像自己选了一堆；而真正的触屏选牌是点一下（见 handleTap），
+               走的是 selectedId 那条路，和 hoverRef 无关，拦掉这里什么都不少。
+               判据用这次事件的 pointerType 而不是设备类型：带触屏的笔记本用鼠标时照常抬牌。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleEnter(card.id)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleLeave(card.id)
+            }}
             {...dragBindings}
             /*
             指针已经在牌上、却没抬起来的那些情况，全靠 move 补一次 hover：
@@ -1648,6 +1658,7 @@ export function HandFan({
           */
             onPointerMove={(event) => {
               dragBindings.onPointerMove(event)
+              if (event.pointerType !== 'mouse') return
               handleEnter(card.id)
             }}
           >

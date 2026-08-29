@@ -1116,8 +1116,12 @@ html {
  * 用 CSS 的 :hover 而不是等 JS 那份 hover 状态：slot 各自接指针事件，两者的判定一致，
  * 而且这样在补间开始之前就已经变色了。
  */
-.hand-fan[data-locked] .hand-fan__slot:hover .hand-fan__face {
-  filter: none;
+/* 只给鼠标：触屏上 :hover 点过就粘着，手指划过一排会留下一串"亮"着的牌，
+   看上去像是这几张都能出。触屏想看清楚是点一下抬起来，不靠这条。 */
+@media (hover: hover) {
+  .hand-fan[data-locked] .hand-fan__slot:hover .hand-fan__face {
+    filter: none;
+  }
 }
 
 /* 光标要和"点了也没用"对得上，抓手收回默认箭头。
@@ -2947,8 +2951,11 @@ body:has(.battle) {
   transition: transform 0.16s ease;
 }
 
-.battle__foe-card:hover {
-  transform: translateY(-5px);
+/* 只给鼠标：触屏上 :hover 粘着不放，点过的那张会一直浮着。 */
+@media (hover: hover) {
+  .battle__foe-card:hover {
+    transform: translateY(-5px);
+  }
 }
 
 /* 测试房：对方现在打不出去的牌（Token 买不起，或者本轮已经派过 AI）。
@@ -3517,8 +3524,12 @@ body:has(.battle) {
  * :not() 是必须的——:hover 比单个类更具体，不排除掉的话，
  * 鼠标一停到可选目标上就会把它从压暗层之上（76）打回 3，正好在最该点得动的时候点不动。
  */
-.battle__tile:hover:not(.battle__tile--target-lift) {
-  z-index: 3;
+/* 只给鼠标：这条本来就是"指到哪张看哪张"，而触屏上 :hover 点完不会退，
+   会有一张卡莫名其妙一直压在别人上面。 */
+@media (hover: hover) {
+  .battle__tile:hover:not(.battle__tile--target-lift) {
+    z-index: 3;
+  }
 }
 
 /*
@@ -5212,8 +5223,12 @@ body:has(.battle) {
  * 层叠上下文里，谁抬谁在上。
  * 不写 transition —— 放大是 cardTilt 用 GSAP 做的（见 .settle-card__avatar-tilt）。
  */
-.settle-card:hover {
-  z-index: 1;
+/* 只给鼠标：放大那一下是 cardTilt 做的，它已经按 pointerType 把非鼠标挡在门外
+   （见 ui/cardTilt.ts），触屏上根本不会放大，这里再抬层就只剩粘住的副作用。 */
+@media (hover: hover) {
+  .settle-card:hover {
+    z-index: 1;
+  }
 }
 
 /*
@@ -5226,8 +5241,10 @@ body:has(.battle) {
  * :has 的支持面够（Safari 15.4+ / Chrome 105+），不支持的浏览器只是退回到上面那条，
  * 放大的部分会被另一块面板盖住一角，不会塌版。
  */
-.settle__squad:has(.settle-card:hover) {
-  z-index: 1;
+@media (hover: hover) {
+  .settle__squad:has(.settle-card:hover) {
+    z-index: 1;
+  }
 }
 
 /*

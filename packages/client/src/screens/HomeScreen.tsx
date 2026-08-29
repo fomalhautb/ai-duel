@@ -52,6 +52,7 @@ import { cardArtFor } from '../ui/cardArt'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -614,7 +615,18 @@ function HomeStage() {
           </span>
         </p>
 
-        <button type="button" className="home__start" onClick={() => navigate('/room')}>
+        <button
+          type="button"
+          className="home__start"
+          onClick={() => {
+            // 手机上顺手进全屏并锁横屏：这是整个流程里第一次、也是最自然的一次用户点击，
+            // 而全屏和方向锁都只认用户手势。不支持（iPhone）或被拒都只是没生效，
+            // 不影响进房间，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
+            // 只对触屏做：电脑上按个"开始游戏"就把浏览器变全屏太越界了，那边有 F11。
+            if (isCoarsePointer()) void enterLandscapeFullscreen()
+            navigate('/room')
+          }}
+        >
           <span className="home__start-label">开始游戏</span>
         </button>
 

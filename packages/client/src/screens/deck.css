@@ -399,6 +399,74 @@
   left: auto;
 }
 
+/* ---------- 阵营筛选（药丸） ---------- */
+.deck-factions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * 药丸描边套手绘滤镜，所以描边和底色必须画在**另一层**上（::before），
+ * 不能挂在按钮本身：位移滤镜会连同里面的文字一起扯，字会糊。
+ *
+ * 整组一律瞬切、没有 transition：带滤镜的元素每过渡一帧就要重跑一遍
+ * feTurbulence + feDisplacementMap（WebKit 上是 CPU 逐像素算）。
+ */
+.deck-faction {
+  position: relative;
+  padding: 5px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13.5px;
+  letter-spacing: 0.1em;
+  text-indent: 0.1em;
+  cursor: pointer;
+}
+
+/*
+ * z-index: -1 把这一层压到按钮文字下面。
+ * 按钮自己是 position: relative 但没有 z-index，不建层叠上下文，所以这一层实际落在
+ * .deck-pool__head（z-index: 2，是层叠上下文）的负层里——刚好在面板底色之上、
+ * 所有内容之下，正是要的位置。给 .deck-faction 加 z-index 或 isolation 会打破这个安排。
+ */
+.deck-faction::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 4%);
+  filter: url('#ai-duel-rough-button');
+}
+
+.deck-faction:hover:not([data-active='true'])::before {
+  border-color: var(--line-dark);
+  background: rgb(255 255 255 / 10%);
+}
+
+.deck-faction:hover:not([data-active='true']) {
+  color: var(--ink);
+}
+
+/*
+ * 选中项：双线金描边（border 是外线，负偏移的 outline 是内线），字色偏金。
+ * 两条线画在同一个元素上，所以歪的方向一致，看着像一笔勾出来的双线。
+ */
+.deck-faction[data-active='true']::before {
+  border-color: var(--c-gold);
+  outline: 1.5px solid rgb(217 164 65 / 45%);
+  outline-offset: -5px;
+  background: rgb(217 164 65 / 14%);
+}
+
+.deck-faction[data-active='true'] {
+  color: #f3e2b8;
+}
+
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
   /* 整页两块滚动区之一（另一块是 .deck-slots）。它是 overflow 容器，

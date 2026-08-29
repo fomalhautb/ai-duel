@@ -2908,7 +2908,7 @@ body:has(.battle) {
     0 6px 24px rgb(4 9 19 / 48%);
 }
 
-/* ---------- 八角结束回合按钮 ---------- */
+/* ---------- 八角匾额按钮（侧栏「结束出牌」、结算层确认按钮共用） ---------- */
 
 .plaque-button {
   --plaque-fill: #253149;
@@ -3340,7 +3340,7 @@ body:has(.battle) {
  * 横幅由 MatchStage 直接往下面的挂载位里塞节点（React 只管中央那张技能牌）。
  * 全层不吃指针事件，压在手牌（z-index 20）和顶栏（70）之上、结算层（90）之下。
  *
- * 全屏过场（.coin-toss / .quiz-reveal）和展示遮罩（.reveal-overlay）都不在这一层：
+ * 全屏过场（.coin-toss / .settle）和展示遮罩（.reveal-overlay）都不在这一层：
  * 它们要吃掉指针事件，而且层级在 1100 那一档，见文件末尾那几段。
  * 也正因为它们比这一层高，那期间来的横幅会先在 MatchStage 里排队，
  * 等它们退场再补播（见那边的 pumpBanner）——压在遮罩底下的横幅等于没播。
@@ -3482,7 +3482,6 @@ body:has(.battle) {
   display: flex;
   gap: 32px;
 }
-
 
 .battle__result .battle__result-actions button {
   position: relative;
@@ -3629,9 +3628,15 @@ body:has(.battle) {
   cursor: pointer;
 }
 
-.battle-dev__btn:hover {
+.battle-dev__btn:hover:not(:disabled) {
   border-color: #5b6477;
   background: #f7f3e9;
+}
+
+/* 只在特定阶段有意义的按钮（现在只有「替对方确认本轮」）灰着，别让人点了没反应还以为坏了。 */
+.battle-dev__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .battle-dev__note {
@@ -3700,7 +3705,7 @@ body:has(.battle) {
 /* ---------- 选目标（干扰类技能） ---------- */
 
 /*
- * 点一下「必须回答」这类要选目标的技能牌之后的全屏压暗：整个画面只剩"能打谁"这一件事。
+ * 点一下「复读机」这类要选目标的技能牌之后的全屏压暗：整个画面只剩"能打谁"这一件事。
  *
  * 铺满视口、压过顶栏（70）：战场、侧栏（30）、双方手牌（20）一起暗下去。
  * 亮着的只有两样，各自被抬到这一层之上：
@@ -3757,7 +3762,7 @@ body:has(.battle) {
 }
 
 /*
- * 括注里是卡名，中文默认逐字断行，窄窗口下会把「必须回答」劈成两半。
+ * 括注里是卡名，中文默认逐字断行，窄窗口下会把「复读机」劈成两半。
  * 卡名长度可变，所以不写死宽度，只禁止它内部换行；真放不下时整条提示会在括号前折。
  */
 .battle__targeting-card {
@@ -4052,7 +4057,7 @@ body:has(.battle) {
   text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
 }
 
-/* ---------- 全屏过场：抛硬币 / 答题揭晓 / 英雄技能抵消 ---------- */
+/* ---------- 全屏过场：抛硬币 / 回合结算 / 英雄技能抵消 ---------- */
 
 /*
  * 这三层的遮罩写法照 .reveal-overlay：压暗 + 背景模糊，层级同在 1100 那一档，
@@ -4071,7 +4076,7 @@ body:has(.battle) {
  * 但它跟着 reveal 状态一起被清掉，不会留在上面）。
  */
 .coin-toss,
-.quiz-reveal,
+.settle,
 .skill-cancel {
   position: fixed;
   inset: 0;
@@ -4175,169 +4180,787 @@ body:has(.battle) {
   text-indent: 0.3em;
 }
 
+/* ---------- 回合结算层 ---------- */
+
 /*
- * 答题揭晓层的纸面。宽度收在 720 以内，长题面才不会拉成一行难读的通栏。
- * 颜色沿用战场那套纸张变量（这一层渲染在 .battle 里面，继承得到）。
+ * 整层是一张铺满舞台的羊皮纸，四行从上到下讲完一轮：
+ * 顶栏（谁在第几轮、进行到哪一步）→ 题目和标准答案 → 双方 AI 的作答 → 本轮结论和确认按钮。
+ *
+ * 尺寸全是设计稿上的死数（舞台固定 1672×941，再由 .battle-scaler 整体缩放），
+ * 所以这一节不写任何媒体查询 / 容器查询，也不用相对单位——见文件末尾那段说明。
+ *
+ * 这一节里**不写任何 transition**，animation 只有一处例外：入场、主线（题目→作答→判定）、退场
+ * 三条时间线全在 RoundSettleLayer 里用 GSAP 写，CSS 只负责"静止时长什么样"。
+ * 再补一份 CSS 过渡的话，GSAP 每帧设值都会再触发一次插值，动画会拖成糊的。
+ * 例外是「作答中」那三个弹跳圆点（.settle-card__loader-dot）：它们和 GSAP 碰的不是同一个元素，
+ * 分工写在那条规则的注释里。
+ *
+ * 颜色沿用战场那套纸张变量（这一层渲染在 .battle 里面，继承得到 --battle-*），
+ * 阵营色两个：我方深绿 #2f6b46、对方暗红 var(--c-life)，全层统一，不要各写各的。
  */
-.quiz-reveal__panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
-  width: 720px;
-  /* 原来是 82vh；设计高 941 的 82% 是 771。 */
-  max-height: 771px;
-  padding: 30px 34px;
-  overflow-y: auto;
-  border: 1px solid var(--battle-line-dark, #777465);
-  border-radius: 4px;
-  background-color: var(--battle-paper, #eee9dc);
+
+/*
+ * 上面 `.coin-toss, .settle, .skill-cancel` 那条通用规则给的是"全屏过场"的壳
+ *（position: fixed / inset / z-index 1100 / 吃掉指针事件），这几样正是本层要的。
+ * 但那条规则同时给了压暗遮罩的外观和 flex 居中，这里全部改掉：
+ * 本层不是浮在战场上的一块小面板，而是一张盖住整个舞台的纸。
+ *
+ * opacity / visibility 那两行**不改**，照通用规则的 0 / hidden 留着：
+ * 它们是 GSAP autoAlpha 的初值，整层的淡入由 RoundSettleLayer 的入场时间线接管
+ *（见那个文件里的"阶段 A"）。在这儿写成可见的话，挂上去的第一帧会先全亮一下再被补间拉回 0。
+ *
+ * 下面的 overflow: hidden 是**整条链上唯一一处裁剪**，别再往里层加：结果卡的头像
+ * hover 时会放大到 2 倍并溢出好几层（squad → cards → card），中间任何一层裁剪都会把它切掉。
+ * 留在根上是可以接受的——贴着舞台边缘的那张卡放大后被舞台边切一点，比让它画到纸外面好。
+ */
+.settle {
+  display: grid;
+  /* 顶栏和底栏定高，题目区按内容撑（长题面多占几行），剩下的全给双方结果区。 */
+  grid-template-rows: 84px auto minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  place-content: stretch;
+  place-items: stretch;
+  overflow: hidden;
+  background-color: var(--battle-paper);
   background-image: var(--battle-grain);
-  box-shadow: 0 24px 60px rgb(0 0 0 / 55%);
-  color: var(--battle-ink, #30313b);
+  background-blend-mode: multiply;
+  /* 纸的外缘：一圈深色细边，让整张纸有个收口，不至于和舞台底色糊在一起。 */
+  box-shadow: inset 0 0 0 1px var(--battle-line-dark);
+  /* 纸是不透明的，底下的模糊纯属白烧一层合成，关掉。 */
+  backdrop-filter: none;
 }
 
-.quiz-reveal__category {
-  padding: 3px 14px;
-  border: 1px solid color-mix(in srgb, var(--battle-navy, #253149) 45%, transparent);
-  border-radius: 2px;
-  color: var(--battle-navy, #253149);
-  font-size: 14px;
-  letter-spacing: 0.24em;
-  text-indent: 0.24em;
+/* ---------- 回合结算层：顶栏 ---------- */
+
+/*
+ * 三栏：左标题、中步骤条、右轮次和比分。
+ * 两侧写成等宽的 1fr，中间那条步骤条才真的落在整张纸的正中，
+ * 不会因为右边比分位数变了（个位变两位）就跟着晃一下。
+ */
+.settle__topbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 28px;
 }
 
-.quiz-reveal__question {
+/* 下缘的双细线，同顶栏 .battle-topbar::after 的做法：深线贴边，浅线在它下面 2px 处。 */
+.settle__topbar::after {
+  position: absolute;
+  right: 28px;
+  bottom: 0;
+  left: 28px;
+  height: 4px;
+  background: linear-gradient(
+    to bottom,
+    var(--battle-line-dark) 0 1px,
+    transparent 1px 3px,
+    var(--battle-line) 3px 4px
+  );
+  content: '';
+}
+
+.settle__title {
   margin: 0;
-  font-size: 26px;
+  color: var(--battle-ink);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.settle__steps {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settle__step {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/*
+ * 步骤之间那截点线。挂在第二项起的 ::before 上，而不是单独加节点：
+ * 连接线是纯装饰，交给 CSS 画，组件里的 <li> 就只剩"圆点 + 文字"两样，好读。
+ */
+.settle__step + .settle__step::before {
+  width: 46px;
+  margin-right: 6px;
+  margin-left: 6px;
+  border-top: 1px dotted var(--battle-line-dark);
+  content: '';
+}
+
+/* 圆点的基准形态就是 todo 那档：一个空心细圈。done / current 各自往上盖。 */
+.settle__step-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--battle-line-dark);
+  border-radius: 50%;
+}
+
+/* 已完成：圈染成深绿，里面压一枚勾。勾是背景图，省掉再套一层伪元素。 */
+.settle__step[data-state='done'] .settle__step-mark {
+  border-color: #2f6b46;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2012%2012'%3E%3Cpath%20d%3D'M2.4%206.4L4.9%209L9.6%203.3'%20fill%3D'none'%20stroke%3D'%232f6b46'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 11px;
+}
+
+/* 进行中：实心墨点，配下面那条下划线，一眼看得出现在演到哪一步。 */
+.settle__step[data-state='current'] .settle__step-mark {
+  border-color: var(--battle-ink);
+  background-color: var(--battle-ink);
+}
+
+/* 还没轮到的整项压淡，包括上面那截点线（它是本项的伪元素，跟着一起淡）。 */
+.settle__step[data-state='todo'] {
+  opacity: 0.5;
+}
+
+.settle__step-label {
+  /* 下划线用 border 而不是 text-decoration：只有 current 那档要，加粗和线宽好各调各的。 */
+  border-bottom: 2px solid transparent;
+  color: var(--battle-ink);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.settle__step[data-state='current'] .settle__step-label {
+  border-bottom-color: var(--battle-ink);
   font-weight: 600;
-  line-height: 1.5;
+}
+
+.settle__meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.settle__round-pill {
+  padding: 4px 14px;
+  border: 1px solid var(--battle-line-dark);
+  border-radius: 999px;
+  background: var(--battle-paper);
+  color: var(--battle-ink-muted);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  /* letter-spacing 在最后一个字后面也留一格，整块看着偏左，用同样的缩进补回来（全文件同此做法）。 */
+  text-indent: 0.12em;
+}
+
+.settle__topscore {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/*
+ * 我方那个数做成深绿小方块。两边不对称是刻意的：这一层从头到尾都是"我"在看，
+ * 自己的分要能一眼抓住；对方的分只要认得出是对方色就够。
+ * min-width 定死是为了比分从个位变两位时方块不跳大小。
+ */
+.settle__topscore-mine {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #2f6b46;
+  color: var(--battle-paper);
+}
+
+.settle__topscore-colon {
+  color: var(--battle-ink-muted);
+}
+
+.settle__topscore-foe {
+  min-width: 28px;
+  color: var(--c-life);
   text-align: center;
 }
 
-.quiz-reveal__answer {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  margin: 0;
-  color: var(--battle-navy, #253149);
-  font-size: 19px;
+/* ---------- 回合结算层：题目与标准答案 ---------- */
+
+/*
+ * 三栏：题面吃掉左边全部剩余宽度，中间一条装饰分隔，右边是定宽的答案卡。
+ * 答案卡定宽（不是 1fr）是因为它里面那个 64px 的大字要有个稳定的落脚地方——
+ * 宽度跟着题面长短变的话，同一局里每轮的答案卡都会大小不一。
+ */
+.settle__question-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 60px 420px;
+  align-items: center;
+  padding: 26px 28px 22px;
 }
 
-/* 「正确答案」四个字做成标签样式，一眼分得清哪句是题、哪句是答案。 */
-.quiz-reveal__answer-label {
-  padding: 2px 8px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--battle-navy, #253149) 88%, transparent);
-  color: var(--battle-paper, #eee9dc);
+.settle__question-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+/*
+ * 类别那一行：小罗盘 + 类别名。刻意不做成带框的标签——
+ * 右边答案卡已经是一个很重的深绿框，这边再加一个框，两块会互相抢。
+ */
+.settle__category {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  color: #2f6b46;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+}
+
+/* 罗盘用 currentColor 描边（见组件里的 CompassMark），跟着上面那行字一起变色。 */
+.settle__category-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.settle__question-text {
+  margin: 0;
+  color: var(--battle-ink);
+  font-size: 30px;
+  line-height: 1.6;
+}
+
+/* 纵向分隔饰：一条两头淡出的细线，中间压一颗菱形。同侧栏的 .battle__player-divider，转 90 度。 */
+.settle__divider {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  min-height: 120px;
+}
+
+.settle__divider-line {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    rgb(119 116 101 / 0%),
+    var(--battle-line-dark) 22%,
+    var(--battle-line-dark) 78%,
+    rgb(119 116 101 / 0%)
+  );
+}
+
+/* 菱形排在细线后面，靠不透明底色把线从中间截断——两头淡出加中间这一颗，看着才像一件装饰。 */
+.settle__divider-gem {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--battle-line-dark);
+  background: var(--battle-paper);
+  transform: rotate(45deg);
+}
+
+/*
+ * 标准答案卡。深绿双线框（外描边 + 内缩一圈的 outline，同终局结算那两个按钮的"正式文书"做法）——
+ * 整层最该被一眼找到的就是这块，所以只有它用了阵营色描边。
+ */
+.settle__answer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  /* 上下留得比左右还宽：里面那个 64px 的大字本来就顶天立地，内边距一薄整块就显得挤。 */
+  padding: 26px 26px 28px;
+  border: 2px solid #2f6b46;
+  border-radius: 4px;
+  outline: 1px solid rgb(47 107 70 / 55%);
+  outline-offset: -6px;
+  background: var(--battle-paper);
+}
+
+.settle__answer-label {
+  color: #2f6b46;
   font-size: 13px;
   letter-spacing: 0.16em;
   text-indent: 0.16em;
 }
 
 /*
- * 结果区。「作答中」和结果行叠在同一块地方交叉淡入淡出，所以：
- * - 这一层 relative + min-height，撑住等结果那几秒的高度，结果一来不会整块跳一下；
- * - 「作答中」absolute 脱离文档流，淡出时不占位，结果行不会被它顶下去。
+ * 答案本身。字号压到整层最大，是因为看完这一层的人只会记住一件事："答案是什么"。
+ * 答案可能是个长短语，所以允许折行，行高收到 1.1 免得两行拉太开。
  */
-.quiz-reveal__body {
-  position: relative;
-  width: 100%;
-  min-height: 92px;
-  margin-top: 6px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--battle-line, #aaa391);
-}
-
-.quiz-reveal__waiting {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 100%;
+.settle__answer-main {
   margin: 0;
-  color: var(--battle-ink-muted, #6d6b61);
-  font-size: 18px;
-  letter-spacing: 0.2em;
+  color: #2f6b46;
+  font-size: 64px;
+  font-weight: 700;
+  line-height: 1.1;
   text-align: center;
-  text-indent: 0.2em;
-  translate: 0 -50%;
+  overflow-wrap: anywhere;
 }
 
-.quiz-reveal__rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.settle__answer-explain {
+  margin: 0;
+  color: var(--battle-ink-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
 }
 
-/* 一行结果：我方/对方 + 卡名 + 对错 + 回答文案。前三列定宽，文案吃掉剩下的宽度。 */
-.quiz-reveal__row {
+/* ---------- 回合结算层：双方作答 ---------- */
+
+/* 上我方、下对方，两块等高：谁答对得多要靠横向比对，两块不一样高就没法比。 */
+.settle__squads {
   display: grid;
-  grid-template-columns: 44px 128px 22px 1fr;
-  gap: 10px;
-  align-items: baseline;
-  margin: 0;
-  font-size: 17px;
-}
-
-/* 没有 AI 作答时那句交代，占满整行，不走上面的四列。 */
-.quiz-reveal__row--none {
-  display: block;
-  color: var(--battle-ink-muted, #6d6b61);
-  text-align: center;
+  grid-template-rows: 1fr 1fr;
+  gap: 16px;
+  min-height: 0;
+  padding: 0 28px;
 }
 
 /*
- * 答错 = 罚下：整行压暗，卡名和回答划掉，再配下面那个红叉。
- * 战场上不另做罚下动画——被罚下的小卡随新快照直接消失，这一层正好盖住那次跳变。
- *
- * 划线只给卡名和回答两格，不写在整行上：text-decoration 会传给所有子元素，
- * 而且子元素写 text-decoration: none 也**盖不掉**（规范如此），
- * 打在整行上的话那个红叉也会被划一道，看不出是叉还是勾。
+ * 一侧的面板。底色比纸再提亮一点点（不是换个颜色），面板和纸之间就有了层次，
+ * 又不会像贴了张别的纸上去。
  */
-.quiz-reveal__row--wrong {
-  color: var(--battle-ink-muted, #6d6b61);
+.settle__squad {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  /* 左边多留 6px 给下面那条竖色条。 */
+  padding: 12px 16px 14px 22px;
+  border: 1px solid var(--battle-line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 22%);
 }
 
-.quiz-reveal__row--wrong .quiz-reveal__row-name,
-.quiz-reveal__row--wrong .quiz-reveal__row-text {
-  text-decoration: line-through;
-  text-decoration-color: rgb(158 58 46 / 65%);
+/* 左缘的竖色条：整块面板归谁，全靠它。上下各缩 8px，看着像嵌进圆角框里而不是糊在边上。 */
+.settle__squad-tab {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 6px;
+  border-radius: 0 4px 4px 0;
 }
 
-.quiz-reveal__row-side {
-  color: var(--battle-ink-muted, #6d6b61);
-  font-size: 14px;
+.settle__squad--mine .settle__squad-tab {
+  background: #2f6b46;
 }
 
-.quiz-reveal__row-name {
+.settle__squad--foe .settle__squad-tab {
+  background: var(--c-life);
+}
+
+.settle__squad-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+/*
+ * 对方那块的标头染一层极淡的红。只染标头不染整块：整块染的话两个面板的底色差太大，
+ * 下面那排结果卡的纸色会跟着看起来不一样，卡和卡之间就不好比了。
+ */
+.settle__squad--foe .settle__squad-head {
+  background: color-mix(in srgb, var(--c-life) 8%, transparent);
+}
+
+.settle__squad-title {
+  font-size: 16px;
   font-weight: 600;
 }
 
-.quiz-reveal__row-mark {
+.settle__squad-correct {
+  font-size: 15px;
+}
+
+.settle__squad--mine .settle__squad-title,
+.settle__squad--mine .settle__squad-correct {
   color: #2f6b46;
+}
+
+.settle__squad--foe .settle__squad-title,
+.settle__squad--foe .settle__squad-correct {
+  color: var(--c-life);
+}
+
+.settle__squad-sep {
+  color: var(--battle-line-dark);
+  font-size: 12px;
+}
+
+/*
+ * 「本轮领先」/「平分秋色」。两侧都用深绿实底，不跟着阵营色走：
+ * 它说的是"这一分算给了谁"，是裁判的话，不是某一方的话；跟着阵营变色的话，
+ * 对方领先时会出现一枚红底徽章，和旁边同为红色的对方标题连成一片，反而看不出是个徽章。
+ */
+.settle__lead-badge {
+  margin-left: 4px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  background: #2f6b46;
+  color: var(--battle-paper);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-indent: 0.1em;
+}
+
+/*
+ * 结果卡至少三列，人多了加列——**永远只排一行**。
+ *
+ * 少于三张时不按张数平分：只上一个 AI 的话，平分宽度会让那张卡横跨整块面板、
+ * 里面一行小字拉得老长，和另一侧几张小卡完全不是一个量级，两侧根本没法横向比对。
+ * 占死 1/3、空位就空着，两侧的卡永远一样宽。
+ *
+ * 多于三张时靠 --settle-cols 加列，而不是换行到第二行（列数由 RoundSettleLayer 现算，
+ * 两侧共用一个值，见那边 .settle__squads 上的注释）。换行是放不下的：一侧分到的高度
+ * 只有约 170px，正好一张卡，第二行会直接压到另一侧的面板上、最后一行掉出舞台被根上的
+ * overflow: hidden 裁掉（5v4 实测两块面板互相压 96px）。宁可每张窄一点。
+ *
+ * align-content: start + 定高的隐式行：卡不会被拉到整块面板那么高，
+ * 高度和张数无关。min-width: 0 那一半交给 minmax(0, 1fr)：不写的话长回答会把列撑出面板。
+ */
+.settle__cards {
+  display: grid;
+  flex: 1;
+  grid-auto-rows: minmax(170px, auto);
+  grid-template-columns: repeat(var(--settle-cols, 3), minmax(0, 1fr));
+  gap: 14px;
+  align-content: start;
+  min-height: 0;
+}
+
+/* ---------- 回合结算层：一张结果卡 ---------- */
+
+/*
+ * 迷你卡面 + 卡名 + 大字回答 + 两行推理，右上角盖一枚判定章。
+ * relative 是给那枚章当定位参照的。
+ */
+.settle-card {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--battle-line);
+  border-radius: 8px;
+  background: var(--battle-paper);
+}
+
+/*
+ * hover 时头像放大到 2 倍（180×270），会大幅溢出自己那个框、盖到邻卡和卡内文字上。
+ * 抬一层，免得被右边那张卡的纸盖住半边。只要 1 就够：同一块面板里的卡都在同一个
+ * 层叠上下文里，谁抬谁在上。
+ * 不写 transition —— 放大是 cardTilt 用 GSAP 做的（见 .settle-card__avatar-tilt）。
+ */
+.settle-card:hover {
+  z-index: 1;
+}
+
+/*
+ * 放大后的头像还会越过面板边界压到另一侧那块 squad 上，所以 hover 所在的面板整块也要抬起来。
+ *
+ * 不能只靠上面那条：squad 一旦因为别的原因成了层叠上下文（现在没有，但加个 z-index / filter
+ * 就会变成），里面那张卡的 z-index: 1 就只在本面板内部有效，跨不出去。这条把整块抬到
+ * 兄弟面板之上，两块的先后就和 DOM 顺序无关了。
+ *
+ * :has 的支持面够（Safari 15.4+ / Chrome 105+），不支持的浏览器只是退回到上面那条，
+ * 放大的部分会被另一块面板盖住一角，不会塌版。
+ */
+.settle__squad:has(.settle-card:hover) {
+  z-index: 1;
+}
+
+/*
+ * 头像三层，分工照战场小卡（见 .battle__tile / -tilt / -inner）：
+ * avatar 定尺寸并给透视，tilt 承担指针倾斜、hover 放大和裁剪，inner 把整张卡面缩下来。
+ *
+ * 裁剪放在 tilt 那一层而不是这里，理由和战场小卡一模一样：裁切边要跟着卡一起转、一起放大，
+ * 留在这一层的话倾斜时卡角会被一条不动的直边削掉，放大时更是整圈都被切回原尺寸。
+ */
+.settle-card__avatar {
+  flex: none;
+  width: 90px;
+  height: 135px;
+  perspective: 700px;
+}
+
+.settle-card__avatar-tilt {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  /* 这一层被 cardTilt 每帧改 3D 旋转，预先声明省掉第一帧临时提合成层那一下卡顿（同 .battle__tile-tilt）。 */
+  will-change: transform;
+}
+
+/*
+ * 卡面的布局尺寸仍是 150×225（.card-face 是 width/height: 100%，靠这一层给的宽高），
+ * 只是被缩到 0.6 画出来 —— 150×0.6 = 90，225×0.6 = 135，正好是上面那个框。
+ * 改这里的 0.6 要连着改 avatar 的宽高，两处对不上就会露白边或被裁掉一截。
+ */
+.settle-card__avatar-inner {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(0.6);
+  transform-origin: top left;
+}
+
+.settle-card__body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/*
+ * 答错的整块压暗**没写在这里**：压暗是判定章砸下来那一刻才发生的，
+ * 写成静态规则的话卡片一出现就是暗的，等于提前剧透了这个 AI 答错。
+ * 所以那一下交给主线时间线（RoundSettleLayer 的 WRONG_BODY_OPACITY），CSS 只留常态。
+ * 只压 body 不压头像：卡面还得看得清是哪个模型答错的。
+ */
+
+/* 右边留出判定章的地方，卡名才不会钻到章底下。 */
+.settle-card__name {
+  margin: 0;
+  padding-right: 120px;
+  color: var(--battle-ink);
+  font-size: 18px;
+}
+
+.settle-card__answer {
+  margin: 0;
+  color: var(--battle-ink);
+  font-size: 30px;
   font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
-.quiz-reveal__row--wrong .quiz-reveal__row-mark {
-  color: #9e3a2e;
+/* 推理只是佐证，最多两行；再长就截掉，不让它把卡撑高、把一排卡挤歪。 */
+.settle-card__reasoning {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--battle-ink-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
-.quiz-reveal__row-text {
-  color: var(--battle-ink, #30313b);
-}
-
-.quiz-reveal__row--wrong .quiz-reveal__row-text {
-  color: var(--battle-ink-muted, #6d6b61);
-}
-
-/* 本轮计分，收尾那一下。 */
-.quiz-reveal__score {
-  margin: 6px 0 0;
-  color: var(--battle-navy, #253149);
-  font-size: 24px;
+/*
+ * 判定章。歪 6 度是要的那点"盖上去"的手感——正着摆就只是个标签。
+ * 做得比一般标签大一号（20px + 宽内边距）：它是这张卡的结论，得压得住旁边 30px 的大字答案。
+ *
+ * 这里的 -6deg 只是**静止时的样子**。主线时间线会从 -14° 转到 -6° 把章盖下来，
+ * 那条补间一开始跑，GSAP 就会往内联样式里写死 `rotate: none` 连同一份 transform 把这行压掉，
+ * 所以同一个角度在 RoundSettleLayer 里也写了一份（VERDICT_TILT_DEG），两处必须一起改。
+ */
+.settle-card__verdict {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 8px 18px;
+  border-radius: 4px;
+  /* 一小片落在纸上的影子，让章看着是"压在"卡上而不是印在卡上。
+     偏移只有 3px、不摊太开：章本来就贴着纸，影子一大就浮成了一块悬空的牌子。 */
+  box-shadow: 0 3px 10px rgb(0 0 0 / 30%);
+  color: var(--battle-paper);
+  font-size: 20px;
   font-weight: 700;
-  letter-spacing: 0.14em;
-  text-indent: 0.14em;
+  letter-spacing: 0.06em;
+  rotate: -6deg;
+}
+
+.settle-card[data-correct='true'] .settle-card__verdict {
+  background: #2f6b46;
+}
+
+/* 比阵营红再深一档：实底上压米色字，用 --c-life 那个亮度对比不够。 */
+.settle-card[data-correct='false'] .settle-card__verdict {
+  background: #9e3a2e;
+}
+
+/*
+ * 「作答中」的三个弹跳小圆点，盖在回答和推理上面。
+ *
+ * 绝对定位不占位，所以它显出来时下面的字不会被顶走，两者能在同一块地方交叉淡入淡出。
+ * 初值是 GSAP 的 autoAlpha（opacity 0 + visibility hidden）：这张卡一被渲染出来，
+ * 结果卡那段时间线就把它抬到 1（弹着表示"这个 AI 还在想"），等主线轮到这张卡打字时再淡掉。
+ */
+.settle-card__loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/*
+ * 弹跳本身是 CSS animation，是本节唯一一处（其余动画全归 GSAP）。
+ *
+ * 这里不会和 GSAP 打架，因为两边碰的根本不是同一个元素：
+ * CSS 只改圆点自己的 transform，GSAP 只改外层 .settle-card__loader 的 autoAlpha。
+ * 用 CSS 而不是再拉一条时间线，是照 CardLoader 的先例——一个一直循环、
+ * 和主线节拍无关的小动画，交给 CSS 就不用管它什么时候起停。
+ *
+ * 三个点靠 animation-delay 错开，看着像波浪一次一次推过去。
+ */
+.settle-card__loader-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--battle-ink-muted);
+  animation: settle-loader-bounce 0.9s ease-in-out infinite;
+}
+
+.settle-card__loader-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.settle-card__loader-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/*
+ * 后 40% 停在原地，弹跳之间才有一拍停顿；三个点都在跳、没有停顿的话看着像在抖。
+ */
+@keyframes settle-loader-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+
+  30% {
+    transform: translateY(-6px);
+  }
+}
+
+/* ---------- 回合结算层：底栏 ---------- */
+
+/*
+ * 三栏：左消耗、中结论、右确认。左右两栏定成同样的 300px，
+ * 中间那句结论才落在整张纸的正中——写成 1fr 的话，它会被两边内容的长短推着走。
+ */
+.settle__bottom {
+  position: relative;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: center;
+  padding: 0 28px;
+}
+
+/* 上缘的细线。只有一条，比顶栏那道双线轻——底栏是收尾，不该比开头还重。 */
+.settle__bottom::before {
+  position: absolute;
+  top: 0;
+  right: 28px;
+  left: 28px;
+  height: 1px;
+  background: var(--battle-line);
+  content: '';
+}
+
+.settle__spend {
+  margin: 0;
+  color: var(--battle-ink-muted);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.settle__spend-mine {
+  color: #2f6b46;
+  font-weight: 600;
+}
+
+.settle__spend-sep {
+  margin: 0 8px;
+  color: var(--battle-line-dark);
+}
+
+.settle__spend-foe {
+  color: var(--c-life);
+  font-weight: 600;
+}
+
+/* 「凭什么这一分给了谁」那一句，整层的落点。 */
+.settle__verdict-line {
+  margin: 0;
+  color: var(--battle-ink);
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.settle__verdict-num--mine {
+  color: #2f6b46;
+}
+
+.settle__verdict-num--foe {
+  color: var(--c-life);
+}
+
+.settle__verdict-colon {
+  color: var(--battle-ink-muted);
+}
+
+/*
+ * 按钮和它上面那句提示右对齐堆叠。按钮外观全在 .plaque-button 里，这里只管排版。
+ * 提示排在按钮上面（组件里也是这个顺序）：它说的是"就差你了"，得先看到再看到按钮。
+ */
+.settle__confirm-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  justify-self: end;
+}
+
+/*
+ * 结算层的确认按钮：和侧栏那块用的是同一个匾额（PlaqueButton），只把宽度放开一档。
+ *
+ * 匾额默认宽 min(224px, 100%) 且 overflow: hidden，而这里最长的一句是六个字
+ * （「等待对方确认」「查看终局结算」）：24px 字连 0.25em 字距要 180px，
+ * 加上左右各 30px 内边距就超过 224px，超出的部分会被直接切掉。
+ * 底栏这一列有 300px，放到 264px 仍留得下余量，所以只改宽度，其余外观照搬匾额。
+ */
+.settle__confirm {
+  width: 264px;
+}
+
+.settle__confirm-note {
+  color: var(--battle-ink-muted);
+  font-size: 13px;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
 }
 
 /*

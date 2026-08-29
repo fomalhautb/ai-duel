@@ -17,8 +17,8 @@
  *
  * 新牌进场是"从侧栏那摞牌堆飞到自己的扇形槽位"：起点由父组件通过 getDealOrigin 给，
  * 飞行本身就是那张牌的第一次布局补间（位移 + 从牌堆那么小放大到手牌尺寸）。
- * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这边的背面是"看详情"用的
- * 那一面，印着卡名和说明，拿它当牌堆的牌背用是两回事（见下面 JSX 里那两层 face）。
+ * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这里是玩家主动翻牌时看到的背面，
+ * AI 牌显示统一美术图，其他牌显示详情文字；两者都不是牌堆或对手手牌的隐藏牌背。
  *
  * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
  * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
@@ -37,7 +37,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { cardArtFor } from './cardArt'
+import { AI_CARD_BACK_ART, cardArtFor } from './cardArt'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
 import { CardFaceOverlay } from './CardFaceOverlay'
@@ -71,7 +71,7 @@ gsap.registerPlugin(useGSAP)
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
- * backText 是翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
+ * backText 是非 AI 牌翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
@@ -87,7 +87,7 @@ export interface HandCardData {
   model?: string
   /** 卡面正面的描述文案。 */
   text: string
-  /** 翻到背面时展示的补充说明。 */
+  /** 非 AI 牌翻到背面时展示的补充说明；AI 牌使用统一美术背面。 */
   backText: string
   /** 卡面插画地址；不填时按定义 id 查找原画，其余卡牌使用占位图。 */
   art?: string
@@ -1277,9 +1277,20 @@ export function HandFan({
                   </span>
                 </div>
                 <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                  <div className="card-back">
-                    <span className="card-back__title">{card.name}</span>
-                    <p className="card-back__text">{card.backText}</p>
+                  <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+                    {card.kind === 'ai' ? (
+                      <img
+                        className="card-back__art"
+                        src={AI_CARD_BACK_ART}
+                        alt="AI 牌统一卡牌背面"
+                        draggable={false}
+                      />
+                    ) : (
+                      <>
+                        <span className="card-back__title">{card.name}</span>
+                        <p className="card-back__text">{card.backText}</p>
+                      </>
+                    )}
                     {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
                       这一层和正面共用 --glare-x / --glare-y，位置是对的：
                       .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，

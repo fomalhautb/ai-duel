@@ -5882,6 +5882,30 @@ body:has(.battle) {
 }
 
 /*
+ * 「一键横屏」：进全屏 + 锁横屏的那颗（什么时候出现见 ui/OrientationNotice.tsx）。
+ * 这是整块提示的主要动作，所以给足对比——墨色实心，和下面那行淡淡的「仍要继续」拉开层级。
+ * 高度按触屏的 44px 起步，宽度取面板的大半而不是撑满，免得看着像一条横幅。
+ */
+.rotate-notice__rotate {
+  min-height: 44px;
+  padding: 12px 28px;
+  border: 1px solid var(--ink, #2e2e38);
+  background-color: var(--ink, #2e2e38);
+  color: var(--paper, #f0ecdf);
+  font: inherit;
+  font-size: 17px;
+  letter-spacing: 0.25em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.25em;
+  cursor: pointer;
+}
+
+.rotate-notice__rotate:active {
+  /* 触屏没有 hover，按下去这一下就是唯一的反馈。 */
+  opacity: 0.82;
+}
+
+/*
  * 「仍要继续」是给开了旋转锁定的人留的出口，不是主要动作，所以画成一行淡淡的下划线字，
  * 不做成按钮——做成按钮就和「请横屏」抢注意力了。
  * 点击区靠内边距撑到 44px 高：这条提示只出现在触屏上，指尖比光标粗得多。

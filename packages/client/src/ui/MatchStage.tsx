@@ -63,6 +63,7 @@ import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSkillHitFx, playSummonFx } from './playSummonFx'
+import { useStageScale } from './useStageScale'
 
 gsap.registerPlugin(useGSAP, Flip)
 
@@ -326,12 +327,18 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
  *
  * 缩放层上那个 stage-scaler 是给 JS 认的：ui/battleStage.ts 照它查当前舞台，
  * 卡组页的 .deck-scaler 也带同一个类，两页共用同一套坐标换算。样式仍写在 .battle-scaler 上。
+ *
+ * 缩放系数由 useStageScale 量 .battle-stage 的宽算出来写进 --battle-scale，
+ * 不在 CSS 里算（Safari 上会整块塌掉，原因见 ui/useStageScale.ts）。
  */
 function BattleFrame({ children }: { children: ReactNode }) {
+  const scalerRef = useStageScale<HTMLDivElement>('--battle-scale')
   return (
     <div className="battle-frame">
       <div className="battle-stage">
-        <div className="battle-scaler stage-scaler">{children}</div>
+        <div className="battle-scaler stage-scaler" ref={scalerRef}>
+          {children}
+        </div>
       </div>
     </div>
   )

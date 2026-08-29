@@ -1402,9 +1402,10 @@ body:has(.battle) {
  * 自动改成钉在舞台上，留边区域不会再被它们盖住。JS 那边把光标坐标换算回舞台内坐标的
  * 口径统一在 ui/battleStage.ts。
  *
- * --battle-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
- * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
- * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ * --battle-scale（= 舞台宽 ÷ 设计宽 1672）由 ui/useStageScale.ts 在运行时量出来写进行内样式，
+ * 不用纯 CSS 算：scale() 只吃无单位数字，而 calc 不允许长度除以长度，绕开的写法
+ * tan(atan2(100cqi, 1672px)) 在 WebKit 上有 bug（两个参数单位不一致时第二个被忽略），
+ * Safari 下算出垃圾值、整块画面被缩没。理由细节见那个文件。
  */
 .battle-frame {
   display: grid;
@@ -1417,7 +1418,6 @@ body:has(.battle) {
 }
 
 .battle-stage {
-  container-type: inline-size;
   position: relative;
   width: min(100vw, 100vh * 1672 / 941);
   aspect-ratio: 1672 / 941;
@@ -1425,7 +1425,8 @@ body:has(.battle) {
 }
 
 .battle-scaler {
-  --battle-scale: tan(atan2(100cqi, 1672px));
+  /* 兜底：JS 没跑起来时画面至少看得见，只是没缩放。真值由 useStageScale 写进行内样式。 */
+  --battle-scale: 1;
   position: absolute;
   top: 0;
   left: 0;

@@ -1,9 +1,12 @@
 /**
  * 选择英雄页（/hero）。
  *
- * 纯 UI demo：照着一张 1920×1080 的设计稿复原出选人界面，选中态、hover、确认脉冲都做全了，
- * 但一步也不往外走——不导航、不写存档、不碰 MatchSession。真要接对局时改的是
- * 下面 handleConfirm 里那一处，别的地方都不用动。
+ * 受控组件：选中谁的初值来自 props.initialHeroId，确认后把英雄交回 props.onConfirm，
+ * 返回走 props.onBack。这一页自己不导航、不写存档、不碰 MatchSession——
+ * 选完之后去哪、存不存，全由调用方决定。
+ * 七位英雄的数据直接读 core 的 HEROES 表，页面不再自带一份。
+ *
+ * 界面照着一张 1920×1080 的设计稿复原：选中态、hover、确认脉冲都做全了。
  *
  * 做法和首页同源（见 HomeScreen.tsx 文件头）：一个 1672:941 的固定宽高比舞台塞进视口居中，
  * 舞台内所有尺寸写成 cqi（1cqi = 舞台宽的 1%），窗口怎么变都只是整体等比缩放，不写断点。
@@ -22,9 +25,10 @@
  */
 
 import { useRef, useState } from 'react'
-import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { HEROES } from '@ai-duel/core'
+import type { HeroId } from '@ai-duel/core'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
@@ -33,34 +37,24 @@ import './hero.css'
 gsap.registerPlugin(useGSAP)
 
 /**
- * 七位英雄，顺序就是设计稿上从左到右、从上到下的摆放顺序。
+ * 页面上的七位英雄，直接摊平 core 的英雄表。
  *
- * 这份数据**不是**从 core 读的：packages/core/src/heroes.ts 里眼下只有格蕾丝·霍珀一位，
- * 而这一页是照设计稿先行的 UI demo，要把七张卡都摆出来。
- * 名字和英文名已经画在卡面图里了，所以这两个字段在页面上并不显示，
- * 只用来给 <img> 写 alt，以及将来接线时按 id 对上 core 的英雄表。
- * core 补齐七位之后，这个数组就该整个换成 Object.values(HEROES)。
- *
- * as const 是为了让 HEROES[0] 有确定类型（tsconfig 开了 noUncheckedIndexedAccess，
- * 普通数组下标取出来会带 undefined），下面默认选中第一位时就不用再写一次兜底。
+ * 不在这儿排序：HEROES 的键序就是设计稿上从左到右、从上到下的摆放顺序（core 那边有约定），
+ * 要调排布去改 core 表。名字和英文名已经画在卡面图里，页面上不显示，只拿来写 <img> 的 alt。
  */
-const HEROES = [
-  { id: 'fei-fei-li', name: '李飞飞', enName: 'Fei-Fei Li' },
-  { id: 'danqi-chen', name: '陈丹琦', enName: 'Danqi Chen' },
-  { id: 'melanie-perkins', name: '梅拉妮·珀金斯', enName: 'Melanie Perkins' },
-  { id: 'mira-murati', name: '米拉·穆拉蒂', enName: 'Mira Murati' },
-  { id: 'ada-lovelace', name: '阿达·洛芙莱斯', enName: 'Ada Lovelace' },
-  { id: 'margaret-hamilton', name: '玛格丽特·汉密尔顿', enName: 'Margaret Hamilton' },
-  { id: 'grace-hopper', name: '格蕾丝·霍珀', enName: 'Grace Hopper' },
-] as const
-
-type HeroId = (typeof HEROES)[number]['id']
+const HERO_LIST = Object.values(HEROES)
 
 /** 第一排 4 张、第二排 3 张，切分点写成常量免得两处魔数对不上。 */
 const FIRST_ROW_COUNT = 4
 
-/** 默认就选中第一位：选中态是这一页的主要看点，不该等玩家点一下才出现。 */
-const DEFAULT_HERO_ID: HeroId = HEROES[0].id
+/** 切好的两排。切分和渲染无关，放模块级，免得每次重画都重切一遍。 */
+const HERO_ROWS = [HERO_LIST.slice(0, FIRST_ROW_COUNT), HERO_LIST.slice(FIRST_ROW_COUNT)]
+
+/**
+ * 没有预填英雄时的兜底：选中态是这一页的主要看点，不该等玩家点一下才出现。
+ * `!` 是给 noUncheckedIndexedAccess 让路——表是写死的七位，第一位一定在。
+ */
+const DEFAULT_HERO_ID: HeroId = HERO_LIST[0]!.id
 
 /**
  * 这一页要用到的全部图片：背景 + 七张人物卡。加载完之前不上场（见下面的 HeroScreen）。
@@ -74,7 +68,7 @@ const DEFAULT_HERO_ID: HeroId = HEROES[0].id
  */
 export const HERO_ASSETS = [
   '/hero/hero-bg.webp',
-  ...HEROES.map((hero) => `/hero/card-${hero.id}.webp`),
+  ...HERO_LIST.map((hero) => `/hero/card-${hero.id}.webp`),
 ]
 
 /** hover 时卡牌上浮的距离，写成卡自身高度的百分比——GSAP 的 y 不认 cqi，用百分比才和缩放无关。 */
@@ -85,6 +79,15 @@ const CARD_HOVER_DUR = 0.25
 /** 选中 / 确认时那一下弹跳的峰值。比 hover 再大一点点，一眼看得出是「刚被选中」而不是「指针路过」。 */
 const CARD_POP_SCALE = 1.08
 
+interface HeroScreenProps {
+  /** 预填的英雄；null 表示默认选中第一位。只在挂载时读一次，之后以玩家在页面上的选择为准。 */
+  initialHeroId: HeroId | null
+  /** 确认金光动画播完才回调——跳转要是抢在动画前面，这段光效等于白做。 */
+  onConfirm: (hero: HeroId) => void
+  /** 不传就不渲染返回按钮（比如从没有上一步的入口进来）。 */
+  onBack?: () => void
+}
+
 /**
  * 加载闸门。
  *
@@ -93,14 +96,13 @@ const CARD_POP_SCALE = 1.08
  * 同一个组件里「先渲染 loader 再切成正页」的话，入场动画会在没有 DOM 的第一帧就跑掉，
  * 之后不会再补跑。理由和 HomeScreen 那道闸门完全一样。
  */
-export function HeroScreen() {
+export function HeroScreen(props: HeroScreenProps) {
   const ready = useAssetsReady(HERO_ASSETS)
-  return ready ? <HeroStage /> : <LoadingScreen />
+  return ready ? <HeroStage {...props} /> : <LoadingScreen />
 }
 
-function HeroStage() {
-  const [, navigate] = useLocation()
-  const [selectedId, setSelectedId] = useState<HeroId>(DEFAULT_HERO_ID)
+function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
+  const [selectedId, setSelectedId] = useState<HeroId>(initialHeroId ?? DEFAULT_HERO_ID)
   const rootRef = useRef<HTMLDivElement>(null)
   /** 每张卡的按钮节点，确认时要拿选中那张来播脉冲。存 ref 不存 state：它只被事件回调读。 */
   const cardsRef = useRef(new Map<HeroId, HTMLButtonElement>())
@@ -110,6 +112,11 @@ function HeroStage() {
    * 不记这一笔的话，鼠标点完不动，卡会从 pop 缩回 1 而不是缩回 hover 的 1.035，看着像掉下去了。
    */
   const hoveredRef = useRef<HTMLElement | null>(null)
+  /**
+   * 确认动画正在播。挡住重复确认，也挡住中途换人（见 selectHero）——
+   * 这样播光的卡和最后交出去的英雄一定是同一位。存 ref 不存 state：改它不需要重画界面。
+   */
+  const confirmingRef = useRef(false)
 
   const { contextSafe } = useGSAP(
     () => {
@@ -205,7 +212,9 @@ function HeroStage() {
    * contextSafe 包一层：这个 tween 是在 useGSAP 回调之外创建的，包了才会被同一个 context 回收。
    */
   const selectHero = contextSafe((hero: HeroId, card: HTMLButtonElement) => {
-    if (hero === selectedId) return
+    // 确认动画一开播就锁死选择：否则玩家还能在光效播到一半时改选，
+    // 最后交出去的却是按下确认那一刻的英雄，对不上眼前发光的那张卡。
+    if (confirmingRef.current || hero === selectedId) return
     setSelectedId(hero)
     const lift = card.querySelector<HTMLElement>('.hero__card-lift')
     if (lift === null) return
@@ -219,21 +228,31 @@ function HeroStage() {
   })
 
   /*
-   * 确认。眼下只播一段金光脉冲，不导航也不落任何状态——这一页是纯 UI demo。
-   * TODO：将来「带着英雄进房间」接在这里，大致是把 selectedId 塞进 MatchSession
-   * 或存档，再 navigate('/room')。动画照播，把跳转排在 onComplete 上即可。
+   * 确认。先播一段金光脉冲，播完（onComplete）才把英雄交给调用方：
+   * 这段光效是「就选他了」的落点，跳转抢在前面就等于没播。
+   * confirmingRef 挡连点——动画有 0.78 秒，期间反复点会叠出好几段脉冲、也会多次回调。
+   * 锁上之后 selectedId 不会再变（见 selectHero），所以下面闭包里直接用它就是最新值。
    */
   const handleConfirm = contextSafe(() => {
+    if (confirmingRef.current) return
     const card = cardsRef.current.get(selectedId)
     if (card === undefined) return
     const lift = card.querySelector<HTMLElement>('.hero__card-lift')
     const pulse = card.querySelector<HTMLElement>('.hero__card-pulse')
     if (lift === null || pulse === null) return
+    confirmingRef.current = true
 
     // autoAlpha 而不是 opacity：光晕平时是 visibility: hidden 的，
     // autoAlpha 会连 visibility 一起管，不用自己配一套延迟切换（见 hero.css 的说明）。
     gsap
-      .timeline()
+      .timeline({
+        onComplete: () => {
+          // 先解锁再回调：调用方多半会把这一页整个换掉，但万一它选择留在原地，
+          // 玩家还得能再点一次确认。
+          confirmingRef.current = false
+          onConfirm(selectedId)
+        },
+      })
       .to(
         lift,
         {
@@ -260,10 +279,14 @@ function HeroStage() {
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
-        <button type="button" className="hero__back" onClick={() => navigate('/')}>
-          <BackArrow />
-          返回
-        </button>
+        {/* 没给 onBack 就整个不渲染。入场动画那条选择器匹配不到元素时 GSAP 直接跳过，
+            不用为这种情况另写一套。 */}
+        {onBack === undefined ? null : (
+          <button type="button" className="hero__back" onClick={onBack}>
+            <BackArrow />
+            返回
+          </button>
+        )}
 
         <div className="hero__head">
           <h1 className="hero__title">
@@ -282,7 +305,7 @@ function HeroStage() {
 
         {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
         <div className="hero__grid">
-          {[HEROES.slice(0, FIRST_ROW_COUNT), HEROES.slice(FIRST_ROW_COUNT)].map((row, rowIndex) => (
+          {HERO_ROWS.map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => (
                 <button

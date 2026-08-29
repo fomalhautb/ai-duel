@@ -54,9 +54,6 @@
 }
 
 .deck-page {
-  /* --deck-scale 要按舞台宽算，所以这里必须是尺寸容器。
-     inline-size 就够：舞台是定死的 16:9，宽度一定，高度也就定了。 */
-  container-type: inline-size;
   /* 纸纹是宿主 .deck-frame 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
@@ -83,15 +80,17 @@
 /*
  * 缩放层：永远是设计稿那么大的一块盒子，整体缩到舞台里。
  *
- * --deck-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
- * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
- * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ * --deck-scale（= 舞台宽 ÷ 设计宽 1672）由 ui/useStageScale.ts 在运行时量出来写进行内样式，
+ * 不用纯 CSS 算：scale() 只吃无单位数字，而 calc 不允许长度除以长度，绕开的写法
+ * tan(atan2(100cqi, 1672px)) 在 WebKit 上有 bug（两个参数单位不一致时第二个被忽略），
+ * Safari 下算出垃圾值、整页内容被缩没。理由细节见那个文件。
+ * 下面写的 1 只是兜底：JS 没跑起来时页面至少看得见，只是没缩放。
  *
  * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
  * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
  */
 .deck-scaler {
-  --deck-scale: tan(atan2(100cqi, 1672px));
+  --deck-scale: 1;
   position: absolute;
   top: 0;
   left: 0;
@@ -242,42 +241,6 @@
   border-radius: 3px 3px 0 0;
   /* 取战场背景图的底色，钉住时和下面滚动的图接得上。 */
   background-color: #26334c;
-}
-
-.deck-factions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.deck-faction {
-  padding: 5px 13px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: rgb(255 255 255 / 4%);
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 13.5px;
-  letter-spacing: 0.1em;
-  text-indent: 0.1em;
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    color 0.16s ease;
-}
-
-.deck-faction:hover {
-  border-color: var(--line-dark);
-  background: rgb(255 255 255 / 10%);
-  color: var(--ink);
-}
-
-/* 选中项：赭红描边配一层同色底，和 PaperTabs 当前项的下划线是同一种颜色语言。 */
-.deck-faction[data-active='true'] {
-  border-color: var(--c-rust);
-  background: rgb(192 122 82 / 26%);
-  color: #f6efdd;
 }
 
 /* ---------- 卡池网格 ---------- */

@@ -367,6 +367,7 @@
 .room__hint,
 .room__status,
 .room__connect-error,
+.room__notice,
 .room__error {
   position: absolute;
   right: 0;
@@ -559,6 +560,21 @@
   font-size: 1.05cqi;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+/*
+ * 「对手已离开房间，已重新开了一间新房」那行，位置和 room__connect-error 完全一样
+ * （两者不会同时出现，见 RoomScreen 里那处三目）。区别只在颜色：这不是出错，
+ * 只是件需要知道一声的事，所以用和 room__hint 同一档的暗金，别抢走状态行的注意力。
+ */
+.room__notice {
+  top: 20cqi;
+  max-width: 32cqi;
+  margin-right: auto;
+  margin-left: auto;
+  color: var(--room-sub);
+  font-size: 1.05cqi;
+  line-height: 1.35;
 }
 
 /* 起止都停在 1，循环首尾接得上，不会每轮开头顿一下。 */
@@ -944,7 +960,63 @@
     transition-duration: 1ms;
   }
 
-  .room__dot {
+  .room__dot,
+  .room-waiting__dot {
     animation: none;
   }
+}
+
+/* ============================================================
+   等待对手锁定
+   ------------------------------------------------------------
+   房主锁完自己的卡组和英雄、还没收到客人 loadout 时的一屏（见 RoomScreen 的 WaitingStage）。
+   只有几秒钟，所以不搭舞台也不用素材：底色和字色照抄大厅，切过来只是内容变了。
+   尺寸全用 rem 不用 cqi——这里没有 container-type 的祖先，cqi 会掉回按视口算，
+   窗口一宽字就跟着变大。
+   ============================================================ */
+
+.room-waiting {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  /* 和 .room 同一个留边底色，从大厅切到这里不会闪一下背景。 */
+  background-color: #12161a;
+  user-select: none;
+}
+
+.room-waiting__line {
+  /* 抬一级压住 .grain 的 ::after 那层纹理，否则文字会被它盖在底下（同 .room__stage 的处理）。 */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin: 0;
+  /* 和 .room__status--waiting 同色：它就是「等待对手加入」那行字的下一步。 */
+  color: #97b487;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+}
+
+/* 同 .room__dot：外环 + 内芯，只改透明度不改大小，免得右边的字跟着重排抖动。 */
+.room-waiting__dot {
+  position: relative;
+  width: 0.55em;
+  height: 0.55em;
+  border: 0.05em solid currentcolor;
+  border-radius: 50%;
+  flex: none;
+  animation: room-dot-breathe 2s ease-in-out infinite;
+}
+
+.room-waiting__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.26em;
+  height: 0.26em;
+  margin: -0.13em 0 0 -0.13em;
+  border-radius: 50%;
+  background: currentcolor;
 }

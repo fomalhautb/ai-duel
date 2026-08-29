@@ -1,9 +1,11 @@
 /**
- * /deck 组建牌组 demo 页。
+ * 组建牌组页。
  *
- * 只是一个交互演示：卡池是 deckDemoCards.ts 里那 30 张假卡（拿不到 core 的 CardId），
- * 选出来的牌组不落盘、不进对局，刷新就清空——所以整页只有 useState，没有 localStorage。
- * 目的是把"选卡"这套手势先跑通：圆圈按钮加减、卡池 ↔ 牌组拖拽、点开放大看牌面。
+ * 卡池是玩家存档里已拥有的真卡（core 的 CardId，能直接进对局），
+ * 选出来的牌组只活在这一页的 state 里，满 DECK_SIZE 张点确认就把卡 id 数组交给 onConfirm——
+ * 落盘、进房、开局都由调用方接着做，这一页不写 localStorage，也不自己跳路由，
+ * 所以同一个组件既能当大厅里的独立页，也能嵌进匹配后的流程。
+ * 它的全部职责就是"选卡"这套手势：圆圈按钮加减、卡池 ↔ 牌组拖拽、点开放大看牌面。
  *
  * 三块复用件：
  * - 卡面用对局那套 HandCardFace（150×225），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
@@ -18,28 +20,34 @@
 
 import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { DECK_SIZE, getCard } from '@ai-duel/core'
+import type { CardId, HandCard } from '@ai-duel/core'
 import { CardZoomOverlay, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { HandCardFace } from '../ui/HandFan'
+import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
+import { cardBackText } from '../ui/cardText'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragHandle } from '../ui/useCardDrag'
+import { useStageScale } from '../ui/useStageScale'
 import { OrnateTitle, PaperCardBack, PaperIconDefs, PaperTabs } from '../ui/paper'
-import { DECK_DEMO_CARDS, FACTIONS } from './deckDemoCards'
-import type { DeckDemoCard, DeckFaction } from './deckDemoCards'
+import { loadSave } from '../save/save'
 import './deck.css'
 
 gsap.registerPlugin(useGSAP)
 
-/** 牌组必须正好这么多张才算组好，不满不给确认。 */
-const DECK_SIZE = 20
-/** 同一张卡最多带几份。 */
+/**
+ * 同一张卡最多带几份。
+ *
+ * 这条规则只有构筑页在守：core 不校验牌组内容，存档那边也只查张数和卡 id 认不认识
+ * （见 save/save.ts 的 parseSave），所以从这里放行的牌组不会再有第二道关卡。
+ */
 const MAX_COPIES = 2
 /** 拖拽结束后把卡送回原位的补间时长。成功和取消都走它，所以两种结果的收束速度一致。 */
 const RETURN_DUR = 0.28
@@ -54,17 +62,27 @@ const KIND_TABS = [
 type KindTabId = (typeof KIND_TABS)[number]['id']
 
 /**
- * 页签上的数字。按整个卡池实算，**不**跟着阵营筛选变：
- * 它说的是"这一类一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
+ * 把 core 的卡牌定义转成卡面要的展示数据。
+ *
+ * ui/MatchStage.tsx 里有一份同样的（handCardOfDefinition），这里是刻意抄的：
+ * 那是个三千行文件里的私有函数，为这十来行去动它的导出面，牵动的比重复一份还多。
+ * 两边要一起改的触发条件只有一个——HandCardData 加了卡面必须显示的新字段。
  */
-const KIND_COUNTS: Record<KindTabId, number> = {
-  all: DECK_DEMO_CARDS.length,
-  ai: DECK_DEMO_CARDS.filter((card) => card.kind === 'ai').length,
-  skill: DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').length,
+function handCardOfDefinition(card: HandCard): HandCardData {
+  // backText 走 ui/cardText.ts 那一份：对局和图鉴显示的是同一段话，拼法只留一处。
+  const base = {
+    id: card.id,
+    definitionId: card.id,
+    name: card.name,
+    text: card.text,
+    backText: cardBackText(card),
+    tokenCost: card.tokenCost,
+  }
+  if (card.kind === 'ai') {
+    return { ...base, kind: 'ai', model: card.model }
+  }
+  return { ...base, kind: 'skill' }
 }
-
-/** id → 卡。牌组里存的是 id，展示时要拿回整张卡的数据。 */
-const CARD_BY_ID = new Map(DECK_DEMO_CARDS.map((card) => [card.id, card]))
 
 /**
  * 牌组里的一份牌。
@@ -74,18 +92,18 @@ const CARD_BY_ID = new Map(DECK_DEMO_CARDS.map((card) => [card.id, card]))
  */
 interface DeckEntry {
   key: string
-  cardId: string
+  cardId: CardId
 }
 
 /** 正在放大查看的那张卡。side 决定飞回时去哪个容器里找原位元素。 */
 interface ZoomState {
-  card: DeckDemoCard
+  card: HandCardData
   flipId: string
   side: 'pool' | 'deck'
 }
 
 /** 卡池那张卡的 Flip 配对键。加前缀是因为同一张卡在牌组里还有一份，两边的键不能撞。 */
-function poolFlipId(cardId: string): string {
+function poolFlipId(cardId: CardId): string {
   return `pool:${cardId}`
 }
 
@@ -94,16 +112,56 @@ function deckFlipId(entryKey: string): string {
   return `deck:${entryKey}`
 }
 
-export function DeckScreen() {
-  const [, navigate] = useLocation()
+export interface DeckScreenProps {
+  /**
+   * 预填的牌组；null 从空牌组开始。调用方保证这些卡 id 都在玩家的收藏里（存档层已过滤）——
+   * 收藏里没有的那份会占着位子却画不出卡面。
+   * 只在挂载时读一次，之后改它不会覆盖玩家已经编好的牌组。
+   */
+  initialDeck: CardId[] | null
+  /** 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家选择的顺序。 */
+  onConfirm: (deck: CardId[]) => void
+  /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
+  onBack?: () => void
+}
 
+export function DeckScreen({ initialDeck, onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
-  /** null = 不按阵营筛。 */
-  const [faction, setFaction] = useState<DeckFaction | null>(null)
-  const [deck, setDeck] = useState<DeckEntry[]>([])
+  const [deck, setDeck] = useState<DeckEntry[]>(() =>
+    (initialDeck ?? []).map((cardId, index) => ({ key: `pick-${index}`, cardId })),
+  )
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
-  /** 发号器，只保证 key 不重复，数值本身没有含义。 */
-  const nextKeyRef = useRef(0)
+  /**
+   * 发号器，只保证 key 不重复，数值本身没有含义。
+   * 初值跳过预填那几份已经占掉的号（它们用的是下标），否则新加的第一张会和预填的第一份撞 key。
+   */
+  const nextKeyRef = useRef(initialDeck?.length ?? 0)
+
+  /**
+   * 卡池 = 存档里已拥有的卡，挂载时读一次。
+   * 这一页不会解锁新卡（收藏只在对局结束后变，见 save/save.ts 的 recordWin），
+   * 所以中途不用重读，读一次还能保证卡池顺序稳定、网格不会莫名重排。
+   */
+  const pool = useMemo<HandCardData[]>(
+    () => loadSave().ownedCards.map((cardId) => handCardOfDefinition(getCard(cardId))),
+    [],
+  )
+
+  /** id → 卡。牌组里存的是 id，展示时要拿回整张卡的数据。 */
+  const cardById = useMemo(() => new Map(pool.map((card) => [card.id, card])), [pool])
+
+  /**
+   * 页签上的数字。按整个卡池实算：它说的是"这一类我一共有多少张"，
+   * 和当前选中哪个页签无关。
+   */
+  const kindCounts = useMemo<Record<KindTabId, number>>(
+    () => ({
+      all: pool.length,
+      ai: pool.filter((card) => card.kind === 'ai').length,
+      skill: pool.filter((card) => card.kind === 'skill').length,
+    }),
+    [pool],
+  )
 
   const pageRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -118,31 +176,31 @@ export function DeckScreen() {
 
   // ---------- 牌组状态 ----------
 
-  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池那 30 张各自去查表。 */
+  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池里每张牌各自去查表。 */
   const copies = useMemo(() => {
-    const counted = new Map<string, number>()
+    const counted = new Map<CardId, number>()
     for (const entry of deck) counted.set(entry.cardId, (counted.get(entry.cardId) ?? 0) + 1)
     return counted
   }, [deck])
 
   const deckFull = deck.length >= DECK_SIZE
-  const copiesOf = (cardId: string) => copies.get(cardId) ?? 0
-  const canAdd = (cardId: string) => !deckFull && copiesOf(cardId) < MAX_COPIES
+  const copiesOf = (cardId: CardId) => copies.get(cardId) ?? 0
+  const canAdd = (cardId: CardId) => !deckFull && copiesOf(cardId) < MAX_COPIES
 
   /** 牌组里 AI 牌 / 技能牌各多少张。 */
   const mix = useMemo(() => {
     let ai = 0
     let skill = 0
     for (const entry of deck) {
-      const card = CARD_BY_ID.get(entry.cardId)
+      const card = cardById.get(entry.cardId)
       if (card === undefined) continue
       if (card.kind === 'ai') ai += 1
       else skill += 1
     }
     return { ai, skill }
-  }, [deck])
+  }, [deck, cardById])
 
-  const addCard = (cardId: string) => {
+  const addCard = (cardId: CardId) => {
     if (!canAdd(cardId)) return
     nextKeyRef.current += 1
     const key = `pick-${nextKeyRef.current}`
@@ -153,9 +211,9 @@ export function DeckScreen() {
     setDeck((current) => current.filter((entry) => entry.key !== entryKey))
   }
 
-  const cardOfEntry = (entryKey: string): DeckDemoCard | undefined => {
+  const cardOfEntry = (entryKey: string): HandCardData | undefined => {
     const entry = deck.find((item) => item.key === entryKey)
-    return entry === undefined ? undefined : CARD_BY_ID.get(entry.cardId)
+    return entry === undefined ? undefined : cardById.get(entry.cardId)
   }
 
   // ---------- 放大查看 ----------
@@ -201,7 +259,7 @@ export function DeckScreen() {
     })
   })
 
-  const openZoom = (card: DeckDemoCard, side: ZoomState['side'], flipId: string) => {
+  const openZoom = (card: HandCardData, side: ZoomState['side'], flipId: string) => {
     const zoom = zoomRef.current
     // hasPendingFlip：上一次的点击已经受理、对应的 effect 还没跑，这一拍抢进来会把那份状态丢掉。
     if (zoom === null || zoomed !== null || zoom.hasPendingFlip()) return
@@ -313,7 +371,7 @@ export function DeckScreen() {
     },
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (id) => {
-      const card = CARD_BY_ID.get(id)
+      const card = cardById.get(id)
       if (card !== undefined) openZoom(card, 'pool', poolFlipId(id))
     },
   })
@@ -344,17 +402,18 @@ export function DeckScreen() {
     },
   })
 
+  // ---------- 舞台缩放 ----------
+
+  // 缩放系数由 JS 量 .deck-page 的宽算出来写进 --deck-scale，不在 CSS 里算
+  //（纯 CSS 那套在 Safari 上会让整页塌掉，原因见 ui/useStageScale.ts）。
+  const scalerRef = useStageScale<HTMLDivElement>('--deck-scale')
+
   // ---------- 筛选 ----------
 
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
   const shown = useMemo(
-    () =>
-      DECK_DEMO_CARDS.filter(
-        (card) =>
-          (kindFilter === 'all' || card.kind === kindFilter) &&
-          (faction === null || card.faction === faction),
-      ),
-    [kindFilter, faction],
+    () => (kindFilter === 'all' ? pool : pool.filter((card) => card.kind === kindFilter)),
+    [pool, kindFilter],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -373,13 +432,16 @@ export function DeckScreen() {
         {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
             它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
             因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
-        <div className="deck-scaler stage-scaler">
+        <div className="deck-scaler stage-scaler" ref={scalerRef}>
           {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
           <div className="paper-page__inner">
             <header className="deck-top">
-              <button type="button" className="deck-back" onClick={() => navigate('/')}>
-                ← 返回
-              </button>
+              {/* 返回按钮是绝对定位的，不给也不会让标题挪位。 */}
+              {onBack === undefined ? null : (
+                <button type="button" className="deck-back" onClick={onBack}>
+                  ← 返回
+                </button>
+              )}
               <h1 className="deck-top__title">组建牌组</h1>
               <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
             </header>
@@ -389,31 +451,10 @@ export function DeckScreen() {
               <section className="deck-pool">
                 <div className="deck-pool__head">
                   <PaperTabs
-                    items={KIND_TABS.map((tab) => `${tab.label} ${KIND_COUNTS[tab.id]}`)}
+                    items={KIND_TABS.map((tab) => `${tab.label} ${kindCounts[tab.id]}`)}
                     active={kindTab}
                     onChange={setKindTab}
                   />
-                  <div className="deck-factions" role="group" aria-label="按阵营筛选">
-                    <button
-                      type="button"
-                      className="deck-faction"
-                      data-active={faction === null}
-                      onClick={() => setFaction(null)}
-                    >
-                      全部阵营
-                    </button>
-                    {FACTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className="deck-faction"
-                        data-active={faction === option.id}
-                        onClick={() => setFaction(option.id)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="deck-grid" ref={gridRef}>
@@ -455,7 +496,9 @@ export function DeckScreen() {
                 </div>
 
                 <p className="deck-pool__hint">
-                  {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
+                  {deckFull
+                    ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
+                    : '点击放大 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -493,7 +536,7 @@ export function DeckScreen() {
                               </li>
                             )
                           }
-                          const card = CARD_BY_ID.get(entry.cardId)
+                          const card = cardById.get(entry.cardId)
                           if (card === undefined) return null
                           const flipId = deckFlipId(entry.key)
                           return (
@@ -527,8 +570,11 @@ export function DeckScreen() {
                         {shortfall > 0 ? (
                           <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                         ) : null}
-                        {/* demo 只做视觉态：满 20 张就从禁用变成可点，但点了不做任何事。 */}
-                        <PlaqueButton className="deck-confirm" disabled={shortfall > 0}>
+                        <PlaqueButton
+                          className="deck-confirm"
+                          disabled={shortfall > 0}
+                          onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
+                        >
                           确认牌组
                         </PlaqueButton>
                         <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>

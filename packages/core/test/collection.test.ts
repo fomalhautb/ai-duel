@@ -52,9 +52,18 @@ describe('卡池与初始收藏', () => {
     }
   })
 
-  it('英雄牌不进卡表、不进卡池、也不进牌组', () => {
+  it('七位英雄都不进卡表、不进卡池、也不进牌组', () => {
     // 英雄牌是开局前单独选的，一旦漏进这三张表就会被当成能抽、能进牌组的普通牌。
-    expect(Object.keys(HEROES)).toEqual(['grace-hopper'])
+    // 键序 = 选英雄界面的展示顺序，所以这里用对顺序敏感的 toEqual 一并守着。
+    expect(Object.keys(HEROES)).toEqual([
+      'fei-fei-li',
+      'danqi-chen',
+      'melanie-perkins',
+      'mira-murati',
+      'ada-lovelace',
+      'margaret-hamilton',
+      'grace-hopper',
+    ])
     for (const id of Object.keys(HEROES)) {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)

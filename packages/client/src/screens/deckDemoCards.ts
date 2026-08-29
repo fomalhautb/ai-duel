@@ -8,9 +8,6 @@
  * 形状借 HandCardData（手牌和战场小卡共用的展示数据），额外加一个 faction：
  * 阵营只是选卡页的筛选维度，对局规则里没有这个概念，所以没往 core 里加。
  *
- * AI 牌的 tokenCost 也是假的，但必须给：卡面那层繁复叠加（CardFaceOverlay）要靠它画费用章，
- * 不给的话这些卡会退回朴素的渐变信息层，选卡页看着和对局里的同名卡不是一套东西。
- * 和 core 同名的那几张沿用 core 的数值，纯 demo 的那几张是随手编的。
  */
 
 import { AI_MODEL_CARDS } from '@ai-duel/core'
@@ -50,202 +47,9 @@ export const FACTIONS = [
 export type DeckDemoCard = HandCardData & { faction: DeckFaction }
 
 /**
- * 42 张展示卡：18 张 AI 牌（ai）+ 24 张技能牌（skill）。
- *
- * 每个阵营都同时有 AI 牌和技能牌，这样筛选栏点任何一个阵营都不会筛出空列表——
- * 演示页要能展示"筛完还有牌"的正常状态。
- *
- * AI 牌的 model 直接照抄卡名：这批 demo 卡的卡名本来就是模型名，
- * 没有"卡名和型号不是一回事"的样例可举。真卡池里两者可以不同，别照搬这个写法。
+ * 24 张技能牌展示数据。AI 牌直接取 core 的正式定义，不在这里重复维护。
  */
-const DECK_CARD_FIXTURES: DeckDemoCard[] = [
-  // ---- GPT ----
-  {
-    id: 'gpt-2',
-    faction: 'gpt',
-    kind: 'ai',
-    name: 'GPT-2',
-    model: 'GPT-2',
-    tokenCost: 1,
-    text: '它会接话，但不保证接的是人话。',
-    backText: '当年被称作"太危险所以不能发布"，如今在你手上负责垫场。',
-  },
-  {
-    id: 'gpt-3-5',
-    faction: 'gpt',
-    kind: 'ai',
-    name: 'GPT-3.5',
-    model: 'GPT-3.5',
-    tokenCost: 2,
-    text: '什么都答得上来，答得对不对是另一回事。',
-    backText: '第一个把"聊天"变成日常的模型，也是第一个被玩坏的。',
-  },
-  {
-    id: 'gpt-4o',
-    faction: 'gpt',
-    kind: 'ai',
-    name: 'GPT-4o',
-    model: 'GPT-4o',
-    tokenCost: 4,
-    text: '看得见图、听得见声，就是有点太想夸你。',
-    backText: '多模态全能选手。你说什么它都觉得是个好问题。',
-  },
-  {
-    id: 'gpt-5-6-sol',
-    faction: 'gpt',
-    kind: 'ai',
-    name: 'GPT-5.6 Sol',
-    model: 'GPT-5.6 Sol',
-    tokenCost: 7,
-    text: '它算得比你快，也比你确信。',
-    backText: '旗舰型号，进场自带聚光灯。缺点是从不觉得自己会错。',
-  },
-  // ---- Claude ----
-  {
-    id: 'claude-4-5-haiku',
-    faction: 'claude',
-    kind: 'ai',
-    name: 'Claude 4.5 Haiku',
-    model: 'Claude 4.5 Haiku',
-    tokenCost: 2,
-    text: '答得极快，代价是没来得及细想。',
-    backText: '小杯型号：抢先手很好用，被追问两句就露怯。',
-  },
-  {
-    id: 'claude-5-sonnet',
-    faction: 'claude',
-    kind: 'ai',
-    name: 'Claude 5 Sonnet',
-    model: 'Claude 5 Sonnet',
-    tokenCost: 4,
-    text: '写代码很稳，就是喜欢先解释一遍它打算怎么写。',
-    backText: '主力干活型号。让它闭嘴直接写的提示词，本身就是一门手艺。',
-  },
-  {
-    id: 'claude-fable-5',
-    faction: 'claude',
-    kind: 'ai',
-    name: 'Claude Fable 5',
-    model: 'Claude Fable 5',
-    tokenCost: 6,
-    text: '想得又深又长，长到你忘了自己问过什么。',
-    backText: '长思考型号：给它一句话，它还你一篇提纲。',
-  },
-  // ---- Kimi ----
-  {
-    id: 'kimi-k1-5',
-    faction: 'kimi',
-    kind: 'ai',
-    name: 'K1.5',
-    model: 'K1.5',
-    tokenCost: 2,
-    text: '一口气读完二十万字，然后总结错了三处。',
-    backText: '长文本起家的型号。读得完，不等于读懂了。',
-  },
-  {
-    id: 'kimi-k2-6',
-    faction: 'kimi',
-    kind: 'ai',
-    name: 'K2.6',
-    model: 'K2.6',
-    tokenCost: 3,
-    text: '嘴上说着"这个我不能回答"，手上已经开始写了。',
-    backText: '开源权重，意味着谁都能给它换一套人格。',
-  },
-  {
-    id: 'kimi-k3',
-    faction: 'kimi',
-    kind: 'ai',
-    name: 'K3',
-    model: 'K3',
-    tokenCost: 5,
-    text: '会自己调工具、自己查资料、自己相信查到的东西。',
-    backText: '智能体型号：放出去能干一整套活，就是没人复核它的中间步骤。',
-  },
-  // ---- DeepSeek ----
-  {
-    id: 'deepseek-v3-2',
-    faction: 'deepseek',
-    kind: 'ai',
-    name: 'V3.2',
-    model: 'V3.2',
-    tokenCost: 3,
-    text: '便宜、耐用、话不多。',
-    backText: '性价比款。用得起是它最大的长处。',
-  },
-  {
-    id: 'deepseek-r1',
-    faction: 'deepseek',
-    kind: 'ai',
-    name: 'R1',
-    model: 'R1',
-    tokenCost: 3,
-    text: '先自言自语三千字，再回答你那个是非题。',
-    backText: '推理型号：思维链摊开给你看，看着看着就跑题了。',
-  },
-  {
-    id: 'deepseek-v4',
-    faction: 'deepseek',
-    kind: 'ai',
-    name: 'V4',
-    model: 'V4',
-    tokenCost: 5,
-    text: '用别人一半的算力，办完一样的事。',
-    backText: '省出来的算力没花在防守上。',
-  },
-  // ---- 国产通用 ----
-  {
-    id: 'step-3-5',
-    faction: 'cn',
-    kind: 'ai',
-    name: 'Step-3.5',
-    model: 'Step-3.5',
-    tokenCost: 3,
-    text: '一步一步来，只是有一步算错了。',
-    backText: '把过程写得很清楚，所以你能一眼看出它错在哪。',
-  },
-  {
-    id: 'glm-5',
-    faction: 'cn',
-    kind: 'ai',
-    name: 'GLM-5',
-    model: 'GLM-5',
-    tokenCost: 4,
-    text: '中文说得比谁都顺，顺到你懒得核对。',
-    backText: '语感一流。语感和事实是两码事。',
-  },
-  {
-    id: 'qwen-4-max',
-    faction: 'cn',
-    kind: 'ai',
-    name: 'Qwen 4 Max',
-    model: 'Qwen 4 Max',
-    tokenCost: 4,
-    text: '什么尺寸都有，什么活都接。',
-    backText: '全家桶里的最大杯。接得多，也就漏得多。',
-  },
-  // ---- 其他 ----
-  {
-    id: 'llama-5-scout',
-    faction: 'other',
-    kind: 'ai',
-    name: 'Llama 5 Scout',
-    model: 'Llama 5 Scout',
-    tokenCost: 2,
-    text: '谁都能把它下回家，再教成自己想要的样子。',
-    backText: '开放权重的代价：安全护栏也是可以卸下来的零件。',
-  },
-  {
-    id: 'mistral-grand-3',
-    faction: 'other',
-    kind: 'ai',
-    name: 'Mistral Grand 3',
-    model: 'Mistral Grand 3',
-    tokenCost: 3,
-    text: '答得简洁利落，偶尔简洁掉了关键那句。',
-    backText: '欧洲口味：不啰嗦，也不解释。',
-  },
-
+const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
   // ---- 技能牌 ----
   {
     id: 'context-flood',
@@ -451,11 +255,10 @@ function factionForAi(cardId: string): DeckFaction {
   return 'other'
 }
 
-const SKILL_CARDS = DECK_CARD_FIXTURES.filter((card) => card.kind === 'skill')
+const SKILL_CARDS = SKILL_CARD_FIXTURES.filter((card) => card.kind === 'skill')
 
 /**
  * /deck 的实际卡池：AI 牌只使用 core 中有专属原画的 18 张正式卡；技能牌保留完整 24 张。
- * deckDemoCards.ts 里的旧 AI fixture 只作为历史文案参考，不再进入页面。
  */
 export const DECK_DEMO_CARDS: DeckDemoCard[] = [
   ...Object.values(AI_MODEL_CARDS).map((card) => ({

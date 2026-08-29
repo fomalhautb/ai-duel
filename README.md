@@ -1,6 +1,6 @@
 <h1 align="center">出牌吧，AI！</h1>
 
-<p align="center">这题你AI会吗</p>
+<p align="center">这题你AI会吗?</p>
 
 <p align="center">
   <a href="https://playyourcardai.online"><strong>playyourcardai.online</strong></a>

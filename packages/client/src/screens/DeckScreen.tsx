@@ -50,7 +50,9 @@
  * 触屏和鼠标都要能用（口径和对局页一致，见 docs/architecture.md 1.1），但不做窄屏版式：
  * 版面锁在下面那个 16:9 舞台里，手机横屏是整块等比缩小，竖屏由全局的竖屏提示拦掉。
  * 触屏上和鼠标不一样的只有两处：卡池卡和迷你卡写 touch-action: pan-y
- * （竖滑滚列表、横拖加牌移牌，见 deck.css），以及技能牌上那个问号从"移入翻面"换成"点一下翻一次"。
+ * （竖滑滚列表、横拖加牌移牌，见 deck.css），同时两个拖拽 hook 都开 touchScrollGuard，
+ * 让起拖判定变成"横滑或长按"、竖滑一律让给滚动（见 ui/useCardDrag.ts）；
+ * 以及技能牌上那个问号从"移入翻面"换成"点一下翻一次"。
  * 另外问号和格子上那颗「×」在粗指针下常驻显示——它们原本只在 hover 时露出来，
  * 触屏永远等不到，背面就再也看不到、加进去的牌也再拿不出来。
  *
@@ -1198,6 +1200,9 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const poolDrag = useCardDrag({
     zones: [{ ref: sideRef, id: 'deck' }],
     contextSafe,
+    // 卡池是一整块竖向滚动区：触屏改走"横滑或长按才起拖"，别让滚卡池顺手把牌抓起来
+    // （见 useCardDrag 的 touchScrollGuard，和 .deck-pool-card 的 touch-action: pan-y 是一套）。
+    touchScrollGuard: true,
     // 圆圈按钮（加入 / 移除）和问号热区（看背面）另有用途，按在它们上面不算抓牌。
     ignoreSelector: '.deck-circle, .deck-help',
     onDragStart: (drag) => {
@@ -1280,6 +1285,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
       { ref: pageRef, id: 'out' },
     ],
     contextSafe,
+    // 格子区同样自己滚，理由同卡池那侧。
+    touchScrollGuard: true,
     ignoreSelector: '.deck-circle, .deck-help',
     onDragStart: (drag) => {
       // 教程期间牌组里的牌一张都不许动，拖也不行：当场掐掉，别让牌跟着指针跑一段再弹回去。

@@ -20,10 +20,12 @@ import { MatchScreen } from './screens/MatchScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
 import { GenerationScreen } from './screens/GenerationScreen'
+import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 import { ResultDemo } from './dev/ResultDemo'
+import { loadSave, saveHero } from './save/save'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
@@ -37,9 +39,10 @@ export function App() {
       <TouchDeviceNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
-        {/* 选择英雄界面：照设计稿复原的纯 UI demo，选中态和动画都在，但没接对局——
-            点「确认英雄」只播一段光效，不跳转也不落任何状态。首页的「英雄」导航项仍是敬请期待。 */}
-        <Route path="/hero" component={HeroScreen} />
+        {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
+        <Route path="/hero" component={HeroRoute} />
+        {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，
+            因为选择期间房间连接必须一直活着，换路由就等于换房间码（见 RoomScreen 文件头）。 */}
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
@@ -47,9 +50,8 @@ export function App() {
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
-        {/* 组建牌组的交互 demo 页：卡池用的是 screens/deckDemoCards.ts 里那批假卡，
-            选出来的牌组不落盘也进不了对局，只用来跑通选卡的手势和版式。真卡池落地后重做。 */}
-        <Route path="/deck" component={DeckScreen} />
+        {/* 组建牌组的独立入口，见下面 DeckRoute。 */}
+        <Route path="/deck" component={DeckRoute} />
         {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
             加卡面之外的字段，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />
@@ -57,8 +59,13 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
-        {/* 结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
-            省得为了调结算版式真去打完一局。 */}
+        {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
+            按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
+            不用打完整一局就能反复看那一整套动画。 */}
+        <Route path="/test" component={SettleTestScreen} />
+        {/* 终局结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
+            省得为了调结算版式真去打完一局。和上面的 /test 分工：这里调"整局打完"的底板，
+            那里调"每一轮答完"的结算层。 */}
         <Route path="/result" component={ResultDemo} />
         {/* 预生成答题结果对照页：把离线跑好的「模型 × 题目 × 技能」结果摊成一张表，
             用来看哪张技能卡真的把模型带偏了。数据是构建期生成的静态 JSON，不联网。 */}
@@ -66,6 +73,34 @@ export function App() {
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>
+  )
+}
+
+/*
+ * /deck 和 /hero 这两条路由是**独立入口**，留给视觉迭代：敲个短地址就能单独打开这一页调样式，
+ * 不用先凑够两台机器匹配上。正式流程里的选卡组 / 选英雄不经过这里，它们是 RoomScreen 的两个阶段。
+ *
+ * 两个页面本身都是受控组件（不导航），所以这两条薄包装负责把它们接回首页。
+ *
+ * 两页的存档口径不一样：选牌页每改一张牌就自己写 save/deckStore.ts，所以这里确认时无事可做，
+ * 只管跳转；选英雄页不写存档，确认后由这里 saveHero，下次匹配时 RoomScreen 拿它预填。
+ */
+function DeckRoute() {
+  const [, navigate] = useLocation()
+  return <DeckScreen onConfirm={() => navigate('/')} onBack={() => navigate('/')} />
+}
+
+function HeroRoute() {
+  const [, navigate] = useLocation()
+  return (
+    <HeroScreen
+      initialHeroId={loadSave().savedHero}
+      onConfirm={(hero) => {
+        saveHero(hero)
+        navigate('/')
+      }}
+      onBack={() => navigate('/')}
+    />
   )
 }
 

@@ -55,9 +55,6 @@
 }
 
 .deck-page {
-  /* --deck-scale 要按舞台宽算，所以这里必须是尺寸容器。
-     inline-size 就够：舞台是定死的 16:9，宽度一定，高度也就定了。 */
-  container-type: inline-size;
   /* 纸纹是宿主 .deck-frame 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
@@ -118,15 +115,17 @@
 /*
  * 缩放层：永远是设计稿那么大的一块盒子，整体缩到舞台里。
  *
- * --deck-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
- * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
- * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ * --deck-scale（= 舞台宽 ÷ 设计宽 1672）由 ui/useStageScale.ts 在运行时量出来写进行内样式，
+ * 不用纯 CSS 算：scale() 只吃无单位数字，而 calc 不允许长度除以长度，绕开的写法
+ * tan(atan2(100cqi, 1672px)) 在 WebKit 上有 bug（两个参数单位不一致时第二个被忽略），
+ * Safari 下算出垃圾值、整页内容被缩没。理由细节见那个文件。
+ * 下面写的 1 只是兜底：JS 没跑起来时页面至少看得见，只是没缩放。
  *
  * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
  * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
  */
 .deck-scaler {
-  --deck-scale: tan(atan2(100cqi, 1672px));
+  --deck-scale: 1;
   position: absolute;
   top: 0;
   left: 0;
@@ -161,8 +160,9 @@
 }
 
 /*
- * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头怎么摆、hover 时箭头
- * 往左挪）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
+ * 返回按钮。DOM 是公共的 BackButton（ui/BackButton.tsx），排版（箭头长什么样、怎么摆、
+ * hover 时箭头往左挪、整颗套手绘抖动）在 styles.css 的 .ui-back 一节，这里只管这一页的配色。
+ * 箭头的描边取 currentColor，所以下面这行 color 一改，箭头跟着变成纸面上的墨色。
  * 那边的规则全包在 :where() 里、特指度为 0，所以下面这些单类选择器一律压得住它。
  * 不描边、不铺底：顶栏这一行是直接写在纸上的，加个框反而像贴了张标签。
  */
@@ -286,6 +286,8 @@
 }
 
 /* ---------- 筛选栏 ---------- */
+/* 现在只剩种类页签一行（阵营筛选拆了：core 的卡池没有阵营这个维度）。
+   仍然写成纵向弹性容器：再加一行筛选时直接往里塞，不用重排这一节。 */
 .deck-pool__head {
   /* 在滚动区之外，不跟着卡片滚，所以不用 sticky。
      背景仍然要不透明：它压在卡池那张背景图上。 */
@@ -328,7 +330,7 @@
   font-size: 14px;
   letter-spacing: 0.1em;
   text-indent: 0.1em;
-  /* 「AI 卡 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
+  /* 「AI 牌 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
   white-space: nowrap;
   cursor: pointer;
 }
@@ -508,7 +510,7 @@
 }
 
 /*
- * 离屏的卡不渲染内部。卡池一屏三十来张，每张里面都有一整份卡面（插画、文字层、
+ * 离屏的卡不渲染内部。卡池一屏几十张，每张里面都有一整份卡面（插画、文字层、
  * 羽化伪元素、高光层），滚动时全量重画很贵。
  *
  * 挂在 .card-face 上，而不是外层的 .deck-pool-slot / .deck-pool-card——
@@ -534,7 +536,7 @@
  *
  * 这一层是**常驻**的，静置时 opacity: 0，hover 只切透明度——合成器自己就能做完，
  * 一帧卡面都不用重画。以前是在 .deck-pool-card 上过渡 box-shadow + filter(brightness)，
- * 那两样每帧都要重新算阴影模糊和整卡提亮，一屏三十张卡的时候很贵。
+ * 那两样每帧都要重新算阴影模糊和整卡提亮，一屏几十张卡的时候很贵。
  * 宿主 .deck-pool-card 身上有 GSAP 写的内联 transform，所以高亮只能是子层，不能靠宿主自己变。
  */
 .deck-pool-card__glow {
@@ -553,6 +555,133 @@
 
 .deck-pool-card:hover .deck-pool-card__glow {
   opacity: 1;
+}
+
+/*
+ * 技能牌悬停时的正反面预览。
+ *
+ * 它挂在 16:9 舞台的缩放层内，所以这里使用设计稿坐标，不再额外按视口缩放。
+ * pointer-events: none 保证预览即使盖到原卡上也不会触发反复 enter / leave。
+ */
+.deck-skill-preview {
+  position: fixed;
+  z-index: 1050;
+  top: 50%;
+  left: 47%;
+  display: grid;
+  grid-template-columns: repeat(2, 284px);
+  gap: 28px;
+  padding: 18px 20px 14px;
+  border: 1px solid rgb(225 211 179 / 32%);
+  border-radius: 16px;
+  background: rgb(24 31 48 / 88%);
+  box-shadow: 0 24px 64px rgb(8 11 18 / 55%);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+}
+
+.deck-skill-preview__side {
+  margin: 0;
+}
+
+.deck-skill-preview__card,
+.deck-skill-back {
+  width: 284px;
+  height: 426px;
+  border-radius: 15px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 35%);
+  overflow: hidden;
+}
+
+.deck-skill-preview__side figcaption {
+  margin-top: 8px;
+  color: rgb(239 233 216 / 76%);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-align: center;
+}
+
+.deck-skill-back {
+  position: relative;
+  color: #4c4438;
+  background: #eee4d2;
+}
+
+.deck-skill-back__frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.deck-skill-back__content {
+  position: absolute;
+  inset: 19% 15% 17%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.deck-skill-back__eyebrow {
+  color: #81745f;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 13px;
+  letter-spacing: 0.24em;
+}
+
+.deck-skill-back__title {
+  margin: 11px 0 4px;
+  color: #4a4034;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 29px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.deck-skill-back__divider {
+  display: flex;
+  width: 74%;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 17px;
+  color: #a28d68;
+  font-size: 11px;
+}
+
+.deck-skill-back__divider::before,
+.deck-skill-back__divider::after {
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, transparent, rgb(139 118 80 / 70%), transparent);
+  content: '';
+}
+
+.deck-skill-back__effect {
+  margin: 0;
+  color: #554b3e;
+  font-family: ui-serif, 'Songti SC', 'Noto Serif CJK SC', serif;
+  font-size: 18px;
+  line-height: 1.8;
+  letter-spacing: 0.035em;
+  text-wrap: pretty;
+}
+
+.deck-skill-back[data-copy-size='long'] .deck-skill-back__title {
+  margin-top: 6px;
+  font-size: 25px;
+}
+
+.deck-skill-back[data-copy-size='long'] .deck-skill-back__divider {
+  margin: 4px 0 10px;
+}
+
+.deck-skill-back[data-copy-size='long'] .deck-skill-back__effect {
+  font-size: 15px;
+  line-height: 1.65;
 }
 
 /*

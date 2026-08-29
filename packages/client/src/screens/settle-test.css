@@ -1,0 +1,126 @@
+/*
+ * 回合结算测试页（/test）自己的样式。
+ *
+ * 只有两样东西：撑起舞台的外壳，和盖在最上面的那条控制条。
+ * 结算层本身一行样式都不加——那一层长什么样必须和对局里完全一致，
+ * 在这里补样式就等于在测一个只有测试页才有的界面（结算层的样式在 styles.css 那一节）。
+ */
+
+/* .battle-frame 要 height: 100% 才铺得开，中间多一层壳就得把高度接下去。 */
+.settle-test {
+  height: 100%;
+}
+
+/*
+ * 还没选场景 / 已退场时舞台中央那行提示。
+ *
+ * .battle 是两行网格（顶栏 + 正文），第一行被 HandDrawnFilterDefs 那个零尺寸的 svg 占着，
+ * 所以显式落到第二行居中，不然它会顶在画面最上面。
+ */
+.settle-test__empty {
+  grid-row: 2;
+  place-self: center;
+  color: var(--battle-ink-muted);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+/*
+ * 控制条。z-index 1300 高于结算层的 1100，不然结算层一挂出来就把它盖住了。
+ *
+ * 深色小面板，和纸面配色拉开距离：一眼能认出这是测试工具、不是界面的一部分。
+ * 钉在左上角是挑了个最不碍事的位置——结算层左上只有一行标题，
+ * 中间的步骤条、右边的比分、底部的确认按钮都不会被压到。
+ */
+.settle-test__bar {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 460px;
+  padding: 10px 12px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  border-radius: 6px;
+  background: rgb(15 21 34 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 收起之后只剩标题那一行，面板缩成一个小角标。 */
+.settle-test__bar[data-open='false'] {
+  padding: 6px 8px;
+}
+
+.settle-test__bar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.settle-test__bar-title {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.settle-test__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.settle-test__btn,
+.settle-test__mini {
+  padding: 4px 10px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  border-radius: 4px;
+  background: rgb(30 41 59 / 90%);
+  color: #e2e8f0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.settle-test__mini {
+  padding: 2px 8px;
+}
+
+.settle-test__btn:hover:not(:disabled),
+.settle-test__mini:hover {
+  border-color: rgb(226 232 240 / 70%);
+  background: rgb(51 65 85 / 95%);
+}
+
+.settle-test__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 当前正在演的那个场景高亮，免得点了几轮之后忘了自己在看哪一个。 */
+.settle-test__btn[data-active='true'] {
+  border-color: #d8b46a;
+  background: rgb(120 88 32 / 85%);
+  color: #fdf6e3;
+}
+
+.settle-test__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settle-test__status {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.settle-test__status--state {
+  color: #cbd5e1;
+}

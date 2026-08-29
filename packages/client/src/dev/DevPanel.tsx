@@ -17,6 +17,7 @@ import type { MatchDriver } from '../match/driver'
 const PHASE_LABELS: Record<GamePhase, string> = {
   play: '出牌',
   quiz: '答题',
+  settle: '结算',
   finished: '已结束',
 }
 
@@ -115,6 +116,19 @@ export function DevPanel({ driver }: { driver: MatchDriver }) {
               onClick={() => driver.send({ type: 'DEBUG_SKIP_TO_QUIZ' })}
             >
               跳到答题
+            </button>
+            {/*
+              回合结算要双方都确认才推进，而测试房对面座位上没有人：本端点完
+              「进入下一轮」就永远停在"等待对方确认"了。这个按钮替对面补上那一条，
+              顺带也是唯一能看到"对方已确认"那行小字的办法。
+            */}
+            <button
+              type="button"
+              className="battle-dev__btn"
+              disabled={state.phase !== 'settle'}
+              onClick={() => driver.send({ type: 'CONFIRM_ROUND', player: other(mySeat) })}
+            >
+              替对方确认本轮
             </button>
           </div>
 

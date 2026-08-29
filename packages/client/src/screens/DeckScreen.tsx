@@ -36,7 +36,12 @@
  *
  * 视觉沿用 /design 那套纸面 token：整页是羊皮纸，左边卡池是嵌在纸上的深蓝星图面板
  * （和对局界面"纸侧栏夹着深色战场"的关系一致），右边牌组面板是纸面雕花框。
- * 桌面鼠标环境 only，不做触屏和窄屏适配，口径和对局页一致。
+ * 触屏和鼠标都要能用（口径和对局页一致，见 docs/architecture.md 1.1），但不做窄屏版式：
+ * 版面锁在下面那个 16:9 舞台里，手机横屏是整块等比缩小，竖屏由全局的竖屏提示拦掉。
+ * 触屏上和鼠标不一样的只有两处：卡池卡和迷你卡写 touch-action: pan-y
+ * （竖滑滚列表、横拖加牌移牌，见 deck.css），以及问号从"移入翻面"换成"点一下翻一次"。
+ * 另外问号和格子上那颗「×」在粗指针下常驻显示——它们原本只在 hover 时露出来，
+ * 触屏永远等不到，背面就再也看不到、加进去的牌也再拿不出来。
  *
  * 版面锁在 16:9 舞台里，和对局页同一套（见 deck.css 的「16:9 舞台」一节）：排版永远按
  * 设计稿的 1672×941 走，整块画面交给 .deck-scaler 的 transform: scale() 缩到窗口里。
@@ -1092,6 +1097,19 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   /** 问号热区的进出。两种卡共用，翻面层由 flipHelp 自己从热区往上找。 */
   const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
   const handleHelpLeave = useStable((help: HTMLElement) => flipHelp(help, false))
+  /**
+   * 触屏点一下问号：正面翻过去，再点一下翻回来。
+   *
+   * 触屏没有 hover——pointerenter 是按下那一刻发的、pointerleave 是抬手那一刻发的，
+   * 照着上面两个抄就成了"按住才看得见背面"，手一松就翻回去，字都没读完。
+   * 和手牌那边同一个处理（见 ui/HandFan.tsx 的 handleHelpToggle），
+   * 判"现在是哪一面"同样读元素当前的实际角度，翻到一半再点也接得上。
+   */
+  const handleHelpToggle = useStable((help: HTMLElement) => {
+    const inner = help.parentElement?.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR) ?? null
+    if (inner === null) return
+    flipHelp(help, Number(gsap.getProperty(inner, 'rotationY')) < 90)
+  })
 
   // ---------- 牌组管理条 ----------
 
@@ -1480,6 +1498,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         onAdd={addFromPool}
                         onHelpEnter={handleHelpEnter}
                         onHelpLeave={handleHelpLeave}
+                        onHelpToggle={handleHelpToggle}
                         hidden={zoomed?.flipId === flipId}
                       />
                     )
@@ -1643,6 +1662,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                                 onRemove={removeEntry}
                                 onHelpEnter={handleHelpEnter}
                                 onHelpLeave={handleHelpLeave}
+                                onHelpToggle={handleHelpToggle}
                                 hidden={zoomed?.flipId === deckFlipId(entry.key)}
                               />
                             )
@@ -1791,6 +1811,7 @@ interface PoolCardProps {
   /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
+  onHelpToggle: (help: HTMLElement) => void
   /** 这张卡正被放大，原位要就地藏起来。 */
   hidden: boolean
 }
@@ -1803,6 +1824,7 @@ const PoolCard = memo(function PoolCard({
   onAdd,
   onHelpEnter,
   onHelpLeave,
+  onHelpToggle,
   hidden,
 }: PoolCardProps) {
   return (
@@ -1858,8 +1880,20 @@ const PoolCard = memo(function PoolCard({
             type="button"
             className="deck-help"
             aria-label={`查看「${card.name}」的背面`}
-            onPointerEnter={(event) => onHelpEnter(event.currentTarget)}
-            onPointerLeave={(event) => onHelpLeave(event.currentTarget)}
+            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+               理由见 handleHelpToggle。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpEnter(event.currentTarget)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpLeave(event.currentTarget)
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === 'mouse') return
+              onHelpToggle(event.currentTarget)
+            }}
           />
         </div>
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
@@ -1906,6 +1940,7 @@ interface DeckSlotItemProps {
   /** 问号热区的进出，同 PoolCardProps。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
+  onHelpToggle: (help: HTMLElement) => void
   hidden: boolean
 }
 
@@ -1916,6 +1951,7 @@ const DeckSlotItem = memo(function DeckSlotItem({
   onRemove,
   onHelpEnter,
   onHelpLeave,
+  onHelpToggle,
   hidden,
 }: DeckSlotItemProps) {
   return (
@@ -1953,8 +1989,20 @@ const DeckSlotItem = memo(function DeckSlotItem({
             type="button"
             className="deck-help deck-help--mini"
             aria-label={`查看「${card.name}」的背面`}
-            onPointerEnter={(event) => onHelpEnter(event.currentTarget)}
-            onPointerLeave={(event) => onHelpLeave(event.currentTarget)}
+            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+               理由见 handleHelpToggle。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpEnter(event.currentTarget)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpLeave(event.currentTarget)
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === 'mouse') return
+              onHelpToggle(event.currentTarget)
+            }}
           />
         </div>
         {/* 同 .deck-pool-card__glow：hover 只切 opacity。挂在外层而不是缩放层里，

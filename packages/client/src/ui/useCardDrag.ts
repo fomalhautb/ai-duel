@@ -10,7 +10,12 @@
  * 反过来说，布局、邻牌让位、装饰淡出、失败之后把牌送回哪里，全都由调用方在回调里做：
  * hook 不知道这张牌原本在哪，也就没法替调用方把它放回去。
  *
- * 只面向电脑浏览器 + 鼠标：走原生 pointer 事件，不做触屏和多指适配。
+ * 鼠标和触屏共用这一台状态机：走的是原生 pointer 事件，两种输入进来的事件形状一样，
+ * 不用各写一套。多指仍然不管——只认第一根按下的指针（见 DragState.pointerId），
+ * 第二根手指按上来不会把牌抢走，也不会开出第二次拖拽。
+ * 触屏那边还有两处要调用方配合：被拖的元素必须自己写 `touch-action: none`（或 `pan-y`），
+ * 否则手指一动浏览器就当成滚动页面、把这次拖拽整个收走；以及牌该不该抬到手指上方避开遮挡，
+ * 那件事只有调用方知道该抬多少，靠 targetOf 里的 CardDragInfo.pointerType 自己判。
  */
 
 import { useLayoutEffect, useRef } from 'react'
@@ -85,6 +90,13 @@ export interface CardDragInfo {
    */
   x: number
   y: number
+  /**
+   * 这次拖拽是用什么按下的（'mouse' / 'touch' / 'pen'），取按下那一刻的值。
+   *
+   * 给调用方区分手感用，最典型的是"手指会挡住卡面、鼠标不会"：手牌那边据此把牌抬到
+   * 手指上方（见 HandFan 的 dragTargetOf）。hook 自己一概不看它，两种输入走的是同一套逻辑。
+   */
+  pointerType: string
 }
 
 export interface UseCardDragOptions {
@@ -385,7 +397,8 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
 
   const handlePointerDown = wrap((id: string, event: ReactPointerEvent<HTMLElement>) => {
     const opts = optionsRef.current
-    // 只认鼠标主键：中键、右键、以及多指里的副指针都不该把牌抓起来。
+    // 只认主指针的主键：中键、右键、以及多指里的第二根手指都不该把牌抓起来。
+    // 触屏的第一根手指同样满足这两条（button 是 0、isPrimary 是 true），照常放行。
     if (!event.isPrimary || event.button !== 0) return
     // 这道闸要排在 enabled 前面：按在卡面上另有用途的小控件（手牌的问号热区）上不是
     // "想出这张牌"，锁着的时候也就不该触发下面那记拒绝反馈。
@@ -402,11 +415,14 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     }
     if (opts.canDrag !== undefined && !opts.canDrag(id)) return
     // 挡掉浏览器默认的文字选中和图片拖拽，不然拖到一半会拖出一片蓝色选区。
+    // 触屏上这一下**挡不住滚动**：手指的滚动手势是浏览器在另一条线程上先斩后奏的，
+    // 只有 CSS 的 touch-action 拦得住，所以被拖的元素必须自己写上（见文件头）。
     event.preventDefault()
     dragRef.current = {
       id,
       element: event.currentTarget,
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       originX: event.clientX,
       originY: event.clientY,
       x: event.clientX,

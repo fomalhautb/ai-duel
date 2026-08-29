@@ -122,7 +122,7 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     // 复读机/黑白颠倒两种，将来的限制类效果也归它管，卡面不必跟着一起改。
     // 这类效果都只持续本轮（进下一轮自动清），所以文案里不写时限也不会有歧义。
     target: 'own-affected-ai',
-    tokenCost: 3,
+    tokenCost: 2,
     text: '移除己方1个 Agent 身上的效果，它本轮照常答题，之后还能再被干扰。',
   },
   boomerang: {

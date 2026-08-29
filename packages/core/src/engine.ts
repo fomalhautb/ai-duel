@@ -449,7 +449,7 @@ function denyReason(
     case 'own-ai':
       return target.safePassed === true ? '这个 AI 已经被保送了' : null
     case 'own-affected-ai':
-      // 玉净瓶要有东西可移除才打得出去，空放一张 4 点的牌不合算，也没法给玩家交代。
+      // 玉净瓶要有东西可移除才打得出去，空放一张 2 点的牌不合算，也没法给玩家交代。
       return target.interference === undefined ? '这个 AI 身上没有可以移除的效果' : null
   }
 }

@@ -13,6 +13,7 @@
  * 和 core 同名的那几张沿用 core 的数值，纯 demo 的那几张是随手编的。
  */
 
+import { AI_MODEL_CARDS } from '@ai-duel/core'
 import type { HandCardData } from '../ui/HandFan'
 
 /** 选卡页的阵营标识。和 core 无关，只在这个 demo 里用来分组筛选。 */
@@ -57,7 +58,7 @@ export type DeckDemoCard = HandCardData & { faction: DeckFaction }
  * AI 牌的 model 直接照抄卡名：这批 demo 卡的卡名本来就是模型名，
  * 没有"卡名和型号不是一回事"的样例可举。真卡池里两者可以不同，别照搬这个写法。
  */
-export const DECK_DEMO_CARDS: DeckDemoCard[] = [
+const DECK_CARD_FIXTURES: DeckDemoCard[] = [
   // ---- GPT ----
   {
     id: 'gpt-2',
@@ -439,3 +440,45 @@ export const DECK_DEMO_CARDS: DeckDemoCard[] = [
     backText: '双方各随机保留场上一半 Agent，向上取整，其余罚下移入弃牌区。',
   },
 ]
+
+/** 正式 AI 牌按产品归入筛选项；没有独立厂商筛选项的都归到“其他”。 */
+function factionForAi(cardId: string): DeckFaction {
+  if (cardId.startsWith('gpt-') || cardId.startsWith('chatgpt-')) return 'gpt'
+  if (cardId.startsWith('claude-')) return 'claude'
+  if (cardId.startsWith('kimi-')) return 'kimi'
+  if (cardId.startsWith('deepseek-')) return 'deepseek'
+  if (['qwen', 'doubao', 'glm-5', 'minimax', 'yuanbao', 'wenxin-yiyan'].includes(cardId)) return 'cn'
+  return 'other'
+}
+
+const SKILL_CARDS = DECK_CARD_FIXTURES.filter((card) => card.kind === 'skill')
+
+/**
+ * /deck 的实际卡池：AI 牌只使用 core 中有专属原画的 18 张正式卡；技能牌保留完整 24 张。
+ * deckDemoCards.ts 里的旧 AI fixture 只作为历史文案参考，不再进入页面。
+ */
+export const DECK_DEMO_CARDS: DeckDemoCard[] = [
+  ...Object.values(AI_MODEL_CARDS).map((card) => ({
+    ...card,
+    faction: factionForAi(card.id),
+    backText: card.text,
+  })),
+  ...SKILL_CARDS,
+]
+
+export type DeckCardKindFilter = 'all' | 'ai' | 'skill'
+
+/**
+ * 阵营只属于 AI 牌。技能牌无论当前选择了哪个 AI 阵营，都应该完整显示。
+ */
+export function filterDeckCards(
+  cards: readonly DeckDemoCard[],
+  kind: DeckCardKindFilter,
+  faction: DeckFaction | null,
+): DeckDemoCard[] {
+  return cards.filter(
+    (card) =>
+      (kind === 'all' || card.kind === kind) &&
+      (card.kind === 'skill' || faction === null || card.faction === faction),
+  )
+}

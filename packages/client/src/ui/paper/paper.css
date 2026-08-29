@@ -202,7 +202,7 @@
   flex: none;
 }
 .paper-orn-title__tx { flex: none; white-space: nowrap; text-indent: 0.16em; }
-.paper-orn-title--sm { font-size: 15px; letter-spacing: 0.2em; }
+.paper-orn-title--sm { font-size: var(--fs-xl); letter-spacing: 0.2em; }
 .paper-orn-title--sm .paper-orn-title__tx { text-indent: 0.2em; }
 
 /* ============================================================
@@ -389,7 +389,7 @@
   border-radius: 6px;
   background: var(--navy);
   color: var(--paper);
-  font-size: 14px; letter-spacing: .14em; text-indent: .14em;
+  font-size: var(--fs-lg); letter-spacing: .14em; text-indent: .14em;
   border: 1px solid var(--line-dark);
   white-space: nowrap;
 }
@@ -521,14 +521,14 @@
    这样它缩成右上角一个小标签，不会继续压住页面内容。 */
 .paper-tuner--collapsed { width: auto; }
 .paper-tuner--collapsed .paper-tuner__hd { border-bottom: none; }
-.paper-tuner__title { font-size: 14px; font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
+.paper-tuner__title { font-size: var(--fs-lg); font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
 .paper-tuner__bd { overflow-y: auto; padding: 4px 12px 12px; }
 /* 收起用 display: none 而不是把节点拆掉：滑条的滚动位置能留住，
    标题栏那个按钮的 aria-controls 也才有东西可指。 */
 .paper-tuner--collapsed .paper-tuner__bd { display: none; }
 
 .paper-tuner__group {
-  font-size: 11.5px; letter-spacing: .12em;
+  font-size: var(--fs-sm-plus); letter-spacing: .12em;
   color: var(--ink-2);
   margin: 14px 0 6px;
   padding-bottom: 4px;
@@ -537,20 +537,20 @@
 .paper-tuner__row { margin: 7px 0; }
 .paper-tuner__lb {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 12px; letter-spacing: .02em; color: var(--ink-2);
+  font-size: var(--fs-md); letter-spacing: .02em; color: var(--ink-2);
 }
-.paper-tuner__val { color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.paper-tuner__val { color: var(--ink); font-weight: 600; font-size: var(--fs-md-plus); }
 .paper-tuner__row input[type=range] {
   width: 100%; margin: 2px 0 0; height: 16px;
   accent-color: var(--c-rust);   /* 够用了，不值得为一个调参工具重写滑条样式 */
   cursor: pointer;
 }
 .paper-tuner__seed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
-.paper-tuner__seed span { font-size: 12px; color: var(--ink-2); }
+.paper-tuner__seed span { font-size: var(--fs-md); color: var(--ink-2); }
 
 .paper-tbtn {
   font: inherit;
-  font-size: 12.5px; letter-spacing: .08em;
+  font-size: var(--fs-md-plus); letter-spacing: .08em;
   color: var(--ink);
   background: var(--paper-shade);
   border: 1px solid var(--line-dark);
@@ -562,13 +562,13 @@
 .paper-tbtn:hover { background: #d8d0b9; }
 .paper-tbtn--primary { background: var(--navy); color: var(--paper); border-color: var(--navy); }
 .paper-tbtn--primary:hover { background: #2a3856; color: #e8c9ae; }
-.paper-tbtn--sm { padding: 2px 8px; font-size: 11.5px; }
+.paper-tbtn--sm { padding: 2px 8px; font-size: var(--fs-sm-plus); }
 
 /* 参数摘要：要能整段选中复制，所以保留换行的纯文本块 */
 .paper-tuner__summary {
   margin-top: 14px;
   padding: 8px 9px;
-  font-size: 11px; line-height: 1.7; letter-spacing: .01em;
+  font-size: var(--fs-sm); line-height: 1.7; letter-spacing: .01em;
   color: var(--ink-2);
   background: rgba(138,130,112,.12);
   border-radius: 4px;
@@ -582,7 +582,7 @@
    提示出现和消失时下面的内容不会跟着跳。 */
 .paper-tuner__toast {
   margin-top: 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm-plus);
   min-height: 16px;
 }
 .paper-tuner__toast--ok   { color: var(--c-green); }

@@ -244,7 +244,7 @@
 .deck-top__sub {
   margin: 0;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
 }
 
@@ -357,7 +357,7 @@
   background: rgb(255 255 255 / 5%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.1em;
   text-indent: 0.1em;
   /* 「AI 牌 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
@@ -451,7 +451,7 @@
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13.5px;
+  font-size: var(--fs-base-plus);
   letter-spacing: 0.1em;
   text-indent: 0.1em;
   cursor: pointer;
@@ -935,7 +935,7 @@
   border-radius: 0 0 3px 3px;
   background-color: var(--night);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   text-align: center;
 }
@@ -1294,7 +1294,7 @@
   background: rgb(255 255 255 / 30%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1329,7 +1329,7 @@
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1;
   cursor: pointer;
   transition:
@@ -1382,7 +1382,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1398,7 +1398,7 @@
   background: var(--paper);
   color: var(--ink);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.06em;
 }
 
@@ -1417,7 +1417,7 @@
   background: rgb(255 255 255 / 30%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   cursor: pointer;
   transition:
@@ -1458,7 +1458,7 @@
 
 .deck-manage__confirm-text {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.06em;
 }
 
@@ -1469,7 +1469,7 @@
   background: rgb(255 255 255 / 40%);
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   cursor: pointer;
   transition:
     border-color 0.16s ease,
@@ -1509,7 +1509,7 @@
   gap: 6px;
   margin: 0;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: var(--fs-lg);
   letter-spacing: 0.06em;
 }
 
@@ -1530,7 +1530,7 @@
 .deck-tally__mix {
   margin: 0;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.06em;
 }
 
@@ -1595,7 +1595,7 @@
   flex: none;
   min-width: 38px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.04em;
   text-align: right;
 }
@@ -1819,7 +1819,7 @@
   flex: none;
   margin: 0;
   color: var(--c-life);
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
 }
 
@@ -1834,7 +1834,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-md-plus);
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1859,7 +1859,7 @@
   background: rgb(14 21 36 / 92%);
   box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
   color: #ffeec5;
-  font-size: 12px;
+  font-size: var(--fs-md);
   letter-spacing: 0.08em;
   white-space: nowrap;
   pointer-events: none;
@@ -2023,7 +2023,7 @@
   background: none;
   color: rgb(239 233 216 / 78%);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.12em;
   cursor: pointer;
   transition: color 0.16s ease;
@@ -2045,6 +2045,6 @@
 .deck-zoom-side__why {
   flex: none;
   color: #e79c92;
-  font-size: 13px;
+  font-size: var(--fs-base);
   letter-spacing: 0.08em;
 }

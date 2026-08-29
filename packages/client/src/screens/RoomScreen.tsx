@@ -680,7 +680,7 @@ function RoomStage({
               alt=""
               draggable={false}
             />
-            <span className="room__banner-label">选择AI卡组</span>
+            <span className="room__banner-label">查看卡组</span>
           </span>
         </button>
 
@@ -692,7 +692,7 @@ function RoomStage({
               alt=""
               draggable={false}
             />
-            <span className="room__banner-label">选择英雄</span>
+            <span className="room__banner-label">查看英雄</span>
           </span>
         </button>
 

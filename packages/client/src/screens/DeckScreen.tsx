@@ -9,11 +9,23 @@
  * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
  * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
  *
- * 三块复用件：
- * - 卡面用对局那套 HandCardFace（150×225），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
+ * 四块复用件：
+ * - 卡面用对局那套 HandCardFace（写死 150×225）。卡池卡放大、牌组迷你卡缩小，都是在内层套一个
+ *   缩放盒整体缩放（--deck-pool-scale / --deck-mini-scale），卡面自己一个像素都不用改；
+ * - 每张卡的层级抄手牌那套（见 ui/HandFan.tsx 的三层分工）：外层是拖拽 / Flip 的 transform 元素，
+ *   里面 __tilt 管倾斜（ui/cardTilt.ts 写 rotationX / rotationY）、__inner 管翻面
+ *   （ui/flipCard.ts，由右上角的问号热区驱动），再里面是正反两个 face。
+ *   两面身上的 data-flip-face 是 flipCard.ts 认人的契约。倾斜句柄按 id 存在
+ *   poolTiltsRef / deckTiltsRef 里，卡增减时增量挂 / 摘（见下面那个 useGSAP）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
- *   （不传 veilRef），点遮罩和 ESC 都能关。
+ *   （不传 veilRef），点遮罩和 ESC 都能关。正面大卡落在中央偏左（落位由 deck.css 覆盖），
+ *   右边由本页自己渲染的伴随层 .deck-zoom-side 摆一张同尺寸的背面大卡和一行操作。
+ *   两张大卡都跟着指针倾斜（同 cardTilt.ts），落位后没有别的自发动效。
+ *
+ * 加牌不是"瞬间填进格子"：拖拽松手、点加号、放大层里点「加入牌组」三个入口都先量一份
+ * Flip 起点存进 pendingInsertRef，等新格子挂载之后，再把那张迷你卡从起点飞进格子。
+ * 加不进去（牌组满了 / 已经两份）时不是静默失败，而是摇头 + 在卡上方弹一句原因（见 refuseAdd）。
  *
  * 性能上有三处刻意的安排，改这一页时别顺手拆掉：
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
@@ -26,9 +38,10 @@
  * （和对局界面"纸侧栏夹着深色战场"的关系一致），右边牌组面板是纸面雕花框。
  * 触屏和鼠标都要能用（口径和对局页一致，见 docs/architecture.md 1.1），但不做窄屏版式：
  * 版面锁在下面那个 16:9 舞台里，手机横屏是整块等比缩小，竖屏由全局的竖屏提示拦掉。
- * 触屏上和鼠标不一样的只有三处：卡池/牌组的卡写 touch-action: pan-y
- * （竖滑滚列表、横拖加牌移牌，见 deck.css），技能牌的悬停预览只给鼠标（触屏点一下就是整张放大），
- * 以及格子上那颗「×」在粗指针下常驻显示——它原本只在 hover 时露出来，触屏永远等不到。
+ * 触屏上和鼠标不一样的只有两处：卡池卡和迷你卡写 touch-action: pan-y
+ * （竖滑滚列表、横拖加牌移牌，见 deck.css），以及问号从"移入翻面"换成"点一下翻一次"。
+ * 另外问号和格子上那颗「×」在粗指针下常驻显示——它们原本只在 hover 时露出来，
+ * 触屏永远等不到，背面就再也看不到、加进去的牌也再拿不出来。
  *
  * 版面锁在 16:9 舞台里，和对局页同一套（见 deck.css 的「16:9 舞台」一节）：排版永远按
  * 设计稿的 1672×941 走，整块画面交给 .deck-scaler 的 transform: scale() 缩到窗口里。
@@ -41,12 +54,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { Flip } from 'gsap/Flip'
 import { CARD_POOL, getCard } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
-import { cardArtFor } from '../ui/cardArt'
+import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
-import { CardZoomOverlay, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
+import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
@@ -54,7 +68,11 @@ import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
+import { attachCardTilt } from '../ui/cardTilt'
+import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardBackText } from '../ui/cardText'
+import { flipTo, setFlipAngle } from '../ui/flipCard'
+import { prefersReducedMotion } from '../ui/reducedMotion'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
 import { useStageScale } from '../ui/useStageScale'
@@ -75,13 +93,65 @@ import type { DecksData } from '../save/deckStore'
 import { loadSave } from '../save/save'
 import { FACTIONS, filterDeckCards } from './deckFactions'
 import type { DeckFaction } from './deckFactions'
-import { SkillCardHoverPreview } from './SkillCardHoverPreview'
 import './deck.css'
 
-gsap.registerPlugin(useGSAP)
+gsap.registerPlugin(useGSAP, Flip)
 
-/** 拖拽结束后把卡送回原位的补间时长。成功和取消都走它，所以两种结果的收束速度一致。 */
+/**
+ * 拖拽取消后把卡送回原位的补间时长。
+ *
+ * 只有取消才走它。卡池那张牌加入成功之后不再播归位：那一刻格子里已经多出一份牌，
+ * 正从松手位置飞过去（见 pendingInsertRef），卡池位当场补回原状才是"这张变成了那一份"的语义；
+ * 再补一段归位就成了两张牌同时从同一个地方各飞各的。
+ */
 const RETURN_DUR = 0.28
+
+/** 卡池卡跟着指针倾斜的最大角度。比手牌小一档：这一屏卡多，幅度大了整片都在晃。 */
+const POOL_TILT_DEG = 6
+/** 迷你卡的倾角。卡更小，同样的角度看着更夸张，所以再收一点。 */
+const MINI_TILT_DEG = 5
+/** 放大查看那张大卡的倾角。 */
+const ZOOM_TILT_DEG = 5
+
+/** 问号热区翻面的时长，和手牌那份（HandFan 的 handleHelpEnter）保持一致。 */
+const HELP_FLIP_DUR = 0.4
+
+/** 新加的那一份牌从起点飞进格子的时长。 */
+const INSERT_DUR = 0.4
+/**
+ * 飞行跑完再多等这一会儿，才把卡从 fixed 切回文档流。
+ * 正好卡在补间末帧切会看到一次跳动，这 0.06 秒是留给收尾的余量（同 liftCardForFlight）。
+ */
+const DROP_BACK_DELAY = 0.06
+/**
+ * 飞进格子那一程的层级。
+ * 同层的其它格子都没有 z-index，飞行途中从它们上空经过时不抬一层就会被盖住。
+ * 值和拖拽用的 DRAG_Z 一档，两者不会同时发生在同一张卡上。
+ */
+const INSERT_FLIGHT_Z = 1000
+
+/** 放大查看的伴随层淡入淡出时长。比遮罩（0.25 / 0.3）稍快一点收，不抢卡的戏。 */
+const ZOOM_SIDE_FADE = 0.25
+/** 「移出牌组」时那张大卡自己先淡掉的时长，免得它跟着状态一起硬消失。 */
+const ZOOM_REMOVE_FADE = 0.18
+
+/** 提示浮字停留多久开始淡出（毫秒）。 */
+const ADD_TIP_HOLD_MS = 1200
+/** 提示浮字底边到卡顶的距离（舞台内像素）。 */
+const ADD_TIP_GAP = 10
+
+/**
+ * 加不进牌组的两种原因。浮字提示和放大层里那行小字用的是同一句话，所以只留一份。
+ */
+const DECK_FULL_TIP = `牌组已满 ${DECK_SIZE} 张`
+const MAX_COPIES_TIP = `同一张牌最多带 ${MAX_COPIES} 份`
+
+/**
+ * 一张卡里那两层的选择器。卡池卡和迷你卡的类名不一样，但要找的层是同一个角色，
+ * 所以写成两个逗号选择器放在一处，免得每个调用点各记一份对照表。
+ */
+const TILT_LAYER_SELECTOR = '.deck-pool-card__tilt, .deck-mini__tilt'
+const FLIP_LAYER_SELECTOR = '.deck-pool-card__inner, .deck-mini__inner'
 
 /**
  * 把 core 的卡牌定义转成卡面要的展示数据。
@@ -176,6 +246,11 @@ interface ZoomState {
   card: HandCardData
   flipId: string
   side: 'pool' | 'deck'
+  /**
+   * 这张卡在它那一侧的身份：卡池侧是 CardId，牌组侧是这一份牌的 entry.key。
+   * 伴随层上那两颗按钮（加入 / 移出）要拿它去改牌组，光有 flipId 还得再解析一遍前缀。
+   */
+  sourceId: string
 }
 
 /** 卡池那张卡的 Flip 配对键。加前缀是因为同一张卡在牌组里还有一份，两边的键不能撞。 */
@@ -245,6 +320,19 @@ function useBindCache() {
   return { attach, bindOf, retain }
 }
 
+/**
+ * 把「每次渲染都换一份新身份」的回调钉成一个稳定的函数。
+ *
+ * 专门给要往下传给那两个 React.memo 卡片组件的回调用：contextSafe 包出来的函数每次渲染
+ * 都是新对象，直接传下去 memo 就永远命不中，加一张牌会重画整屏几十张卡。
+ * 返回的壳子身份不变，每次调用都转给最新那一份实现，所以闭包里读到的永远是这一拍的状态。
+ */
+function useStable<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+  const ref = useRef(fn)
+  ref.current = fn
+  return useCallback((...args: A) => ref.current(...args), [])
+}
+
 export interface DeckScreenProps {
   /**
    * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
@@ -265,7 +353,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    */
   const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
-  const [previewedSkill, setPreviewedSkill] = useState<HandCardData | null>(null)
+  /**
+   * 伴随层（.deck-zoom-side）渲染用的那份放大状态。
+   *
+   * 和 zoomed 分成两份，是因为关闭时伴随层还要接着演 0.25 秒淡出，而那一刻 zoomed 已经被清空了
+   *（清空是 CardZoomOverlay 的约定，见它 onClose 的说明）。所以这一份只在打开时更新、从不清空，
+   * 淡出期间它渲染的就是"刚才那张卡"。
+   */
+  const [zoomSide, setZoomSide] = useState<ZoomState | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
   const nextKeyRef = useRef(0)
 
@@ -276,6 +371,27 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const slotsRef = useRef<HTMLUListElement>(null)
   const zoomRef = useRef<CardZoomHandle>(null)
   const manageRef = useRef<HTMLDivElement>(null)
+  /** 当前那一枚牌组 tab。切牌组后要把它滚进视野，所以只给当前项挂 ref。 */
+  const currentTabRef = useRef<HTMLButtonElement>(null)
+  /** 放大查看的伴随层。GSAP 只改它的 autoAlpha，里面的排版照常用 CSS transform。 */
+  const zoomSideRef = useRef<HTMLDivElement>(null)
+  /** 常驻的单例浮字（「牌组已满」之类），位置和文案都由 showAddTip 现写。 */
+  const addTipRef = useRef<HTMLDivElement>(null)
+  /** 浮字淡出的计时。连着触发两次要重新计时，所以得记下来能撤。 */
+  const addTipTimerRef = useRef<number | null>(null)
+
+  /**
+   * 每张卡的倾斜句柄，按 id 存：卡池按 CardId，牌组按 entry.key。
+   *
+   * 存起来是为了两件事：卡增减时只挂新的、只摘走了的（整批重挂的坏处见下面那个 useGSAP），
+   * 以及起拖 / 点开放大之前拿它 reset()，把高光一起收掉。
+   */
+  const poolTiltsRef = useRef(new Map<string, CardTiltHandle>())
+  const deckTiltsRef = useRef(new Map<string, CardTiltHandle>())
+  /** 屏幕中央那张大卡的倾斜句柄。它随放大层挂载 / 卸载，所以只有一个。 */
+  const zoomTiltRef = useRef<CardTiltHandle | null>(null)
+  /** 伴随层那张背面大卡的倾斜句柄。和上面那张一起挂、一起摘，所以同样只有一个。 */
+  const zoomSideTiltRef = useRef<CardTiltHandle | null>(null)
 
   // 缩放系数由 JS 量 .deck-page 的宽算出来写进 --deck-scale，不在 CSS 里算
   //（纯 CSS 那套在 Safari 上会让整页塌掉，原因见 ui/useStageScale.ts）。
@@ -388,20 +504,28 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const deckFull = deck.length >= DECK_SIZE
 
   /**
-   * 现在还能不能再加一份这张卡。
+   * 现在加不了这张卡的原因；能加就是 null。
    *
-   * 读 deckRef 而不是上面那个 copies：拖拽回调是跨渲染活着的，闭包里的 state 会过期。
-   * 渲染时算 canAdd 走 copies，两边结论一致，只是取数的地方不同。
+   * 读 deckRef 而不是上面那个 copies：拖拽和按钮回调都是跨渲染活着的，闭包里的 state 会过期。
+   * 渲染期也照样调它——deckRef 在渲染里就已经跟着 deck 更新过了，两边读到的是同一份。
+   *
+   * 返回原因而不是布尔，是因为"加不了"现在要说话（浮字提示、放大层里的小字），
+   * 让判定和话术留在同一处，免得两边各写一次 if 又对不上。
    */
-  const canAddNow = useCallback((cardId: CardId) => {
+  const blockReasonNow = useCallback((cardId: CardId): string | null => {
     const current = deckRef.current
-    if (current.length >= DECK_SIZE) return false
+    if (current.length >= DECK_SIZE) return DECK_FULL_TIP
     let owned = 0
     for (const entry of current) {
       if (entry.cardId === cardId) owned += 1
     }
-    return owned < MAX_COPIES
+    return owned >= MAX_COPIES ? MAX_COPIES_TIP : null
   }, [])
+
+  const canAddNow = useCallback(
+    (cardId: CardId) => blockReasonNow(cardId) === null,
+    [blockReasonNow],
+  )
 
   /** 牌组里 AI 牌 / 技能牌各多少张。 */
   const mix = useMemo(() => {
@@ -416,11 +540,41 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     return { ai, skill }
   }, [deck])
 
+  /**
+   * 刚加进牌组的那一份牌要从哪儿飞过来。
+   *
+   * 加牌是"发一个 key → React 挂出新格子"，而飞行只能等新格子真的在 DOM 里才播得起来，
+   * 所以起点量完先存这儿，由下面那个依赖 deck 的 useGSAP 接手。
+   * 三个入口（拖拽松手、点加号、放大层里点「加入牌组」）走的都是这一条路。
+   */
+  const pendingInsertRef = useRef<{ key: string; state: Flip.FlipState } | null>(null)
+
+  /**
+   * 加一份牌。
+   *
+   * captureFrom 是这一份牌"从哪儿飞进来"的起点元素（拖着的那张卡池卡、或卡池里的原位卡）；
+   * 不传就没有飞行，牌直接出现在格子里（眼下没有这样的调用方，留着是因为飞行是锦上添花，
+   * 起点元素查不到时应该照样加得进去）。
+   */
   const addCard = useCallback(
-    (cardId: CardId) => {
+    (cardId: CardId, captureFrom?: HTMLElement) => {
       if (!canAddNow(cardId)) return
       nextKeyRef.current += 1
-      commitDeck([...deckRef.current, { key: `pick-${nextKeyRef.current}`, cardId }])
+      const key = `pick-${nextKeyRef.current}`
+      if (captureFrom !== undefined) {
+        /*
+         * Flip 靠 data-flip-id 把"起点元素"和"落点元素"认成同一张牌，而这两个元素本来
+         * 带着各自的 id（卡池那张是 pool:xxx，格子里这一份是 deck:key），对不上就不会飞。
+         * 所以量之前先把起点临时改名成这一份牌的 id，量完立刻改回去——
+         * 全在同一拍的同步代码里，React 不会看见中间那一下，下次渲染写回来的也还是原来那个。
+         */
+        const original = captureFrom.dataset.flipId
+        captureFrom.dataset.flipId = deckFlipId(key)
+        pendingInsertRef.current = { key, state: Flip.getState(captureFrom) }
+        if (original === undefined) delete captureFrom.dataset.flipId
+        else captureFrom.dataset.flipId = original
+      }
+      commitDeck([...deckRef.current, { key, cardId }])
     },
     [canAddNow, commitDeck],
   )
@@ -441,6 +595,117 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     const entry = deckRef.current.find((item) => item.key === entryKey)
     return entry === undefined ? undefined : CARD_BY_ID.get(entry.cardId)
   }
+
+  // ---------- 倾斜 / 翻面 / 拒绝反馈 ----------
+
+  /**
+   * 问号热区：指针进来翻到背面，离开翻回正面。
+   *
+   * 拿到的是热区本身，翻面层是它的兄弟节点（热区在 __tilt 里、__inner 外，理由见 deck.css
+   * 的「问号」一节），所以从父级往下查。卡池卡和迷你卡共用这一个函数，两边的类名都在
+   * FLIP_LAYER_SELECTOR 里。
+   */
+  const flipHelp = contextSafe((help: HTMLElement, toBack: boolean) => {
+    const inner = help.parentElement?.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR) ?? null
+    if (inner === null) return
+    flipTo(inner, toBack ? 180 : 0, HELP_FLIP_DUR)
+  })
+
+  /**
+   * 把一张卡的倾斜和翻面就地归零，并收掉高光。
+   *
+   * 起拖（liftCardOut）和点开放大（Flip.getState）之前必须先做这一下：那两处量的都是
+   * getBoundingClientRect 给的**外接**矩形，而歪着或转了一半的卡，外接矩形比卡本身大一圈，
+   * 照那个矩形接着算，起拖和起飞的第一帧就会看见卡跳一下、还连带缩错大小。
+   *
+   * 两步的顺序不能反：先把角度写死再 reset()。反过来的话，reset 里那条归零补间会在重启的
+   * 那一刻记下"当时的角度"当起点，随后我们把角度抹成 0，它下一帧又从记下的角度补回来，
+   * 等于白归零（cardTilt 的 settle(true) 里有这条补间的来龙去脉）。
+   */
+  const settleCard = contextSafe((element: HTMLElement, tilt?: CardTiltHandle) => {
+    const inner = element.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR)
+    if (inner !== null) {
+      // 翻面补间还在跑的话，只 set 一下会被它下一帧覆盖回去。
+      gsap.killTweensOf(inner)
+      setFlipAngle(inner, 0)
+    }
+    const layer = element.querySelector<HTMLElement>(TILT_LAYER_SELECTOR)
+    if (layer !== null) gsap.set(layer, { rotationX: 0, rotationY: 0 })
+    tilt?.reset()
+  })
+
+  const clearAddTipTimer = () => {
+    if (addTipTimerRef.current === null) return
+    clearTimeout(addTipTimerRef.current)
+    addTipTimerRef.current = null
+  }
+
+  /**
+   * 把提示浮字挪到某张卡正上方，淡入停一会儿再淡出。
+   *
+   * 文案由调用方在触发那一刻写进节点，而不是交给 JSX 跟着状态渲染：淡出还要跑 0.25 秒，
+   * 这段时间里牌组要是又变了（比如玩家紧接着移掉一张），React 会当场把字换掉甚至清空，
+   * 玩家就眼睁睁看着一句自己没触发过的话在那儿淡出（同 HandFan 的 showLockTip）。
+   *
+   * 定位：卡的矩形是视口坐标（舞台带着 scale），浮字写的 left / top 是舞台内像素，
+   * 所以要减掉浮字那个定位祖先的原点再除以缩放。用 offsetParent 现查而不是写死某个 ref，
+   * 挪动这个节点在 DOM 里的位置时不用回来改这里。
+   * 居中和"贴着卡顶往上长"交给 GSAP 的 xPercent / yPercent：GSAP 接管 transform 时会往内联
+   * 样式里写 translate: none，CSS 那份独立变换属性根本活不下来。
+   */
+  const showAddTip = contextSafe((cardEl: HTMLElement, text: string) => {
+    const tip = addTipRef.current
+    const host = tip?.offsetParent ?? null
+    if (tip === null || host === null) return
+    tip.textContent = text
+    const cardRect = cardEl.getBoundingClientRect()
+    const hostRect = host.getBoundingClientRect()
+    const { scale } = battleStageMetrics()
+    gsap.set(tip, {
+      left: (cardRect.left + cardRect.width / 2 - hostRect.left) / scale,
+      top: (cardRect.top - hostRect.top) / scale - ADD_TIP_GAP,
+      xPercent: -50,
+      yPercent: -100,
+    })
+    gsap.fromTo(
+      tip,
+      { autoAlpha: 0, y: 8 },
+      { autoAlpha: 1, y: 0, duration: 0.18, ease: 'power2.out', overwrite: true },
+    )
+    // 连着触发同一句提示时重新计时，免得它刚弹出来就被上一次的计时收走。
+    clearAddTipTimer()
+    addTipTimerRef.current = window.setTimeout(() => {
+      addTipTimerRef.current = null
+      gsap.to(tip, { autoAlpha: 0, duration: 0.25, overwrite: true })
+    }, ADD_TIP_HOLD_MS)
+  })
+
+  /**
+   * 加不进去的时候摇个头，再在卡顶弹一句为什么。
+   *
+   * 摇头写在 tilt 层的 z 轴 rotation 上：那一层现有的倾斜只写 rotationX / rotationY，
+   * z 轴空着，两边互不干扰（同 HandFan 的 refusePlay）。外层是拖拽和 Flip 的地盘，动不得。
+   */
+  const refuseAdd = contextSafe((cardEl: HTMLElement, reason: string) => {
+    const layer = cardEl.querySelector<HTMLElement>(TILT_LAYER_SELECTOR)
+    if (layer !== null && !prefersReducedMotion()) {
+      gsap.to(layer, {
+        keyframes: [
+          { rotation: -3 },
+          { rotation: 2.4 },
+          { rotation: -1.6 },
+          { rotation: 0.8 },
+          { rotation: 0 },
+        ],
+        duration: 0.35,
+        ease: 'power2.out',
+      })
+    }
+    showAddTip(cardEl, reason)
+  })
+
+  // 组件卸载时把还排着的淡出计时撤掉：回调里会去碰一个已经卸载的节点。
+  useEffect(() => clearAddTipTimer, [])
 
   // ---------- 放大查看 ----------
 
@@ -522,19 +787,28 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     )
   })
 
-  const openZoom = (card: HandCardData, side: ZoomState['side'], flipId: string) => {
+  /**
+   * 点开放大。sourceId 卡池侧是 CardId、牌组侧是 entry.key，flipId 照它拼。
+   */
+  const openZoom = (card: HandCardData, side: ZoomState['side'], sourceId: string) => {
     const zoom = zoomRef.current
     // hasPendingFlip：上一次的点击已经受理、对应的 effect 还没跑，这一拍抢进来会把那份状态丢掉。
     if (zoom === null || zoomed !== null || zoom.hasPendingFlip()) return
+    const flipId = side === 'pool' ? poolFlipId(sourceId) : deckFlipId(sourceId)
     const origin = findOrigin(side, flipId)
     if (origin === null) return
     // 上一次的飞回还没走完就又点开一张：先把面板的临时抬升撤掉，
     // 否则这次放大期间它会浮在遮罩之上不被压暗（晚一点到期的那次 delayedCall 只是再删一遍，无害）。
     const sideEl = sideRef.current
     if (sideEl !== null) delete sideEl.dataset.zoomFlight
+    // 起飞前先把这张卡摆正：指针刚在它上面，多半正歪着甚至翻了一半，
+    // 下面 captureOrigin 量的是外接矩形，不摆正的话第一帧会跳（理由见 settleCard）。
+    const tilts = side === 'pool' ? poolTiltsRef.current : deckTiltsRef.current
+    settleCard(origin, tilts.get(sourceId))
     // 此刻原位那张还是可见的（下面 setZoomed 之后才会被藏起来），量到的正是起飞位置，两步不能对调。
     zoom.captureOrigin(origin)
-    setZoomed({ card, flipId, side })
+    setZoomed({ card, flipId, side, sourceId })
+    setZoomSide({ card, flipId, side, sourceId })
   }
 
   /**
@@ -547,6 +821,62 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const closeZoom = useCallback(() => {
     zoomRef.current?.requestClose()
   }, [])
+
+  /**
+   * 摘掉放大层两张大卡（中央的正面、伴随层的背面）的倾斜，顺手把角度和高光收回零。
+   *
+   * 要在展示卡卸载**之前**同步调（也就是 CardZoomOverlay 的 onClose 里）：
+   * 晚一步的话中央那张已经从 DOM 上摘走，玩家会看见它在消失前先弹平一下。
+   * 背面那张不卸载，但它接着要演 0.25 秒淡出，倾斜留着就成了"一边淡出一边还跟着指针歪"。
+   */
+  const detachZoomTilt = useCallback(() => {
+    zoomTiltRef.current?.detach()
+    zoomTiltRef.current = null
+    zoomSideTiltRef.current?.detach()
+    zoomSideTiltRef.current = null
+  }, [])
+
+  /**
+   * 放大层上那颗「加入牌组」。
+   *
+   * 起点取卡池里的原位卡（此刻它是 visibility: hidden 的，位置照样量得到），
+   * 所以关掉放大之后看到的是两段各自说得通的动画：屏幕中央那张飞回卡池格子，
+   * 同时新的那一份从卡池格子飞进牌组。
+   */
+  const zoomAdd = () => {
+    if (zoomSide === null || zoomSide.side !== 'pool') return
+    const cardId = zoomSide.sourceId
+    if (!canAddNow(cardId)) return
+    addCard(cardId, findOrigin('pool', zoomSide.flipId) ?? undefined)
+    closeZoom()
+  }
+
+  /**
+   * 放大层上那颗「移出牌组」。
+   *
+   * 先让屏幕中央那张自己淡掉再收摊：这一份牌马上就不在了，飞回的落点也就没了
+   *（CardZoomOverlay 查不到 origin 就只淡出遮罩、不播飞行），不淡一下的话大卡是硬消失的。
+   */
+  const zoomRemove = contextSafe(() => {
+    if (zoomSide === null || zoomSide.side !== 'deck') return
+    const entryKey = zoomSide.sourceId
+    const finish = () => {
+      removeEntry(entryKey)
+      closeZoom()
+    }
+    const showcase = pageRef.current?.querySelector<HTMLElement>('.reveal-card') ?? null
+    if (showcase === null) {
+      finish()
+      return
+    }
+    gsap.to(showcase, {
+      autoAlpha: 0,
+      scale: 0.94,
+      duration: ZOOM_REMOVE_FADE,
+      ease: 'power2.in',
+      onComplete: finish,
+    })
+  })
 
   // ---------- 拖拽 ----------
 
@@ -626,7 +956,23 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   }
 
   /**
-   * 拖拽失败（或加入成功之后卡还留在卡池里）时把元素送回原位。
+   * 把拖拽写上去的那套 transform / zIndex 就地清掉，并切回文档流。
+   *
+   * 给"加入成功"那条路用：卡池那张牌不播归位补间，当场恢复原状——它的位置本来就没变过
+   *（一直由外层 .deck-pool-slot 占着），玩家看到的语义是"拖走的那张变成了格子里的迷你卡，
+   * 卡池位当场补上一张"。
+   */
+  const snapHome = (element: HTMLElement) => {
+    // 把该归零的属性一个个写成 0 / 1，而不是靠 clearProps 抹掉整份 transform：
+    // GSAP 接管 transform 时会连带写死 translate / rotate / scale 三个独立属性，
+    // 逐个写零是"结果一定对"的那条路（归位补间 returnHome 也是这么收的）。
+    // zIndex 是拖拽时为了压过邻牌写的，必须清掉，否则这张牌会一直浮在同层所有牌之上。
+    gsap.set(element, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
+    dropCardBack(element)
+  }
+
+  /**
+   * 拖拽失败时把元素送回原位。
    *
    * hook 只负责把牌停在松手那一刻，不知道原位在哪。这一页的牌全按文档流摆位，
    * 所以"回原位"就是把 hook 写上去的那套 transform 清零。
@@ -664,25 +1010,30 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const poolDrag = useCardDrag({
     zones: [{ ref: sideRef, id: 'deck' }],
     contextSafe,
-    // 圆圈按钮另有用途（加入 / 移除），按在它上面不算抓牌。
-    ignoreSelector: '.deck-circle',
+    // 圆圈按钮（加入 / 移除）和问号热区（看背面）另有用途，按在它们上面不算抓牌。
+    ignoreSelector: '.deck-circle, .deck-help',
     onDragStart: (drag) => {
-      if (!canAddNow(drag.id)) {
+      const reason = blockReasonNow(drag.id)
+      if (reason !== null) {
+        // 拖不动这一下不能什么都不发生：摇个头再说一句为什么。
+        refuseAdd(drag.element, reason)
         poolDragRef.current?.endDrag()
         return
       }
-      // 掐掉这次拖拽的分支要先返回：那种情况下牌一动不动，不该被拎出文档流。
+      // 掐掉这次拖拽的分支要先返回：那种情况下牌一动不动，不该被拎出文档流，
+      // 倾斜也留着——摇头正是绕着那一层的 z 轴演的。
+      settleCard(drag.element, poolTiltsRef.current.get(drag.id))
       liftCardOut(drag.element)
     },
     onDrop: (drag) => {
-      addCard(drag.id)
-      // 加入之后这张卡仍然留在卡池里（还能再加一份），所以照样要送回原位。
-      returnHome(drag.element, true)
+      // 先量起点再改牌组：此刻卡还停在松手的位置，格子里那份新牌就是从这儿飞过去的。
+      addCard(drag.id, drag.element)
+      snapHome(drag.element)
     },
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (id) => {
       const card = CARD_BY_ID.get(id)
-      if (card !== undefined) openZoom(card, 'pool', poolFlipId(id))
+      if (card !== undefined) openZoom(card, 'pool', id)
     },
   })
   // onDragStart 要调 endDrag，而 handle 是本次 useCardDrag 的返回值，只能事后存进 ref 里绕开这个循环。
@@ -698,28 +1049,69 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
    * 两个 hook 都会往落点元素上打 data-drop-hot，共用一个节点的话 CSS 就分不出
    * "拖进来要加入"和"拖着自己的牌在面板里晃"这两件完全相反的事。
    */
+  const deckDragRef = useRef<CardDragHandle | null>(null)
   const deckDrag = useCardDrag({
     zones: [
       { ref: sideInnerRef, accepts: false },
       { ref: pageRef, id: 'out' },
     ],
     contextSafe,
-    ignoreSelector: '.deck-circle',
-    // 格子区自己滚（见 .deck-slots），拖出去的牌不切成 fixed 就会被裁在格子区里。
-    onDragStart: (drag) => liftCardOut(drag.element),
+    ignoreSelector: '.deck-circle, .deck-help',
+    onDragStart: (drag) => {
+      // 起拖前先摆正，理由见 settleCard：liftCardOut 量的是外接矩形。
+      settleCard(drag.element, deckTiltsRef.current.get(drag.id))
+      // 格子区自己滚（见 .deck-slots），拖出去的牌不切成 fixed 就会被裁在格子区里。
+      liftCardOut(drag.element)
+    },
     // 落点成立 = 移除，这一份牌下一拍就从 DOM 上摘走了，不用再管它切回文档流。
     onDrop: (drag) => removeEntry(drag.id),
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (entryKey) => {
       const card = cardOfEntry(entryKey)
-      if (card !== undefined) openZoom(card, 'deck', deckFlipId(entryKey))
+      if (card !== undefined) openZoom(card, 'deck', entryKey)
     },
   })
+  deckDragRef.current = deckDrag
   attachDeckBind(deckDrag.bind)
+
+  // ---------- 卡角上那两颗按钮 ----------
+
+  /**
+   * 卡池卡右下角那颗「＋」。
+   *
+   * 加不了的时候按钮不是 disabled 而是 aria-disabled（见 PoolCard），点得着但走不通，
+   * 就是为了能在这儿给一句反馈——真禁用的按钮连 click 都不发，玩家点半天没动静。
+   */
+  const addFromPool = useStable((cardId: CardId, cardEl: HTMLElement) => {
+    const reason = blockReasonNow(cardId)
+    if (reason !== null) {
+      refuseAdd(cardEl, reason)
+      return
+    }
+    // 指针正停在这张卡上，多半歪着；Flip 量的是外接矩形，得先摆正（理由见 settleCard）。
+    settleCard(cardEl, poolTiltsRef.current.get(cardId))
+    addCard(cardId, cardEl)
+  })
+
+  /** 问号热区的进出。两种卡共用，翻面层由 flipHelp 自己从热区往上找。 */
+  const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
+  const handleHelpLeave = useStable((help: HTMLElement) => flipHelp(help, false))
+  /**
+   * 触屏点一下问号：正面翻过去，再点一下翻回来。
+   *
+   * 触屏没有 hover——pointerenter 是按下那一刻发的、pointerleave 是抬手那一刻发的，
+   * 照着上面两个抄就成了"按住才看得见背面"，手一松就翻回去，字都没读完。
+   * 和手牌那边同一个处理（见 ui/HandFan.tsx 的 handleHelpToggle），
+   * 判"现在是哪一面"同样读元素当前的实际角度，翻到一半再点也接得上。
+   */
+  const handleHelpToggle = useStable((help: HTMLElement) => {
+    const inner = help.parentElement?.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR) ?? null
+    if (inner === null) return
+    flipHelp(help, Number(gsap.getProperty(inner, 'rotationY')) < 90)
+  })
 
   // ---------- 牌组管理条 ----------
 
-  const [menuOpen, setMenuOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
@@ -736,35 +1128,44 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const currentName = currentDeck?.name ?? ''
   const decksFull = saved.decks.length >= MAX_DECKS
 
-  /** 两块浮层（下拉、删除确认）任意时刻最多开一块，切页面状态前统一收掉。 */
-  const closePopovers = useCallback(() => {
-    setMenuOpen(false)
+  /** 管理条上只剩删除确认这一块浮层，切页面状态前统一收掉。 */
+  const closeConfirm = useCallback(() => {
     setDeleting(false)
   }, [])
 
   // 展开时点外面收起。用 pointerdown 而不是 click：抓卡池的牌是 pointerdown 起手，
   // 等到 click 才收的话，拖拽全程浮层都还开着。
   useEffect(() => {
-    if (!menuOpen && !deleting) return
+    if (!deleting) return
     const onPointerDown = (event: PointerEvent) => {
       const bar = manageRef.current
       if (bar !== null && event.target instanceof Node && bar.contains(event.target)) return
-      setMenuOpen(false)
       setDeleting(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [menuOpen, deleting])
+  }, [deleting])
+
+  /**
+   * 切牌组后把当前那一枚 tab 滚进视野。
+   *
+   * tab 行装不下时横向滚动，而新建 / 删除都会让当前项跑到看不见的地方
+   *（新建的排在最末，删除后接手的那套可能在任意位置）。
+   * block / inline 都取 nearest：已经露在外面时一动不动，不会为了居中白滚一段。
+   */
+  useEffect(() => {
+    currentTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [saved.currentId, saved.decks.length])
 
   const selectDeck = (id: string) => {
-    closePopovers()
+    closeConfirm()
     if (id === savedRef.current.currentId) return
     closeZoom()
     openDeck(setCurrentDeck(id))
   }
 
   const createNewDeck = () => {
-    closePopovers()
+    closeConfirm()
     const next = createDeck()
     // 已经 12 套。按钮此时本来就是禁用的，这里只是不让 null 往下走。
     if (next === null) return
@@ -773,14 +1174,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   }
 
   const confirmDelete = () => {
-    closePopovers()
+    closeConfirm()
     closeZoom()
     // 删掉当前牌组后 store 会自己挑一套新的当前（删到一套不剩时补一套空的），跟着它走就行。
     openDeck(deleteDeck(savedRef.current.currentId))
   }
 
   const startRename = () => {
-    closePopovers()
+    closeConfirm()
     renameAbortRef.current = false
     setNameDraft(currentName)
     setRenaming(true)
@@ -812,6 +1213,179 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const shortfall = DECK_SIZE - deck.length
   const percent = Math.round((deck.length / DECK_SIZE) * 100)
+
+  /**
+   * 放大层上「加入牌组」点不了的原因；能加、或者看的是牌组里那一份时就是 null。
+   * 这里调 blockReasonNow 是安全的：deckRef 在渲染期就已经跟着 deck 更新过了。
+   */
+  const zoomBlockReason =
+    zoomSide === null || zoomSide.side !== 'pool' ? null : blockReasonNow(zoomSide.sourceId)
+
+  // ---------- 动效 ----------
+
+  /**
+   * 给每张卡挂倾斜跟随。
+   *
+   * 必须在 useGSAP 回调里挂：attachCardTilt 建的补间要装进这个 context，离开页面时才一起收掉
+   *（那个函数自己也是这么要求的）。
+   *
+   * 只给新出现的卡挂、只摘掉已经不在的卡，已经挂着的原样留着——**不能**整批重挂：
+   * detach 会把倾斜和高光硬切回零，而正 hover 的那张卡并不会因为别处加了一张牌就离开指针，
+   * 玩家会看到高光凭空消失，指针不动就再也不会有 pointermove，得晃一下鼠标才回来
+   *（同 HandFan 里那段增量挂 / 摘）。
+   *
+   * 依赖非空时 useGSAP 只在**卸载**时跑清理，所以走掉的卡必须在这里自己摘，否则监听会一直留着。
+   */
+  useGSAP(
+    () => {
+      const sync = <T extends string>(
+        handles: Map<string, CardTiltHandle>,
+        ids: readonly T[],
+        attach: (el: HTMLElement, id: T) => CardTiltHandle,
+        elementOf: (id: T) => HTMLElement | null,
+      ) => {
+        const alive = new Set<string>(ids)
+        for (const id of ids) {
+          if (handles.has(id)) continue
+          const el = elementOf(id)
+          if (el === null) continue
+          handles.set(id, attach(el, id))
+        }
+        for (const [id, handle] of handles) {
+          if (alive.has(id)) continue
+          handle.detach()
+          handles.delete(id)
+        }
+      }
+
+      sync(
+        poolTiltsRef.current,
+        shown,
+        (el) =>
+          attachCardTilt(el, {
+            tiltLayer: '.deck-pool-card__tilt',
+            maxTilt: POOL_TILT_DEG,
+            // 拖起来之后不再跟指针歪：牌已经被 setPointerCapture 抓着，pointermove 照样发到它身上，
+            // 不挡的话会拖着一张歪的牌满屏找落点（hover 高亮另有 __glow 那一层，所以不传 hoverScale）。
+            enabled: () => poolDragRef.current?.draggingId() === null,
+          }),
+        (cardId) => findOrigin('pool', poolFlipId(cardId)),
+      )
+
+      sync(
+        deckTiltsRef.current,
+        deck.map((entry) => entry.key),
+        (el) =>
+          attachCardTilt(el, {
+            tiltLayer: '.deck-mini__tilt',
+            maxTilt: MINI_TILT_DEG,
+            enabled: () => deckDragRef.current?.draggingId() === null,
+          }),
+        (entryKey) => findOrigin('deck', deckFlipId(entryKey)),
+      )
+
+      return () => {
+        for (const handle of poolTiltsRef.current.values()) handle.detach()
+        poolTiltsRef.current.clear()
+        for (const handle of deckTiltsRef.current.values()) handle.detach()
+        deckTiltsRef.current.clear()
+      }
+    },
+    { dependencies: [shown, deck], scope: pageRef },
+  )
+
+  /**
+   * 新加的那一份牌飞进格子。
+   *
+   * 起点是三个入口在改牌组之前量下的那一份（见 pendingInsertRef），落点是刚挂载出来的迷你卡。
+   * 播完就把状态清掉，所以严格模式下的二次执行只会空转一次。
+   */
+  useGSAP(
+    () => {
+      const pending = pendingInsertRef.current
+      if (pending === null) return
+      pendingInsertRef.current = null
+      const mini = findOrigin('deck', deckFlipId(pending.key))
+      if (mini === null) return
+      // 格子区是 overflow 容器，飞行的前半程整个在面板外面，不切成 fixed 会被裁掉
+      //（理由同 liftCardForFlight）。
+      liftCardOut(mini)
+      // 同层的其它格子都没有 z-index，从它们上空经过时不抬一层就会被盖住。
+      gsap.set(mini, { zIndex: INSERT_FLIGHT_Z })
+      Flip.from(pending.state, {
+        targets: mini,
+        duration: INSERT_DUR,
+        ease: 'power3.out',
+        // 用 scale 而不是 width / height：卡面里的字跟着一起缩，才像同一张牌变小了。
+        scale: true,
+      })
+      // 收尾走 delayedCall 而不是 Flip 的 onComplete，为的是能登记进 pendingDropRef：
+      // 这一份牌还在飞的时候就可能被玩家抓起来拖，那时 liftCardOut 会先把这一发掐掉，
+      // 否则它到点会把正拖着的牌清回格子里、还被格子区的 overflow 裁掉（同 liftCardForFlight）。
+      pendingDropRef.current.set(
+        mini,
+        gsap.delayedCall(INSERT_DUR + DROP_BACK_DELAY, () => {
+          // 逐个归零而不是 clearProps 抹整份 transform，理由同 snapHome。
+          gsap.set(mini, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
+          dropCardBack(mini)
+        }),
+      )
+    },
+    { dependencies: [deck], scope: pageRef },
+  )
+
+  /**
+   * 放大层：伴随层的淡入淡出，以及两张大卡（中央的正面、伴随层的背面）的倾斜。
+   *
+   * 中央那张的倾斜层取 .reveal-card__inner——这条链路整段不翻面（CardZoomOverlay 一上来就把它
+   * 定死在正面），那一层的 rotationY 空着，正好借给倾斜用，不用再往展示卡里加一层。
+   * 背面那张没有现成的空层可借（它的缩放层被 CSS 的 transform: scale() 占着，
+   * GSAP 往同一个元素写 transform 会把缩放整个抹掉），所以另开了一层 .deck-zoom-side__tilt。
+   *
+   * 摘除不在这儿做：关闭那一拍中央那张会跟着卸载，得赶在它消失之前把角度收干净，
+   * 所以 detach 放在 CardZoomOverlay 的 onClose 里（同一拍同步执行），两张一起摘。
+   */
+  useGSAP(
+    () => {
+      const sideLayer = zoomSideRef.current
+      if (sideLayer !== null) {
+        const opening = zoomed !== null
+        gsap.to(sideLayer, {
+          autoAlpha: opening ? 1 : 0,
+          duration: ZOOM_SIDE_FADE,
+          // 等大卡落位了再露面。除了"先看牌、再看操作"这个顺序更顺之外，还挡掉一个死角：
+          // 飞入途中 CardZoomOverlay 不受理关闭（见它 requestClose 里的 heldRef），
+          // 这时按下「加入 / 移出」牌是真的改了，放大层却关不掉，会僵在那儿。
+          // autoAlpha 的 visibility 在延迟期间还是 hidden，所以延迟期间这一层根本吃不到点击。
+          delay: opening ? ZOOM_IN_DUR : 0,
+          ease: 'power2.out',
+          overwrite: 'auto',
+        })
+      }
+      if (zoomed !== null) {
+        const showcase = pageRef.current?.querySelector<HTMLElement>('.reveal-card') ?? null
+        if (showcase !== null) {
+          zoomTiltRef.current = attachCardTilt(showcase, {
+            tiltLayer: '.reveal-card__inner',
+            maxTilt: ZOOM_TILT_DEG,
+          })
+        }
+        // 背面那张此刻还是 visibility: hidden（上面那条淡入要等大卡落位），收不到指针事件，
+        // 所以现在挂上不会提前歪；等它露面时指针一动就跟上了。
+        const sideCard = sideLayer?.querySelector<HTMLElement>('.deck-zoom-side__card') ?? null
+        if (sideCard !== null) {
+          zoomSideTiltRef.current = attachCardTilt(sideCard, {
+            tiltLayer: '.deck-zoom-side__tilt',
+            // 和正面同一个角度，两张并排的卡歪起来才像一对。
+            maxTilt: ZOOM_TILT_DEG,
+          })
+        }
+      }
+      // 依赖非空时这段只在卸载时跑：正常关闭走的是 onClose 里那一发 detachZoomTilt。
+      return detachZoomTilt
+    },
+    { dependencies: [zoomed], scope: pageRef },
+  )
 
   return (
     // 纸面（底色 + 两层纸纹 + 暗角）铺在最外层，16:9 舞台之外的留边也就是同一张纸，
@@ -920,8 +1494,10 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         picked={picked}
                         canAdd={!deckFull && picked < MAX_COPIES}
                         bind={bindPoolCard(cardId)}
-                        onAdd={addCard}
-                        onPreview={setPreviewedSkill}
+                        onAdd={addFromPool}
+                        onHelpEnter={handleHelpEnter}
+                        onHelpLeave={handleHelpLeave}
+                        onHelpToggle={handleHelpToggle}
                         hidden={zoomed?.flipId === flipId}
                       />
                     )
@@ -930,8 +1506,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                 <p className="deck-pool__hint">
                   {deckFull
-                    ? `牌组已满 ${DECK_SIZE} 张 · 技能牌悬停看双面 · 先移除才能再加`
-                    : '技能牌悬停看双面 · 点击放大 · 圆圈或拖拽加入'}
+                    ? `牌组已满 ${DECK_SIZE} 张 · 先移除才能再加`
+                    : '问号看背面 · 点击放大 · 加号或拖拽加入'}
                 </p>
               </section>
 
@@ -945,6 +1521,45 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         <Sparkle />
                         <OrnateTitle>我的牌组</OrnateTitle>
                         <Sparkle />
+                      </div>
+
+                      {/*
+                        牌组切换。以前是管理条上一颗「切换」按钮弹下拉，现在整套摊成一行 tab：
+                        最多 12 套，一眼看全比点开再找快，也省掉一块要管开合和点外面收起的浮层。
+                        末尾那颗「＋」不在滚动区里（是 .deck-tabs 的第二个孩子），tab 多到要滚时它仍然在原地。
+                      */}
+                      <div className="deck-tabs">
+                        <div className="deck-tabs__list" role="tablist" aria-label="切换牌组">
+                          {saved.decks.map((item) => {
+                            const current = item.id === saved.currentId
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={current}
+                                className="deck-tab"
+                                data-current={current}
+                                // 名字被省略号截掉时靠它看全，所以 title 一直挂着。
+                                title={item.name}
+                                ref={current ? currentTabRef : undefined}
+                                onClick={() => selectDeck(item.id)}
+                              >
+                                {item.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          className="deck-tabs__new"
+                          disabled={decksFull}
+                          title={decksFull ? `最多 ${MAX_DECKS} 套` : '新建牌组'}
+                          aria-label="新建牌组"
+                          onClick={createNewDeck}
+                        >
+                          ＋
+                        </button>
                       </div>
 
                       <div className="deck-manage" ref={manageRef}>
@@ -973,73 +1588,21 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                           )}
 
                           <div className="deck-manage__actions">
-                            <button
-                              type="button"
-                              className="deck-manage__btn"
-                              aria-expanded={menuOpen}
-                              onClick={() => {
-                                setDeleting(false)
-                                setMenuOpen((open) => !open)
-                              }}
-                            >
-                              切换
-                            </button>
                             <button type="button" className="deck-manage__btn" onClick={startRename}>
                               改名
                             </button>
                             <button
                               type="button"
                               className="deck-manage__btn"
-                              onClick={() => {
-                                setMenuOpen(false)
-                                setDeleting((open) => !open)
-                              }}
+                              onClick={() => setDeleting((open) => !open)}
                             >
                               删除
-                            </button>
-                            <button
-                              type="button"
-                              className="deck-manage__btn"
-                              disabled={decksFull}
-                              onClick={createNewDeck}
-                            >
-                              新建
                             </button>
                           </div>
                         </div>
 
-                        {/* 下拉和删除确认都绝对定位，不占文档流：整页锁在一屏内，
+                        {/* 删除确认绝对定位，不占文档流：整页锁在一屏内，
                             管理条一旦能撑高，右面板就会顶出屏幕底部。 */}
-                        {menuOpen ? (
-                          <div className="deck-manage__menu">
-                            <ul className="deck-manage__list">
-                              {saved.decks.map((item) => (
-                                <li key={item.id}>
-                                  <button
-                                    type="button"
-                                    className="deck-manage__item"
-                                    data-current={item.id === saved.currentId}
-                                    onClick={() => selectDeck(item.id)}
-                                  >
-                                    <span className="deck-manage__item-name">{item.name}</span>
-                                    <span className="deck-manage__item-count">
-                                      {item.cards.length}/{DECK_SIZE}
-                                    </span>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                            <button
-                              type="button"
-                              className="deck-manage__new"
-                              disabled={decksFull}
-                              onClick={createNewDeck}
-                            >
-                              {decksFull ? `最多 ${MAX_DECKS} 套牌组` : '＋ 新建牌组'}
-                            </button>
-                          </div>
-                        ) : null}
-
                         {deleting ? (
                           <div className="deck-manage__confirm">
                             <span className="deck-manage__confirm-text">确认删除？</span>
@@ -1096,7 +1659,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                                 entryKey={entry.key}
                                 bind={bindDeckCard(entry.key)}
                                 onRemove={removeEntry}
-                                onPreview={setPreviewedSkill}
+                                onHelpEnter={handleHelpEnter}
+                                onHelpLeave={handleHelpLeave}
+                                onHelpToggle={handleHelpToggle}
                                 hidden={zoomed?.flipId === deckFlipId(entry.key)}
                               />
                             )
@@ -1106,7 +1671,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                       <div className="deck-side__foot">
                         <div className="deck-side__notes">
-                          <p className="deck-side__hint">技能牌悬停看双面 · 点击放大 · 圆圈或拖出移除</p>
+                          <p className="deck-side__hint">问号看背面 · 点击放大 · 返回按钮或拖出移除</p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                           ) : (
@@ -1137,6 +1702,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
               ref={zoomRef}
               target={zoomTarget}
               onClose={() => {
+                // 赶在展示卡卸载之前收掉倾斜，否则它会在消失前先弹平一下。
+                detachZoomTilt()
                 if (zoomed !== null) {
                   liftCardForFlight(zoomed.side, zoomed.flipId)
                   if (zoomed.side === 'deck') liftSideForFlight()
@@ -1145,9 +1712,67 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
               }}
               closeOnEscape
             />
-            {previewedSkill !== null && zoomed === null ? (
-              <SkillCardHoverPreview card={previewedSkill} />
-            ) : null}
+
+            {/*
+              放大查看的伴随层：右边那张背面大卡 + 一行操作。
+              第一次打开之后就一直挂着（zoomSide 只写不清），关闭时靠 GSAP 的 autoAlpha 演淡出——
+              跟着 zoomed 挂载 / 卸载的话，那 0.25 秒的淡出根本没有节点可演（同遮罩的做法）。
+            */}
+            {zoomSide === null ? null : (
+              <div className="deck-zoom-side" ref={zoomSideRef} aria-hidden={zoomed === null}>
+                <div className="deck-zoom-side__card">
+                  {/* 倾斜层，和卡池卡的 __tilt 同一个角色：ui/cardTilt.ts 只往这一层写
+                      rotationX / rotationY，所以它自己不能带 CSS transform——下面那层缩放层
+                      因此不能兼任。透视挂在外面的 __card 上（见 deck.css）。 */}
+                  <div className="deck-zoom-side__tilt">
+                    {/* 两种卡背的原始尺寸不一样（AI 走全局 .card-back 那份 150×225，
+                        技能牌走本页的星象边框底图 284×426），所以各自缩到同一个盒子里，
+                        缩放比在 deck.css 的 __scale--ai / --skill 两条上。 */}
+                    <div
+                      className={
+                        zoomSide.card.kind === 'ai'
+                          ? 'deck-zoom-side__scale deck-zoom-side__scale--ai'
+                          : 'deck-zoom-side__scale deck-zoom-side__scale--skill'
+                      }
+                    >
+                      {zoomSide.card.kind === 'ai' ? (
+                        <CardBackFace card={zoomSide.card} />
+                      ) : (
+                        <SkillCardBack card={zoomSide.card} />
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="deck-zoom-side__actions">
+                  <BackButton className="deck-zoom-side__back" onClick={closeZoom} />
+                  {zoomSide.side === 'pool' ? (
+                    <>
+                      <PlaqueButton
+                        className="deck-zoom-side__do"
+                        disabled={zoomBlockReason !== null}
+                        onClick={zoomAdd}
+                      >
+                        加入牌组
+                      </PlaqueButton>
+                      {/* 按钮为什么点不了，就写在它旁边——这块遮罩盖住了整页，
+                          玩家看不到底下卡池那条提示。 */}
+                      {zoomBlockReason === null ? null : (
+                        <span className="deck-zoom-side__why">{zoomBlockReason}</span>
+                      )}
+                    </>
+                  ) : (
+                    <PlaqueButton className="deck-zoom-side__do" onClick={zoomRemove}>
+                      移出牌组
+                    </PlaqueButton>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 单例浮字（「牌组已满」之类）。常驻一个节点、位置和文案由 showAddTip 现写，
+                理由见那里。留在 .paper-page__inner 里面：它的层级要压过拖起来的牌（1000）、
+                又要低于展示遮罩（1100），出了这个层叠上下文就排不进这两者中间。 */}
+            <div className="deck-add-tip" ref={addTipRef} aria-hidden="true" />
           </div>
         </div>
       </div>
@@ -1161,7 +1786,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
  * 拆成 memo 组件是为了让"加一张牌"只重画受影响的那一两张：一屏几十张，
  * 每张里面还有一整份 HandCardFace（图 + 文字层 + 羽化伪元素 + 高光层）。
  * 因此传进来的 props 必须个个引用稳定——card 是模块级常量、bind 按 id 缓存、
- * onAdd 是 useCallback，hidden 用布尔值而不是现拼的 style 对象。
+ * 三个回调走 useStable（contextSafe 包出来的函数每次渲染都换身份，直接传下去 memo 就废了），
+ * hidden 用布尔值而不是现拼的 style 对象。
  *
  * 点击放大不走这里：那是 useCardDrag 的 onTap（按下没走过阈值才算点击），
  * 单独挂 onClick 会和拖拽抢同一次按下。
@@ -1173,8 +1799,16 @@ interface PoolCardProps {
   picked: number
   canAdd: boolean
   bind: CardDragBindings
-  onAdd: (cardId: CardId) => void
-  onPreview: (card: HandCardData | null) => void
+  /**
+   * 点了「＋」。第二个参数是这张卡的外层元素（.deck-pool-card）：
+   * 加得进去时它是飞进格子那段动画的起点，加不进去时摇头和浮字也定位到它。
+   * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
+   */
+  onAdd: (cardId: CardId, cardEl: HTMLElement) => void
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。 */
+  onHelpEnter: (help: HTMLElement) => void
+  onHelpLeave: (help: HTMLElement) => void
+  onHelpToggle: (help: HTMLElement) => void
   /** 这张卡正被放大，原位要就地藏起来。 */
   hidden: boolean
 }
@@ -1185,7 +1819,9 @@ const PoolCard = memo(function PoolCard({
   canAdd,
   bind,
   onAdd,
-  onPreview,
+  onHelpEnter,
+  onHelpLeave,
+  onHelpToggle,
   hidden,
 }: PoolCardProps) {
   return (
@@ -1200,32 +1836,83 @@ const PoolCard = memo(function PoolCard({
         data-picked={picked > 0 ? picked : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
-        /* 悬停预览只给鼠标。触屏上 pointerenter 是按下那一刻发的、pointerleave 是抬手
-           那一刻发的，照做就成了"按住才看得见"，手一松预览就没了，等于闪一下；
-           而触屏想看清一张牌本来就有更好的路——点一下就是整张放大（见 onTap → openZoom）。 */
-        onPointerEnter={(event) => {
-          if (event.pointerType !== 'mouse') return
-          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType !== 'mouse') return
-          onPreview(null)
-        }}
-        onFocus={() => {
-          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
-        }}
-        onBlur={() => onPreview(null)}
       >
-        <HandCardFace card={card} />
+        {/*
+          三层分工照抄手牌（ui/HandFan.tsx 的 slot / __tilt / __inner）：
+          外层这个元素归拖拽和 Flip 写 transform，__tilt 留给倾斜（rotationX / rotationY），
+          __inner 留给翻面（rotationY 180°）。倾斜和翻面都要动 rotationY，挤在同一层就是打架。
+          倾斜由上面那个依赖 shown / deck 的 useGSAP 挂上去，翻面由问号热区触发（flipHelp）；
+          两面身上的 data-flip-face 是 ui/flipCard.ts 认人的契约，改类名可以，这个属性不能动。
+        */}
+        <div className="deck-pool-card__tilt">
+          <div className="deck-pool-card__inner">
+            <div className="deck-pool-card__face deck-pool-card__face--front" data-flip-face="front">
+              {/* 卡面是写死的 150×225，放大靠这一层缩放；它在 __face 里面，
+                  所以外层那些要按屏幕像素算的东西（问号、圆圈按钮）不会跟着放大。 */}
+              <div className="deck-pool-card__scale">
+                <HandCardFace card={card} />
+              </div>
+              {/* 看得见的问号圆圈。正面这一份不用另加 .card-glare：HandCardFace 自带一层。 */}
+              <span className="deck-pool-card__help-mark" aria-hidden="true">
+                ?
+              </span>
+            </div>
+            <div className="deck-pool-card__face deck-pool-card__face--back" data-flip-face="back">
+              <div className="deck-pool-card__scale">
+                <CardBackFace card={card} />
+              </div>
+              {/* 背面同一个角上也放一个：翻过去之后指针底下仍然压着一个问号。 */}
+              <span className="deck-pool-card__help-mark" aria-hidden="true">
+                ?
+              </span>
+            </div>
+          </div>
+          {/*
+            问号的透明热区，只管交互，样子全交给上面 __inner 里那两个圆圈。
+            必须留在 __inner 外面：跟着翻面转的话，牌一翻到背面它就转到指针够不着的地方，
+            pointerleave 立刻翻回来、又被 hover 到，来回抖个没完（原委见 styles.css 的 .hand-fan__help）。
+            靠 ignoreSelector 让「按在问号上」不等于抓牌（见两个 useCardDrag 的 ignoreSelector）。
+          */}
+          <button
+            type="button"
+            className="deck-help"
+            aria-label={`查看「${card.name}」的背面`}
+            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+               理由见 handleHelpToggle。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpEnter(event.currentTarget)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpLeave(event.currentTarget)
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === 'mouse') return
+              onHelpToggle(event.currentTarget)
+            }}
+          />
+        </div>
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
-            排在卡面之后、按钮之前：卡面不透明会盖住它，而按钮和圆章不该被它罩上一层白。 */}
+            排在卡面之后、按钮之前：卡面不透明会盖住它，而按钮和圆章不该被它罩上一层白。
+            和下面两个角标一样是 .deck-pool-card 的直接子级，不进 __tilt——它们按屏幕正对着看，
+            不该跟着卡面一起歪。 */}
         <i className="deck-pool-card__glow" aria-hidden="true" />
+        {/*
+          加不进去时用 aria-disabled + data-disabled，而不是真的 disabled：
+          真禁用的按钮连 click 都不发，玩家点半天没反应还是不知道为什么；
+          现在点得着，由 onAdd 那边摇个头再说一句原因。样式上仍然是一副禁用相（见 deck.css）。
+        */}
         <button
           type="button"
           className="deck-circle deck-circle--add"
-          disabled={!canAdd}
+          aria-disabled={!canAdd}
+          data-disabled={canAdd ? undefined : 'true'}
           aria-label={`把「${card.name}」加入牌组`}
-          onClick={() => onAdd(card.id)}
+          onClick={(event) => {
+            const cardEl = event.currentTarget.closest<HTMLElement>('.deck-pool-card')
+            if (cardEl !== null) onAdd(card.id, cardEl)
+          }}
         >
           <CircleGlyph kind="add" />
         </button>
@@ -1247,7 +1934,10 @@ interface DeckSlotItemProps {
   entryKey: string
   bind: CardDragBindings
   onRemove: (entryKey: string) => void
-  onPreview: (card: HandCardData | null) => void
+  /** 问号热区的进出，同 PoolCardProps。 */
+  onHelpEnter: (help: HTMLElement) => void
+  onHelpLeave: (help: HTMLElement) => void
+  onHelpToggle: (help: HTMLElement) => void
   hidden: boolean
 }
 
@@ -1256,7 +1946,9 @@ const DeckSlotItem = memo(function DeckSlotItem({
   entryKey,
   bind,
   onRemove,
-  onPreview,
+  onHelpEnter,
+  onHelpLeave,
+  onHelpToggle,
   hidden,
 }: DeckSlotItemProps) {
   return (
@@ -1266,24 +1958,49 @@ const DeckSlotItem = memo(function DeckSlotItem({
         data-flip-id={deckFlipId(entryKey)}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
-        /* 同 PoolCard：悬停预览只给鼠标，触屏点一下就是整张放大。 */
-        onPointerEnter={(event) => {
-          if (event.pointerType !== 'mouse') return
-          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType !== 'mouse') return
-          onPreview(null)
-        }}
-        onFocus={() => {
-          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
-        }}
-        onBlur={() => onPreview(null)}
       >
-        {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
-            两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}
-        <div className="deck-mini__card">
-          <HandCardFace card={card} />
+        {/* 层级和卡池那张卡完全一样，只是缩放比换成 --deck-mini-scale，逐层的理由见 PoolCard。 */}
+        <div className="deck-mini__tilt">
+          <div className="deck-mini__inner">
+            <div className="deck-mini__face deck-mini__face--front" data-flip-face="front">
+              {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
+                  两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}
+              <div className="deck-mini__card">
+                <HandCardFace card={card} />
+              </div>
+              <span className="deck-mini__help-mark" aria-hidden="true">
+                ?
+              </span>
+            </div>
+            <div className="deck-mini__face deck-mini__face--back" data-flip-face="back">
+              <div className="deck-mini__card">
+                <CardBackFace card={card} />
+              </div>
+              <span className="deck-mini__help-mark" aria-hidden="true">
+                ?
+              </span>
+            </div>
+          </div>
+          {/* 同 PoolCard 里那颗：只管交互的透明热区，留在 __inner 外面不跟着翻面。 */}
+          <button
+            type="button"
+            className="deck-help deck-help--mini"
+            aria-label={`查看「${card.name}」的背面`}
+            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+               理由见 handleHelpToggle。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpEnter(event.currentTarget)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpLeave(event.currentTarget)
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === 'mouse') return
+              onHelpToggle(event.currentTarget)
+            }}
+          />
         </div>
         {/* 同 .deck-pool-card__glow：hover 只切 opacity。挂在外层而不是缩放层里，
             这样它按格子的实际尺寸铺满，不用跟着 --deck-mini-scale 反算。 */}
@@ -1294,12 +2011,78 @@ const DeckSlotItem = memo(function DeckSlotItem({
           aria-label={`从牌组移除「${card.name}」`}
           onClick={() => onRemove(entryKey)}
         >
-          <CircleGlyph kind="remove" />
+          {/* 画的是「送回卡池」的回退箭头而不是叉：这一格里的牌没有被销毁，只是回到左边的卡池。 */}
+          <CircleGlyph kind="return" />
         </button>
       </div>
     </li>
   )
 })
+
+/**
+ * 卡牌背面（写死 150×225，和 HandCardFace 同一个口径，外面套缩放层用）。
+ *
+ * markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
+ * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样。
+ * AI 牌铺统一卡背图，技能牌印卡名和 backText。
+ */
+function CardBackFace({ card }: { card: HandCardData }) {
+  return (
+    <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
+      {card.kind === 'ai' ? (
+        <img
+          className="card-back__art"
+          src={AI_CARD_BACK_ART}
+          alt="AI 牌统一卡牌背面"
+          draggable={false}
+        />
+      ) : (
+        <>
+          <span className="card-back__title">{card.name}</span>
+          <p className="card-back__text">{card.backText}</p>
+        </>
+      )}
+      {/* 背面也要有高光层，否则翻过去之后跟着指针的反光会凭空消失（正面那层在 HandCardFace 里）。 */}
+      <div className="card-glare" />
+    </div>
+  )
+}
+
+/**
+ * 放大查看时右边那张「星象边框」技能牌背面（写死 284×426，外面套缩放层用）。
+ *
+ * 和卡池 / 格子里翻面看到的那张（CardBackFace 的技能牌分支，走全局 .card-back）不是一份：
+ * 那份要在 150×225 里挤下一整段说明，只能小字紧排；这里卡足够大，才撑得起这张带边框的
+ * 底图和居中的名称 / 效果排版。
+ * 边框只是一张底图，名称和效果由卡牌数据覆盖在中央——新增技能或改文案都不用再烤一张新图。
+ */
+function SkillCardBack({ card }: { card: HandCardData }) {
+  // 文案长了就换一档更紧的排版（字号、行距、间距，见 deck.css 的 data-copy-size）。
+  // 42 是照这张底图的可用高度试出来的：再长就会顶到边框的花纹上。
+  const longCopy = card.text.length > 42
+  return (
+    <div className="deck-skill-back" data-copy-size={longCopy ? 'long' : 'normal'}>
+      <img
+        className="deck-skill-back__frame"
+        src="/cards/skills/skill-card-back.jpg"
+        alt=""
+        draggable={false}
+      />
+      <div className="deck-skill-back__content">
+        <span className="deck-skill-back__eyebrow">技能说明</span>
+        <h2 className="deck-skill-back__title">{card.name}</h2>
+        <span className="deck-skill-back__divider" aria-hidden="true">
+          ✦
+        </span>
+        <p className="deck-skill-back__effect">{card.text}</p>
+      </div>
+      {/* 跟着指针跑的高光。放大层给这张卡挂了倾斜（见上面那个管放大层的 useGSAP），
+          attachCardTilt 是在挂载的那个元素里找 .card-glare 的，没有这一层就只有倾斜没有反光，
+          和左边正面那张（高光在 HandCardFace 里）对不上。 */}
+      <div className="card-glare" />
+    </div>
+  )
+}
 
 /** 空格子。没有 props，memo 之后整页只会渲染这一份输出。 */
 const EmptyDeckSlot = memo(function EmptyDeckSlot() {
@@ -1332,19 +2115,21 @@ function Sparkle({ className = '' }: { className?: string }) {
 }
 
 /**
- * 卡角上那个圆圈图标（加入 ＋ / 移除 ×）。
+ * 卡角上那个圆圈图标（加入 ＋ / 送回卡池 ↩）。
  *
  * 用内联 SVG 而不是文字符号：这一页所有线条都挂着手绘抖动滤镜，圆圈得跟着一起歪，
  * 字符画的圆是字体轮廓，滤镜作用在它上面会糊成一团。
  */
-function CircleGlyph({ kind }: { kind: 'add' | 'remove' }) {
+function CircleGlyph({ kind }: { kind: 'add' | 'return' }) {
   return (
     <svg className="deck-circle__ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <circle cx="12" cy="12" r="9.4" />
       {kind === 'add' ? (
         <path d="M12 7.2 L12 16.8 M7.2 12 L16.8 12" />
       ) : (
-        <path d="M8.4 8.4 L15.6 15.6 M15.6 8.4 L8.4 15.6" />
+        /* 掉头箭头：右边一竖上行，绕过顶上的半圆折回左边，箭头朝下——
+           «这张牌顺原路回卡池去»。全是直线加一段圆弧，和上面那个「＋」是同一种线条风格。 */
+        <path d="M15.4 16.6 L15.4 11.6 A3.4 3.4 0 0 0 8.6 11.6 L8.6 15.6 M6.4 13.2 L8.6 15.9 L10.8 13.2" />
       )}
     </svg>
   )

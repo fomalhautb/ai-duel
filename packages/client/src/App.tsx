@@ -23,6 +23,7 @@ import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
 import { ResultDemo } from './dev/ResultDemo'
+import { loadSave, saveHero } from './save/save'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
@@ -36,9 +37,10 @@ export function App() {
       <TouchDeviceNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
-        {/* 选择英雄界面：照设计稿复原的纯 UI demo，选中态和动画都在，但没接对局——
-            点「确认英雄」只播一段光效，不跳转也不落任何状态。首页的「英雄」导航项仍是敬请期待。 */}
-        <Route path="/hero" component={HeroScreen} />
+        {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
+        <Route path="/hero" component={HeroRoute} />
+        {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，
+            因为选择期间房间连接必须一直活着，换路由就等于换房间码（见 RoomScreen 文件头）。 */}
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
@@ -46,9 +48,8 @@ export function App() {
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
-        {/* 组建牌组的交互 demo 页：卡池用的是 screens/deckDemoCards.ts 里那批假卡，
-            选出来的牌组不落盘也进不了对局，只用来跑通选卡的手势和版式。真卡池落地后重做。 */}
-        <Route path="/deck" component={DeckScreen} />
+        {/* 组建牌组的独立入口，见下面 DeckRoute。 */}
+        <Route path="/deck" component={DeckRoute} />
         {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
             加卡面之外的字段，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
         <Route path="/card" component={CardGallery} />
@@ -62,6 +63,34 @@ export function App() {
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>
+  )
+}
+
+/*
+ * /deck 和 /hero 这两条路由是**独立入口**，留给视觉迭代：敲个短地址就能单独打开这一页调样式，
+ * 不用先凑够两台机器匹配上。正式流程里的选卡组 / 选英雄不经过这里，它们是 RoomScreen 的两个阶段。
+ *
+ * 两个页面本身都是受控组件（不导航），所以这两条薄包装负责把它们接回首页。
+ *
+ * 两页的存档口径不一样：选牌页每改一张牌就自己写 save/deckStore.ts，所以这里确认时无事可做，
+ * 只管跳转；选英雄页不写存档，确认后由这里 saveHero，下次匹配时 RoomScreen 拿它预填。
+ */
+function DeckRoute() {
+  const [, navigate] = useLocation()
+  return <DeckScreen onConfirm={() => navigate('/')} onBack={() => navigate('/')} />
+}
+
+function HeroRoute() {
+  const [, navigate] = useLocation()
+  return (
+    <HeroScreen
+      initialHeroId={loadSave().savedHero}
+      onConfirm={(hero) => {
+        saveHero(hero)
+        navigate('/')
+      }}
+      onBack={() => navigate('/')}
+    />
   )
 }
 

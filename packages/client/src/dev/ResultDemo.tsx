@@ -13,6 +13,7 @@ import { useLocation } from 'wouter'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { MatchResult } from '../ui/MatchResult'
 import { PlaqueButton } from '../ui/PlaqueButton'
+import { useStageScale } from '../ui/useStageScale'
 
 type Outcome = 'win' | 'lose' | 'draw' | 'aborted'
 
@@ -38,6 +39,10 @@ export function ResultDemo() {
   const [mine, setMine] = useState(3)
   const [foe, setFoe] = useState(1)
 
+  // 舞台缩放系数得由 JS 量出来写进 --battle-scale，CSS 里只有兜底的 1（原因见 ui/useStageScale.ts）。
+  // 对局页在 MatchStage 的 BattleFrame 里挂同一个 hook，这一页自己搭舞台，就得自己挂一份。
+  const scalerRef = useStageScale<HTMLDivElement>('--battle-scale')
+
   const title = TITLES[outcome]
   // 和对局界面同一条规矩：中断局没有比分可言，那一行整个不渲染。
   const score = outcome === 'aborted' ? null : { mine, foe }
@@ -48,7 +53,7 @@ export function ResultDemo() {
       <HandDrawnFilterDefs />
       <div className="battle-frame">
         <div className="battle-stage">
-          <div className="battle-scaler stage-scaler">
+          <div className="battle-scaler stage-scaler" ref={scalerRef}>
             <MatchResult
               title={title}
               score={score}

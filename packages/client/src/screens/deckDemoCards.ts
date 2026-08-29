@@ -1,49 +1,22 @@
 /**
- * /deck 牌组页面专用展示卡池。
+ * 24 张只有设计稿、还没进规则引擎的技能展示卡。
  *
- * AI 牌直接复用 core 的正式定义；技能牌名称和说明来自当前设计稿，
- * 效果尚未接入规则引擎。技能牌只借用 HandCardData 的展示形状，
- * 不属于任何 AI 阵营。
+ * 唯一的消费方是 dev 图鉴（dev/cardGalleryCatalog.ts）：这批牌的名称、说明和原画都已经定稿，
+ * 但效果还没接进规则引擎，先在图鉴里摆出来看排版。
+ * /deck 构筑页不再读这里——那一页摆的是玩家存档里的真卡（core 的 CARD_POOL），
+ * 卡池里每张牌都必须能直接进对局，而这批牌拿不到 CardId。
+ * 等它们整体迁进 core，本文件连同这个名字一起删掉。
  *
+ * 形状借 HandCardData（手牌和战场小卡共用的展示数据）：
+ * - 不填 art，让卡面按 id 挑图（见 ui/cardArt.ts 的 cardArtFor）。这 24 个 id 各自对应一张
+ *   专属技能原画，所以 id 必须稳定——改 id 会连带换掉那张卡的插画。
+ * - 不填 tokenCost，因为费用还没定；技能牌的卡面本来也不画费用章（那一层只给具名 AI 用，
+ *   见 ui/HandFan.tsx 的 HandCardFace），缺了它不影响排版。
  */
 
-import { AI_MODEL_CARDS } from '@ai-duel/core'
 import type { HandCardData } from '../ui/HandFan'
 
-/** 选卡页的 AI 阵营标识。和 core 无关，只用于筛选 AI 牌。 */
-export type DeckFaction = 'gpt' | 'claude' | 'kimi' | 'deepseek' | 'cn' | 'other'
-
-export interface FactionOption {
-  id: DeckFaction
-  /** 筛选栏上显示的中文名。 */
-  label: string
-}
-
-/**
- * 筛选栏的阵营列表。
- *
- * 数组顺序就是筛选栏从左到右的顺序（照设计稿），改顺序等于改界面，别按字母排。
- * 'other' 是兜底项，凡是不属于前面几家的都归它，所以固定放最后。
- */
-export const FACTIONS = [
-  { id: 'gpt', label: 'GPT' },
-  { id: 'claude', label: 'Claude' },
-  { id: 'kimi', label: 'Kimi' },
-  { id: 'deepseek', label: 'DeepSeek' },
-  { id: 'cn', label: '国产通用' },
-  { id: 'other', label: '其他' },
-] as const satisfies readonly FactionOption[]
-
-/**
- * /deck 的展示卡。只有 AI 牌带阵营；技能牌通过 id 取得专属技能原画。
- */
-export type DeckDemoCard = HandCardData & { faction?: DeckFaction }
-
-/**
- * 24 张技能牌展示数据。AI 牌直接取 core 的正式定义，不在这里重复维护。
- */
-const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
-  // ---- 技能牌 ----
+export const DECK_DEMO_CARDS: HandCardData[] = [
   {
     id: 'context-flood',
     kind: 'skill',
@@ -213,44 +186,3 @@ const SKILL_CARD_FIXTURES: DeckDemoCard[] = [
     backText: '双方各随机保留场上一半 Agent，向上取整，其余罚下移入弃牌区。',
   },
 ]
-
-/** 正式 AI 牌按产品归入筛选项；没有独立厂商筛选项的都归到“其他”。 */
-function factionForAi(cardId: string): DeckFaction {
-  if (cardId.startsWith('gpt-') || cardId.startsWith('chatgpt-')) return 'gpt'
-  if (cardId.startsWith('claude-')) return 'claude'
-  if (cardId.startsWith('kimi-')) return 'kimi'
-  if (cardId.startsWith('deepseek-')) return 'deepseek'
-  if (['qwen', 'doubao', 'glm-5', 'minimax', 'yuanbao', 'wenxin-yiyan'].includes(cardId)) return 'cn'
-  return 'other'
-}
-
-const SKILL_CARDS = SKILL_CARD_FIXTURES
-
-/**
- * /deck 的实际卡池：AI 牌只使用 core 中有专属原画的 18 张正式卡；技能牌保留完整 24 张。
- */
-export const DECK_DEMO_CARDS: DeckDemoCard[] = [
-  ...Object.values(AI_MODEL_CARDS).map((card) => ({
-    ...card,
-    faction: factionForAi(card.id),
-    backText: card.text,
-  })),
-  ...SKILL_CARDS,
-]
-
-export type DeckCardKindFilter = 'all' | 'ai' | 'skill'
-
-/**
- * 阵营只属于 AI 牌。技能牌无论当前选择了哪个 AI 阵营，都应该完整显示。
- */
-export function filterDeckCards(
-  cards: readonly DeckDemoCard[],
-  kind: DeckCardKindFilter,
-  faction: DeckFaction | null,
-): DeckDemoCard[] {
-  return cards.filter(
-    (card) =>
-      (kind === 'all' || card.kind === kind) &&
-      (card.kind === 'skill' || faction === null || card.faction === faction),
-  )
-}

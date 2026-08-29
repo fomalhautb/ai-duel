@@ -11,8 +11,8 @@ export const GALLERY_AI_CARDS: AiCard[] = Object.values(CARDS).filter(
 )
 
 /**
- * 24 张新技能牌目前只有设计定义，还没有接入规则引擎。
- * /card 和 /deck 共用同一份名称、说明与 id，等规则实现后再整体迁入 core。
+ * 24 张新技能牌目前只有设计定义，还没有接入规则引擎，所以进不了牌组页那个真卡池，
+ * 只在图鉴里摆着看排版（数据在 screens/deckDemoCards.ts），等规则实现后再整体迁入 core。
  */
 export const GALLERY_SKILL_CARDS: SkillCard[] = DECK_DEMO_CARDS.filter(
   (card) => card.kind === 'skill',

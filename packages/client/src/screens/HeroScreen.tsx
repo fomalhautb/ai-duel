@@ -1,9 +1,12 @@
 /**
  * 选择英雄页（/hero）。
  *
- * 纯 UI demo：照着一张 1920×1080 的设计稿复原出选人界面，hover、放大看技能都做全了，
- * 但一步也不往外走——不导航、不写存档、不碰 MatchSession。真要接对局时改的是
- * 下面 handleConfirm 里那一处，别的地方都不用动。
+ * 受控组件：选中谁的初值来自 props.initialHeroId，确认后把英雄交回 props.onConfirm，
+ * 返回走 props.onBack。这一页自己不导航、不写存档、不碰 MatchSession——
+ * 选完之后去哪、存不存，全由调用方决定。
+ * 七位英雄的数据直接读 core 的 HEROES 表，页面不再自带一份。
+ *
+ * 界面照着一张 1920×1080 的设计稿复原：hover 上浮 / 倾斜、点开看技能详情都做全了。
  *
  * 做法和首页同源（见 HomeScreen.tsx 文件头）：一个 1672:941 的固定宽高比舞台塞进视口居中，
  * 舞台内所有尺寸写成 cqi（1cqi = 舞台宽的 1%），窗口怎么变都只是整体等比缩放，不写断点。
@@ -18,16 +21,17 @@
  *
  * 素材：public/hero/ 下背景 3344×1882（设计稿的 2x），七张人物卡 768×1152（2:3）。
  * 卡面自带装饰边框和名字牌，所以卡阵上只额外叠了 hover 时那条「点击查看技能」，
- * 名字一律读卡面自己的（详情面板里那行标题是另一回事，见下面 HEROES）。
+ * 名字一律读卡面自己的（详情面板里那行标题是另一回事，见下面 HERO_LIST）。
  * 原图在仓库 assets/人物卡简介/*.png（1024×1536），要更清晰可以从那儿按更大尺寸重导，
  * 同名覆盖即可，代码一行不用改——卡片是 width/height: 100% 铺满卡槽的。
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
+import { HEROES } from '@ai-duel/core'
+import type { HeroId } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { PlaqueButton } from '../ui/PlaqueButton'
@@ -50,44 +54,30 @@ import './hero.css'
 gsap.registerPlugin(useGSAP, Flip)
 
 /**
- * 七位英雄，顺序就是设计稿上从左到右、从上到下的摆放顺序。
+ * 页面上的七位英雄，直接摊平 core 的英雄表。
  *
- * 这份数据**不是**从 core 读的：packages/core/src/heroes.ts 里眼下只有格蕾丝·霍珀一位，
- * 而这一页是照设计稿先行的 UI demo，要把七张卡都摆出来。
- * name 有两处会被人看见 / 听见：技能详情面板上那行标题（.hero__detail-name），
- * 以及卡片按钮的 aria-label 和卡面图的 alt。
- * enName 只有详情面板那行小字（.hero__detail-en）在用。
- * 卡阵上不显示这两个字段——那里的名字是画在卡面图里的。
+ * 不在这儿排序：HEROES 的键序就是设计稿上从左到右、从上到下的摆放顺序（core 那边有约定），
+ * 要调排布去改 core 表。
  *
+ * 卡阵上不显示 name / enName——那里的名字是画在卡面图里的；它们只出现在技能详情面板
+ * （.hero__detail-name / .hero__detail-en）和无障碍文案（按钮 aria-label、图片 alt）里。
  * 所以改这两个字段等于改详情面板的排版：.hero__detail-info 宽度钉死 30cqi，
- * 名字太长不会把面板撑开，而是换行把底下的分隔线和技能列表整体往下顶。
- * id 则是将来接线时按它对上 core 的英雄表。
- * core 补齐七位之后，这个数组就该整个换成 Object.values(HEROES)。
- *
- * as const 是为了让 HEROES[0] 有确定类型（tsconfig 开了 noUncheckedIndexedAccess，
- * 普通数组下标取出来会带 undefined），下面默认选中第一位时就不用再写一次兜底。
+ * 名字太长不会把面板撑开，而是换行把底下的分隔线和技能整体往下顶。
  */
-const HEROES = [
-  { id: 'fei-fei-li', name: '李飞飞', enName: 'Fei-Fei Li' },
-  { id: 'danqi-chen', name: '陈丹琦', enName: 'Danqi Chen' },
-  { id: 'melanie-perkins', name: '梅拉妮·珀金斯', enName: 'Melanie Perkins' },
-  { id: 'mira-murati', name: '米拉·穆拉蒂', enName: 'Mira Murati' },
-  { id: 'ada-lovelace', name: '阿达·洛芙莱斯', enName: 'Ada Lovelace' },
-  { id: 'margaret-hamilton', name: '玛格丽特·汉密尔顿', enName: 'Margaret Hamilton' },
-  { id: 'grace-hopper', name: '格蕾丝·霍珀', enName: 'Grace Hopper' },
-] as const
-
-type HeroId = (typeof HEROES)[number]['id']
+const HERO_LIST = Object.values(HEROES)
 
 /** 第一排 4 张、第二排 3 张，切分点写成常量免得两处魔数对不上。 */
 const FIRST_ROW_COUNT = 4
 
+/** 切好的两排。切分和渲染无关，放模块级，免得每次重画都重切一遍。 */
+const HERO_ROWS = [HERO_LIST.slice(0, FIRST_ROW_COUNT), HERO_LIST.slice(FIRST_ROW_COUNT)]
+
 /**
- * 默认选中第一位。
- * 选中在页面上没有任何标记（金框和光环都撤了），这份默认值只是给「确认英雄」兜个底：
- * 玩家一次卡都没点开就直接确认时，走的就是这一位。
+ * 没有预填英雄时的兜底。
+ * 选中在页面上没有任何标记（金框和光环都撤了），这份默认值只是给「确认英雄」兜个底。
+ * `!` 是给 noUncheckedIndexedAccess 让路——表是写死的七位，第一位一定在。
  */
-const DEFAULT_HERO_ID: HeroId = HEROES[0].id
+const DEFAULT_HERO_ID: HeroId = HERO_LIST[0]!.id
 
 /**
  * 这一页要用到的全部图片：背景 + 七张人物卡。加载完之前不上场（见下面的 HeroScreen）。
@@ -101,7 +91,7 @@ const DEFAULT_HERO_ID: HeroId = HEROES[0].id
  */
 export const HERO_ASSETS = [
   '/hero/hero-bg.webp',
-  ...HEROES.map((hero) => `/hero/card-${hero.id}.webp`),
+  ...HERO_LIST.map((hero) => `/hero/card-${hero.id}.webp`),
 ]
 
 /** hover 时卡牌上浮的距离，写成卡自身高度的百分比——GSAP 的 y 不认 cqi，用百分比才和缩放无关。 */
@@ -115,20 +105,14 @@ const CARD_HOVER_DUR = 0.25
  */
 const CARD_TILT_DEG = 8
 
-/**
- * 技能占位文案。core 里眼下没有英雄技能这份数据（packages/core/src/heroes.ts 只有属性），
- * 所以七位英雄先共用同一组占位撑住排版，等技能真做出来再按 heroId 取。
- */
-const PLACEHOLDER_SKILLS = [
-  {
-    name: '技能一（待定）',
-    text: '技能效果待设计。这里会写这位英雄的主动技能：消耗多少能量、影响哪些单位、持续几回合。',
-  },
-  {
-    name: '技能二（待定）',
-    text: '技能效果待设计。这里会写这位英雄的被动或大招，以及它的触发条件。',
-  },
-] as const
+interface HeroScreenProps {
+  /** 预填的英雄；null 表示默认选中第一位。只在挂载时读一次，之后以玩家在页面上的选择为准。 */
+  initialHeroId: HeroId | null
+  /** 详情飞回卡槽的动画播完才回调——跳转要是抢在动画前面，这段飞行等于白做。 */
+  onConfirm: (hero: HeroId) => void
+  /** 不传就不渲染返回按钮（比如从没有上一步的入口进来）。 */
+  onBack?: () => void
+}
 
 /**
  * 加载闸门。
@@ -138,14 +122,13 @@ const PLACEHOLDER_SKILLS = [
  * 同一个组件里「先渲染 loader 再切成正页」的话，入场动画会在没有 DOM 的第一帧就跑掉，
  * 之后不会再补跑。理由和 HomeScreen 那道闸门完全一样。
  */
-export function HeroScreen() {
+export function HeroScreen(props: HeroScreenProps) {
   const ready = useAssetsReady(HERO_ASSETS)
-  return ready ? <HeroStage /> : <LoadingScreen />
+  return ready ? <HeroStage {...props} /> : <LoadingScreen />
 }
 
-function HeroStage() {
-  const [, navigate] = useLocation()
-  const [selectedId, setSelectedId] = useState<HeroId>(DEFAULT_HERO_ID)
+function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
+  const [selectedId, setSelectedId] = useState<HeroId>(initialHeroId ?? DEFAULT_HERO_ID)
   const rootRef = useRef<HTMLDivElement>(null)
   /**
    * 每张卡的按钮节点。两处要用：详情飞回时拿它当落点，关闭详情后把焦点还给它。
@@ -173,6 +156,14 @@ function HeroStage() {
    * 飞回那一程跑的时候 detailId 已经被清空了，落点是哪张卡只能靠这一份同步副本去找。
    */
   const detailHeroRef = useRef<HeroId | null>(null)
+  /**
+   * 按下「确认英雄」之后、等飞回动画播完要交出去的那位；null = 这次关详情不是确认（返回 / ESC）。
+   *
+   * 把英雄记在这里而不是等回调时现读 selectedId：飞回那 0.6 秒里背景已经不 inert 了，
+   * 玩家能再点开另一张卡把选中改掉，那时交出去的就不是他刚确认的那位。
+   * 顺带当"确认已经受理"的锁用，挡住连点。存 ref 不存 state：改它不需要重画界面。
+   */
+  const pendingConfirmRef = useRef<HeroId | null>(null)
 
   const { contextSafe } = useGSAP(
     () => {
@@ -210,7 +201,8 @@ function HeroStage() {
 
       cards.forEach((card, index) => {
         const lift = lifts[index]
-        const hero = HEROES[index]
+        // 卡片是照 HERO_ROWS 铺的，DOM 顺序和 HERO_LIST 一一对应，所以按下标取得到同一位。
+        const hero = HERO_LIST[index]
         if (lift === undefined || lift === null || hero === undefined) return
 
         // 倾斜写在最里面那层（.hero__card-tilt）：上浮 / pop 归下面几条补间写在 lift 上，
@@ -313,13 +305,15 @@ function HeroStage() {
   closeDetailRef.current = closeDetail
 
   /*
-   * 确认。眼下只是把详情关掉，不导航也不落任何状态——这一页是纯 UI demo。
-   * 选中谁已经在打开详情那一刻记进 selectedId 了，这里不用再设一次。
+   * 确认。先记下要交出去的是谁，再走和「返回」一样的关闭流程；
+   * onConfirm 排在飞回卡槽那段动画的 onComplete 里（见下面那个 useGSAP），
+   * 调用方多半会把整页换掉，跳转抢在动画前面就等于没播。
    *
-   * TODO：将来「带着英雄进房间」接在这里，大致是把 selectedId 塞进 MatchSession
-   * 或存档，再 navigate('/room')。飞回的动画照播，把跳转排在它后面即可。
+   * 选中谁在打开详情那一刻就记进 selectedId 了，所以这里的 selectedId 一定是屏幕中央那位。
    */
   const handleConfirm = () => {
+    if (detailId === null || pendingConfirmRef.current !== null) return
+    pendingConfirmRef.current = selectedId
     closeDetail()
   }
 
@@ -334,8 +328,24 @@ function HeroStage() {
    */
   useGSAP(
     () => {
+      /**
+       * 这次关详情是「确认」的话，把英雄交给调用方。
+       *
+       * 详情关掉之后的每一条出口都得走一遍：飞回没播成时动画的 onComplete 不会来，
+       * 漏掉这一步玩家就卡在选人页，确认按钮还点不动（pendingConfirmRef 一直锁着）。
+       */
+      const finishConfirm = () => {
+        const confirmed = pendingConfirmRef.current
+        if (confirmed === null) return
+        pendingConfirmRef.current = null
+        onConfirm(confirmed)
+      }
+
       const veil = veilRef.current
-      if (veil === null) return
+      if (veil === null) {
+        if (detailId === null) finishConfirm()
+        return
+      }
       // 减少动效时把飞行压成瞬时，但不取消：取消了卡会凭空出现在屏幕中央，反而更难跟上。
       const reduced = prefersReducedMotion()
 
@@ -356,16 +366,23 @@ function HeroStage() {
       }
 
       const back = flipBackRef.current
-      if (back === null || detailId !== null) return
+      if (back === null || detailId !== null) {
+        if (detailId === null) finishConfirm()
+        return
+      }
       flipBackRef.current = null
       const hero = detailHeroRef.current
       detailHeroRef.current = null
       fadeVeilOut(veil)
+
       // 卡槽那张卡此刻已经跟着 state 恢复可见了：useGSAP 是 layout effect，
       // 恢复可见和 Flip 把它摆回起飞位置发生在同一次绘制之前，中间不会闪。
       const originCard = hero === null ? null : (cardsRef.current.get(hero) ?? null)
       const origin = originCard?.querySelector<HTMLElement>('.hero__card-tilt') ?? null
-      if (originCard === null || origin === null) return
+      if (originCard === null || origin === null) {
+        finishConfirm()
+        return
+      }
       /*
        * 飞回途中要压过正在淡出的遮罩（遮罩 0.3s 淡完，而飞行有 0.6s），层级得自己给。
        *
@@ -386,6 +403,14 @@ function HeroStage() {
         scale: true,
         onComplete: () => {
           originCard.style.zIndex = ''
+          finishConfirm()
+        },
+        // 被杀掉的补间永远不会来 onComplete（overwrite、context 清理都可能杀它），
+        // 而 pendingConfirmRef 锁着会让玩家永远卡在选人页——onInterrupt 把这条路也兜住。
+        // finishConfirm 自带幂等（取走即清空），两个回调不会重复交付。
+        onInterrupt: () => {
+          originCard.style.zIndex = ''
+          finishConfirm()
         },
       })
     },
@@ -461,7 +486,7 @@ function HeroStage() {
   }, [detailId])
 
   /** 详情要展示的那位英雄。detailId 为空时是 undefined，详情层里只留遮罩。 */
-  const detailHero = HEROES.find((hero) => hero.id === detailId)
+  const detailHero = detailId === null ? undefined : HEROES[detailId]
 
   return (
     <div className="hero grain on-dark" ref={rootRef}>
@@ -471,12 +496,12 @@ function HeroStage() {
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 
         {/* 位置和配色留在 hero.css 的 .hero__back 里，箭头和文字的排版由公共组件管。
-            详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。 */}
-        <BackButton
-          className="hero__back"
-          inert={detailId !== null}
-          onClick={() => navigate('/')}
-        />
+            详情打开时整片背景挂 inert：焦点和指针都停掉，等于不用手写 focus trap。
+            没给 onBack 就整个不渲染（.hero__back 是绝对定位的，少了它标题也不会挪位）；
+            入场动画那条选择器匹配不到元素时 GSAP 直接跳过，不用为这种情况另写一套。 */}
+        {onBack === undefined ? null : (
+          <BackButton className="hero__back" inert={detailId !== null} onClick={onBack} />
+        )}
 
         <div className="hero__head" inert={detailId !== null}>
           <h1 className="hero__title">
@@ -495,7 +520,7 @@ function HeroStage() {
 
         {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
         <div className="hero__grid" inert={detailId !== null}>
-          {[HEROES.slice(0, FIRST_ROW_COUNT), HEROES.slice(FIRST_ROW_COUNT)].map((row, rowIndex) => (
+          {HERO_ROWS.map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => (
                 <button
@@ -575,12 +600,19 @@ function HeroStage() {
                   <h2 className="hero__detail-name">{detailHero.name}</h2>
                   <p className="hero__detail-en">{detailHero.enName}</p>
                   <div className="hero__detail-rule" />
-                  {PLACEHOLDER_SKILLS.map((skill) => (
-                    <div className="hero__detail-skill" key={skill.name}>
-                      <h3 className="hero__detail-skill-name">{skill.name}</h3>
-                      <p className="hero__detail-skill-text">{skill.text}</p>
-                    </div>
-                  ))}
+                  {/* 分隔线下面两块：人物简介和技能。
+                      core 里每位英雄只有一个技能（HeroCard 的 skillName / skillText），
+                      设计稿上那两栏的第二栏就用人物简介填——总好过编一个不存在的第二技能。
+                      七位里眼下只有格蕾丝·霍珀的技能真接进了引擎，其余六位的 skillText
+                      自己写着「待实装」，照实显示即可。 */}
+                  <div className="hero__detail-skill">
+                    <h3 className="hero__detail-skill-name">人物简介</h3>
+                    <p className="hero__detail-skill-text">{detailHero.text}</p>
+                  </div>
+                  <div className="hero__detail-skill">
+                    <h3 className="hero__detail-skill-name">{detailHero.skillName}</h3>
+                    <p className="hero__detail-skill-text">{detailHero.skillText}</p>
+                  </div>
                 </div>
               </div>
 

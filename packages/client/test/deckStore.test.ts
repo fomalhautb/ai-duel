@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DECK_DEMO_CARDS } from '../src/screens/deckDemoCards'
+import { CARD_POOL, STARTER_DECK } from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -23,7 +23,7 @@ import {
 import type { DecksData } from '../src/save/deckStore'
 
 /** 和 deckStore.ts 里的 DECKS_KEY 保持一致；改版本号时这里也要跟着改。 */
-const DECKS_KEY = 'ai-duel-decks-v1'
+const DECKS_KEY = 'ai-duel-decks-v2'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -79,7 +79,14 @@ function countCopies(cards: readonly string[], cardId: string): number {
   return cards.filter((id) => id === cardId).length
 }
 
-const KNOWN_CARD_IDS = new Set(DECK_DEMO_CARDS.map((card) => card.id))
+const KNOWN_CARD_IDS = new Set(CARD_POOL)
+
+/**
+ * 测试里当素材用的三张真卡。
+ * 从卡池头上取，不写死 id：卡池改名时这份测试跟着走，不用一处处改字符串。
+ * `!` 是给 noUncheckedIndexedAccess 让路——卡池至少 20 张，前三张一定在。
+ */
+const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
 
 describe('牌组存档', () => {
   beforeEach(() => {
@@ -90,36 +97,22 @@ describe('牌组存档', () => {
   })
 
   describe('播种预设', () => {
-    it('没有存档时播种三套预设，第一套是当前牌组', () => {
+    it('没有存档时播种一套「起始牌组」并设为当前', () => {
       const data = loadDecks()
-      expect(data.decks.map((deck) => deck.id)).toEqual([
-        'preset-sota',
-        'preset-cn',
-        'preset-skill',
-      ])
-      expect(data.currentId).toBe('preset-sota')
+      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-starter'])
+      expect(data.decks[0]?.name).toBe('起始牌组')
+      expect(data.currentId).toBe('preset-starter')
     })
 
-    it('每套预设都是合法牌组：20 张、卡都在卡池里、同名卡不超过 2 份', () => {
-      for (const deck of loadDecks().decks) {
-        expect(deck.cards).toHaveLength(DECK_SIZE)
-        for (const cardId of deck.cards) {
-          expect(KNOWN_CARD_IDS).toContain(cardId)
-          expect(countCopies(deck.cards, cardId)).toBeLessThanOrEqual(MAX_COPIES)
-        }
+    // 预设直接取 core 的示例牌组，它本来就是一副能开局的牌，这里守着"没在存档层被改坏"。
+    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 2 份', () => {
+      const deck = loadDecks().decks[0]
+      expect(deck?.cards).toEqual([...STARTER_DECK])
+      expect(deck?.cards).toHaveLength(DECK_SIZE)
+      for (const cardId of deck?.cards ?? []) {
+        expect(KNOWN_CARD_IDS).toContain(cardId)
+        expect(countCopies(deck?.cards ?? [], cardId)).toBeLessThanOrEqual(MAX_COPIES)
       }
-    })
-
-    // 卡池的技能牌有 24 张，一套牌组只有 20 格，装不下全部，所以只查"技能牌占了 12 张且各不相同"。
-    it('技能流带了 12 张互不重复的技能牌', () => {
-      const skillIds = new Set(
-        DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').map((card) => card.id),
-      )
-      const skillDeck = loadDecks().decks.find((deck) => deck.id === 'preset-skill')
-      expect(skillDeck).toBeDefined()
-      const picked = skillDeck?.cards.filter((cardId) => skillIds.has(cardId)) ?? []
-      expect(picked).toHaveLength(12)
-      expect(new Set(picked).size).toBe(12)
     })
 
     it('播种结果立刻写回 localStorage，再读一次拿到的是同一份', () => {
@@ -128,17 +121,24 @@ describe('牌组存档', () => {
       expect(loadDecks()).toEqual(first)
     })
 
-    it('预设可以改可以删，不会自己长回来', () => {
-      deleteDeck('preset-sota')
-      renameDeck('preset-cn', '国产队')
-      const data = loadDecks()
-      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-cn', 'preset-skill'])
-      expect(data.decks[0]?.name).toBe('国产队')
+    it('预设可以改名，改完不会被播种覆盖回去', () => {
+      loadDecks()
+      renameDeck('preset-starter', '我的牌组')
+      expect(loadDecks().decks[0]?.name).toBe('我的牌组')
+    })
+
+    // 删掉唯一一套会自动补一套空的（见 deleteDeck），所以这里先建一套再删预设，
+    // 才测得到"预设删了就是删了、不会自己长回来"。
+    it('预设可以删，删完不会自己长回来', () => {
+      loadDecks()
+      createDeck()
+      deleteDeck('preset-starter')
+      expect(loadDecks().decks.map((deck) => deck.id)).not.toContain('preset-starter')
     })
   })
 
   describe('坏档回落', () => {
-    const seeded = ['preset-sota', 'preset-cn', 'preset-skill']
+    const seeded = ['preset-starter']
 
     it('不是合法 JSON 时重新播种', () => {
       localStorage.setItem(DECKS_KEY, '不是 JSON')
@@ -201,27 +201,30 @@ describe('牌组存档', () => {
 
     it('setCurrentDeck 切到存在的牌组，切换结果会存下来', () => {
       loadDecks()
-      expect(setCurrentDeck('preset-skill').currentId).toBe('preset-skill')
-      expect(loadDecks().currentId).toBe('preset-skill')
+      const created = createDeck()?.decks.at(-1)
+      const id = created?.id ?? ''
+      expect(setCurrentDeck('preset-starter').currentId).toBe('preset-starter')
+      expect(setCurrentDeck(id).currentId).toBe(id)
+      expect(loadDecks().currentId).toBe(id)
     })
 
     it('setCurrentDeck 传不存在的 id 时不生效', () => {
       loadDecks()
-      expect(setCurrentDeck('不存在').currentId).toBe('preset-sota')
+      expect(setCurrentDeck('不存在').currentId).toBe('preset-starter')
     })
   })
 
   describe('改名', () => {
     it('trim 后截断到 10 个字符', () => {
       loadDecks()
-      const data = renameDeck('preset-sota', '  这是一个特别特别长的牌组名字  ')
+      const data = renameDeck('preset-starter', '  这是一个特别特别长的牌组名字  ')
       expect(data.decks[0]?.name).toBe('这是一个特别特别长的')
       expect(data.decks[0]?.name).toHaveLength(DECK_NAME_MAX)
     })
 
     it('只有空白的名字回落成原名', () => {
       loadDecks()
-      expect(renameDeck('preset-sota', '   ').decks[0]?.name).toBe('SOTA 流')
+      expect(renameDeck('preset-starter', '   ').decks[0]?.name).toBe('起始牌组')
     })
 
     it('id 不存在时什么都不改', () => {
@@ -261,8 +264,8 @@ describe('牌组存档', () => {
 
     it('已经有 12 套时不再新建，返回 null', () => {
       loadDecks()
-      // 三套预设 + 九套新建正好顶到上限。
-      for (let i = 0; i < MAX_DECKS - 3; i += 1) {
+      // 一套预设 + 十一套新建正好顶到上限。
+      for (let i = 0; i < MAX_DECKS - 1; i += 1) {
         expect(createDeck()).not.toBeNull()
       }
       expect(loadDecks().decks).toHaveLength(MAX_DECKS)
@@ -272,36 +275,45 @@ describe('牌组存档', () => {
 
     it('每套新建的牌组 id 都不重复', () => {
       loadDecks()
-      for (let i = 0; i < MAX_DECKS - 3; i += 1) createDeck()
+      for (let i = 0; i < MAX_DECKS - 1; i += 1) createDeck()
       const ids = loadDecks().decks.map((deck) => deck.id)
       expect(new Set(ids).size).toBe(ids.length)
     })
   })
 
   describe('删除牌组', () => {
-    it('删掉当前牌组后切到剩下的第一套', () => {
+    /** 预设 + 两套新建，够测"删当前"和"删别人"两条路。返回这两套新建的 id。 */
+    function seedThreeDecks(): [string, string] {
       loadDecks()
-      setCurrentDeck('preset-cn')
-      const data = deleteDeck('preset-cn')
-      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-sota', 'preset-skill'])
-      expect(data.currentId).toBe('preset-sota')
+      const first = createDeck()?.decks.at(-1)?.id ?? ''
+      const second = createDeck()?.decks.at(-1)?.id ?? ''
+      return [first, second]
+    }
+
+    it('删掉当前牌组后切到剩下的第一套', () => {
+      const [first, second] = seedThreeDecks()
+      setCurrentDeck(second)
+      const data = deleteDeck(second)
+      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-starter', first])
+      expect(data.currentId).toBe('preset-starter')
     })
 
     it('删掉的不是当前牌组时，当前牌组不变', () => {
-      loadDecks()
-      expect(deleteDeck('preset-skill').currentId).toBe('preset-sota')
+      const [, second] = seedThreeDecks()
+      setCurrentDeck('preset-starter')
+      expect(deleteDeck(second).currentId).toBe('preset-starter')
     })
 
     it('删到一套不剩时自动补一套空的「新牌组」并设为当前', () => {
-      loadDecks()
-      deleteDeck('preset-sota')
-      deleteDeck('preset-cn')
-      const data = deleteDeck('preset-skill')
+      const [first, second] = seedThreeDecks()
+      deleteDeck(first)
+      deleteDeck(second)
+      const data = deleteDeck('preset-starter')
       expect(data.decks).toHaveLength(1)
       expect(data.decks[0]?.name).toBe('新牌组')
       expect(data.decks[0]?.cards).toEqual([])
       expect(data.currentId).toBe(data.decks[0]?.id)
-      // 补出来的这套要真的存下来，刷新后不能又变回三套预设。
+      // 补出来的这套要真的存下来，刷新后不能又变回预设。
       expect(loadDecks()).toEqual(data)
     })
 
@@ -320,47 +332,48 @@ describe('牌组存档', () => {
 
     it('过滤掉卡池里没有的卡 id', () => {
       seedEmptyDeck()
-      const data = updateDeckCards('a', ['gpt-4o', '并不存在的卡', 'glm-5'])
-      expect(data.decks[0]?.cards).toEqual(['gpt-4o', 'glm-5'])
+      const data = updateDeckCards('a', [CARD_A, '并不存在的卡', CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 
     it('同一张卡最多留 2 份', () => {
       seedEmptyDeck()
-      const data = updateDeckCards('a', ['gpt-4o', 'gpt-4o', 'gpt-4o', 'glm-5'])
-      expect(data.decks[0]?.cards).toEqual(['gpt-4o', 'gpt-4o', 'glm-5'])
+      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_B])
     })
 
     it('超过 20 张的部分被截掉', () => {
       seedEmptyDeck()
-      const tooMany = DECK_DEMO_CARDS.flatMap((card) => [card.id, card.id])
+      const tooMany = CARD_POOL.flatMap((cardId) => [cardId, cardId])
       expect(updateDeckCards('a', tooMany).decks[0]?.cards).toHaveLength(DECK_SIZE)
     })
 
     it('读存档时同样会过滤：存档里被改坏的卡表读出来是干净的', () => {
       writeRaw({
-        decks: [{ id: 'a', name: '测试牌组', cards: ['gpt-4o', 'gpt-4o', 'gpt-4o', '野卡'] }],
+        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, '野卡'] }],
         currentId: 'a',
       })
-      expect(loadDecks().decks[0]?.cards).toEqual(['gpt-4o', 'gpt-4o'])
+      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A])
     })
 
     it('cards 不是数组时读成空牌组', () => {
-      writeRaw({ decks: [{ id: 'a', name: '测试牌组', cards: 'gpt-4o' }], currentId: 'a' })
+      writeRaw({ decks: [{ id: 'a', name: '测试牌组', cards: CARD_A }], currentId: 'a' })
       expect(loadDecks().decks[0]?.cards).toEqual([])
     })
 
     it('改完立刻存下来，只影响目标牌组', () => {
       loadDecks()
-      const before = loadDecks().decks[1]?.cards
-      updateDeckCards('preset-sota', ['gpt-2'])
+      const other = createDeck()?.decks.at(-1)?.id ?? ''
+      updateDeckCards(other, [CARD_C])
+      updateDeckCards('preset-starter', [CARD_A])
       const data = loadDecks()
-      expect(data.decks[0]?.cards).toEqual(['gpt-2'])
-      expect(data.decks[1]?.cards).toEqual(before)
+      expect(data.decks[0]?.cards).toEqual([CARD_A])
+      expect(data.decks.find((deck) => deck.id === other)?.cards).toEqual([CARD_C])
     })
 
     it('id 不存在时什么都不改', () => {
       const before = loadDecks()
-      expect(updateDeckCards('不存在', ['gpt-2'])).toEqual(before)
+      expect(updateDeckCards('不存在', [CARD_A])).toEqual(before)
     })
   })
 
@@ -368,24 +381,24 @@ describe('牌组存档', () => {
     it('读抛异常时接着用内存里那份，一次会话里的编辑不会被打回预设', () => {
       const { storage, breakIt } = createBreakableStorage()
       vi.stubGlobal('localStorage', storage)
-      // 先正常读一次，把三套预设播下去，之后再让 storage 坏掉。
-      expect(loadDecks().decks).toHaveLength(3)
+      // 先正常读一次，把预设播下去，之后再让 storage 坏掉。
+      expect(loadDecks().decks).toHaveLength(1)
       breakIt()
 
       const created = createDeck()
-      expect(created?.decks).toHaveLength(4)
+      expect(created?.decks).toHaveLength(2)
       const id = created?.currentId ?? ''
 
       // 新建的这套还在，改名落在它头上，而不是读回预设后什么都改不到。
       const renamed = renameDeck(id, '断档牌组')
-      expect(renamed.decks).toHaveLength(4)
+      expect(renamed.decks).toHaveLength(2)
       expect(renamed.decks.find((deck) => deck.id === id)?.name).toBe('断档牌组')
 
-      // 加卡写进新牌组自己，不会因为读回预设而落到 preset-sota 头上。
-      const withCards = updateDeckCards(id, ['gpt-4o', 'glm-5'])
+      // 加卡写进新牌组自己，不会因为读回预设而落到 preset-starter 头上。
+      const withCards = updateDeckCards(id, [CARD_A, CARD_B])
       expect(withCards.currentId).toBe(id)
-      expect(withCards.decks.find((deck) => deck.id === id)?.cards).toEqual(['gpt-4o', 'glm-5'])
-      expect(withCards.decks.find((deck) => deck.id === 'preset-sota')?.cards).toHaveLength(
+      expect(withCards.decks.find((deck) => deck.id === id)?.cards).toEqual([CARD_A, CARD_B])
+      expect(withCards.decks.find((deck) => deck.id === 'preset-starter')?.cards).toHaveLength(
         DECK_SIZE,
       )
 
@@ -397,11 +410,7 @@ describe('牌组存档', () => {
       const { storage, breakIt } = createBreakableStorage()
       breakIt()
       vi.stubGlobal('localStorage', storage)
-      expect(loadDecks().decks.map((deck) => deck.id)).toEqual([
-        'preset-sota',
-        'preset-cn',
-        'preset-skill',
-      ])
+      expect(loadDecks().decks.map((deck) => deck.id)).toEqual(['preset-starter'])
     })
   })
 })

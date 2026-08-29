@@ -5,6 +5,12 @@
  * 谁先把码念给对方，谁就成了房主（房主是唯一跑规则的一方，见架构文档 4.2）。
  * 也就是说这个界面没有「创建 / 加入」的选择，读码还是输码是当场决定的。
  *
+ * ------------------------------------------------------------
+ * 这一页不只有大厅：整条「匹配 → 选卡组 → 选英雄 → 双方锁定 → 开局」的流程都在这个组件里，
+ * 靠一个 phase 状态在同一份连接上换画面（见下面的 Phase）。
+ * 之所以不拆成几条路由：选卡和选英雄期间连接必须一直活着，
+ * 一旦离开本页，cleanup 就会把房关掉、码也换掉，对方手里的码当场失效。
+ *
  * 外观和 /hero 同源（做法见 HeroScreen.tsx 文件头）：一个 1672:941 的固定宽高比舞台塞进视口居中，
  * 舞台内所有尺寸写成 cqi（1cqi = 舞台宽的 1%），窗口怎么变都只是整体等比缩放，不写断点。
  * 背景直接复用 /hero 那张夜空图，留边底色和暗角也照抄，两页切换时画面是接得上的。
@@ -22,13 +28,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { STARTER_DECK } from '@ai-duel/core'
+import type { CardId, HeroId } from '@ai-duel/core'
 import { connectRoom } from '../net/socket'
 import type { RoomHandle } from '../net/socket'
 import { createHostDriver } from '../match/hostDriver'
 import { createGuestDriver } from '../match/guestDriver'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
+import { loadSave, saveHero } from '../save/save'
+import { DeckScreen } from './DeckScreen'
+import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import './room.css'
@@ -70,6 +79,25 @@ export const ROOM_ASSETS = [
 const COPY_FEEDBACK_MS = 1600
 
 /**
+ * 这一页当前显示哪一屏。
+ *
+ * - `lobby`：房间码 + 加入框，也就是这一页原本的样子。
+ * - `deck` / `hero`：选卡组 / 选英雄。两种情况会走到这里——匹配成功后的必经流程，
+ *   以及大厅底下两块横幅点进来的「提前配好」预设模式，靠 role 区分（见下面）。
+ * - `waiting`：房主已经锁完自己的选择、还没收到客人的 loadout 时的等待屏。
+ */
+type Phase = 'lobby' | 'deck' | 'hero' | 'waiting'
+
+/** 一方锁定后的完整选择。房主要凑齐自己和客人两份才能开局。 */
+interface Loadout {
+  deck: CardId[]
+  hero: HeroId
+}
+
+/** 对手中途退出后的提示。文案说明「码换了」，免得玩家还拿旧码让对方重进。 */
+const PEER_LEFT_NOTICE = '对手已离开房间，已重新开了一间新房'
+
+/**
  * 系统的「减少动效」开关。每次现读不缓存：这个设置能在页面开着的时候改，
  * 读一次存下来就会一直沿用旧值。
  *
@@ -80,15 +108,16 @@ function prefersReducedMotion() {
 }
 
 /**
- * 加载闸门 + 全部联机逻辑。
+ * 加载闸门 + 全部联机逻辑 + 匹配后的选卡组 / 选英雄流程。
  *
- * 拆成两个组件而不是在一个组件里写条件渲染，理由和 HeroScreen 那道闸门一样：
- * 下面 RoomStage 的 GSAP 入场只在挂载时绑一次，必须等真实 DOM 就位再挂；
+ * 大厅那一屏拆成了下面的 RoomStage，理由和 HeroScreen 那道闸门一样：
+ * RoomStage 的 GSAP 入场只在挂载时绑一次，必须等真实 DOM 就位再挂；
  * 同一个组件里「先渲染 loader 再切成正页」的话，入场动画会在没有 DOM 的第一帧就跑掉，之后不会再补跑。
  *
- * 连接的 effect 留在闸门这一层，而不是搬进 RoomStage：图还在下载的时候就先去开房，
+ * 连接的 effect 留在这一层，而不是搬进 RoomStage：图还在下载的时候就先去开房，
  * 码能早一点拿到手，等图加载完切进正页时多半已经有码可显示了。
  * 反过来放进 RoomStage 的话，开房要等图下完才开始，白白串起来两段等待。
+ * 更重要的是，选卡组和选英雄期间 RoomStage 是卸载的，连接必须比它活得久。
  */
 export function RoomScreen() {
   const [, navigate] = useLocation()
@@ -105,11 +134,43 @@ export function RoomScreen() {
   const [joinError, setJoinError] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [joining, setJoining] = useState(false)
+  const [phase, setPhase] = useState<Phase>('lobby')
+  /**
+   * 我在这次对局里是哪一方。null = 还没匹配上，也就是「预设模式」：
+   * 玩家只是从大厅横幅点进来提前配好卡组 / 英雄，确认后回大厅接着等人。
+   * 匹配成功的那一刻才会写成 host / guest，从此选完就要进对局。
+   */
+  const [role, setRole] = useState<'host' | 'guest' | null>(null)
+  /** 对手中途退出后显示在大厅左栏的一行说明。见下面 onPeerLeft。 */
+  const [peerLeftNotice, setPeerLeftNotice] = useState<string | null>(null)
+  /** 加一就重跑连接 effect = 关掉旧房、重开一间新房。 */
+  const [resetTick, setResetTick] = useState(0)
   /** 房间已经交给 driver 了，这个界面卸载时就别去关它的连接。 */
   const handedOff = useRef(false)
+  /** deck 阶段确认下来的牌组，hero 阶段确认时要和英雄拼成一份 Loadout。 */
+  const pickedDeckRef = useRef<CardId[] | null>(null)
+  /** 房主侧的两个槽：我自己的选择、客人发来的选择。两个都满了才开得了局。 */
+  const myLoadoutRef = useRef<Loadout | null>(null)
+  const guestLoadoutRef = useRef<Loadout | null>(null)
+  /** 已经开过局了。防住 tryStart 的两条触发路径重复建 driver，见 tryStart。 */
+  const startedRef = useRef(false)
 
   useEffect(() => {
+    // 重开房等于整条流程从头再来，所有跨阶段的暂存值都得清掉，
+    // 否则上一局残留的 loadout 会让新的一局少等一方就直接开。
     handedOff.current = false
+    startedRef.current = false
+    pickedDeckRef.current = null
+    myLoadoutRef.current = null
+    guestLoadoutRef.current = null
+    setRoom(null)
+    setRole(null)
+    setPhase('lobby')
+    setConnectError(null)
+    setJoinError(null)
+    setJoining(false)
+    setInput('')
+
     let cancelled = false
     let handle: RoomHandle | null = null
 
@@ -122,23 +183,46 @@ export function RoomScreen() {
         }
         handle = connected
         setRoom(connected)
+
+        /*
+         * 三个监听器必须在这一个同步块里一次注册完，尤其是 onRelay 不能推迟到
+         * 「客人身份确定之后」或「进入 hero 阶段之后」再挂：
+         * 客人一锁定就会立刻发 match:loadout，那一刻房主这边可能还停在选卡组，
+         * 监听器晚挂一步这条消息就永远收不到了（socket 层收到认不出的帧直接丢，不排队）。
+         */
         connected.onPeerJoined(() => {
-          // 有人进了我的房 = 我是房主，由我来跑规则、发开局数据。
-          handedOff.current = true
-          session.start(
-            createHostDriver({
-              room: connected,
-              // 卡组选择还没做，双方先用同一套示例牌组。
-              setup: {
-                seed: Date.now(),
-                players: [
-                  { name: '房主', deck: [...STARTER_DECK] },
-                  { name: '挑战者', deck: [...STARTER_DECK] },
-                ],
-              },
-            }),
-          )
-          navigate('/match')
+          // 有人进了我的房 = 我是房主，接下来由我跑规则、发开局数据。
+          // 但先得选卡组和英雄，所以这里只切阶段，driver 留到 tryStart 再建。
+          //
+          // 此刻可能正处在横幅预设模式的 deck / hero 阶段，一律直接切到 deck 重走流程：
+          // 本来在选英雄的会被拉回上一步，那次没确认的英雄就此丢掉（下一屏按存档预填）；
+          // 本来就在选卡组的 phase 没变，DeckScreen 不重挂、选到一半的牌原样留着，
+          // 只是返回按钮跟着 role 一起消失——匹配上之后不允许再退回大厅晾着对方。
+          // 不为「编辑到一半被匹配上」做额外的状态合流，省下的那点重选不值这份复杂度。
+          setRole('host')
+          setPhase('deck')
+        })
+
+        connected.onRelay((message) => {
+          if (message.type !== 'match:loadout') return
+          guestLoadoutRef.current = { deck: message.deck, hero: message.hero }
+          tryStart(connected)
+        })
+
+        connected.onPeerLeft(() => {
+          // 对局已经交接给 driver 了，掉线由 driver 自己处理（显示「对手断开了连接」）。
+          if (handedOff.current) return
+          /*
+           * 还没开局就走人：房主和客人都统一「关掉当前连接、重开一间新房」。
+           *
+           * 不为房主保留原来那间房，是因为客人这一侧根本保不住：join 成功的那一刻
+           * socket 层就把它自己原来那条连接关了（见 net/socket.ts 的 join），旧码已经死了。
+           * 两边走同一条路径就少一个分支，代价只是房主换个码——而对方已经走了，
+           * 旧码本来也没人在用。不做重连恢复、不做超时等待，重开一间最省事。
+           */
+          connected.dispose()
+          setPeerLeftNotice(PEER_LEFT_NOTICE)
+          setResetTick((tick) => tick + 1)
         })
       })
       .catch((reason: Error) => {
@@ -147,10 +231,44 @@ export function RoomScreen() {
 
     return () => {
       cancelled = true
+      // onPeerLeft 那条路径里已经 dispose 过一次，这里是第二次——
+      // WebSocket.close() 对已关闭的连接是空操作，不用另外记状态。
       if (!handedOff.current) handle?.dispose()
     }
-    // 依赖故意留空：连接只该建一次，session 和 navigate 整个生命周期都是稳定的。
-  }, [])
+    // 只认 resetTick：连接本身只该在挂载和「重开房」时建。
+    // 下面用到的 session.start / navigate 整个生命周期都是稳定的，
+    // 闭包里读到的是旧的 session 对象也没关系。
+  }, [resetTick])
+
+  /**
+   * 房主侧的开局闸门：两份 loadout 都齐了才真的建 driver。
+   *
+   * 有两条触发路径，谁后到谁开局——「客人先发来 loadout，房主随后确认英雄」，
+   * 和「房主先锁完，客人的 loadout 随后到达」。startedRef 保证两条路径合起来只开一次局。
+   */
+  function tryStart(handle: RoomHandle): void {
+    if (startedRef.current) return
+    const mine = myLoadoutRef.current
+    const theirs = guestLoadoutRef.current
+    if (!mine || !theirs) return
+    startedRef.current = true
+    handedOff.current = true
+    // createHostDriver 一构造就 createGame 并把 match:start 发出去，
+    // 所以「什么时候构造」就等于「什么时候开局」。
+    session.start(
+      createHostDriver({
+        room: handle,
+        setup: {
+          seed: Date.now(),
+          players: [
+            { name: '房主', deck: mine.deck, hero: mine.hero },
+            { name: '挑战者', deck: theirs.deck, hero: theirs.hero },
+          ],
+        },
+      }),
+    )
+    navigate('/match')
+  }
 
   async function handleJoin(): Promise<void> {
     if (!room || joining) return
@@ -170,28 +288,120 @@ export function RoomScreen() {
       setJoining(false)
       return
     }
-    // 进别人的房 = 我是客人，本地不跑规则，只发指令。
+    // 进别人的房 = 我是客人，本地不跑规则。同样先去选卡组和英雄，
+    // driver 留到 handleHeroConfirm 再建。
+    setJoining(false)
+    setRole('guest')
+    setPhase('deck')
+  }
+
+  /** 回大厅，并且忘掉匹配身份——只在流程走不下去（连接没了）时用。 */
+  function backToLobby(): void {
+    setRole(null)
+    setPhase('lobby')
+  }
+
+  function handleDeckConfirm(deck: CardId[]): void {
+    // 这里不用落盘：选牌页每加减一张就自己写 deckStore 了（见 DeckScreen 文件头），
+    // 下次进来的预填也是从那份存档来的。
+    if (role === null) {
+      setPhase('lobby')
+      return
+    }
+    pickedDeckRef.current = deck
+    setPhase('hero')
+  }
+
+  function handleHeroConfirm(hero: HeroId): void {
+    saveHero(hero)
+    if (role === null) {
+      setPhase('lobby')
+      return
+    }
+    const deck = pickedDeckRef.current
+    // 匹配流程必然先过 deck 阶段，deck 为空只可能是连接被重置过；
+    // room 为空同理。两种都没法继续，退回大厅重来。
+    if (room === null || deck === null) {
+      backToLobby()
+      return
+    }
+    if (role === 'host') {
+      myLoadoutRef.current = { deck, hero }
+      setPhase('waiting')
+      // 客人可能早就把 loadout 发来了，齐了就立刻开，不用等下一个事件。
+      tryStart(room)
+      return
+    }
+    /*
+     * 客人：这两行的顺序是刻意的——先建 driver（它在构造里注册 onRelay），再发 loadout。
+     * 房主只会在收到这条 loadout 之后才可能发 match:start，因果上一定晚于这次注册，
+     * 所以不存在「开局消息先到、监听器后挂」的丢帧窗口。
+     */
     handedOff.current = true
     session.start(createGuestDriver({ room }))
+    room.relay({ type: 'match:loadout', deck, hero })
+    // guestDriver 起手是 state: null，落在对局界面现成的「等待房主开局」画面上。
     navigate('/match')
   }
 
   if (!ready) return <LoadingScreen />
+
+  if (phase === 'deck') {
+    return (
+      <DeckScreen
+        onConfirm={handleDeckConfirm}
+        onBack={role === null ? () => setPhase('lobby') : undefined}
+      />
+    )
+  }
+
+  if (phase === 'hero') {
+    return (
+      <HeroScreen
+        initialHeroId={loadSave().savedHero}
+        onConfirm={handleHeroConfirm}
+        // 匹配流程里上一步是选卡组；预设模式的英雄是从横幅直接进来的，上一步就是大厅。
+        onBack={() => setPhase(role === null ? 'lobby' : 'deck')}
+      />
+    )
+  }
+
+  if (phase === 'waiting') return <WaitingStage />
 
   return (
     <RoomStage
       room={room}
       connectError={connectError}
       joinError={joinError}
+      peerLeftNotice={peerLeftNotice}
       input={input}
       joining={joining}
       onInput={setInput}
       onJoin={() => void handleJoin()}
+      onPickDeck={() => setPhase('deck')}
+      onPickHero={() => setPhase('hero')}
       onTestMatch={() => {
         session.start(createTestMatchDriver(), { test: true })
         navigate('/match')
       }}
     />
+  )
+}
+
+/**
+ * 房主锁完自己的选择、还在等客人那份 loadout 时的一屏。
+ *
+ * 只有几秒钟的事，所以不搭舞台也不用素材：借大厅那套深色底和状态行字色，
+ * 让它看起来就是「等待对手加入」那行字的延续。房间码不再显示——这时候对方已经在房里了。
+ */
+function WaitingStage() {
+  return (
+    <div className="room-waiting grain on-dark">
+      <p className="room-waiting__line">
+        <span className="room-waiting__dot" aria-hidden="true" />
+        等待对手锁定…
+      </p>
+    </div>
   )
 }
 
@@ -201,10 +411,15 @@ type RoomStageProps = {
   connectError: string | null
   /** 加入对方房间失败的原因，只影响右栏。 */
   joinError: string | null
+  /** 上一位对手中途退出后的说明，和 connectError 共用左栏那个位置。 */
+  peerLeftNotice: string | null
   input: string
   joining: boolean
   onInput: (value: string) => void
   onJoin: () => void
+  /** 两块横幅：就地切到选卡组 / 选英雄，不离开本页（连接要活着）。 */
+  onPickDeck: () => void
+  onPickHero: () => void
   onTestMatch: () => void
 }
 
@@ -212,10 +427,13 @@ function RoomStage({
   room,
   connectError,
   joinError,
+  peerLeftNotice,
   input,
   joining,
   onInput,
   onJoin,
+  onPickDeck,
+  onPickHero,
   onTestMatch,
 }: RoomStageProps) {
   const [, navigate] = useLocation()
@@ -368,8 +586,13 @@ function RoomStage({
             </p>
 
             {/* 连接类的报错（连不上转发器、握手失败）显示在左栏：它说的是「我的房间开不出来」，
-                和右栏那个「加入对方房间」没有关系。消息里可能带一整条服务器地址，允许折行。 */}
-            {connectError !== null ? <p className="room__connect-error">{connectError}</p> : null}
+                和右栏那个「加入对方房间」没有关系。消息里可能带一整条服务器地址，允许折行。
+                「对手走了」的提示占同一个位置（两条同时成立时报错优先，它更要紧）。 */}
+            {connectError !== null ? (
+              <p className="room__connect-error">{connectError}</p>
+            ) : peerLeftNotice !== null ? (
+              <p className="room__notice">{peerLeftNotice}</p>
+            ) : null}
           </div>
 
           <div className="room__col room__col--join">
@@ -439,19 +662,16 @@ function RoomStage({
         </div>
 
         {/*
-         * 两个入口都会离开本页，于是当前这间房的连接被 cleanup 关掉；回来时重新开一间新房，
-         * 码也会换一个。眼下两页都还是纯 UI demo（选卡不落盘、选英雄不进对局），
-         * 换个码没有任何代价，所以先不为「保住房间」加状态。真接上对局时再说。
+         * 两个入口都不再跳路由，而是就地把 RoomScreen 切到 deck / hero 阶段：
+         * 离开本页会让 cleanup 关掉当前这间房、回来时换一个新码，对方手里的码当场作废。
+         * 现在整页始终挂着，连接全程不断，提前配好的选择也直接写进存档，
+         * 匹配上之后那一轮选择会拿它预填。
          *
          * .room__banner-lift 是专给 GSAP 入场用的一层：位移只写在它身上，
          * 按钮自己那份 transform 留给 :active 的下压（理由见上面入场时间线的注释）。
          * 卡背、月桂徽章、右端的「>」都画在素材里，这里只补一行文字。
          */}
-        <button
-          type="button"
-          className="room__banner room__banner--deck"
-          onClick={() => navigate('/deck')}
-        >
+        <button type="button" className="room__banner room__banner--deck" onClick={onPickDeck}>
           <span className="room__banner-lift">
             <img
               className="room__banner-art"
@@ -463,11 +683,7 @@ function RoomStage({
           </span>
         </button>
 
-        <button
-          type="button"
-          className="room__banner room__banner--hero"
-          onClick={() => navigate('/hero')}
-        >
+        <button type="button" className="room__banner room__banner--hero" onClick={onPickHero}>
           <span className="room__banner-lift">
             <img
               className="room__banner-art"

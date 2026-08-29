@@ -55,9 +55,6 @@
 }
 
 .deck-page {
-  /* --deck-scale 要按舞台宽算，所以这里必须是尺寸容器。
-     inline-size 就够：舞台是定死的 16:9，宽度一定，高度也就定了。 */
-  container-type: inline-size;
   /* 纸纹是宿主 .deck-frame 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
@@ -118,15 +115,17 @@
 /*
  * 缩放层：永远是设计稿那么大的一块盒子，整体缩到舞台里。
  *
- * --deck-scale 用的是 CSS 里把长度变成纯数字的惯用写法：atan2 接受两个长度，
- * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
- * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
+ * --deck-scale（= 舞台宽 ÷ 设计宽 1672）由 ui/useStageScale.ts 在运行时量出来写进行内样式，
+ * 不用纯 CSS 算：scale() 只吃无单位数字，而 calc 不允许长度除以长度，绕开的写法
+ * tan(atan2(100cqi, 1672px)) 在 WebKit 上有 bug（两个参数单位不一致时第二个被忽略），
+ * Safari 下算出垃圾值、整页内容被缩没。理由细节见那个文件。
+ * 下面写的 1 只是兜底：JS 没跑起来时页面至少看得见，只是没缩放。
  *
  * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
  * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
  */
 .deck-scaler {
-  --deck-scale: tan(atan2(100cqi, 1672px));
+  --deck-scale: 1;
   position: absolute;
   top: 0;
   left: 0;
@@ -286,6 +285,8 @@
 }
 
 /* ---------- 筛选栏 ---------- */
+/* 现在只剩种类页签一行（阵营筛选拆了：core 的卡池没有阵营这个维度）。
+   仍然写成纵向弹性容器：再加一行筛选时直接往里塞，不用重排这一节。 */
 .deck-pool__head {
   /* 在滚动区之外，不跟着卡片滚，所以不用 sticky。
      背景仍然要不透明：它压在卡池那张背景图上。 */
@@ -328,7 +329,7 @@
   font-size: 14px;
   letter-spacing: 0.1em;
   text-indent: 0.1em;
-  /* 「AI 卡 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
+  /* 「AI 牌 18」里的空格是字面量，卡池窄的时候会从那儿断成两行，牌匾一高一矮就歪了。 */
   white-space: nowrap;
   cursor: pointer;
 }
@@ -398,74 +399,6 @@
   left: auto;
 }
 
-/* ---------- 阵营筛选（药丸） ---------- */
-.deck-factions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/*
- * 药丸描边套手绘滤镜，所以描边和底色必须画在**另一层**上（::before），
- * 不能挂在按钮本身：位移滤镜会连同里面的文字一起扯，字会糊。
- *
- * 整组一律瞬切、没有 transition：带滤镜的元素每过渡一帧就要重跑一遍
- * feTurbulence + feDisplacementMap（WebKit 上是 CPU 逐像素算）。
- */
-.deck-faction {
-  position: relative;
-  padding: 5px 14px;
-  border: 0;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 13.5px;
-  letter-spacing: 0.1em;
-  text-indent: 0.1em;
-  cursor: pointer;
-}
-
-/*
- * z-index: -1 把这一层压到按钮文字下面。
- * 按钮自己是 position: relative 但没有 z-index，不建层叠上下文，所以这一层实际落在
- * .deck-pool__head（z-index: 2，是层叠上下文）的负层里——刚好在面板底色之上、
- * 所有内容之下，正是要的位置。给 .deck-faction 加 z-index 或 isolation 会打破这个安排。
- */
-.deck-faction::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border: 1.5px solid var(--line);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 4%);
-  filter: url('#ai-duel-rough-button');
-}
-
-.deck-faction:hover:not([data-active='true'])::before {
-  border-color: var(--line-dark);
-  background: rgb(255 255 255 / 10%);
-}
-
-.deck-faction:hover:not([data-active='true']) {
-  color: var(--ink);
-}
-
-/*
- * 选中项：双线金描边（border 是外线，负偏移的 outline 是内线），字色偏金。
- * 两条线画在同一个元素上，所以歪的方向一致，看着像一笔勾出来的双线。
- */
-.deck-faction[data-active='true']::before {
-  border-color: var(--c-gold);
-  outline: 1.5px solid rgb(217 164 65 / 45%);
-  outline-offset: -5px;
-  background: rgb(217 164 65 / 14%);
-}
-
-.deck-faction[data-active='true'] {
-  color: #f3e2b8;
-}
-
 /* ---------- 卡池网格 ---------- */
 .deck-grid {
   /* 整页两块滚动区之一（另一块是 .deck-slots）。它是 overflow 容器，
@@ -508,7 +441,7 @@
 }
 
 /*
- * 离屏的卡不渲染内部。卡池一屏三十来张，每张里面都有一整份卡面（插画、文字层、
+ * 离屏的卡不渲染内部。卡池一屏几十张，每张里面都有一整份卡面（插画、文字层、
  * 羽化伪元素、高光层），滚动时全量重画很贵。
  *
  * 挂在 .card-face 上，而不是外层的 .deck-pool-slot / .deck-pool-card——
@@ -534,7 +467,7 @@
  *
  * 这一层是**常驻**的，静置时 opacity: 0，hover 只切透明度——合成器自己就能做完，
  * 一帧卡面都不用重画。以前是在 .deck-pool-card 上过渡 box-shadow + filter(brightness)，
- * 那两样每帧都要重新算阴影模糊和整卡提亮，一屏三十张卡的时候很贵。
+ * 那两样每帧都要重新算阴影模糊和整卡提亮，一屏几十张卡的时候很贵。
  * 宿主 .deck-pool-card 身上有 GSAP 写的内联 transform，所以高亮只能是子层，不能靠宿主自己变。
  */
 .deck-pool-card__glow {

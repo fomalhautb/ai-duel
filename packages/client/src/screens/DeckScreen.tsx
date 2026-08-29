@@ -1,10 +1,13 @@
 /**
- * /deck 组建牌组页。
+ * 组建牌组页。
  *
- * 卡池包含 core 的 18 张正式 AI 牌与 deckDemoCards.ts 的 24 张技能展示卡，
- * 但玩家拼出来的牌组已经落盘了：整页的存档读写走 save/deckStore.ts，加一张牌、改一次名
- * 都立刻写回 localStorage，所以界面上没有"未保存"这个状态，也没有保存按钮。
- * 「确认牌组」只负责回大厅。
+ * 卡池是玩家存档里已拥有的真卡（core 的 CardId，能直接进对局）。
+ * 整页的存档读写走 save/deckStore.ts：加一张牌、改一次名都立刻写回 localStorage，
+ * 所以界面上没有"未保存"这个状态，也没有保存按钮。
+ *
+ * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack。
+ * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
+ * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
  *
  * 三块复用件：
  * - 卡面用对局那套 HandCardFace（150×225），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
@@ -15,7 +18,7 @@
  * 性能上有三处刻意的安排，改这一页时别顺手拆掉：
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
  *    （回调 useCallback、拖拽事件按 id 缓存、卡数据是模块级常量），加一张牌只会重渲染
- *    受影响的那一两张，而不是整屏三十张；
+ *    受影响的那一两张，而不是整屏几十张；
  * 2. 这两处的卡面走缩略图（thumbFor），放大查看仍用原画；
  * 3. 卡面挂了 content-visibility: auto，离屏的卡不渲染内部（见 deck.css）。
  *
@@ -32,21 +35,25 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useLocation } from 'wouter'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { CARD_POOL, getCard } from '@ai-duel/core'
+import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
 import { CardZoomOverlay, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { HandCardFace } from '../ui/HandFan'
+import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
+import { cardBackText } from '../ui/cardText'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
+import { useStageScale } from '../ui/useStageScale'
 import { OrnateTitle, PaperCardBack, PaperIconDefs } from '../ui/paper'
 import {
   DECK_NAME_MAX,
@@ -61,14 +68,36 @@ import {
   updateDeckCards,
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
-import { DECK_DEMO_CARDS, FACTIONS, filterDeckCards } from './deckDemoCards'
-import type { DeckDemoCard, DeckFaction } from './deckDemoCards'
+import { loadSave } from '../save/save'
 import './deck.css'
 
 gsap.registerPlugin(useGSAP)
 
 /** 拖拽结束后把卡送回原位的补间时长。成功和取消都走它，所以两种结果的收束速度一致。 */
 const RETURN_DUR = 0.28
+
+/**
+ * 把 core 的卡牌定义转成卡面要的展示数据。
+ *
+ * ui/MatchStage.tsx 里有一份同样的（handCardOfDefinition），这里是刻意抄的：
+ * 那是个三千行文件里的私有函数，为这十来行去动它的导出面，牵动的比重复一份还多。
+ * 两边要一起改的触发条件只有一个——HandCardData 加了卡面必须显示的新字段。
+ */
+function handCardOfDefinition(card: HandCard): HandCardData {
+  // backText 走 ui/cardText.ts 那一份：对局和图鉴显示的是同一段话，拼法只留一处。
+  const base = {
+    id: card.id,
+    definitionId: card.id,
+    name: card.name,
+    text: card.text,
+    backText: cardBackText(card),
+    tokenCost: card.tokenCost,
+  }
+  if (card.kind === 'ai') {
+    return { ...base, kind: 'ai', model: card.model }
+  }
+  return { ...base, kind: 'skill' }
+}
 
 /**
  * kind 页签。数组顺序就是页签从左到右的顺序。
@@ -79,41 +108,40 @@ const RETURN_DUR = 0.28
  */
 const KIND_TABS = [
   { id: 'all', label: '全部' },
-  { id: 'ai', label: 'AI 卡' },
-  { id: 'skill', label: '技能卡' },
+  { id: 'ai', label: 'AI 牌' },
+  { id: 'skill', label: '技能牌' },
 ] as const
 
 type KindTabId = (typeof KIND_TABS)[number]['id']
 
 /**
- * 页签上的数字。按整个卡池实算，**不**跟着阵营筛选变：
- * 它说的是"这一类一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
+ * id → 卡（原画版）。放大查看和统计口径都读它。
+ *
+ * 建的是**整个卡池**而不是玩家已拥有的那部分：卡池是编译期就定死的常量（core 的 CARDS），
+ * 建成模块级常量才能保证对象身份稳定——它是传给下面两个 React.memo 卡片组件的 props，
+ * 每次渲染现拼的话 memo 就永远命不中。玩家拥有哪些卡是渲染时再筛的（见 pool）。
  */
-const KIND_COUNTS: Record<KindTabId, number> = {
-  all: DECK_DEMO_CARDS.length,
-  ai: DECK_DEMO_CARDS.filter((card) => card.kind === 'ai').length,
-  skill: DECK_DEMO_CARDS.filter((card) => card.kind === 'skill').length,
-}
-
-/** id → 卡（原画版）。放大查看和统计口径都读它。 */
-const CARD_BY_ID = new Map(DECK_DEMO_CARDS.map((card) => [card.id, card]))
+const CARD_BY_ID = new Map<CardId, HandCardData>(
+  CARD_POOL.map((cardId) => [cardId, handCardOfDefinition(getCard(cardId))]),
+)
 
 /**
  * id → 卡（缩略图版）。卡池格子和牌组迷你卡都画这一份。
  *
  * 卡面上那张图默认是按 id 现查的原画（1024×1536，见 HandCardFace 里的 cardArtFor），
- * 而这一页一屏就要摆三十来张 150×225 的小卡，铺原图等于让浏览器解码几十张大图再高倍降采样。
+ * 而这一页一屏就要摆几十张 150×225 的小卡（左边整个卡池 + 右边二十个格子），
+ * 铺原图等于让浏览器解码几十张大图再高倍降采样。
  * 这里预先把 art 换成缩略图路径，HandCardFace 就直接用它、不再去查原画。
+ * 缩略图是 scripts/gen-card-thumbs.sh 按 public/cards/ 逐张烤的，卡池里每张卡的原画
+ * （具名 AI 原画或按 id 分到的占位图）都有对应产物，所以这里不用为"缺图"另写回落。
  *
  * **放大查看必须继续走 CARD_BY_ID 那份原画**：屏幕中央那张占到大半个屏幕，300 宽拉上去一眼就糊。
- * 在模块级建表还顺带保证了对象身份稳定——它是传给 React.memo 卡片组件的 props，
- * 每次渲染现拼的话 memo 就永远命不中。
  */
-const THUMB_CARD_BY_ID = new Map<string, DeckDemoCard>(
-  DECK_DEMO_CARDS.map((card) => [
-    card.id,
-    { ...card, art: thumbFor(cardArtFor(card.definitionId ?? card.id)) },
-  ]),
+const THUMB_CARD_BY_ID = new Map<CardId, HandCardData>(
+  CARD_POOL.map((cardId) => {
+    const card = handCardOfDefinition(getCard(cardId))
+    return [cardId, { ...card, art: thumbFor(cardArtFor(cardId)) }]
+  }),
 )
 
 /**
@@ -133,18 +161,18 @@ const HIDDEN_IN_PLACE: CSSProperties = { visibility: 'hidden' }
  */
 interface DeckEntry {
   key: string
-  cardId: string
+  cardId: CardId
 }
 
 /** 正在放大查看的那张卡。side 决定飞回时去哪个容器里找原位元素。 */
 interface ZoomState {
-  card: DeckDemoCard
+  card: HandCardData
   flipId: string
   side: 'pool' | 'deck'
 }
 
 /** 卡池那张卡的 Flip 配对键。加前缀是因为同一张卡在牌组里还有一份，两边的键不能撞。 */
-function poolFlipId(cardId: string): string {
+function poolFlipId(cardId: CardId): string {
   return `pool:${cardId}`
 }
 
@@ -154,7 +182,7 @@ function deckFlipId(entryKey: string): string {
 }
 
 /** 取存档里某一套牌组的卡表；id 指不到人时按空牌组算（loadDecks 保证不会发生）。 */
-function cardsOf(data: DecksData, id: string): readonly string[] {
+function cardsOf(data: DecksData, id: string): readonly CardId[] {
   return data.decks.find((deck) => deck.id === id)?.cards ?? []
 }
 
@@ -210,12 +238,18 @@ function useBindCache() {
   return { attach, bindOf, retain }
 }
 
-export function DeckScreen() {
-  const [, navigate] = useLocation()
+export interface DeckScreenProps {
+  /**
+   * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
+   * 不用在回调里落盘：这一页每改一张牌就写过 deckStore 了。
+   */
+  onConfirm: (deck: CardId[]) => void
+  /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
+  onBack?: () => void
+}
 
+export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
-  /** null = 不按阵营筛。 */
-  const [faction, setFaction] = useState<DeckFaction | null>(null)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
   const nextKeyRef = useRef(0)
@@ -228,13 +262,39 @@ export function DeckScreen() {
   const zoomRef = useRef<CardZoomHandle>(null)
   const manageRef = useRef<HTMLDivElement>(null)
 
+  // 缩放系数由 JS 量 .deck-page 的宽算出来写进 --deck-scale，不在 CSS 里算
+  //（纯 CSS 那套在 Safari 上会让整页塌掉，原因见 ui/useStageScale.ts）。
+  const scalerRef = useStageScale<HTMLDivElement>('--deck-scale')
+
   // 这一页没有挂载动画，useGSAP 在这儿只是为了拿 contextSafe：
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
   const { contextSafe } = useGSAP(() => {}, { scope: pageRef })
 
-  // 卡池的 42 个 id 是固定的，缓存不会长，所以只有牌组这边要 retain。
+  // 卡池那批 id 在一次会话里是固定的，缓存不会长，所以只有牌组这边要 retain。
   const { bindOf: bindPoolCard, attach: attachPoolBind } = useBindCache()
   const { bindOf: bindDeckCard, attach: attachDeckBind, retain: retainDeckBinds } = useBindCache()
+
+  // ---------- 卡池 ----------
+
+  /**
+   * 卡池 = 存档里已拥有的卡，挂载时读一次。
+   * 这一页不会解锁新卡（收藏只在对局结束后变，见 save/save.ts 的 recordWin），
+   * 所以中途不用重读，读一次还能保证卡池顺序稳定、网格不会莫名重排。
+   */
+  const pool = useMemo<readonly CardId[]>(() => loadSave().ownedCards, [])
+
+  /**
+   * 页签上的数字。按整个卡池实算，不跟着当前页签变：
+   * 它说的是"这一类我一共有多少张"，跟着筛选跳的话就没法用它判断筛掉了多少。
+   */
+  const kindCounts = useMemo<Record<KindTabId, number>>(() => {
+    const cards = pool.map((cardId) => CARD_BY_ID.get(cardId))
+    return {
+      all: cards.length,
+      ai: cards.filter((card) => card?.kind === 'ai').length,
+      skill: cards.filter((card) => card?.kind === 'skill').length,
+    }
+  }, [pool])
 
   // ---------- 存档 ----------
 
@@ -256,7 +316,7 @@ export function DeckScreen() {
   }, [])
 
   /** 把一串卡 id 铺成带 key 的编辑态。key 现发，只保证不重复。 */
-  const mintEntries = useCallback((cards: readonly string[]): DeckEntry[] => {
+  const mintEntries = useCallback((cards: readonly CardId[]): DeckEntry[] => {
     return cards.map((cardId) => {
       nextKeyRef.current += 1
       return { key: `pick-${nextKeyRef.current}`, cardId }
@@ -303,9 +363,9 @@ export function DeckScreen() {
 
   // ---------- 牌组状态 ----------
 
-  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池里的卡各自去查表。 */
+  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池里每张牌各自去查表。 */
   const copies = useMemo(() => {
-    const counted = new Map<string, number>()
+    const counted = new Map<CardId, number>()
     for (const entry of deck) counted.set(entry.cardId, (counted.get(entry.cardId) ?? 0) + 1)
     return counted
   }, [deck])
@@ -318,7 +378,7 @@ export function DeckScreen() {
    * 读 deckRef 而不是上面那个 copies：拖拽回调是跨渲染活着的，闭包里的 state 会过期。
    * 渲染时算 canAdd 走 copies，两边结论一致，只是取数的地方不同。
    */
-  const canAddNow = useCallback((cardId: string) => {
+  const canAddNow = useCallback((cardId: CardId) => {
     const current = deckRef.current
     if (current.length >= DECK_SIZE) return false
     let owned = 0
@@ -342,7 +402,7 @@ export function DeckScreen() {
   }, [deck])
 
   const addCard = useCallback(
-    (cardId: string) => {
+    (cardId: CardId) => {
       if (!canAddNow(cardId)) return
       nextKeyRef.current += 1
       commitDeck([...deckRef.current, { key: `pick-${nextKeyRef.current}`, cardId }])
@@ -362,7 +422,7 @@ export function DeckScreen() {
     [commitDeck],
   )
 
-  const cardOfEntry = (entryKey: string): DeckDemoCard | undefined => {
+  const cardOfEntry = (entryKey: string): HandCardData | undefined => {
     const entry = deckRef.current.find((item) => item.key === entryKey)
     return entry === undefined ? undefined : CARD_BY_ID.get(entry.cardId)
   }
@@ -447,7 +507,7 @@ export function DeckScreen() {
     )
   })
 
-  const openZoom = (card: DeckDemoCard, side: ZoomState['side'], flipId: string) => {
+  const openZoom = (card: HandCardData, side: ZoomState['side'], flipId: string) => {
     const zoom = zoomRef.current
     // hasPendingFlip：上一次的点击已经受理、对应的 effect 还没跑，这一拍抢进来会把那份状态丢掉。
     if (zoom === null || zoomed !== null || zoom.hasPendingFlip()) return
@@ -728,10 +788,14 @@ export function DeckScreen() {
 
   // ---------- 筛选 ----------
 
+  // 只按种类筛。以前还有一排阵营药丸，那是 demo 卡自带的分组维度，core 的卡池没有阵营。
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
   const shown = useMemo(
-    () => filterDeckCards(DECK_DEMO_CARDS, kindFilter, faction),
-    [kindFilter, faction],
+    () =>
+      kindFilter === 'all'
+        ? pool
+        : pool.filter((cardId) => CARD_BY_ID.get(cardId)?.kind === kindFilter),
+    [pool, kindFilter],
   )
 
   const shortfall = DECK_SIZE - deck.length
@@ -753,13 +817,15 @@ export function DeckScreen() {
         {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
             它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
             因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
-        <div className="deck-scaler stage-scaler">
+        <div className="deck-scaler stage-scaler" ref={scalerRef}>
           {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
           <div className="paper-page__inner">
-            {/* 整行左对齐，五件东西排在同一条基线上：返回 — 花饰 — 大标题 — 竖线 — 副标题。 */}
+            {/* 整行左对齐，五件东西排在同一条基线上：返回 — 花饰 — 大标题 — 竖线 — 副标题。
+                没给 onBack 时第一件直接不渲染，后面几件跟着往左挪一格——匹配流程里退不回大厅，
+                与其留一颗点不动的按钮占位，不如让这一行整体左移。 */}
             <header className="deck-top">
               {/* 定位、字号、配色留在 .deck-back（deck.css），箭头和排版由公共的 .ui-back 负责。 */}
-              <BackButton className="deck-back" onClick={() => navigate('/')} />
+              {onBack === undefined ? null : <BackButton className="deck-back" onClick={onBack} />}
               <Sparkle className="deck-top__spark" />
               <h1 className="deck-top__title">组建牌组</h1>
               <i className="deck-top__rule" aria-hidden="true" />
@@ -781,7 +847,7 @@ export function DeckScreen() {
                         data-active={index === kindTab}
                         onClick={() => setKindTab(index)}
                       >
-                        {tab.label} {KIND_COUNTS[tab.id]}
+                        {tab.label} {kindCounts[tab.id]}
                       </button>
                     ))}
                     {/* 三块牌匾坐着的那条基线。线和两端菱形都装在这一个盒子里，
@@ -791,50 +857,21 @@ export function DeckScreen() {
                       <i className="deck-kinds__dia" />
                     </i>
                   </div>
-                  <div className="deck-factions" role="group" aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}>
-                    {kindFilter === 'skill' ? (
-                      <button type="button" className="deck-faction" data-active>
-                        全部卡牌
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="deck-faction"
-                          data-active={faction === null}
-                          onClick={() => setFaction(null)}
-                        >
-                          全部阵营
-                        </button>
-                        {FACTIONS.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            className="deck-faction"
-                            data-active={faction === option.id}
-                            onClick={() => setFaction(option.id)}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </>
-                    )}
-                  </div>
                 </div>
 
                 <div className="deck-grid" ref={gridRef}>
-                  {shown.map((card) => {
-                    const thumb = THUMB_CARD_BY_ID.get(card.id)
+                  {shown.map((cardId) => {
+                    const thumb = THUMB_CARD_BY_ID.get(cardId)
                     if (thumb === undefined) return null
-                    const flipId = poolFlipId(card.id)
-                    const picked = copies.get(card.id) ?? 0
+                    const flipId = poolFlipId(cardId)
+                    const picked = copies.get(cardId) ?? 0
                     return (
                       <PoolCard
-                        key={card.id}
+                        key={cardId}
                         card={thumb}
                         picked={picked}
                         canAdd={!deckFull && picked < MAX_COPIES}
-                        bind={bindPoolCard(card.id)}
+                        bind={bindPoolCard(cardId)}
                         onAdd={addCard}
                         hidden={zoomed?.flipId === flipId}
                       />
@@ -843,7 +880,9 @@ export function DeckScreen() {
                 </div>
 
                 <p className="deck-pool__hint">
-                  {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
+                  {deckFull
+                    ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
+                    : '点击放大 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -979,7 +1018,7 @@ export function DeckScreen() {
                           <span className="deck-tally__total">/ {DECK_SIZE}</span>
                         </p>
                         <p className="deck-tally__mix">
-                          AI 卡 {mix.ai} · 技能卡 {mix.skill}
+                          AI 牌 {mix.ai} · 技能牌 {mix.skill}
                         </p>
                       </div>
 
@@ -1026,11 +1065,11 @@ export function DeckScreen() {
                             <p className="deck-done">牌组已满 · 可以出发</p>
                           )}
                         </div>
-                        {/* 存档是实时写的，这里不用"保存"，只负责满 20 张之后放人回大厅。 */}
+                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。 */}
                         <PlaqueButton
                           className="deck-confirm"
                           disabled={shortfall > 0}
-                          onClick={() => navigate('/')}
+                          onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
                         >
                           确认牌组
                         </PlaqueButton>
@@ -1068,7 +1107,7 @@ export function DeckScreen() {
 /**
  * 卡池里的一张卡（含外面那个占位格子）。
  *
- * 拆成 memo 组件是为了让"加一张牌"只重画受影响的那一两张：卡池一屏三十张，
+ * 拆成 memo 组件是为了让"加一张牌"只重画受影响的那一两张：一屏几十张，
  * 每张里面还有一整份 HandCardFace（图 + 文字层 + 羽化伪元素 + 高光层）。
  * 因此传进来的 props 必须个个引用稳定——card 是模块级常量、bind 按 id 缓存、
  * onAdd 是 useCallback，hidden 用布尔值而不是现拼的 style 对象。
@@ -1078,12 +1117,12 @@ export function DeckScreen() {
  */
 interface PoolCardProps {
   /** 缩略图版的卡数据（见 THUMB_CARD_BY_ID）。 */
-  card: DeckDemoCard
+  card: HandCardData
   /** 这张卡已经选了几份。 */
   picked: number
   canAdd: boolean
   bind: CardDragBindings
-  onAdd: (cardId: string) => void
+  onAdd: (cardId: CardId) => void
   /** 这张卡正被放大，原位要就地藏起来。 */
   hidden: boolean
 }
@@ -1135,7 +1174,7 @@ const PoolCard = memo(function PoolCard({
 /** 牌组里的一格牌。拆 memo 的理由同 PoolCard，props 的稳定性要求也一样。 */
 interface DeckSlotItemProps {
   /** 缩略图版的卡数据（见 THUMB_CARD_BY_ID）。 */
-  card: DeckDemoCard
+  card: HandCardData
   /** 这一份牌的 key，同时是拖拽 id 和 Flip 配对键的来源。 */
   entryKey: string
   bind: CardDragBindings

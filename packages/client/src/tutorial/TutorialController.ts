@@ -67,15 +67,14 @@ function selectorOf(
 /**
  * 手牌里第一张这种卡的实例 id，**并且此刻真的打得出去**；否则返回 null。
  *
- * 判据和 HandFan 的 blocked 一致（本轮已派过 AI、Token 不够）。要判这一下是因为
- * 高亮的含义是"点这张"：第 2 轮增派完一张之后另一张就变灰了，还亮着圈只会让人反复去点它。
+ * 判据和 HandFan 的 blocked 一致（Token 不够）。要判这一下是因为
+ * 高亮的含义是"点这张"：牌买不起时就变灰了，还亮着圈只会让人反复去点它。
  */
 function playableInstanceId(player: PlayerState | null, cardId: CardId): string | null {
   if (player === null) return null
   const instance = player.hand.find((item) => item.cardId === cardId)
   if (instance === undefined) return null
   const card = getCard(instance.cardId)
-  if (card.kind === 'ai' && player.aiPlayedThisRound) return null
   if (card.tokenCost > player.tokens) return null
   return instance.instanceId
 }

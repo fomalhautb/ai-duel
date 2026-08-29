@@ -247,11 +247,9 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 清零也因此排在真正进下一轮那一步（双方确认之后），不在提交答题结果时。
 技能牌被英雄技能抵消也照样计入——Token 是真花出去的，作废的只是效果。
 
-**每轮出几张牌由两道闸管**：`spentThisRound` 那边的费用，以及 `aiPlayedThisRound`
-——**每轮至多派出一张新 AI 牌**，第二张在 `playCard` 里直接 `COMMAND_REJECTED`
-（技能牌不受限，想打几张打几张）。这条闸排在费用检查**之前**：它和钱多钱少无关，
-说成"Token 不够"会让玩家以为攒够钱就能再派一个。`DEBUG_PLAY_CARD` 走同一个 `playCard`，
-所以同样受这条约束——调试只豁免"轮到谁出牌"那一条（见 3.6）。
+**每轮出几张牌只由费用管**：AI 牌和技能牌都不限张数，Token 够就能接着打，
+不够的那张在 `playCard` 里直接 `COMMAND_REJECTED`。`DEBUG_PLAY_CARD` 走同一个 `playCard`，
+所以同样受费用约束——调试只豁免"轮到谁出牌"那一条（见 3.6）。
 
 **英雄。** `PlayerState.hero`（`HeroId | null`）是这一方选的英雄牌，
 `PlayerState.heroSkillUsed` 记这一局有没有发动过。开局由 `PlayerSetup.hero` 指定，
@@ -294,7 +292,6 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 两位共用 `useHeroSkill`：升还是降、目标该在哪一侧全由英雄决定，指令本身不带方向。
 校验和出牌同一道门槛（`phase === 'play'` 且轮到自己），但**完全免费**——不扣 Token、
 不记 `spentThisRound`（所以不影响"同对同错比消耗"那条决胜线，见本节开头的计分）、
-也不占 `aiPlayedThisRound`（换掉场上单位的卡面不等于又派了一张新 AI）、
 更不结束出牌轮，发动完照样接着出牌。
 英雄不对、技能用过了、目标不在该在的那一侧、目标已经到链顶/链底，都回 `COMMAND_REJECTED`。
 效果就是把那个单位的 `cardId` 换成升级链上相邻的一张（`AI_UPGRADE_CHAINS` / `upgradeTargetOf` /
@@ -1518,8 +1515,8 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 - 三个正式界面加三个开发页、路由；首页「开始游戏」按存档分流（没走完教程的先进 `/tutorial`），
   首页本身是照设计稿做的分层场景。
 - 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画，`/card` 图鉴页一眼对照。
-- **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（每轮至多一张新 AI 牌，
-  技能牌不限张数）→ 全场 AI 答题、答错的罚下 → 每轮 1 分制计分（一方独对得分，
+- **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（AI 牌和技能牌都不限张数，
+  只受 Token 约束）→ 全场 AI 答题、答错的罚下 → 每轮 1 分制计分（一方独对得分，
   同对同错比本轮 Token 消耗，消耗也相同各 +1）→ 双方各确认一次才进下一轮 →
   先到 3 分获胜，同时到分继续加赛，题库出完保底比总分（含平局）。
   判定的全部依据都在 `ROUND_SCORED` 里（见 3.2 / 3.4）。
@@ -1561,8 +1558,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
   出牌按**实际费用**扣（卡面 `tokenCost` 减掉「核电站」的减免，最低 1 点，见 3.4 的
   `effectivePlayCost`），不够就被引擎拒掉；本轮花掉多少另记一份 `spentThisRound`，
   它是同对同错时的决胜依据（见 3.4）。
-  手牌里现在打不出去的那几张会压暗、拖不动，点一下弹理由——「Token 不够」，
-  或者本轮已经派过 AI 之后其余 AI 牌上的「本轮已派出 AI 牌」。
+  手牌里现在打不出去的那几张会压暗、拖不动，点一下弹理由——「Token 不够」。
   「Token 不够」的判据走的正是 core 导出的 `effectivePlayCost`（`HandFan` 的 `playCostOf`），
   客户端不自己再减一遍，否则会出现"卡面写 4 点、明明打得起却是灰的"。
 - 存档 v7（收藏 + 胜场 + 上次确认的英雄 + 教程走完没有）；牌组另一个 key（`ai-duel-decks-v2`）。

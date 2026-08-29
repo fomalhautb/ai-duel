@@ -2647,12 +2647,7 @@ function BattleField({
 
         <main className={`battle__battlefield${testMode ? ' battle__battlefield--test' : ''}`}>
           {testMode ? (
-            <FoeHand
-              hand={foe.hand}
-              tokens={foe.tokens}
-              aiPlayedThisRound={foe.aiPlayedThisRound}
-              onPlay={playForFoe}
-            />
+            <FoeHand hand={foe.hand} tokens={foe.tokens} onPlay={playForFoe} />
           ) : null}
 
           {/*
@@ -2863,9 +2858,6 @@ function BattleField({
         // 按卡面判会把打得起的牌画成灰的（见下面的 myPlayCostOf）。
         tokens={me.tokens}
         playCostOf={myPlayCostOf}
-        // 本轮已经派过新 AI：手上其余 AI 牌一起压暗（每轮至多一张，引擎那边会拒第二张）。
-        // 技能牌不受影响，还是想打几张打几张。
-        aiPlayedThisRound={me.aiPlayedThisRound}
         // 教程这一步只放行指定的那几张，其余的和"打不起"同一套压暗 + 摇头 + 弹提示。
         extraBlocked={tutorial?.blockedCards ?? null}
         frozen={handFrozen}
@@ -3757,14 +3749,11 @@ function tileMarksOf(ai: AiInstance): { text: string; className: string }[] {
 function FoeHand({
   hand,
   tokens,
-  aiPlayedThisRound,
   onPlay,
 }: {
   hand: readonly CardInstance[]
   /** 对方这一轮还剩多少 Token。买不起的牌压暗，免得点了半天只收到一句"Token 不够"。 */
   tokens: number
-  /** 对方这一轮派过新 AI 没有。派过之后其余 AI 牌同样压暗（每轮至多一张）。 */
-  aiPlayedThisRound: boolean
   onPlay: (instance: CardInstance) => void
 }) {
   return (
@@ -3777,7 +3766,7 @@ function FoeHand({
           // 强制展示是一次跨容器的 FLIP，这张牌打出去时就是从这个位置起飞的（见 startReveal）。
           data-flip-id={instance.instanceId}
           // 只是压暗，不拦点击：测试房本来就是拿来试各种被拒场景的。
-          data-unplayable={foeCardBlocked(instance, tokens, aiPlayedThisRound) ? 'true' : undefined}
+          data-unplayable={foeCardBlocked(instance, tokens) ? 'true' : undefined}
           title="点一下替对方打出这张牌"
           onPointerDown={() => onPlay(instance)}
         >
@@ -3794,14 +3783,8 @@ function FoeHand({
  * 测试房里那张对方手牌现在打不打得出去（判据和 HandFan 的 blocked 一致）。
  * 只用来压暗，点击照旧放行——测试房本来就要能试出被拒的场景。
  */
-function foeCardBlocked(
-  instance: CardInstance,
-  tokens: number,
-  aiPlayedThisRound: boolean,
-): boolean {
-  const card = getCard(instance.cardId)
-  if (aiPlayedThisRound && card.kind === 'ai') return true
-  return card.tokenCost > tokens
+function foeCardBlocked(instance: CardInstance, tokens: number): boolean {
+  return getCard(instance.cardId).tokenCost > tokens
 }
 
 /** 从手牌实例拼出卡面数据。id 用实例 id：Flip 和事件定位都靠它对号。 */

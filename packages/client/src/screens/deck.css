@@ -531,6 +531,22 @@
 }
 
 /*
+ * 卡池网格也是牌组那个 hook 的落点：拖着牌组里的牌进来松手 = 把它送回卡池的这一格
+ * （见 DeckScreen.tsx 里 deckDrag 的 zones）。
+ * 虚线内衬 = 手上正拖着一张牌，指针真的进到网格里再让它亮起来。
+ * 画在网格自己身上而不是外层面板上：这一圈标的就是"卡会落在这些格子中间"。
+ */
+.deck-grid[data-drop-ready='true'] {
+  outline: 1px dashed rgb(217 164 65 / 45%);
+  outline-offset: -6px;
+}
+
+.deck-grid[data-drop-hot='true'] {
+  outline-color: rgb(217 164 65 / 85%);
+  background: rgb(217 164 65 / 6%);
+}
+
+/*
  * 每张卡外面的占位格子。
  *
  * 存在的唯一理由：拖拽时卡本身会被切成 position: fixed 脱离文档流，
@@ -1183,8 +1199,8 @@
 }
 
 /*
- * 内层是牌组那个 hook 的「取消区」：拖着自己的牌在面板里晃 = 松手放回，拖出去 = 移除。
- * 它和外层是两个不同的落点元素，正是为了让这两种相反的意思能分开画
+ * 内层是牌组那个 hook 的「换位区」：拖着自己的牌在面板里松手 = 挪到离指针最近的那一格，
+ * 拖出去 = 移除。它和外层是两个不同的落点元素，正是为了让这两种意思能分开画
  * （见 DeckScreen.tsx 里 deckDrag 的 zones 注释）。
  */
 .deck-side__inner {
@@ -1195,7 +1211,7 @@
 }
 
 .deck-side__inner[data-drop-ready='true'] {
-  /* 虚线内衬 = 还在面板里，松手就是放回原位；拖出这条线才会移除。 */
+  /* 虚线内衬 = 还在面板里，松手就是换到最近的那一格；拖出这条线才会移除。 */
   outline: 1px dashed rgb(192 122 82 / 65%);
   outline-offset: -5px;
 }
@@ -1695,6 +1711,18 @@
   position: relative;
   width: calc(var(--card-w) * var(--deck-mini-scale));
   height: calc(var(--card-h) * var(--deck-mini-scale));
+}
+
+/*
+ * 拖拽时为落点让出来的那一格（标记由 DeckScreen 的 previewGap 打上）。
+ * 亮一圈金边说明"松手就落这儿"；空卡槽本身的虚线框留着，两者叠在一起就是一个待填的位置。
+ */
+.deck-slot[data-gap='true'] {
+  border-radius: 6px;
+  background: rgb(217 164 65 / 10%);
+  box-shadow:
+    0 0 0 1px rgb(217 164 65 / 70%),
+    0 0 10px rgb(217 164 65 / 35%);
 }
 
 /* 空格里的「空卡槽」：PaperCardBack 是写死的 150×225，整张按同一个比例缩到格子大小。

@@ -132,6 +132,25 @@ export function saveHero(hero: HeroId): void {
 }
 
 /**
+ * 记下卡池的新排列。
+ *
+ * ownedCards 本来就是个有序数组，组牌页把牌从牌组拖回卡池时可以指定放在哪一格
+ * （见 screens/DeckScreen.tsx 的 movePoolCard），落盘的就是那一下之后的顺序。
+ *
+ * 参数里混着的其它 id（组牌页会把"即将上线 / 暂未接入"那两类拼在卡池末尾展示）在这儿滤掉：
+ * 它们不在 CARD_POOL 里，写进去也会被下次 parseSave 丢掉，不如根本不写。
+ * 这个顺序不影响任何玩法，读存档时也不做校正——只是玩家自己摆的架子。
+ */
+export function saveOwnedOrder(order: readonly CardId[]): void {
+  const current = loadSave()
+  const kept = order.filter((id) => current.ownedCards.includes(id))
+  // 漏了谁就按原来的顺序补在后面：调用方给的清单和存档对不上时（比如两个页面同时开着），
+  // 宁可让顺序不完全如意，也不能把卡弄丢。
+  const missing = current.ownedCards.filter((id) => !kept.includes(id))
+  persist({ ...current, ownedCards: [...kept, ...missing] })
+}
+
+/**
  * 记下新手教程已经走完。
  *
  * 两条路径都会调它：走到教程完成页，以及中途点「跳过教程」——

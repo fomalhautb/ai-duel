@@ -1340,10 +1340,12 @@ key   ai-duel-save-v7
 value { "ownedCards": ["..."], "wins": 3, "savedHero": "grace-hopper", "tutorialDone": true }
 ```
 
-对外只有五个函数：
+对外只有六个函数：
 
 - `loadSave()` 读存档，任何一处读不通都回落到初始收藏；基础收藏始终开放，和额外解锁合并，不清空胜场。
 - `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
+- `saveOwnedOrder(order)` 记下卡池的新排列。`ownedCards` 本来就是有序数组，组牌页把牌从牌组
+  送回卡池时可以指定它落在哪一格，那一下之后的顺序就写回这里；顺序不影响任何玩法。
 - `saveHero(hero)` 记下这次确认的英雄，下次进选英雄那一步时预填。
 - `markTutorialDone()` 记下新手教程走完了（走到完成页、或中途点了「跳过教程」都会调）。
 - `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
@@ -1423,7 +1425,8 @@ packages/client/
                               选英雄 → 完成页（见 5.3），driver 自己建自己收、不记胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
     design.css                只给设计参考页用的样式
-    DeckScreen.tsx            组建牌组：圆圈加减、卡池 ↔ 牌组拖拽、点开放大查看；卡池是存档里的真卡，
+    DeckScreen.tsx            组建牌组：圆圈加减、卡池 ↔ 牌组拖拽（两边都能拖着换位置，落点是离
+                              指针最近的那一格）、点开放大查看；卡池是存档里的真卡，
                               每加减一张就写 save/deckStore.ts。三条入口共用这一份
                               （/deck、匹配流程、新手教程的组牌一步——最后一条多传一个 tutorial prop）
     deck.css                  只给组建牌组页用的样式
@@ -1513,7 +1516,7 @@ packages/client/
   src/save/save.ts            localStorage 存档（收藏 + 胜场 + 英雄 + 教程标记）
   src/save/deckStore.ts       牌组存档（多套牌组、当前是哪套），自己一个 key
   src/styles.css
-  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、教程标记、清档
+  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、卡池排序、教程标记、清档
   test/deckStore.test.ts      牌组存档：卡表规整、改名、增删牌组、当前牌组永远指得到人
   test/tutorialDeck.test.ts   组牌教学的数据与放行规则：预填 17 张、三张待加的牌、每步只放行一张
   test/castHitTest.test.ts    首页人物命中检测的纯函数：包围盒换算、前后遮挡、羽化边缘不算命中

@@ -8,7 +8,14 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CARD_POOL, HEROES, INITIAL_COLLECTION } from '@ai-duel/core'
-import { loadSave, markTutorialDone, recordWin, resetSave, saveHero } from '../src/save/save'
+import {
+  loadSave,
+  markTutorialDone,
+  recordWin,
+  resetSave,
+  saveHero,
+  saveOwnedOrder,
+} from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
 const SAVE_KEY = 'ai-duel-save-v7'
@@ -113,6 +120,24 @@ describe('本地存档', () => {
     expect(save.savedHero).toBe('ada-lovelace')
     expect(save.ownedCards).toEqual(before.ownedCards)
     expect(save.wins).toBe(before.wins)
+  })
+
+  // 组建牌组页把牌从牌组拖回卡池时可以指定放在哪一格，落盘的就是那一下之后的顺序。
+  it('卡池的新顺序能存下来并读回去', () => {
+    const before = loadSave().ownedCards
+    const moved = [...before.slice(-1), ...before.slice(0, -1)]
+    saveOwnedOrder(moved)
+    expect(loadSave().ownedCards).toEqual(moved)
+  })
+
+  it('新顺序里混进的陌生 id 被丢掉，漏掉的卡按原顺序补在后面', () => {
+    const before = loadSave().ownedCards
+    saveOwnedOrder([...before.slice(2, 3), '不在收藏里的卡'])
+    const after = loadSave().ownedCards
+    expect(after[0]).toBe(before[2])
+    expect(after).not.toContain('不在收藏里的卡')
+    // 一张都不能少。
+    expect(new Set(after)).toEqual(new Set(before))
   })
 
   // 首页「开始游戏」照它分流：新号必须先被送进新手教程。

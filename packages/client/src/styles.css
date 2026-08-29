@@ -1677,6 +1677,62 @@ body:has(.battle) {
   transform: scale(-1);
 }
 
+/* ---------- 可复用返回按钮 ---------- */
+
+/*
+ * ui/BackButton.tsx 的排版底子。定位、字号和颜色都不写在这儿，由使用方的类名给。
+ *
+ * 全部包了一层 :where()，这样这些规则的特异性是 0，使用方随便一个类名都能盖掉。
+ * 这一层不是可有可无的洁癖：main.tsx 里 `import { App }` 排在 `import './styles.css'` 前面，
+ * App 拉起的各页面 CSS 因此**先于**本文件进入打包结果——同特异性时后来的本文件会赢，
+ * 页面样式反倒盖不住公共样式。:where() 把这个先后顺序的坑直接绕开。
+ *
+ * 尺寸和位移都写成 em，跟着使用方给的 font-size 缩放：
+ * 各页舞台的字号单位不一样（/hero 用 cqi），公共样式没法写死一套长度。
+ */
+:where(.ui-back) {
+  display: inline-flex;
+  align-items: center;
+  /* 箭头右端到文字左端。设计稿上 /hero 是 22px 字配 20px 间距，约 0.9em。 */
+  gap: 0.9em;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/*
+ * 箭头是独立一层，hover 时只有它左移，按钮本身不动：
+ * 页面可能拿 GSAP 给按钮写入场用的 transform（/hero 就是），
+ * 位移放在子元素上，父子各写各的 transform，不会互相抹掉。
+ *
+ * 宽高按 viewBox 的 23:15 给，换算过来正好是设计稿上箭头相对文字的大小。
+ */
+:where(.ui-back__arrow) {
+  width: 1.04em;
+  height: 0.68em;
+  transition: transform 0.18s ease;
+}
+
+:where(.ui-back:hover) .ui-back__arrow {
+  transform: translateX(-0.26em);
+}
+
+:where(.ui-back):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 0.2em;
+}
+
+/* 减弱动效：位移不取消，只压成瞬时（同本文件其他几处的处理）。 */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-back__arrow) {
+    transition-duration: 1ms;
+  }
+}
+
 /* ---------- 主战场与侧栏 ---------- */
 
 .battle__layout {

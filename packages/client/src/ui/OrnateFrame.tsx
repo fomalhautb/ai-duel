@@ -5,8 +5,8 @@ export type OrnateFrameProps = HTMLAttributes<HTMLDivElement>
 /**
  * 纸面区域共用的双线雕花框。
  *
- * 边框和内容拆成独立层，侧栏以后填入头像、卡牌详情等内容时，不需要复制装饰节点，
- * 也不会让装饰线挡住里面的交互。
+ * 边框和内容拆成独立层：内容层随便换（左侧栏里是两张英雄牌加卡堆，右侧栏是状态和按钮），
+ * 不用复制装饰节点，装饰线也不会挡住里面的点击。
  */
 export function OrnateFrame({ className = '', children, ...props }: OrnateFrameProps) {
   return (

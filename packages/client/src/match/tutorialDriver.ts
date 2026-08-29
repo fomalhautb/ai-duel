@@ -3,8 +3,9 @@
  *
  * 它只是 `localDriver` 外面的一层壳，多做三件事：
  *
- * 1. 把 `GameSetup` 焊死（不洗牌、指定先手、教学牌组、教学题、教学英雄），
- *    答题结果换成教学预设表，于是整局是一段可复现的剧本；
+ * 1. 把 `GameSetup` 焊死（不洗牌、指定先手、教学牌组、教学题、教学英雄），于是整局是一段
+ *    可复现的剧本。答题结果不另开一份：和正式对局一样查 core 那张真实模型回答表，
+ *    剧本靠"题和牌都是照那张表挑的"成立（见 tutorial/content.ts）；
  * 2. 轮到对手就照 `TUTORIAL_FOE_PLAYS` 逐条出牌，出完自动「结束出牌」；
  *    每轮结算停在 settle 等双方确认，对手那一下也由这层代点（见 pumpFoeConfirm）；
  * 3. 给教程控制器开一条**事件旁路**（`onEvents`）。
@@ -30,7 +31,6 @@ import {
   TUTORIAL_PLAYER_HERO,
   TUTORIAL_PLAYER_SEAT,
   TUTORIAL_QUESTIONS,
-  tutorialAnswers,
 } from '../tutorial/content'
 
 /** 对手每一步（出一张牌、结束出牌）之间停多久，玩家才看得清它做了什么。 */
@@ -64,10 +64,9 @@ export function createTutorialDriver(options: TutorialDriverOptions = {}): Tutor
 
   const inner = createLocalDriver({
     seat: TUTORIAL_PLAYER_SEAT,
-    answersFor: tutorialAnswers,
     quizDelayMs: options.quizDelayMs,
     setup: {
-      // 先手和牌序都指定了、题库也直接给，随机在这局里一次都不发生，种子只是占位。
+      // 先手和牌序都指定了、题目也直接给，随机在这局里一次都不发生，种子只是占位。
       seed: 1,
       players: [
         { name: '你', deck: [...TUTORIAL_PLAYER_DECK], hero: TUTORIAL_PLAYER_HERO },

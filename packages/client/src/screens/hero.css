@@ -80,7 +80,7 @@
   /* 纸纹是宿主 .hero 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页同一处理）。 */
   z-index: 1;
-  width: min(100vw, 100dvh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
@@ -142,6 +142,19 @@
   font-size: var(--fs-cqi-lg);
   letter-spacing: 0.1em;
   transition: color 0.18s ease;
+}
+
+/*
+ * 静音钮，和左上角的返回对角摆在右上角。尺寸用 cqi，同这一页其余元素。
+ * top 比返回按钮小一点：那颗是一行文字（按基线落位），这颗是个方块，
+ * 两者顶边写成同一个数反而看着一高一低。
+ */
+.hero__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
+  top: 3.6%;
+  right: 3.09cqi;
+  z-index: 1;
 }
 
 /* 箭头的描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */

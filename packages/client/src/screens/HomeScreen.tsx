@@ -46,6 +46,7 @@ import { getCard } from '@ai-duel/core'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { HandCardFace } from '../ui/HandFan'
+import { MuteButton } from '../ui/MuteButton'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
@@ -560,6 +561,9 @@ function HomeStage() {
         onPointerLeave={handleStagePointerLeave}
       >
         <img className="home__layer" src="/home/home-bg.webp" alt="" draggable={false} />
+
+        {/* 静音钮画进舞台里，跟着页面一起缩放（位置见 .home__mute）。 */}
+        <MuteButton className="home__mute" />
 
         <div className="home__cards" ref={cardsRef}>
           {SEATS.map((seat) => (

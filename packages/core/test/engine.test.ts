@@ -15,7 +15,7 @@ import {
   QUESTION_POOL,
   ROUND_DRAW_SIZE,
   scriptedAnswers,
-  STARTER_DECK,
+  BALANCED_DECK,
   STARTING_HAND_SIZE,
   TOKEN_MAX_GROWTH,
   UNAVAILABLE_AI_CARD_IDS,
@@ -68,8 +68,8 @@ function newGame(options: NewGameOptions = {}) {
     players: [
       // hero 只在显式传了的时候才带上：不传才走 createGame 里的默认英雄，
       // 而这条默认路径正是联机和测试房实际走的那条。
-      { name: '甲', deck: [...(options.deck0 ?? STARTER_DECK)], ...heroOf(options.hero0) },
-      { name: '乙', deck: [...(options.deck1 ?? STARTER_DECK)], ...heroOf(options.hero1) },
+      { name: '甲', deck: [...(options.deck0 ?? BALANCED_DECK)], ...heroOf(options.hero0) },
+      { name: '乙', deck: [...(options.deck1 ?? BALANCED_DECK)], ...heroOf(options.hero1) },
     ],
     questions: options.questions,
     // 这两项都是可选覆盖，不传就一个字段都不出现（exactOptionalPropertyTypes 打开着）。

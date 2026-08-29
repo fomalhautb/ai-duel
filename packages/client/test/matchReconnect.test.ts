@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { STARTER_DECK } from '@ai-duel/core'
+import { BALANCED_DECK } from '@ai-duel/core'
 import type { GameSetup, GameState } from '@ai-duel/core'
 import { createHostDriver } from '../src/match/hostDriver'
 import { createGuestDriver } from '../src/match/guestDriver'
@@ -89,8 +89,8 @@ function makeLinkedRooms() {
 const SETUP: GameSetup = {
   seed: 42,
   players: [
-    { name: '房主', deck: [...STARTER_DECK] },
-    { name: '挑战者', deck: [...STARTER_DECK] },
+    { name: '房主', deck: [...BALANCED_DECK] },
+    { name: '挑战者', deck: [...BALANCED_DECK] },
   ],
 }
 

@@ -61,7 +61,7 @@
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
   z-index: 1;
-  width: min(100vw, 100dvh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 
   /* --battle-grain 的作用域补丁，同 design.css 里那段。
@@ -178,6 +178,20 @@
   align-items: baseline;
   gap: 14px;
   padding: 16px 30px 12px;
+}
+
+/*
+ * 页眉右端的静音钮。这一行是 flex，靠 margin-left: auto 把它顶到最右边，
+ * 不用另写绝对定位。align-self 单独居中：整行按基线对齐，方块没有基线可言。
+ *
+ * 这一页在 .deck-scaler 里按设计稿的 1672×941 排版再整体缩放，所以尺寸写 px 就行，
+ * 不像 /hero、/room 那几页要用 cqi。
+ */
+.deck-mute {
+  --mute-size: 34px;
+  align-self: center;
+  margin-left: auto;
+  color: var(--ink, #2e2e38);
 }
 
 /*

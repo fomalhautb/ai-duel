@@ -4,7 +4,8 @@
  * 为什么要有这么一层：`SUBMIT_ANSWERS` 不是玩家能点出来的指令，
  * 它代表"场上这批 AI 已经答完题了"。跑引擎的那一端（本地 driver / 房主）负责生成结果——
  * 默认结果来自 core 的 `scriptedAnswers`，也就是那份离线预生成的真实模型回答表；
- * 也可以由调用方用 `answersFor` 换一份（教学对战就是这么喂自己的预设答案表的）。
+ * 也可以由调用方用 `answersFor` 换一份（眼下没人换：教学对战也查同一张表，
+ * 它的"可预测"靠挑题和挑牌挑出来，见 tutorial/content.ts）。
  * 将来换成对局中途真去调模型 API 同样只改这一处实现，指令形状和这层的时序都不用动。
  *
  * 延迟纯粹是给客户端留出播"揭晓题目 + AI 作答中"的时间，
@@ -28,7 +29,7 @@ export const QUIZ_AUTOPILOT_DELAY_MS = 2500
  * 生成本轮答题结果的那一步，形状和 core 的 `scriptedAnswers` 一致。
  *
  * 单独起个类型名是为了让"换一份结果来源"变成传一个参数：
- * 正式对局查 core 那份预生成的真实模型回答，教学对战用自己的预设表（见 tutorial/content.ts），
+ * 正式对局和教学对战都查 core 那份预生成的真实模型回答，
  * 将来改成对局中途实时调模型 API 也是换掉这一处实现，指令形状和这层的时序都不用动。
  */
 export type QuizAnswersFor = (
@@ -49,7 +50,7 @@ export interface QuizAutopilotOptions {
   delayMs?: number
   /**
    * 结果从哪来，不填就是 core 的 `scriptedAnswers`（查预生成的真实模型回答）。
-   * 教学对战传自己的预设表：教程要求每一轮的对错都可预测，不能跟着卡牌走正式题库。
+   * 眼下所有对局都用默认那份，这个口子留给"某一局要换一份结果来源"的情况。
    */
   answersFor?: QuizAnswersFor
 }

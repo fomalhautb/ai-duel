@@ -8,6 +8,7 @@
 import type { ReactNode } from 'react'
 import { PaperIconDefs } from '../ui/paper'
 import { OrnateFrame } from '../ui/OrnateFrame'
+import { MuteButton } from '../ui/MuteButton'
 import './tutorial.css'
 
 export function TutorialPaperPage({ children }: { children: ReactNode }) {
@@ -16,6 +17,9 @@ export function TutorialPaperPage({ children }: { children: ReactNode }) {
       {/* 纸面组件的 <use> 要找得到 symbol，各挂一次。手绘滤镜由 App 全局挂，这里不用管。 */}
       <PaperIconDefs />
       {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
+      {/* 这三屏没有别的控件，静音钮摆纸面右上角。放在 __inner 外面是因为那一层只有
+          中间那栏面板那么宽，装进去按钮会贴着面板边而不是页面边（位置见 .tutorial-page__mute）。 */}
+      <MuteButton variant="plain" className="tutorial-page__mute" />
       <div className="paper-page__inner tutorial-page__inner">
         <OrnateFrame className="tutorial-panel">{children}</OrnateFrame>
       </div>

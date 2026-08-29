@@ -140,9 +140,26 @@
  * 尺寸用 min() 夹一下，窄窗口时跟着缩，宽窗口时不至于把一行字拉成一整屏宽。
  */
 .tutorial-page {
+  /* 静音钮按这一层定位（.tutorial-page__mute）。 */
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 100vh;
+}
+
+/*
+ * 这三屏的静音钮，摆在整页的右上角。
+ *
+ * 它排在「跳过教程」的正下方（那颗在 top: 16px，高 34px），两个出口叠在同一条竖线上；
+ * 层级用不着抬：这几屏没有浮层，纸面本身也不会盖到它。
+ */
+.tutorial-page__mute {
+  --mute-size: 34px;
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  z-index: 1;
+  color: var(--ink, #2e2e38);
 }
 
 .tutorial-page__inner {
@@ -221,9 +238,8 @@
  * 缩放层，跟着谁都会在别的屏上跑偏。层级压过对局界面的全屏过场（1100），
  * 否则抛硬币、答题揭晓演着的时候它会被盖掉，而这颗按钮任何时候都该点得到。
  *
- * 右边不是一个死数：全站常驻的静音钮（.mute-toggle）占着同一个角，而且层级比这里高，
- * 贴着边摆的话文字会被它压住、连点都点不到。--corner-clear-right 就是那颗按钮的占位宽度，
- * 它在移动档变大时这里跟着一起往左挪（变量定义见 styles.css）。
+ * 原来右边要给全站常驻的静音钮让位，现在那颗钮改由各页画进自己的版式里
+ *（教学对战在顶栏，纸面三屏在下面一行），这里直接贴边就行。
  *
  * 按钮本体是全站的八角匾额（PlaqueButton），这里只管落位，尺寸在下面 .tutorial-skip__plaque。
  * 选择器多带一级 .plaque-button：不加的话和 styles.css 里那份特异性相同，
@@ -233,7 +249,7 @@
 .tutorial-skip {
   position: fixed;
   top: 16px;
-  right: var(--corner-clear-right);
+  right: 16px;
   z-index: 2000;
 }
 
@@ -287,6 +303,24 @@
 .tutorial-skip__ask {
   /* 问句也挂手绘抖动，和旁边匾额上的字是一套笔迹（滤镜由 App 全局挂）。 */
   filter: url('#ai-duel-rough-icon');
+}
+
+/*
+ * 画进对局顶栏那一格时的落位：把上面那套视口固定定位整个撤掉，交给顶栏的 flex 排。
+ *
+ * 选择器带两级 .plaque-button.tutorial-skip 才压得住上面那条同样两级的规则
+ *（同分时靠后的赢，而这条就写在它后面），确认条那份是单类，一级就够。
+ */
+.plaque-button.tutorial-skip.tutorial-skip--inbar,
+.tutorial-skip--inbar {
+  position: static;
+  z-index: auto;
+}
+
+/* 顶栏里那颗比悬在角上时再矮一档，跟旁边 34px 的图标平齐。 */
+.plaque-button.tutorial-skip__plaque.tutorial-skip--inbar {
+  height: 30px;
+  padding: 0 14px;
 }
 
 /* 确认条里的两颗比外面那颗再小一档：它们是这一小块里的次级操作。 */

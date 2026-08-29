@@ -34,7 +34,7 @@
 .info__stage {
   container-type: size;
   position: relative;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
@@ -58,6 +58,18 @@
 }
 .info__back:hover {
   color: var(--info-ink-lit);
+}
+
+/*
+ * 静音钮，和左上角的返回对角摆在右上角，纵向对齐同一条线。
+ * 尺寸用 cqi：这一页整块舞台是容器查询容器（.info__stage），别的东西也都按 cqi 排。
+ */
+.info__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
+  top: 6.4%;
+  right: 5.2%;
+  z-index: 1;
 }
 
 /* ---------- 页面标题 ---------- */

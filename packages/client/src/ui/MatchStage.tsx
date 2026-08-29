@@ -336,6 +336,11 @@ export interface MatchStageProps {
   /** 结算层里的按钮，由各个界面自己决定是"再来一局"还是"回首页"。 */
   resultActions?: ReactNode
   /**
+   * 顶栏右端那一格控件（静音、离开、教程的「跳过教程」），由各个界面自己决定摆哪几个。
+   * 对局页给静音加离开，教程给静音加跳过，/test、/result 这些调试页一个都不给。
+   */
+  topBarActions?: ReactNode
+  /**
    * 新手教程挂上来的限制与回调（见 ui/matchStageTutorial.ts）。正式对局不传。
    *
    * 这个 prop 只做两件事：把逐张手牌的锁和「结束出牌」的锁并进现有的判据里，
@@ -355,6 +360,7 @@ export function MatchStage({
   driver,
   testMode = false,
   resultActions,
+  topBarActions,
   tutorial,
   overlay,
 }: MatchStageProps) {
@@ -367,6 +373,7 @@ export function MatchStage({
       <BattleFrame>
         <div className="battle battle--waiting">
           <BattleTopBar />
+          <BattleActions>{topBarActions}</BattleActions>
           <div className="battle__waiting">
             <p className="battle__waiting-text">
               {view.status === 'aborted'
@@ -392,6 +399,7 @@ export function MatchStage({
         state={view.state}
         testMode={testMode}
         resultActions={resultActions}
+        topBarActions={topBarActions}
         tutorial={tutorial}
         overlay={overlay}
       />
@@ -429,12 +437,28 @@ export function BattleFrame({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * 顶栏右端那一格控件（静音、离开、教程的「跳过教程」）。
+ *
+ * 它画在顶栏那一行上，但**不是顶栏的子节点**，而是和顶栏并排、绝对定位盖上去的。
+ * 两个原因：
+ * - 顶栏本身是 z-index 70 的层叠上下文，装在里面的东西再怎么写 z-index 也钻不出去，
+ *   而教程的引导层（1000）会把整条顶栏压暗、纯讲解的那几步还会铺一层吃掉所有点击的捕获层——
+ *   「跳过教程」正是那时候最该点得到的按钮。排在 1150 就压过引导层和全屏过场（1100~1101）。
+ * - 顶栏中间那块比分是靠自身居中算出来的，图标要是当成网格列，多一个少一个都会把比分推偏。
+ */
+function BattleActions({ children }: { children?: ReactNode }) {
+  if (children === undefined) return null
+  return <div className="battle-actions">{children}</div>
+}
+
 function BattleField({
   driver,
   view,
   state,
   testMode,
   resultActions,
+  topBarActions,
   tutorial,
   overlay,
 }: {
@@ -444,6 +468,7 @@ function BattleField({
   state: GameState
   testMode: boolean
   resultActions?: ReactNode
+  topBarActions?: ReactNode
   tutorial?: MatchStageTutorial
   overlay?: ReactNode
 }) {
@@ -2616,6 +2641,7 @@ function BattleField({
   return (
     <div className="battle">
       <BattleTopBar status={{ round: state.round, myScore: me.score, foeScore: foe.score }} />
+      <BattleActions>{topBarActions}</BattleActions>
 
       <div className="battle__layout">
         {/* 左侧栏上下两块：上=对方、下=我方。每块一张大英雄牌加一摞卡堆，

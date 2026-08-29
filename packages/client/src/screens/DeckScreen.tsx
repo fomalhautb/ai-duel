@@ -95,6 +95,7 @@ import {
 } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { AiCardBack } from '../ui/AiCardBack'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { midFor, thumbFor } from '../ui/cardArtThumb'
@@ -2320,6 +2321,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
               <h1 className="deck-top__title">组建牌组</h1>
               <i className="deck-top__rule" aria-hidden="true" />
               <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
+              {/* 这一行整体左对齐，静音钮靠 margin-left: auto 顶到右端（见 .deck-mute）。 */}
+              <MuteButton variant="plain" className="deck-mute" />
             </header>
 
             <main className="deck-body">
@@ -3038,9 +3041,9 @@ function CardBackFace({ card }: { card: HandCardData }) {
 /**
  * 放大查看时右边那张「星象边框」技能牌背面（写死 284×426，外面套缩放层用）。
  *
- * 和卡池 / 格子里翻面看到的那张（CardBackFace 的技能牌分支，走全局 .card-back）不是一份：
- * 那份要在 150×225 里挤下一整段说明，只能小字紧排；这里卡足够大，才撑得起这张带边框的
- * 底图和居中的名称 / 效果排版。
+ * 文案和卡池 / 格子里翻面看到的那张（CardBackFace 的技能牌分支，走全局 .card-back）是同一段，
+ * 只是排版两份：那份要在 150×225 里挤下整段说明，只能小字紧排；这里卡足够大，
+ * 才撑得起这张带边框的底图和居中的名称 / 效果排版。
  * 边框只是一张底图，名称和效果由卡牌数据覆盖在中央——新增技能或改文案都不用再烤一张新图。
  */
 function SkillCardBack({ card }: { card: HandCardData }) {

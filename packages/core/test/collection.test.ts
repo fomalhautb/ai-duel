@@ -12,8 +12,31 @@ import {
   PLAYABLE_AI_CARD_IDS,
   UNAVAILABLE_AI_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
-  STARTER_DECK,
+  BALANCED_DECK,
+  LOW_COST_DECK,
+  HIGH_COST_DECK,
+  PRESET_DECKS,
+  DECK_SIZE,
 } from '../src/index'
+import type { AiCard, CardId, SkillCard } from '../src/types'
+
+/** 一张卡在某副牌组里带了几份。 */
+function copies(deck: readonly CardId[], cardId: CardId): number {
+  return deck.filter((id) => id === cardId).length
+}
+
+/** 挑出牌组里的 AI 牌，顺带把类型收窄到 AiCard，好读 tokenCost / domestic / evolvesTo。 */
+function aiCardsIn(deck: readonly CardId[]): AiCard[] {
+  return deck.map((id) => CARDS[id]).filter((card): card is AiCard => card?.kind === 'ai')
+}
+
+/** 同上，挑技能牌。 */
+function skillCardsIn(deck: readonly CardId[]): SkillCard[] {
+  return deck.map((id) => CARDS[id]).filter((card): card is SkillCard => card?.kind === 'skill')
+}
+
+/** 构筑页的同名卡上限（client 的 deckStore.MAX_COPIES）：预设不该出现玩家自己编不出来的牌组。 */
+const MAX_COPIES = 3
 
 describe('卡池与初始收藏', () => {
   it('AI 牌就是 aiModels 里那 18 张，占位模型牌已经没了', () => {
@@ -23,7 +46,7 @@ describe('卡池与初始收藏', () => {
       expect(CARDS[id]).toBeUndefined()
       expect(CARD_POOL).not.toContain(id)
       expect(INITIAL_COLLECTION).not.toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      for (const deck of PRESET_DECKS) expect(deck).not.toContain(id)
     }
     expect(AI_MODEL_CARD_IDS).toHaveLength(18)
     expect(
@@ -33,29 +56,64 @@ describe('卡池与初始收藏', () => {
     ).toEqual(AI_MODEL_CARD_IDS)
   })
 
-  it('能上场的 16 张 AI 都已解锁，默认牌组里各带一张（最便宜的两张各两张）', () => {
-    expect(STARTER_DECK).toHaveLength(20)
-    // 补第二份的这两张：全场最便宜的 AI（各 2 点），顶掉两张调不到模型的牌空出来的位置。
-    const doubled = ['gpt-3-5', 'doubao']
+  it('能上场的 16 张 AI 都已解锁', () => {
     for (const id of PLAYABLE_AI_CARD_IDS) {
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
-        doubled.includes(id) ? 2 : 1,
-      )
     }
   })
 
-  it('默认牌组里没有一张是卡池外的牌', () => {
-    // 起始牌组会被直接播成玩家的第一套牌组（见 client 的 deckStore），
-    // 混进一张卡池外的牌，读档时会被当脏数据剔掉，玩家一进构筑页就看到一副缺张的牌。
-    for (const id of STARTER_DECK) {
-      expect(CARD_POOL).toContain(id)
+  it('三套预设各 20 张、同名卡不超过 3 份、没有一张是卡池外的牌', () => {
+    // 三套预设会被直接播成玩家最初的三套牌组（见 client 的 deckStore），
+    // 混进一张卡池外的牌，读档时会被当脏数据剔掉，玩家一进构筑页就看到一副缺张的牌；
+    // 带满 4 份则是玩家自己在构筑页编不出来的牌组。
+    expect(PRESET_DECKS).toHaveLength(3)
+    for (const deck of PRESET_DECKS) {
+      expect(deck).toHaveLength(DECK_SIZE)
+      for (const id of deck) {
+        expect(CARD_POOL).toContain(id)
+        expect(copies(deck, id)).toBeLessThanOrEqual(MAX_COPIES)
+      }
     }
+  })
+
+  it('默认牌组（平衡）：国产和国外 AI 各 7 张，技能 6 张各不重样', () => {
+    // 这副是新玩家的第一套牌组，卖点就是"两边都摸得到"：国产 / 国外对半、技能不重样。
+    // 数字对不上说明有人往里塞牌时把平衡这件事挤掉了。
+    const ai = aiCardsIn(BALANCED_DECK)
+    expect(ai).toHaveLength(14)
+    expect(ai.filter((card) => card.domestic === true)).toHaveLength(7)
+    const skills = skillCardsIn(BALANCED_DECK)
+    expect(skills).toHaveLength(6)
+    expect(new Set(skills.map((card) => card.id)).size).toBe(skills.length)
+    // 「国产替代」会把这副牌一半的国外 AI 一起清掉，不该出现在这里。
+    expect(BALANCED_DECK).not.toContain('domestic-substitution')
+  })
+
+  it('低费流：AI 全是 3 点以内的便宜牌，「鸡犬升天」带满 3 张且有的可升', () => {
+    for (const card of aiCardsIn(LOW_COST_DECK)) {
+      expect(card.tokenCost).toBeLessThanOrEqual(3)
+    }
+    expect(copies(LOW_COST_DECK, 'rising-tide')).toBe(MAX_COPIES)
+    // 「鸡犬升天」只对带 evolvesTo 的单位有用，牌组里得有足够多的升级目标才成立。
+    const evolvable = aiCardsIn(LOW_COST_DECK).filter((card) => card.evolvesTo !== undefined)
+    expect(evolvable.length).toBeGreaterThanOrEqual(9)
+  })
+
+  it('强卡流：AI 全是 4 点以上的贵牌，保护牌至少 6 张', () => {
+    for (const card of aiCardsIn(HIGH_COST_DECK)) {
+      expect(card.tokenCost).toBeGreaterThanOrEqual(4)
+    }
+    // 贵单位答错就被罚下，一轮的 Token 全白花，所以这副牌的立身之本是保护位够厚。
+    const protection = ['safe-pass', 'jade-purification-vase', 'golden-bell-shield']
+    const count = HIGH_COST_DECK.filter((id) => protection.includes(id)).length
+    expect(count).toBeGreaterThanOrEqual(6)
+    // 第 1 轮上限只有 5 点（engine 的 INITIAL_TOKEN_MAX），没有「模型蒸馏」垫一手根本起不来。
+    expect(copies(HIGH_COST_DECK, 'model-distillation')).toBeGreaterThanOrEqual(1)
   })
 
   it('24 张技能卡分成开放的 10 张和「即将上线」的 14 张', () => {
     // 开放名单就是"效果已经接进引擎"的那批，改动它意味着开放 / 收回了某张牌，
-    // 而那件事牵着卡池、初始收藏、示例牌组一整串，应该在这一行当场红。
+    // 而那件事牵着卡池、初始收藏、预设牌组一整串，应该在这一行当场红。
     // 顺序跟着 SKILL_DESIGN_CARDS 的键序走（卡池和图鉴按它摆），所以用对顺序敏感的 toEqual。
     expect(SKILL_DESIGN_CARD_IDS).toHaveLength(24)
     expect(OPEN_SKILL_CARD_IDS).toEqual([
@@ -78,16 +136,17 @@ describe('卡池与初始收藏', () => {
     )
   })
 
-  it('开放的技能卡开局全解锁，默认牌组只带其中两张', () => {
-    // 默认牌组里的技能牌各走一条出牌链路：「复读机」要选目标，「鸡犬升天」打出即完事。
-    // 开放的其余几张各自落在这两条链路之一，塞进默认牌组只会挤掉 AI 牌，摸不到新东西。
-    const inDeck = ['fixed-answer', 'rising-tide']
+  it('开放的技能卡开局全解锁，预设里的技能牌也只从这批里挑', () => {
     for (const id of OPEN_SKILL_CARD_IDS) {
       expect(CARD_POOL).toContain(id)
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
-        inDeck.includes(id) ? 1 : 0,
-      )
+    }
+    // 反过来：预设里凡是技能牌，必须是开放的那批。带一张占位牌进去，
+    // 玩家打出后什么都不会发生，看着就像游戏坏了。
+    for (const deck of PRESET_DECKS) {
+      for (const card of skillCardsIn(deck)) {
+        expect(OPEN_SKILL_CARD_IDS).toContain(card.id)
+      }
     }
   })
 
@@ -98,7 +157,7 @@ describe('卡池与初始收藏', () => {
       expect(CARDS[id]).toBeDefined()
       expect(CARD_POOL).not.toContain(id)
       expect(INITIAL_COLLECTION).not.toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      for (const deck of PRESET_DECKS) expect(deck).not.toContain(id)
     }
   })
 
@@ -111,7 +170,7 @@ describe('卡池与初始收藏', () => {
       expect(CARDS[id]).toBeUndefined()
       expect(CARD_POOL).not.toContain(id)
       expect(INITIAL_COLLECTION).not.toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      for (const deck of PRESET_DECKS) expect(deck).not.toContain(id)
     }
     // 客户端的选目标交互按这份名单走，各自选谁由 skillCards.test.ts 那条守着。
     expect(
@@ -143,9 +202,9 @@ describe('卡池与初始收藏', () => {
     expect(INITIAL_COLLECTION).toHaveLength(CARD_POOL.length)
   })
 
-  it('示例牌组只用初始收藏里的卡', () => {
-    for (const id of STARTER_DECK) {
-      expect(INITIAL_COLLECTION).toContain(id)
+  it('三套预设只用初始收藏里的卡', () => {
+    for (const deck of PRESET_DECKS) {
+      for (const id of deck) expect(INITIAL_COLLECTION).toContain(id)
     }
   })
 
@@ -165,7 +224,7 @@ describe('卡池与初始收藏', () => {
     for (const id of Object.keys(HEROES)) {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      for (const deck of PRESET_DECKS) expect(deck).not.toContain(id)
     }
   })
 })
@@ -233,7 +292,7 @@ describe('AI 牌身上给技能牌读的两个标签', () => {
 describe('调不到模型的 AI 牌', () => {
   it('18 张 AI 分成能上场的 16 张和调不到模型的 2 张', () => {
     // 名单写死在这里：改动它意味着某张牌能不能上场变了，而那件事牵着卡池、初始收藏、
-    // 示例牌组一整串，应该在这一行当场红。顺序跟着 AI_MODEL_CARDS 的键序走。
+    // 预设牌组一整串，应该在这一行当场红。顺序跟着 AI_MODEL_CARDS 的键序走。
     expect(AI_MODEL_CARD_IDS).toHaveLength(18)
     expect(UNAVAILABLE_AI_CARD_IDS).toEqual(['gpt-2', 'wenxin-yiyan'])
     expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
@@ -257,7 +316,7 @@ describe('调不到模型的 AI 牌', () => {
       expect(CARDS[id]).toBeDefined()
       expect(CARD_POOL).not.toContain(id)
       expect(INITIAL_COLLECTION).not.toContain(id)
-      expect(STARTER_DECK).not.toContain(id)
+      for (const deck of PRESET_DECKS) expect(deck).not.toContain(id)
     }
   })
 })

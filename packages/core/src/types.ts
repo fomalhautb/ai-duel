@@ -156,7 +156,7 @@ export type HeroId =
  *
  * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
  *
- * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / STARTER_DECK**：
+ * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / 预设牌组**：
  * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md 第 4 节），
  * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
  * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。

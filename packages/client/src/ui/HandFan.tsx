@@ -384,26 +384,34 @@ type LayoutMode = 'hover' | 'reflow'
 /**
  * 扇形可以铺开多宽。
  *
- * 不能拿舞台宽了事：对局界面两侧是不透明的侧栏，而且 z-index 30 压在手牌（20）之上，
- * 手牌一多，扇形两端就整片钻到侧栏底下去了。所以量的是中间那栏（.battle__battlefield）。
- * 这栏并不严格居中（左右侧栏宽度差十来个像素），而扇形是以舞台中线为对称轴摊开的，
- * 所以取"中线到左右两边距离里较小的那个"再翻倍——按窄的那侧算，宽的那侧自然也放得下。
+ * 不能拿舞台宽、也不能直接拿战场那一栏的宽了事：扇形两侧各压着一块 z-index 30 的 UI，
+ * 都画在手牌（20）之上，手牌一多，扇形那一端就整片钻到它底下去——
+ * 左边是整条不透明的侧栏（战场左沿就是它的右沿），右边是悬在右下角的「结束出牌」按钮。
+ *
+ * 扇形以锚点 .hand-fan 的中线为对称轴摊开，而锚点已经在 CSS 里让开侧栏、对着战场居中了，
+ * 所以这里量的是"中线到左右两个障碍物的距离"，取较小的那个再翻倍：
+ * 按窄的那侧算，宽的那侧自然也放得下。设计尺寸下右侧是窄的那边——
+ * 中线在 x=989，到战场左沿 306 有 683，到按钮左沿 1456 只有 467，可用宽度因此是 934。
  *
  * 返回值是舞台内坐标（和 fanMath 的那套像素同一口径），所以量到的视口矩形要除以 scale
- * 换算回来，见 ui/battleStage.ts。量不到中栏（比如手牌被搬到别的页面上用）就退回舞台宽，
- * 那种情况下 battleStage 会给出"没有舞台"的口径，也就是视口宽。
+ * 换算回来，见 ui/battleStage.ts。量不到锚点或战场（比如手牌被搬到别的页面上用）
+ * 就退回舞台宽，那种情况下 battleStage 会给出"没有舞台"的口径，也就是视口宽。
  */
-function fanAreaWidth(): number {
+function fanAreaWidth(anchor: DOMRect | null): number {
   const stageWidth = battleStageWidth()
   const field = document.querySelector('.battle__battlefield')
-  if (field === null) return stageWidth
+  if (anchor === null || field === null) return stageWidth
 
-  const rect = field.getBoundingClientRect()
-  if (rect.width === 0) return stageWidth
+  const fieldRect = field.getBoundingClientRect()
+  if (fieldRect.width === 0) return stageWidth
 
-  const metrics = battleStageMetrics()
-  const center = metrics.left + (stageWidth * metrics.scale) / 2
-  return (Math.min(center - rect.left, rect.right - center) * 2) / metrics.scale
+  // 按钮在别的页面上没有；量不到就只受战场右沿约束，也就是"右边没人挡"。
+  const endTurn = document.querySelector('.battle__end-turn')?.getBoundingClientRect()
+  const rightEdge =
+    endTurn === undefined || endTurn.width === 0 ? fieldRect.right : endTurn.left
+
+  const center = anchor.left + anchor.width / 2
+  return (Math.min(center - fieldRect.left, rightEdge - center) * 2) / battleStageMetrics().scale
 }
 
 /**
@@ -630,7 +638,10 @@ export function HandFan({
    * 已经打出、正在等结果的牌（playedRef）同样不参与，原因见下面 laid 那里。
    */
   const applyLayout = (mode: LayoutMode) => {
-    const areaWidth = fanAreaWidth()
+    // 锚点这一份矩形两处都要：一处是扇形摊多宽（fanAreaWidth 拿它的中线当对称轴），
+    // 一处是发牌飞行的起点（灰墨态下整排是沉着的，见 dealStartVars）。量不到锚点就都退回兜底。
+    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
+    const areaWidth = fanAreaWidth(anchorRect)
     // 走 ref 不走闭包：这个函数常常是上一次渲染留下的那一份（见 castingIdRef）。
     const casting = castingIdRef.current
     const ids = new Set(cards.map((card) => card.id))
@@ -640,8 +651,6 @@ export function HandFan({
      */
     const reduce = prefersReducedMotion()
     const dealOriginRect = reduce ? null : (dealOriginRef.current?.() ?? null)
-    // 起点要按锚点当场的位置算（灰墨态下整排是沉着的，见 dealStartVars），量不到锚点就不飞。
-    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
     const dealStart =
       dealOriginRect === null || anchorRect === null
         ? null
@@ -1090,9 +1099,24 @@ export function HandFan({
    * 牌就会离光标越来越远（换算口径见 ui/battleStage.ts）。
    */
   const dragTargetOf = (clientX: number, clientY: number) => {
-    const point = toStagePoint(clientX, clientY)
+    const metrics = battleStageMetrics()
+    const point = toStagePoint(clientX, clientY, metrics)
+    const anchor = rootRef.current?.getBoundingClientRect()
+    /*
+     * 原点的横坐标是锚点的横向中线，它不等于舞台中线：锚点让开了左侧栏、对着战场居中
+     *（见 styles.css 的 .hand-fan），设计尺寸下在 x=989 而不是 836。
+     *
+     * 只现量横向、纵向照旧用舞台底边那个理论值，是有意的：锚点身上那份 CSS transform
+     * 只写 translateY（灰墨态整排下沉 12px，见 styles.css 的 .hand-fan[data-locked]），
+     * 还带 0.45s 过渡，纵向现量会在过渡那几百毫秒里给出一个正在移动的原点，拖着的牌跟着漂。
+     * 横向那一维没人动过，现量是安全的。
+     */
+    const originX =
+      anchor === undefined || anchor.width === 0
+        ? battleStageWidth() / 2
+        : (anchor.left + anchor.width / 2 - metrics.left) / metrics.scale
     return {
-      x: point.x - battleStageWidth() / 2,
+      x: point.x - originX,
       y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2,
     }
   }

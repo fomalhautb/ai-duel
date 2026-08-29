@@ -10,7 +10,7 @@ export const GALLERY_AI_CARDS: AiCard[] = Object.values(CARDS).filter(
 )
 
 /**
- * 技能牌也全部来自 core，同 AI 牌：一共 26 张（24 张设计稿占位卡 + 占位技能 + 必须回答）。
+ * 技能牌也全部来自 core，同 AI 牌：一共 24 张，各有一张专属原画。
  * 效果实没实装不影响图鉴，它要摆的就是"卡池里现在有哪些牌、卡面长什么样"。
  */
 export const GALLERY_SKILL_CARDS: SkillCard[] = Object.values(CARDS).filter(

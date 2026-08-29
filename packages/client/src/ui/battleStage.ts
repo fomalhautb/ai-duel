@@ -58,6 +58,26 @@ export function battleStageWidth(): number {
     : BATTLE_STAGE_WIDTH
 }
 
+/**
+ * 战场那一栏的宽（舞台内坐标）。
+ *
+ * 对手的倒扇形拿它当摊开的地盘：那排牌的锚点已经在 CSS 里让开左侧栏、正对着战场居中
+ *（见 styles.css 的 --battle-side-w），所以量到多宽就能摊多宽。
+ * 玩家手牌不能直接用这个数——它右下角还压着结束按钮，得另算，见 HandFan 的 fanAreaWidth。
+ *
+ * 量不到战场（组件被搬到别的页面上单独用）就退回舞台宽，也就是改造之前的行为。
+ */
+export function battleFieldWidth(): number {
+  const field = document.querySelector('.battle__battlefield')
+  if (field === null) return battleStageWidth()
+
+  const rect = field.getBoundingClientRect()
+  // 宽度为 0 说明这一帧还没排版好，按舞台宽兜着，下一帧量到真值就对了。
+  if (rect.width === 0) return battleStageWidth()
+
+  return rect.width / battleStageMetrics().scale
+}
+
 /** 舞台的高（舞台内坐标）。没有舞台时退回视口高。 */
 export function battleStageHeight(): number {
   return document.querySelector('.stage-scaler') === null

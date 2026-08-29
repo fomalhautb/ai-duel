@@ -28,6 +28,7 @@ import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
+import { LoadingBarDemo } from './dev/LoadingBarDemo'
 import { ResultDemo } from './dev/ResultDemo'
 import { loadSave, saveHero } from './save/save'
 import { useBackgroundMusic } from './ui/backgroundMusic'
@@ -81,6 +82,10 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 加载进度条的调试页：手动拖百分比、自动模拟一遍、极端值对照，
+            还能挑一份真实素材清单绕开缓存真下一遍，看进度条在真实节奏下怎么走。
+            和上面的 /loader 分工：那里调 loader 动画本身，这里调它下面那条进度条。 */}
+        <Route path="/loading-bar" component={LoadingBarDemo} />
         {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
             按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
             不用打完整一局就能反复看那一整套动画。 */}

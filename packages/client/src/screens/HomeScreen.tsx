@@ -53,7 +53,7 @@ import { cardArtFor } from '../ui/cardArt'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
@@ -294,8 +294,8 @@ export const HOME_ASSETS = Array.from(
  */
 export function HomeScreen() {
   useBackgroundMusic('beginning')
-  const ready = useAssetsReady(HOME_ASSETS)
-  return ready ? <HomeStage /> : <LoadingScreen />
+  const assets = useAssetsProgress(HOME_ASSETS)
+  return assets.ready ? <HomeStage /> : <LoadingScreen progress={assets.progress} />
 }
 
 function HomeStage() {

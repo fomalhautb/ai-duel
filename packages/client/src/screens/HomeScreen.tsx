@@ -269,8 +269,11 @@ function castPanelStyle(bbox: NormalizedBox): CSSProperties {
  * 少写了只是晚一点开始下载，多写了会白下一张用不上的图。
  *
  * 人物的发光副本用的是和本人完全相同的 src，浏览器按地址认图，所以这里不用为它多列七条。
+ *
+ * 导出是给 ui/backgroundPreload.ts 用的：那边把全站的图按页分组列了一遍，
+ * 首页这一份轮到时早就下完了，列进去只为让"public 下每张图都在某份清单里"这条不变量成立。
  */
-const HOME_ASSETS = Array.from(
+export const HOME_ASSETS = Array.from(
   new Set([
     '/home/home-bg.webp',
     ...CAST.map((member) => `/home/${member.file}.webp`),

@@ -2,11 +2,20 @@ import { useEffect } from 'react'
 
 export type BackgroundMusicTrack = 'beginning' | 'room' | 'cardsSelecting' | 'match'
 
-const TRACK_SOURCE: Record<BackgroundMusicTrack, string> = {
-  beginning: '/music/beginning.mp3',
-  room: '/music/room.mp3',
-  cardsSelecting: '/music/cards_selecting.mp3',
-  match: '/music/match.mp3',
+/**
+ * 四首循环 BGM。
+ *
+ * 是 .m4a（AAC 96 kbps）而不是 mp3：同样的听感能省掉一半体积，而 audio 元素设了
+ * preload='auto'，进哪一页就整首往下拉，正好和那一页的图抢带宽。
+ * 换/加曲目请跑 scripts/optimize-music.sh 转格式，别直接把 mp3 丢进 public/music/。
+ *
+ * 导出是给 test/assetManifest.test.ts 用的：它核对这四个地址和 public/music/ 里的文件对不对得上。
+ */
+export const TRACK_SOURCE: Record<BackgroundMusicTrack, string> = {
+  beginning: '/music/beginning.m4a',
+  room: '/music/room.m4a',
+  cardsSelecting: '/music/cards_selecting.m4a',
+  match: '/music/match.m4a',
 }
 
 const BACKGROUND_MUSIC_VOLUME = 0.9

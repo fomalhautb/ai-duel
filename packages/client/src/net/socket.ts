@@ -25,11 +25,21 @@ import type { RelayMessage } from './protocol'
  * 两台电脑局域网联调时写成 `http://<局域网IP>:8787`——写 localhost 的话另一台会连到它自己身上。
  * 这样是跨域的，但转发器给 `/api/room` 加了 `Access-Control-Allow-Origin: *`，
  * 所以 fetch 房间码不会被浏览器拦；WebSocket 本身不受 CORS 约束。
+ *
+ * 写成函数而不是模块级常量：模块一被 import 就读 window 的话，这个文件（以及所有辗转
+ * import 到它的界面模块）在没有 window 的环境里加载就会直接抛错。测试跑在 node 里，
+ * 有几条测试要 import 界面模块拿它们的预加载清单（test/assetManifest.test.ts），
+ * 一路牵进来就会撞上这行。取地址推迟到真要连的时候，那时一定在浏览器里。
+ * 末尾的斜杠在这里一次性去掉，调用方直接拼路径即可。
  */
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? window.location.origin
+function serverUrl(): string {
+  return (import.meta.env.VITE_SERVER_URL ?? window.location.origin).replace(/\/$/, '')
+}
 
 /** http→ws、https→wss。两者的前缀只差一个字母，替换掉开头的 "http" 就够了。 */
-const WS_BASE = SERVER_URL.replace(/\/$/, '').replace(/^http/, 'ws')
+function wsBase(): string {
+  return serverUrl().replace(/^http/, 'ws')
+}
 
 /** 服务端控制消息的前缀，`#` 后面跟事件名。 */
 const CONTROL_PREFIX = '#'
@@ -73,7 +83,7 @@ interface Listeners {
  */
 function openConnection(code: string, role: 'host' | 'guest'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/room/${code}?role=${role}`)
+    const ws = new WebSocket(`${wsBase()}/room/${code}?role=${role}`)
     let settled = false
 
     ws.addEventListener('message', (event: MessageEvent<string>) => {
@@ -103,18 +113,18 @@ function openConnection(code: string, role: 'host' | 'guest'): Promise<WebSocket
 export async function connectRoom(): Promise<RoomHandle> {
   let code: string
   try {
-    const response = await fetch(`${SERVER_URL.replace(/\/$/, '')}/api/room`)
+    const response = await fetch(`${serverUrl()}/api/room`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     code = (await response.json()).code
   } catch (reason) {
-    throw new Error(`连不上转发器（${SERVER_URL}）：${(reason as Error).message}`)
+    throw new Error(`连不上转发器（${serverUrl()}）：${(reason as Error).message}`)
   }
 
   try {
     const ws = await openConnection(code, 'host')
     return makeHandle(ws, code)
   } catch (reason) {
-    throw new Error(`连不上转发器（${SERVER_URL}）：${(reason as Error).message}`)
+    throw new Error(`连不上转发器（${serverUrl()}）：${(reason as Error).message}`)
   }
 }
 

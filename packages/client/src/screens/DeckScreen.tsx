@@ -30,6 +30,7 @@ import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragHandle } from '../ui/useCardDrag'
+import { useStageScale } from '../ui/useStageScale'
 import { OrnateTitle, PaperCardBack, PaperIconDefs, PaperTabs } from '../ui/paper'
 import { DECK_DEMO_CARDS, FACTIONS } from './deckDemoCards'
 import type { DeckDemoCard, DeckFaction } from './deckDemoCards'
@@ -106,11 +107,16 @@ export function DeckScreen() {
   const nextKeyRef = useRef(0)
 
   const pageRef = useRef<HTMLDivElement>(null)
+  const scalerRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const sideRef = useRef<HTMLElement>(null)
   const sideInnerRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef<HTMLUListElement>(null)
   const zoomRef = useRef<CardZoomHandle>(null)
+
+  // 舞台缩放比在运行时由 JS 写进 --deck-scale，盖掉 deck.css 里那份 atan2 算的值。
+  // 原因见 ui/useStageScale.ts：Safari 的 atan2 处理混合单位有 bug，不盖的话这一页在 Safari 上整块看不见。
+  useStageScale('--deck-scale', pageRef, scalerRef)
 
   // 这一页没有挂载动画，useGSAP 在这儿只是为了拿 contextSafe：
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
@@ -372,8 +378,9 @@ export function DeckScreen() {
       <div className="deck-page" ref={pageRef}>
         {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
             它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
-            因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
-        <div className="deck-scaler stage-scaler">
+            因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。
+            缩放比由上面的 useStageScale 写成内联样式盖掉 CSS 那份（Safari 的 atan2 有 bug）。 */}
+        <div className="deck-scaler stage-scaler" ref={scalerRef}>
           {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
           <div className="paper-page__inner">
             <header className="deck-top">

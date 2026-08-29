@@ -19,8 +19,9 @@ export function createTestMatchDriver(): MatchDriver {
     seat: 0,
     setup: {
       seed: Date.now(),
-      // 测试房只跑一轮，视觉和流程调试可以在一次答题后直接检查最终结算页。
-      questions: [QUESTION_POOL[0]!],
+      // 测试房只跑两轮：一轮用来看"结算完接着开下一轮"，第二轮结束直接进最终结算页，
+      // 两条路径各走一次，又不用把整局五道题打完。
+      questions: QUESTION_POOL.slice(0, 2),
       players: [
         { name: '我', deck: [...STARTER_DECK] },
         { name: '测试对手', deck: [...STARTER_DECK] },

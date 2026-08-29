@@ -19,6 +19,7 @@ import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
+import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
@@ -55,6 +56,10 @@ export function App() {
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
+            按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
+            不用打完整一局就能反复看那一整套动画。 */}
+        <Route path="/test" component={SettleTestScreen} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

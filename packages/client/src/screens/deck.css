@@ -87,6 +87,10 @@
  * 求出的角再取 tan，得到的正是这两个长度的比值，也就是"舞台宽 ÷ 设计宽"。
  * 直接写 calc(100cqi / 1672px) 是不合法的，CSS 的 calc 不允许长度除以长度。
  *
+ * 但这份值只是兜底：WebKit 的 atan2 处理"cqi 和 px 混着来"有 bug，Safari 上整条表达式
+ * 算不出值、缩放塌掉、整页看不见。所以运行时由 ui/useStageScale.ts（DeckScreen 里挂的）
+ * 量一次舞台宽、把同一个比值以内联样式写到这一层上盖掉这里，无条件覆盖、不做浏览器判断。
+ *
  * stage-scaler 是给 JS 认的公共类（ui/battleStage.ts 照它查当前舞台），对局页的
  * .battle-scaler 也带着它；样式各写各的，因为两页的舞台外壳层级不一样。
  */

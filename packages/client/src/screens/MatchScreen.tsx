@@ -73,10 +73,11 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
         testMode={testMode}
         resultActions={
           <>
-            <button type="button" onClick={() => leave('/room')}>
+            {/* 深蓝描金那套外观抽在 .navy-gold-btn 里，终局结算这两个按钮共用一份。 */}
+            <button type="button" className="navy-gold-btn" onClick={() => leave('/room')}>
               再来一局
             </button>
-            <button type="button" onClick={() => leave('/')}>
+            <button type="button" className="navy-gold-btn" onClick={() => leave('/')}>
               回首页
             </button>
           </>

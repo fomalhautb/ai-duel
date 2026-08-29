@@ -63,6 +63,9 @@ import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSkillHitFx, playSummonFx } from './playSummonFx'
+import { RoundSettleLayer } from './RoundSettleLayer'
+import type { RoundSettle, SettleAiResult } from './RoundSettleLayer'
+import { useStageScale } from './useStageScale'
 
 gsap.registerPlugin(useGSAP, Flip)
 
@@ -153,42 +156,10 @@ const CANCEL_HOLD = 1.3
  */
 const DEAL_HOLD_FALLBACK = 0.8
 
-/** 答题结果逐条淡入的间隔（秒）。 */
-const QUIZ_ROW_STAGGER = 0.16
-/** 计分那行出来之后停留多久（秒）再整层淡出，露出已经更新的战场和比分。 */
-const QUIZ_HOLD = 1.1
-
 /** 一条中央横幅从淡入到淡出的总时长（秒），排队时按它算下一条什么时候上。 */
 const BANNER_IN = 0.3
 const BANNER_HOLD = 0.75
 const BANNER_OUT = 0.35
-
-/** 答题揭晓层里的一行结果，全部由 AI_ANSWERED 事件当场攒出来。 */
-interface QuizAnswerRow {
-  instanceId: InstanceId
-  /** 这个 AI 是我方的还是对方的。收到事件时就按当时的座位算好，渲染时不用再查局面。 */
-  mine: boolean
-  name: string
-  correct: boolean
-  answerText: string
-}
-
-/**
- * 答题全屏揭晓层的全部内容。
- *
- * 结果**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
- * 提交一完成，答错的 tile 立刻就从战场上消失了，没有机会在它身上播罚下动画。
- * 所以这一层刻意盖住整个战场，把那次跳变藏在自己后面（见计划的"关键陷阱"）。
- */
-interface QuizReveal {
-  /** 每次揭晓换一个新的 key，用来重新触发下面几段 useGSAP，并识别"这条时间线是不是自己的"。 */
-  key: number
-  question: Question
-  /** AI_ANSWERED 逐条追加。 */
-  rows: QuizAnswerRow[]
-  /** ROUND_SCORED 到了才有；它一到就说明这一轮播完了，可以走收尾。 */
-  gains: { mine: number; theirs: number } | null
-}
 
 /**
  * 放大查看的那张卡原来摆在哪：战场上的一个格子，还是左侧栏里的英雄牌。
@@ -326,12 +297,24 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
  *
  * 缩放层上那个 stage-scaler 是给 JS 认的：ui/battleStage.ts 照它查当前舞台，
  * 卡组页的 .deck-scaler 也带同一个类，两页共用同一套坐标换算。样式仍写在 .battle-scaler 上。
+ *
+ * 缩放比由 useStageScale 在运行时写成内联样式盖掉 CSS 里那份，原因见该文件（Safari 的
+ * atan2 混合单位有 bug，不盖的话这一页在 Safari 上整块看不见）。
+ *
+ * 导出给结算测试页（screens/SettleTestScreen.tsx）复用：那一页也要把结算层放进同一套
+ * 舞台里才对得上排版，抄一份的话两边迟早会漂。
  */
-function BattleFrame({ children }: { children: ReactNode }) {
+export function BattleFrame({ children }: { children: ReactNode }) {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const scalerRef = useRef<HTMLDivElement>(null)
+  useStageScale('--battle-scale', stageRef, scalerRef)
+
   return (
     <div className="battle-frame">
-      <div className="battle-stage">
-        <div className="battle-scaler stage-scaler">{children}</div>
+      <div className="battle-stage" ref={stageRef}>
+        <div className="battle-scaler stage-scaler" ref={scalerRef}>
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -391,8 +374,15 @@ function BattleField({
   } | null>(null)
   /** 开局抛硬币过场；播完置回 null 把整层卸载掉。 */
   const [coinToss, setCoinToss] = useState<{ firstPlayer: PlayerId; key: number } | null>(null)
-  /** 答题全屏揭晓层；同样播完置回 null。 */
-  const [quizReveal, setQuizReveal] = useState<QuizReveal | null>(null)
+  /**
+   * 回合结算全屏层：答题揭晓、每个 AI 答了什么、本轮计分和确认按钮全在里面。
+   *
+   * 内容**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
+   * 提交一完成，答错的 tile 立刻就从战场上消失了，没有机会在它身上播罚下动画。
+   * 所以这一层刻意盖住整个战场，把那次跳变藏在自己后面。
+   * 收层由它自己的 onExited 回调触发（双方都确认、阶段离开 settle 之后）。
+   */
+  const [roundSettle, setRoundSettle] = useState<RoundSettle | null>(null)
   /**
    * 英雄技能抵消的全屏提示（现在只有 Debug 一种）。
    * 两行文案在收到 SKILL_CANCELED 那一刻就按当时的座位拼好，演的时候不再回头读局面。
@@ -439,7 +429,6 @@ function BattleField({
   const skillShowRef = useRef<HTMLDivElement>(null)
   const coinTossRef = useRef<HTMLDivElement>(null)
   const coinInnerRef = useRef<HTMLDivElement>(null)
-  const quizRevealRef = useRef<HTMLDivElement>(null)
   const skillCancelRef = useRef<HTMLDivElement>(null)
   /** 上场特效的烟尘容器。卸载时要把里面动态插的 DOM 一次清干净。 */
   const smokeLayerRef = useRef<HTMLDivElement>(null)
@@ -550,13 +539,14 @@ function BattleField({
    * 有全屏过场正在演。这两个标志一起决定横幅要不要先憋着。
    *
    * 横幅在特效层（z-index 80），全屏过场和展示遮罩都在 1100，它们演的时候播横幅
-   * 等于播给遮罩看。而且事件是一整批到的——结算那批里 ROUND_SCORED 后面紧跟着就是下一轮的
-   * ROUND_STARTED / PLAY_TURN_STARTED，正常播的话会在揭晓层还没退场时就白白用掉。
+   * 等于播给遮罩看——抛硬币那批里的第 1 轮宣告就是这么被盖掉的。
    * 所以过场期间只入队不播，等过场淡出的 onComplete 再把攒着的一起放出来。
    *
    * 用 ref 而不是读上面那两个 state：一批事件是在同一次回调里同步处理完的，
    * 这中间 React 还没重渲染，读 state 拿到的还是"过场没开始"的旧值。
    * 强制展示那一档的闸门是 revealBusyRef，理由一样。
+   *
+   * quizUpRef 盖的是整个回合结算层：从题目揭晓一直到双方确认完退场，中间横幅全憋着。
    */
   const coinUpRef = useRef(false)
   const quizUpRef = useRef(false)
@@ -863,50 +853,68 @@ function BattleField({
           pumpSkillCancel()
           break
         }
-        case 'QUESTION_REVEALED':
-          // 全屏揭晓：题目和正确答案先亮出来，等 driver 那边的自动驾驶把结果提交上来
-          // （默认 2.5 秒后，那批事件不在这一批里），再往这一层里填结果。
-          // 揭晓层和展示层同在 1100，先把还没演完的展示收掉再开这一层（见 abortReveal）。
+        case 'QUESTION_REVEALED': {
+          // 全屏结算层开场：题目和标准答案先亮出来，等 driver 那边的自动驾驶把结果提交上来
+          // （默认 2.5 秒后，那批事件不在这一批里），再往这一层里填结果和计分。
+          // 结算层和展示层同在 1100，先把还没演完的展示收掉再开这一层（见 abortReveal）。
           abortReveal()
           // 进答题就出不了牌了，正选着目标的那张技能牌一并收掉（它会自己落回扇形）。
           setTargeting(null)
-          // 还憋着没演的抵消提示直接丢掉：它说的是刚才那次出牌，等揭晓层演完再补一遍，
+          // 还憋着没演的抵消提示直接丢掉：它说的是刚才那次出牌，等结算层演完再补一遍，
           // 就成了下一轮开头凭空冒出来的一句话，比不演更让人糊涂。
           pendingCancelRef.current = null
           quizUpRef.current = true
-          setQuizReveal((current) => ({
+          // 轮次和计分前的总分在这一刻按快照采样：事件是在 React 提交新快照之前送到的，
+          // 读的正是"这一轮还没结算"的那份，也就是结算层顶栏该显示的起点。
+          const before = driver.getSnapshot().state
+          const seat = seatRef.current
+          setRoundSettle((current) => ({
             key: (current?.key ?? 0) + 1,
             question: event.question,
-            rows: [],
-            gains: null,
+            round: before?.round ?? 1,
+            scoresBefore: {
+              mine: before?.players[seat].score ?? 0,
+              theirs: before?.players[other(seat)].score ?? 0,
+            },
+            results: [],
+            score: null,
           }))
           break
+        }
         case 'AI_ANSWERED': {
-          // 结果渲染在揭晓层内部，不去动战场上那张即将被 React 移除的小卡。
-          const row: QuizAnswerRow = {
+          // 结果渲染在结算层内部，不去动战场上那张即将被 React 移除的小卡。
+          // 卡面身份直接读事件里的 cardId：答错的那个单位马上就被罚下，回头查快照会查空。
+          const result: SettleAiResult = {
             instanceId: event.instanceId,
+            cardId: event.cardId,
             mine: event.owner === seatRef.current,
-            name: nameOfCard(event.instanceId, state),
             correct: event.correct,
-            answerText: event.answerText,
+            answer: event.answer,
+            reasoning: event.reasoning,
           }
-          setQuizReveal((current) =>
-            current === null ? current : { ...current, rows: [...current.rows, row] },
+          setRoundSettle((current) =>
+            current === null ? current : { ...current, results: [...current.results, result] },
           )
           break
         }
         case 'ROUND_SCORED': {
-          const gains = {
-            mine: event.gains[seatRef.current],
-            theirs: event.gains[other(seatRef.current)],
+          // 事件里四个数组都按座位号排，这里一次换算成结算层要的"我方 / 对方"。
+          const seat = seatRef.current
+          const foe = other(seat)
+          const score = {
+            correct: { mine: event.correct[seat], theirs: event.correct[foe] },
+            spent: { mine: event.spent[seat], theirs: event.spent[foe] },
+            gains: { mine: event.gains[seat], theirs: event.gains[foe] },
+            totals: { mine: event.scores[seat], theirs: event.scores[foe] },
           }
-          setQuizReveal((current) => (current === null ? current : { ...current, gains }))
+          setRoundSettle((current) => (current === null ? current : { ...current, score }))
           break
         }
         default:
-          // AI_ELIMINATED 不单独播：揭晓层里那一行的 ✗ 和罚下样式已经说明了，
-          // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被揭晓层盖住）。
-          // CARD_DRAWN 的进场动画归 HandFan 自己管；GAME_OVER 由结算层接管；
+          // AI_ELIMINATED 不单独播：结算层里那张卡的红叉和压暗样式已经说明了，
+          // 而且被罚下的小卡会随着新快照直接从战场上消失（正好被结算层盖住）。
+          // ROUND_CONFIRMED 也不用管：确认态由结算层直接读快照（见 RoundSettleLayer 的两路口径）。
+          // CARD_DRAWN 的进场动画归 HandFan 自己管；GAME_OVER 由终局结算层接管；
           // COMMAND_REJECTED 走 view.lastRejection 那条提示。
           break
       }
@@ -1104,88 +1112,11 @@ function BattleField({
     { dependencies: [skillCancel?.key ?? null] },
   )
 
-  /** 答题揭晓层出场：整层淡入、题面从下方升起。只在新的一轮揭晓时跑。 */
-  useGSAP(
-    () => {
-      const node = quizRevealRef.current
-      if (quizReveal === null || node === null) return
-      gsap
-        .timeline()
-        .fromTo(
-          node,
-          { autoAlpha: 0 },
-          { autoAlpha: 1, duration: 0.3, ease: 'power2.out', overwrite: 'auto' },
-        )
-        .fromTo(
-          node.querySelector('.quiz-reveal__panel'),
-          { autoAlpha: 0, y: 26 },
-          { autoAlpha: 1, y: 0, duration: 0.45, ease: 'back.out(1.3)', overwrite: 'auto' },
-          0.08,
-        )
-    },
-    { dependencies: [quizReveal?.key ?? null] },
-  )
-
-  /**
-   * 答题揭晓层收尾：结果逐条淡入 → 计分 → 停一下 → 整层淡出。
-   *
-   * 触发条件是"计分到了"而不是"有结果行了"：AI_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
-   * React 把这一批合成一次重渲染，所以这段跑起来时结果行已经全在 DOM 里了，一次排完就行。
-   */
-  const quizScored = quizReveal !== null && quizReveal.gains !== null
-  useGSAP(
-    () => {
-      const node = quizRevealRef.current
-      if (!quizScored || quizReveal === null || node === null) return
-      const shownKey = quizReveal.key
-      gsap
-        .timeline({
-          onComplete: () => {
-            quizUpRef.current = false
-            setQuizReveal((current) => (current?.key === shownKey ? null : current))
-            // 同一批里跟在 ROUND_SCORED 后面的下一轮横幅一直憋到这里才放出来。
-            pumpBanner()
-          },
-        })
-        .to(node.querySelector('.quiz-reveal__waiting'), {
-          autoAlpha: 0,
-          duration: 0.25,
-          ease: 'power2.in',
-          overwrite: 'auto',
-        })
-        .fromTo(
-          node.querySelectorAll('.quiz-reveal__row'),
-          { autoAlpha: 0, x: -16 },
-          {
-            autoAlpha: 1,
-            x: 0,
-            duration: 0.3,
-            ease: 'power2.out',
-            stagger: QUIZ_ROW_STAGGER,
-            overwrite: 'auto',
-          },
-          0.12,
-        )
-        .fromTo(
-          node.querySelector('.quiz-reveal__score'),
-          { autoAlpha: 0, scale: 0.88 },
-          { autoAlpha: 1, scale: 1, duration: 0.35, ease: 'back.out(1.6)', overwrite: 'auto' },
-          '+=0.2',
-        )
-        .to(
-          node,
-          { autoAlpha: 0, duration: 0.45, ease: 'power2.in', overwrite: 'auto' },
-          `+=${QUIZ_HOLD}`,
-        )
-    },
-    { dependencies: [quizScored, quizReveal?.key ?? null] },
-  )
-
   /**
    * 对局中断（对手断线）时把还在演的全屏过场收掉。
    *
-   * 答题揭晓层要等 ROUND_SCORED 才会自己退场，而中断时那条事件永远不会来了；
-   * 结算层在它下面（z-index 90 < 1100），不清掉的话玩家会被一层退不掉的遮罩挡死。
+   * 回合结算层要等双方确认、阶段离开 settle 才会自己退场，而中断时对面再也不会确认了；
+   * 终局结算层在它下面（z-index 90 < 1100），不清掉的话玩家会被一层退不掉的遮罩挡死。
    * 强制展示会自己走完，但对手都断线了没必要再演，一并收掉。
    */
   useEffect(() => {
@@ -1200,7 +1131,7 @@ function BattleField({
     // 抛硬币被收掉了，放行发牌的那条收尾也就不会来了；开局手牌不该一直压在卡堆上。
     setDealHeld(false)
     setCoinToss(null)
-    setQuizReveal(null)
+    setRoundSettle(null)
     setSkillCancel(null)
     abortReveal()
     abortInspect()
@@ -1615,8 +1546,12 @@ function BattleField({
    * 所以这里再判一次 phase 之后，!myPlayTurn 就等价于 activePlayer !== mySeat。
    */
   const waitingForFoe = view.status === 'playing' && state.phase === 'play' && !myPlayTurn
-  /** 答题阶段：双方都出不了牌，等场上的 AI 答完。 */
-  const quizWait = view.status === 'playing' && state.phase === 'quiz'
+  /**
+   * 答题和随后的回合结算：这两段双方都出不了牌，手牌一律灰着。
+   * 结算（settle）也算进来，是因为它同样是"等着，什么都点不了"的一段。
+   */
+  const quizWait =
+    view.status === 'playing' && (state.phase === 'quiz' || state.phase === 'settle')
   /**
    * 交给 HandFan 的"为什么出不了牌"。它不挡操作（那仍归上面的 actionsLocked），
    * 只决定手牌要不要进灰墨态、点上去弹哪句提示（见 HandFanProps.lockReason）。
@@ -2479,10 +2414,25 @@ function BattleField({
         </div>
       ) : null}
 
-      {quizReveal !== null ? (
-        // key 让下一轮揭晓拿到一套全新的 DOM：上一轮那些结果行上还留着 GSAP 写的内联样式，
+      {roundSettle !== null ? (
+        // key 让下一轮结算拿到一套全新的 DOM：上一轮那些卡片上还会留着 GSAP 写的内联样式，
         // 复用同一批节点的话新一轮的 fromTo 要和它们打架。
-        <QuizRevealLayer key={quizReveal.key} reveal={quizReveal} rootRef={quizRevealRef} />
+        // 顺带把层内那个"我点过确认了"的本地标志也重置掉。
+        <RoundSettleLayer
+          key={roundSettle.key}
+          settle={roundSettle}
+          totalRounds={state.totalRounds}
+          phase={state.phase}
+          myConfirmed={state.settleConfirmed[mySeat]}
+          foeConfirmed={state.settleConfirmed[foeSeat]}
+          onConfirm={() => driver.send({ type: 'CONFIRM_ROUND', player: mySeat })}
+          onExited={() => {
+            quizUpRef.current = false
+            setRoundSettle(null)
+            // 结算层立着的这段时间里憋下的横幅（下一轮的宣告），到这里才放出来。
+            pumpBanner()
+          }}
+        />
       ) : null}
 
       {/* 英雄技能抵消。key 同抛硬币：每次都换一套新 DOM，上一次留下的内联样式不会跟到下一次。
@@ -2493,72 +2443,6 @@ function BattleField({
           <p className="skill-cancel__text">{skillCancel.text}</p>
         </div>
       ) : null}
-    </div>
-  )
-}
-
-/**
- * 答题全屏揭晓层：题目 + 正确答案 + 每个在场 AI 的作答结果 + 本轮计分。
- *
- * 内容全部来自事件（`QuizReveal`），不读局面快照——答错的 AI 在新快照里已经被罚下、
- * 从战场上消失了，只有事件里还留着它答了什么。
- *
- * 动画归上面 BattleField 的两段 useGSAP 管，这里只负责结构：
- * 那两段靠类名（.quiz-reveal__panel / __waiting / __row / __score）找元素，改类名要一起改。
- */
-function QuizRevealLayer({
-  reveal,
-  rootRef,
-}: {
-  reveal: QuizReveal
-  rootRef: RefObject<HTMLDivElement | null>
-}) {
-  const { question, rows, gains } = reveal
-  return (
-    <div className="quiz-reveal" ref={rootRef}>
-      <div className="quiz-reveal__panel">
-        <span className="quiz-reveal__category">{QUESTION_CATEGORY_LABELS[question.category]}</span>
-        <p className="quiz-reveal__question">{question.text}</p>
-        <p className="quiz-reveal__answer">
-          <span className="quiz-reveal__answer-label">正确答案</span>
-          {question.answer}
-        </p>
-
-        <div className="quiz-reveal__body">
-          {/*
-            「作答中」和结果行叠在同一块地方交叉淡入淡出，所以这一行常驻 DOM 且脱离文档流：
-            条件渲染的话它一消失就会把下面的结果行整体往上拽一截。
-          */}
-          <p className="quiz-reveal__waiting">场上 AI 作答中…</p>
-          <div className="quiz-reveal__rows">
-            {rows.length === 0 ? (
-              // 双方场上一个 AI 都没有时也要有句交代，否则揭晓层看着像卡住了。
-              // 顶着 __row 的类名是为了跟着同一段 stagger 淡入。
-              gains === null ? null : (
-                <p className="quiz-reveal__row quiz-reveal__row--none">场上没有 AI 作答</p>
-              )
-            ) : (
-              rows.map((row) => (
-                <p
-                  key={row.instanceId}
-                  className={`quiz-reveal__row${row.correct ? '' : ' quiz-reveal__row--wrong'}`}
-                >
-                  <span className="quiz-reveal__row-side">{row.mine ? '我方' : '对方'}</span>
-                  <span className="quiz-reveal__row-name">{row.name}</span>
-                  <span className="quiz-reveal__row-mark">{row.correct ? '✓' : '✗'}</span>
-                  <span className="quiz-reveal__row-text">{row.answerText}</span>
-                </p>
-              ))
-            )}
-          </div>
-        </div>
-
-        {gains === null ? null : (
-          <p className="quiz-reveal__score">
-            本轮 你 +{gains.mine} / 对方 +{gains.theirs}
-          </p>
-        )}
-      </div>
     </div>
   )
 }
@@ -2646,6 +2530,7 @@ function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): 
 function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string | null {
   if (view.status !== 'playing') return null
   if (state.phase === 'quiz') return '答题中'
+  if (state.phase === 'settle') return '结算中'
   return state.activePlayer === mySeat ? '你出牌' : '对方出牌'
 }
 
@@ -3103,17 +2988,3 @@ function handCardOfAi(ai: AiInstance): HandCardData {
   return { ...handCardOfDefinition(ai.cardId), id: ai.instanceId }
 }
 
-/**
- * 按实例 id 查这个 AI 的卡名，给答题揭晓层的结果行用。
- *
- * 事件是在 React 提交新局面**之前**送到的，所以答错被罚下的那个单位这时还在 state 里，
- * 名字查得到——查完就存进 QuizAnswerRow，之后不再回头读局面。
- * 查不到（理论上不该发生）就退回一个中性称呼，不为了一行字把界面搞崩。
- */
-function nameOfCard(instanceId: InstanceId, state: GameState): string {
-  for (const player of state.players) {
-    const ai = player.board.find((item) => item.instanceId === instanceId)
-    if (ai !== undefined) return getCard(ai.cardId).name
-  }
-  return '场上 AI'
-}

@@ -22,16 +22,17 @@
 
 两台电脑各开一个浏览器，一方建房、一方输房间码，就能开打。
 
-### 匹配房
-
-<p align="center">
-  <img src="docs/screenshots/room.jpg" alt="匹配房界面" width="880">
-</p>
-
 ### 对局界面
 
 <p align="center">
   <img src="docs/screenshots/battle.jpg" alt="对局界面" width="880">
+</p>
+
+
+### 匹配房
+
+<p align="center">
+  <img src="docs/screenshots/room.jpg" alt="匹配房界面" width="880">
 </p>
 
 ### 组建牌组
@@ -62,6 +63,10 @@ pnpm test               # 单元测试：core 规则、答题剧本
 开发时前端和转发器是两个进程，要在 `packages/client/.env.local` 里设
 `VITE_SERVER_URL=http://127.0.0.1:8787` 让前端连得到转发器。
 **线上是同一个 Worker、同一个域名**，不需要这个配置。
+
+用 Claude Code 之类的 AI 工具时，这两个进程也写在了 `.claude/launch.json` 里：
+`client`（前端，5173）和 `relay`（转发器，8787），直接按名字启动即可；
+`VITE_SERVER_URL` 仍要自己在 `.env.local` 里配，启动配置不会代劳。
 
 ## 技术栈
 

@@ -5,7 +5,8 @@
  * 整页的存档读写走 save/deckStore.ts：加一张牌、改一次名都立刻写回 localStorage，
  * 所以界面上没有"未保存"这个状态，也没有保存按钮。
  *
- * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack。
+ * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack
+ * （左上角的返回按钮，纯查看时右下角还有一颗同样调 onBack 的「返回匹配」）。
  * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
  * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
  *
@@ -337,7 +338,8 @@ export interface DeckScreenProps {
   /**
    * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
    * 不用在回调里落盘：这一页每改一张牌就写过 deckStore 了。
-   * 不传就不渲染「确认牌组」：大厅横幅进来的是纯查看，牌组的增删本来就已经实时存档了。
+   * 不传就不渲染「确认牌组」：大厅横幅进来的是纯查看，牌组的增删本来就已经实时存档了，
+   * 右下角那一格改放「返回匹配」。
    */
   onConfirm?: (deck: CardId[]) => void
   /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
@@ -1675,18 +1677,22 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                           <p className="deck-side__hint">问号看背面 · 点击放大 · 返回按钮或拖出移除</p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
-                          ) : (
-                            <p className="deck-done">牌组已满 · 可以出发</p>
-                          )}
+                          ) : null}
                         </div>
-                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。 */}
-                        {onConfirm === undefined ? null : (
+                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。
+                            纯查看时（没有 onConfirm）这一格换成「返回匹配」，
+                            省得只能去左上角找返回按钮。 */}
+                        {onConfirm !== undefined ? (
                           <PlaqueButton
                             className="deck-confirm"
                             disabled={shortfall > 0}
                             onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
                           >
                             确认牌组
+                          </PlaqueButton>
+                        ) : onBack === undefined ? null : (
+                          <PlaqueButton className="deck-confirm" onClick={onBack}>
+                            返回匹配
                           </PlaqueButton>
                         )}
                       </div>

@@ -1947,6 +1947,16 @@
   z-index: 1160;
 }
 
+/*
+ * AI 牌只放大看正面：伴随层不摆背面大卡，右半边只剩一行操作。
+ * 双栏塌成单栏，于是正面大卡和那行操作都回到舞台正中（左右各自把 39% / 61% 覆盖成 50%）。
+ * 只改 left，其余尺寸位置照旧，飞入飞回那两段补间不受影响。
+ */
+.deck-page--zoom-solo .reveal-card,
+.deck-page--zoom-solo .deck-zoom-side__actions {
+  left: 50%;
+}
+
 /* ============================================================
    放大查看的伴随层
    ------------------------------------------------------------
@@ -2018,13 +2028,6 @@
   top: 0;
   left: 0;
   transform-origin: top left;
-}
-
-/* AI 牌背走全局的 .card-back（和对局手牌同一份），布局尺寸是写死的 150×225。 */
-.deck-zoom-side__scale--ai {
-  width: var(--card-w);
-  height: var(--card-h);
-  transform: scale(var(--reveal-scale));
 }
 
 /* 技能牌背是本页那张 284×426 的星象边框图（.deck-skill-back）。

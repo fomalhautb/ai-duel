@@ -24,14 +24,15 @@
  *   （ui/flipCard.ts，由右上角的问号热区驱动），再里面是正反两个 face。
  *   两面身上的 data-flip-face 是 flipCard.ts 认人的契约。倾斜句柄按 id 存在
  *   poolTiltsRef / deckTiltsRef 里，卡增减时增量挂 / 摘（见下面那个 useGSAP）。
- *   **只有技能牌有背面这一层和那个问号**：AI 牌翻过去没有新东西（想看它那张卡背走放大查看，
- *   伴随层右边就摆着一张），即将上线的牌翻过去只是一段还没生效的效果说明，
+ *   **只有技能牌有背面这一层和那个问号**：AI 牌翻过去没有新东西，
+ *   即将上线的牌翻过去只是一段还没生效的效果说明，
  *   两类的问号留着都只会让人白点（见 flippable）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
- *   （不传 veilRef），点遮罩和 ESC 都能关。正面大卡落在中央偏左（落位由 deck.css 覆盖），
- *   右边由本页自己渲染的伴随层 .deck-zoom-side 摆一张同尺寸的背面大卡和一行操作。
- *   两张大卡都跟着指针倾斜（同 cardTilt.ts），落位后没有别的自发动效。
+ *   （不传 veilRef），点遮罩和 ESC 都能关。技能牌是双栏：正面大卡落在中央偏左（落位由 deck.css 覆盖），
+ *   右边由本页自己渲染的伴随层 .deck-zoom-side 摆一张同尺寸的背面大卡和一行操作，
+ *   两张大卡都跟着指针倾斜（同 cardTilt.ts）。AI 牌没有背面大卡，正面大卡和那行操作一起回到正中
+ *   （见 .deck-page--zoom-solo）。落位后没有别的自发动效。
  *
  * 牌组里的顺序是玩家自己排的，所以"加在哪一格"有两套口径：拖进来的按松手时指针离哪一格
  * 最近算（insertIndexAt），点「＋」或放大层里那颗按钮的按当前视野那一页的第一格算
@@ -96,7 +97,6 @@ import {
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { MuteButton } from '../ui/MuteButton'
-import { AiCardBack } from '../ui/AiCardBack'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { midFor, thumbFor } from '../ui/cardArtThumb'
 import { CardHelpMark } from '../ui/CardHelpMark'
@@ -2304,7 +2304,10 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
           手绘滤镜不用管，App 已经全局挂了一份。 */}
       <PaperIconDefs />
 
-      <div className="deck-page">
+      {/* AI 牌只放大看正面：卡背没有新东西（同 PoolCard 的 flippable），伴随层不摆那张背面大卡，
+          于是正面大卡和剩下的那行操作都改回舞台正中（版式在 deck.css 的 .deck-page--zoom-solo）。
+          跟 zoomSide 而不是 zoomed：关闭时 zoomSide 不清空，淡出那一程的版式才不会跳一下。 */}
+      <div className={zoomSide?.card.kind === 'ai' ? 'deck-page deck-page--zoom-solo' : 'deck-page'}>
         {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
             它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
             因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
@@ -2664,30 +2667,23 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
             */}
             {zoomSide === null ? null : (
               <div className="deck-zoom-side" ref={zoomSideRef} aria-hidden={zoomed === null}>
-                <div className="deck-zoom-side__card">
-                  {/* 倾斜层，和卡池卡的 __tilt 同一个角色：ui/cardTilt.ts 只往这一层写
-                      rotationX / rotationY，所以它自己不能带 CSS transform——下面那层缩放层
-                      因此不能兼任。透视挂在外面的 __card 上（见 deck.css）。 */}
-                  <div className="deck-zoom-side__tilt">
-                    {/* 两种卡背的原始尺寸不一样（AI 走全局 .card-back 那份 150×225，
-                        技能牌走本页的星象边框底图 284×426），所以各自缩到同一个盒子里，
-                        缩放比在 deck.css 的 __scale--ai / --skill 两条上。 */}
-                    <div
-                      className={
-                        zoomSide.card.kind === 'ai'
-                          ? 'deck-zoom-side__scale deck-zoom-side__scale--ai'
-                          : 'deck-zoom-side__scale deck-zoom-side__scale--skill'
-                      }
-                    >
-                      {zoomSide.card.kind === 'ai' ? (
-                        <CardBackFace card={zoomSide.card} />
-                      ) : (
+{/* 背面大卡只给技能牌摆：AI 牌翻过去没有新东西，这一层整块不渲染，
+                    右半边只剩下面那行操作（版式见 .deck-page--zoom-solo）。 */}
+                {zoomSide.card.kind === 'ai' ? null : (
+                  <div className="deck-zoom-side__card">
+                    {/* 倾斜层，和卡池卡的 __tilt 同一个角色：ui/cardTilt.ts 只往这一层写
+                        rotationX / rotationY，所以它自己不能带 CSS transform——下面那层缩放层
+                        因此不能兼任。透视挂在外面的 __card 上（见 deck.css）。 */}
+                    <div className="deck-zoom-side__tilt">
+                      {/* 技能牌背是本页那张 284×426 的星象边框底图，缩到卡位大小，
+                          缩放比在 deck.css 的 __scale--skill 上。 */}
+                      <div className="deck-zoom-side__scale deck-zoom-side__scale--skill">
                         <SkillCardBack card={zoomSide.card} />
-                      )}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="deck-zoom-side__actions">
+                )}
+                                <div className="deck-zoom-side__actions">
                   <BackButton className="deck-zoom-side__back" onClick={closeZoom} />
                   {zoomSide.side === 'pool' ? (
                     <>
@@ -2786,8 +2782,7 @@ const PoolCard = memo(function PoolCard({
   /*
    * 能不能翻面。不能翻的牌，问号、热区和背面整层一起不渲染，两类：
    * - AI 牌：正面已经把要看的都印全了，翻过去没有新东西，问号只是白点一下
-   *   （对局手牌同一条口径，见 ui/HandFan.tsx 的 flippable）。想看那张卡背仍然有路：
-   *   点开放大，伴随层右边就摆着一张背面大卡。
+   *   （对局手牌同一条口径，见 ui/HandFan.tsx 的 flippable）。放大查看同理，只放大正面、不摆卡背。
    * - 选不了的牌（「即将上线」和「暂未接入」）：背面只是一段还没生效的效果说明，
    *   问号留着只会让人一直去点，热区还会把「点卡面 = 弹一句原因」那一下吃掉。
    */
@@ -3018,20 +3013,13 @@ const DeckSlotItem = memo(function DeckSlotItem({
  * 技能牌那一支的 markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
  * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样，
  * 铺的是星象边框底图再压卡名和 backText（底图见 .card-back--skill）。
- * AI 牌那一支铺的是 AiCardBack：统一星图卡背上叠一块纸面，写 AI 名称和它的专属技能，
- * 卡池卡、牌组格子翻面和放大查看的伴随层共用同一份。
+ * 这一页只有技能牌会翻面、也只有技能牌摆背面大卡（AI 牌见 flippable），所以这里不分支。
  */
 function CardBackFace({ card }: { card: HandCardData }) {
   return (
     <div className={cardBackClassName(card.kind)}>
-      {card.kind === 'ai' ? (
-        <AiCardBack card={card} />
-      ) : (
-        <>
-          <span className="card-back__title">{card.name}</span>
-          <p className="card-back__text">{card.backText}</p>
-        </>
-      )}
+      <span className="card-back__title">{card.name}</span>
+      <p className="card-back__text">{card.backText}</p>
       {/* 背面也要有高光层，否则翻过去之后跟着指针的反光会凭空消失（正面那层在 HandCardFace 里）。 */}
       <div className="card-glare" />
     </div>

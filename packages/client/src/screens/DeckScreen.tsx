@@ -27,6 +27,7 @@ import { HandCardFace } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
+import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragHandle } from '../ui/useCardDrag'
 import { OrnateTitle, PaperCardBack, PaperIconDefs, PaperTabs } from '../ui/paper'
@@ -185,7 +186,7 @@ export function DeckScreen() {
    * 牌组侧那张卡飞回格子的这 0.6 秒里，把整块面板临时抬到展示遮罩（z 1100）之上。
    *
    * CardZoomOverlay 会给飞回的原位元素写 zIndex: 1200 去压过正在淡出的遮罩，但这个值出不了
-   * .deck-side——它是 position: sticky，本身就是一个层叠上下文——所以只能连整块面板一起抬。
+   * .deck-side——它自带 z-index，本身就是一个层叠上下文——所以只能连整块面板一起抬。
    * 代价是面板比页面其余部分早 0.3 秒恢复清晰（遮罩还在淡出），
    * 总好过让飞行的前半程整段糊在遮罩后面。
    * 卡池侧不用这一手：遮罩就渲染在 .paper-page__inner 里，卡池卡和它同处一个层叠上下文。
@@ -223,21 +224,28 @@ export function DeckScreen() {
   // ---------- 拖拽 ----------
 
   /**
-   * 把卡池里的这张牌从文档流里"拎出来"：切成 position: fixed，钉在它此刻所在的屏幕位置。
+   * 把卡池里的这张牌从文档流里"拎出来"：切成 position: fixed，钉在它此刻所在的位置。
    *
    * 为的是绕开 .deck-grid 的 overflow——卡池网格是整页唯一的滚动容器，会把溢出的子元素裁掉，
    * 而这张牌正要被拖出网格丢进右面板。fixed 元素不受祖先 overflow 裁剪。
    * 它原来占的格子由外层 .deck-pool-slot 撑着，所以这一步不会让邻牌塌陷补位。
    *
+   * 舞台 .deck-scaler 带着 transform，fixed 的包含块因此是舞台而不是视口，
+   * 写进 left/top/width/height 的必须是舞台内坐标；而 getBoundingClientRect 给的是
+   * 缩放之后的视口坐标，所以要过一次换算（口径见 ui/battleStage.ts）。
+   * 不换算的话，窗口一旦不是设计尺寸，起拖那一瞬间牌就会跳到别处、还连带缩错大小。
+   *
    * 要在 hook 接管补间之前调（onDragStart 里），此刻牌身上还没有 transform，量到的 rect 就是原位。
    */
   const liftCardOut = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
+    const metrics = battleStageMetrics()
+    const origin = toStagePoint(rect.left, rect.top, metrics)
     element.style.position = 'fixed'
-    element.style.left = `${rect.left}px`
-    element.style.top = `${rect.top}px`
-    element.style.width = `${rect.width}px`
-    element.style.height = `${rect.height}px`
+    element.style.left = `${origin.x}px`
+    element.style.top = `${origin.y}px`
+    element.style.width = `${rect.width / metrics.scale}px`
+    element.style.height = `${rect.height / metrics.scale}px`
   }
 
   /** liftCardOut 的反操作：清掉内联定位，牌回到格子里。位置和 fixed 时完全重合，所以看不出切换。 */
@@ -362,185 +370,190 @@ export function DeckScreen() {
       <PaperIconDefs />
 
       <div className="deck-page" ref={pageRef}>
-        {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
-        <div className="paper-page__inner">
-          <header className="deck-top">
-            <button type="button" className="deck-back" onClick={() => navigate('/')}>
-              ← 返回
-            </button>
-            <h1 className="deck-top__title">组建牌组</h1>
-            <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
-          </header>
+        {/* 缩放层：整页按设计稿的 1672×941 排版，再整体等比缩到舞台大小（见 deck.css 的 16:9 舞台一节）。
+            它带的 transform 顺带成了内部 position: fixed 元素的包含块，拖起来的牌和放大查看的遮罩
+            因此是钉在舞台上而不是视口上；stage-scaler 是给 ui/battleStage.ts 认舞台用的公共类。 */}
+        <div className="deck-scaler stage-scaler">
+          {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
+          <div className="paper-page__inner">
+            <header className="deck-top">
+              <button type="button" className="deck-back" onClick={() => navigate('/')}>
+                ← 返回
+              </button>
+              <h1 className="deck-top__title">组建牌组</h1>
+              <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
+            </header>
 
-          <main className="deck-body">
-            {/* ---------- 左：卡池 ---------- */}
-            <section className="deck-pool">
-              <div className="deck-pool__head">
-                <PaperTabs
-                  items={KIND_TABS.map((tab) => `${tab.label} ${KIND_COUNTS[tab.id]}`)}
-                  active={kindTab}
-                  onChange={setKindTab}
-                />
-                <div className="deck-factions" role="group" aria-label="按阵营筛选">
-                  <button
-                    type="button"
-                    className="deck-faction"
-                    data-active={faction === null}
-                    onClick={() => setFaction(null)}
-                  >
-                    全部阵营
-                  </button>
-                  {FACTIONS.map((option) => (
+            <main className="deck-body">
+              {/* ---------- 左：卡池 ---------- */}
+              <section className="deck-pool">
+                <div className="deck-pool__head">
+                  <PaperTabs
+                    items={KIND_TABS.map((tab) => `${tab.label} ${KIND_COUNTS[tab.id]}`)}
+                    active={kindTab}
+                    onChange={setKindTab}
+                  />
+                  <div className="deck-factions" role="group" aria-label="按阵营筛选">
                     <button
-                      key={option.id}
                       type="button"
                       className="deck-faction"
-                      data-active={faction === option.id}
-                      onClick={() => setFaction(option.id)}
+                      data-active={faction === null}
+                      onClick={() => setFaction(null)}
                     >
-                      {option.label}
+                      全部阵营
                     </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="deck-grid" ref={gridRef}>
-                {shown.map((card) => {
-                  const picked = copiesOf(card.id)
-                  const flipId = poolFlipId(card.id)
-                  return (
-                    // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
-                    // 没有这个盒子的话邻牌会立刻塌陷补位。
-                    <div key={card.id} className="deck-pool-slot">
-                      <div
-                        className="deck-pool-card"
-                        // 拖拽、Flip 起飞、藏起来，全都对着这一个元素：hook 写 transform 的是它，
-                        // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
-                        data-flip-id={flipId}
-                        data-picked={picked > 0 ? picked : undefined}
-                        style={hideIfZoomed(flipId)}
-                        {...poolDrag.bind(card.id)}
+                    {FACTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className="deck-faction"
+                        data-active={faction === option.id}
+                        onClick={() => setFaction(option.id)}
                       >
-                        <HandCardFace card={card} />
-                        <button
-                          type="button"
-                          className="deck-circle deck-circle--add"
-                          disabled={!canAdd(card.id)}
-                          aria-label={`把「${card.name}」加入牌组`}
-                          onClick={() => addCard(card.id)}
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="deck-grid" ref={gridRef}>
+                  {shown.map((card) => {
+                    const picked = copiesOf(card.id)
+                    const flipId = poolFlipId(card.id)
+                    return (
+                      // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
+                      // 没有这个盒子的话邻牌会立刻塌陷补位。
+                      <div key={card.id} className="deck-pool-slot">
+                        <div
+                          className="deck-pool-card"
+                          // 拖拽、Flip 起飞、藏起来，全都对着这一个元素：hook 写 transform 的是它，
+                          // Flip 量的也得是它，两者错开的话飞行的起点就不是牌真正所在的位置。
+                          data-flip-id={flipId}
+                          data-picked={picked > 0 ? picked : undefined}
+                          style={hideIfZoomed(flipId)}
+                          {...poolDrag.bind(card.id)}
                         >
-                          <CircleGlyph kind="add" />
-                        </button>
-                        {picked > 0 ? (
-                          <span className="deck-pool-card__mark" aria-hidden="true">
-                            {picked >= MAX_COPIES ? '×2' : '✓'}
-                          </span>
-                        ) : null}
+                          <HandCardFace card={card} />
+                          <button
+                            type="button"
+                            className="deck-circle deck-circle--add"
+                            disabled={!canAdd(card.id)}
+                            aria-label={`把「${card.name}」加入牌组`}
+                            onClick={() => addCard(card.id)}
+                          >
+                            <CircleGlyph kind="add" />
+                          </button>
+                          {picked > 0 ? (
+                            <span className="deck-pool-card__mark" aria-hidden="true">
+                              {picked >= MAX_COPIES ? '×2' : '✓'}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
 
-              <p className="deck-pool__hint">
-                {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
-              </p>
-            </section>
+                <p className="deck-pool__hint">
+                  {deckFull ? '牌组已满 20 张 · 点击放大，先移除才能再加' : '点击放大 · 圆圈或拖拽加入'}
+                </p>
+              </section>
 
-            {/* ---------- 右：我的牌组 ---------- */}
-            <aside className="deck-side" ref={sideRef} aria-label="我的牌组">
-              <div className="deck-side__inner" ref={sideInnerRef}>
-                <OrnateFrame>
-                  <div className="deck-side__body">
-                    <OrnateTitle>我的牌组</OrnateTitle>
+              {/* ---------- 右：我的牌组 ---------- */}
+              <aside className="deck-side" ref={sideRef} aria-label="我的牌组">
+                <div className="deck-side__inner" ref={sideInnerRef}>
+                  <OrnateFrame>
+                    <div className="deck-side__body">
+                      <OrnateTitle>我的牌组</OrnateTitle>
 
-                    <div className="deck-tally">
-                      <span className="deck-tally__count">
-                        已选 <b>{deck.length}</b> / {DECK_SIZE}
-                      </span>
-                      <span className="deck-tally__mix">
-                        AI 牌 {mix.ai} · 技能牌 {mix.skill}
-                      </span>
-                    </div>
-
-                    <div className="deck-progress">
-                      <div className="deck-progress__track">
-                        <i className="deck-progress__fill" style={{ width: `${percent}%` }} />
+                      <div className="deck-tally">
+                        <span className="deck-tally__count">
+                          已选 <b>{deck.length}</b> / {DECK_SIZE}
+                        </span>
+                        <span className="deck-tally__mix">
+                          AI 牌 {mix.ai} · 技能牌 {mix.skill}
+                        </span>
                       </div>
-                      <span className="deck-progress__num">{percent}%</span>
-                    </div>
 
-                    <ul className="deck-slots" ref={slotsRef}>
-                      {Array.from({ length: DECK_SIZE }, (_, index) => {
-                        const entry = deck[index]
-                        if (entry === undefined) {
+                      <div className="deck-progress">
+                        <div className="deck-progress__track">
+                          <i className="deck-progress__fill" style={{ width: `${percent}%` }} />
+                        </div>
+                        <span className="deck-progress__num">{percent}%</span>
+                      </div>
+
+                      <ul className="deck-slots" ref={slotsRef}>
+                        {Array.from({ length: DECK_SIZE }, (_, index) => {
+                          const entry = deck[index]
+                          if (entry === undefined) {
+                            return (
+                              <li className="deck-slot" key={`empty-${index}`}>
+                                {/* 空格用纸面组件库那个「空卡槽」形态：虚线框 + 淡罗盘。 */}
+                                <PaperCardBack slot className="deck-slot__back" />
+                              </li>
+                            )
+                          }
+                          const card = CARD_BY_ID.get(entry.cardId)
+                          if (card === undefined) return null
+                          const flipId = deckFlipId(entry.key)
                           return (
-                            <li className="deck-slot" key={`empty-${index}`}>
-                              {/* 空格用纸面组件库那个「空卡槽」形态：虚线框 + 淡罗盘。 */}
-                              <PaperCardBack slot className="deck-slot__back" />
+                            <li className="deck-slot" key={entry.key}>
+                              <div
+                                className="deck-mini"
+                                data-flip-id={flipId}
+                                style={hideIfZoomed(flipId)}
+                                {...deckDrag.bind(entry.key)}
+                              >
+                                {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
+                                    两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}
+                                <div className="deck-mini__card">
+                                  <HandCardFace card={card} />
+                                </div>
+                                <button
+                                  type="button"
+                                  className="deck-circle deck-circle--remove"
+                                  aria-label={`从牌组移除「${card.name}」`}
+                                  onClick={() => removeEntry(entry.key)}
+                                >
+                                  <CircleGlyph kind="remove" />
+                                </button>
+                              </div>
                             </li>
                           )
-                        }
-                        const card = CARD_BY_ID.get(entry.cardId)
-                        if (card === undefined) return null
-                        const flipId = deckFlipId(entry.key)
-                        return (
-                          <li className="deck-slot" key={entry.key}>
-                            <div
-                              className="deck-mini"
-                              data-flip-id={flipId}
-                              style={hideIfZoomed(flipId)}
-                              {...deckDrag.bind(entry.key)}
-                            >
-                              {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
-                                  两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}
-                              <div className="deck-mini__card">
-                                <HandCardFace card={card} />
-                              </div>
-                              <button
-                                type="button"
-                                className="deck-circle deck-circle--remove"
-                                aria-label={`从牌组移除「${card.name}」`}
-                                onClick={() => removeEntry(entry.key)}
-                              >
-                                <CircleGlyph kind="remove" />
-                              </button>
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                        })}
+                      </ul>
 
-                    <div className="deck-side__foot">
-                      {shortfall > 0 ? (
-                        <p className="deck-shortfall">还需选择 {shortfall} 张</p>
-                      ) : null}
-                      {/* demo 只做视觉态：满 20 张就从禁用变成可点，但点了不做任何事。 */}
-                      <PlaqueButton className="deck-confirm" disabled={shortfall > 0}>
-                        确认牌组
-                      </PlaqueButton>
-                      <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
+                      <div className="deck-side__foot">
+                        {shortfall > 0 ? (
+                          <p className="deck-shortfall">还需选择 {shortfall} 张</p>
+                        ) : null}
+                        {/* demo 只做视觉态：满 20 张就从禁用变成可点，但点了不做任何事。 */}
+                        <PlaqueButton className="deck-confirm" disabled={shortfall > 0}>
+                          确认牌组
+                        </PlaqueButton>
+                        <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
+                      </div>
                     </div>
-                  </div>
-                </OrnateFrame>
-              </div>
-            </aside>
-          </main>
+                  </OrnateFrame>
+                </div>
+              </aside>
+            </main>
 
-          {/* 无条件渲染：遮罩要常驻才演得出淡出，handle 也要一直在。
-              必须挂在 .paper-page__inner 里面：这一层是 z-index: 1 的层叠上下文，遮罩留在它外面的话，
-              飞回原位时写给卡池卡的 zIndex 1200 出不来，整段飞行会被正在淡出的遮罩压暗 + 模糊
-              （见 CardZoomOverlay 里 ZOOM_FLIGHT_Z 的注释）。牌组侧另有一层 sticky 挡着，
-              靠 liftSideForFlight 处理。 */}
-          <CardZoomOverlay
-            ref={zoomRef}
-            target={zoomTarget}
-            onClose={() => {
-              if (zoomed?.side === 'deck') liftSideForFlight()
-              setZoomed(null)
-            }}
-            closeOnEscape
-          />
+            {/* 无条件渲染：遮罩要常驻才演得出淡出，handle 也要一直在。
+                必须挂在 .paper-page__inner 里面：这一层是 z-index: 1 的层叠上下文，遮罩留在它外面的话，
+                飞回原位时写给卡池卡的 zIndex 1200 出不来，整段飞行会被正在淡出的遮罩压暗 + 模糊
+                （见 CardZoomOverlay 里 ZOOM_FLIGHT_Z 的注释）。牌组侧另有一层 sticky 挡着，
+                靠 liftSideForFlight 处理。 */}
+            <CardZoomOverlay
+              ref={zoomRef}
+              target={zoomTarget}
+              onClose={() => {
+                if (zoomed?.side === 'deck') liftSideForFlight()
+                setZoomed(null)
+              }}
+              closeOnEscape
+            />
+          </div>
         </div>
       </div>
     </div>

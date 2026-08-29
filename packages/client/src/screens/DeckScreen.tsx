@@ -1,7 +1,7 @@
 /**
  * /deck 组建牌组页。
  *
- * 卡池仍是 deckDemoCards.ts 里那 42 张假卡（拿不到 core 的 CardId，进不了对局），
+ * 卡池包含 core 的 18 张正式 AI 牌与 deckDemoCards.ts 的 24 张技能展示卡，
  * 但玩家拼出来的牌组已经落盘了：整页的存档读写走 save/deckStore.ts，加一张牌、改一次名
  * 都立刻写回 localStorage，所以界面上没有"未保存"这个状态，也没有保存按钮。
  * 「确认牌组」只负责回大厅。
@@ -61,7 +61,7 @@ import {
   updateDeckCards,
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
-import { DECK_DEMO_CARDS, FACTIONS } from './deckDemoCards'
+import { DECK_DEMO_CARDS, FACTIONS, filterDeckCards } from './deckDemoCards'
 import type { DeckDemoCard, DeckFaction } from './deckDemoCards'
 import './deck.css'
 
@@ -232,7 +232,7 @@ export function DeckScreen() {
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
   const { contextSafe } = useGSAP(() => {}, { scope: pageRef })
 
-  // 卡池那 42 个 id 是固定的，缓存不会长，所以只有牌组这边要 retain。
+  // 卡池的 42 个 id 是固定的，缓存不会长，所以只有牌组这边要 retain。
   const { bindOf: bindPoolCard, attach: attachPoolBind } = useBindCache()
   const { bindOf: bindDeckCard, attach: attachDeckBind, retain: retainDeckBinds } = useBindCache()
 
@@ -303,7 +303,7 @@ export function DeckScreen() {
 
   // ---------- 牌组状态 ----------
 
-  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池那 42 张各自去查表。 */
+  /** 每张卡已经选了几份。一次渲染只统计一遍，卡池里的卡各自去查表。 */
   const copies = useMemo(() => {
     const counted = new Map<string, number>()
     for (const entry of deck) counted.set(entry.cardId, (counted.get(entry.cardId) ?? 0) + 1)
@@ -730,12 +730,7 @@ export function DeckScreen() {
 
   const kindFilter: KindTabId = KIND_TABS[kindTab]?.id ?? 'all'
   const shown = useMemo(
-    () =>
-      DECK_DEMO_CARDS.filter(
-        (card) =>
-          (kindFilter === 'all' || card.kind === kindFilter) &&
-          (faction === null || card.faction === faction),
-      ),
+    () => filterDeckCards(DECK_DEMO_CARDS, kindFilter, faction),
     [kindFilter, faction],
   )
 
@@ -796,26 +791,34 @@ export function DeckScreen() {
                       <i className="deck-kinds__dia" />
                     </i>
                   </div>
-                  <div className="deck-factions" role="group" aria-label="按阵营筛选">
-                    <button
-                      type="button"
-                      className="deck-faction"
-                      data-active={faction === null}
-                      onClick={() => setFaction(null)}
-                    >
-                      全部阵营
-                    </button>
-                    {FACTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className="deck-faction"
-                        data-active={faction === option.id}
-                        onClick={() => setFaction(option.id)}
-                      >
-                        {option.label}
+                  <div className="deck-factions" role="group" aria-label={kindFilter === 'skill' ? '技能牌范围' : '按阵营筛选'}>
+                    {kindFilter === 'skill' ? (
+                      <button type="button" className="deck-faction" data-active>
+                        全部卡牌
                       </button>
-                    ))}
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="deck-faction"
+                          data-active={faction === null}
+                          onClick={() => setFaction(null)}
+                        >
+                          全部阵营
+                        </button>
+                        {FACTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="deck-faction"
+                            data-active={faction === option.id}
+                            onClick={() => setFaction(option.id)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
 

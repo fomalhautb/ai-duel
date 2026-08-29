@@ -1214,6 +1214,13 @@ html {
   }
 }
 
+/* 触屏那一路对应的同一件事：点开看的那张牌（data-selected）也恢复本色。
+   锁着时的选中只有"看"这一层意思（见 HandFan 的 handleLockedPress），
+   隔着一层灰就白点了。不并进上面那条 :hover：那条整个包在 hover 媒体查询里。 */
+.hand-fan[data-locked] .hand-fan__slot[data-selected] .hand-fan__face {
+  filter: none;
+}
+
 /* 光标要和"点了也没用"对得上，抓手收回默认箭头。
    :not 是给拖到一半才轮到对方的那张牌让路——它还抓在手上，该继续是握拳
    （见 HandFanProps.disabled 里"拖到一半才变成 true"那段）。 */

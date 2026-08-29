@@ -532,7 +532,7 @@ describe('一轮里派几张新 AI 都行', () => {
     const again = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId })
     expect(again.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
     expect(board(again.state, 0)).toHaveLength(2)
-    // 两张各扣各的费，本轮消耗是两张之和（同对同错时比的就是它）。
+    // 两张各扣各的费，本轮消耗是两张之和（答对数量相同时比的就是它）。
     expect(again.state.players[0].tokens).toBe(INITIAL_TOKEN_MAX - 2)
     expect(again.state.players[0].spentThisRound).toBe(2)
   })
@@ -963,9 +963,9 @@ describe('保送', () => {
   it('保送留场的仍然算答错，不给计分注水', () => {
     const { result } = safePassedSettle()
     expect(result.events.find((e) => e.type === 'ROUND_SCORED')).toMatchObject({
-      correct: [false, true],
+      correctCounts: [0, 1],
       gains: [0, 1],
-      verdict: 'sole-correct',
+      verdict: 'more-correct',
     })
   })
 
@@ -1594,8 +1594,8 @@ describe('答题结算', () => {
     expect(board(result.state, 0).map((a) => a.instanceId)).toEqual([survivor!.instanceId])
     expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([doomed!.instanceId])
     expect(board(result.state, 1).map((a) => a.instanceId)).toEqual([theirs.instanceId])
-    // 甲有一个答错被罚下，但"己方答对"是团队口径，另一个答对了就算甲答对。
-    // 双方同对就改比本轮消耗：甲花了 2 点、乙一点没花，这一分归乙，比分从 1:0 变成 1:1。
+    // 双方各答对一个，数量相同才改比本轮消耗：甲花了 2 点、乙一点没花，
+    // 这一分归乙，比分从 1:0 变成 1:1。
     expect(result.state.players.map((p) => p.score)).toEqual([1, 1])
 
     // 事件序：逐个揭晓回答，答错的紧跟一条罚下，最后统一计分。
@@ -1632,7 +1632,7 @@ describe('答题结算', () => {
         type: 'ROUND_SCORED',
         gains: [0, 1],
         scores: [1, 1],
-        correct: [true, true],
+        correctCounts: [1, 1],
         spent: [2, 0],
         verdict: 'fewer-tokens',
       },
@@ -1647,8 +1647,8 @@ describe('答题结算', () => {
     expect(result.events.some((e) => e.type === 'CARD_DRAWN')).toBe(false)
   })
 
-  it('只有一方答对时那方 +1，消耗一样多也不改判', () => {
-    // 双方都花 2 点，但只有甲答对——sole-correct 排在比 Token 之前。
+  it('答对数量更多时那方 +1，消耗一样多也不改判', () => {
+    // 双方都花 2 点，但甲答对数更多——more-correct 排在比 Token 之前。
     const quiz = duel('gpt-3-5', 'gpt-3-5')
     const result = execute(quiz, {
       type: 'SUBMIT_ANSWERS',
@@ -1658,14 +1658,14 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [1, 0],
       scores: [1, 0],
-      correct: [true, false],
+      correctCounts: [1, 0],
       spent: [2, 2],
-      verdict: 'sole-correct',
+      verdict: 'more-correct',
     })
   })
 
-  it('「己方答对」是团队口径：有一个答对就算，另一个答错照样罚下', () => {
-    // 两个 AI 分两轮派，测的是跨轮留场的那一个也算进团队口径。
+  it('逐个统计答对数量，答错的 AI 仍照常罚下', () => {
+    // 两个 AI 分两轮派，测的是跨轮留场的 AI 也计入本轮答对数量。
     const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
     const first = execute(game.state, {
       type: 'PLAY_CARD',
@@ -1687,13 +1687,13 @@ describe('答题结算', () => {
       results: answersFor(quiz, [doomed.instanceId]),
     })
 
-    // 答错的那个照常罚下，但本轮判定看的是"至少一个答对"。
+    // 一个答对、一个答错：答对数记 1，答错的那个照常罚下。
     expect(board(result.state, 0)).toHaveLength(1)
-    expect(scoredOf(result.events)!.correct).toEqual([true, false])
+    expect(scoredOf(result.events)!.correctCounts).toEqual([1, 0])
     expect(scoredOf(result.events)!.gains).toEqual([1, 0])
   })
 
-  it('双方都答对时比本轮消耗，少的一方 +1', () => {
+  it('双方答对数量相同时比本轮消耗，少的一方 +1', () => {
     // 甲的 GPT-2 花 1 点，乙的 GPT-4o 花 4 点。
     const quiz = duel('gpt-2', 'gpt-4o')
     const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
@@ -1702,7 +1702,7 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [1, 0],
       scores: [1, 0],
-      correct: [true, true],
+      correctCounts: [1, 1],
       spent: [1, 4],
       verdict: 'fewer-tokens',
     })
@@ -1710,7 +1710,7 @@ describe('答题结算', () => {
     expect([board(result.state, 0).length, board(result.state, 1).length]).toEqual([1, 1])
   })
 
-  it('双方都答错时同样比本轮消耗，少的一方 +1', () => {
+  it('双方答对数量都是零时同样比本轮消耗，少的一方 +1', () => {
     const quiz = duel('gpt-4o', 'gpt-2')
     const result = execute(quiz, {
       type: 'SUBMIT_ANSWERS',
@@ -1721,7 +1721,7 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [0, 1],
       scores: [0, 1],
-      correct: [false, false],
+      correctCounts: [0, 0],
       spent: [4, 1],
       verdict: 'fewer-tokens',
     })
@@ -1736,7 +1736,7 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [1, 1],
       scores: [1, 1],
-      correct: [true, true],
+      correctCounts: [1, 1],
       spent: [2, 2],
       verdict: 'equal-tokens',
     })
@@ -1756,9 +1756,9 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [1, 0],
       scores: [1, 0],
-      correct: [true, false],
+      correctCounts: [1, 0],
       spent: [1, 0],
-      verdict: 'sole-correct',
+      verdict: 'more-correct',
     })
   })
 
@@ -1771,7 +1771,7 @@ describe('答题结算', () => {
       type: 'ROUND_SCORED',
       gains: [1, 1],
       scores: [1, 1],
-      correct: [false, false],
+      correctCounts: [0, 0],
       spent: [0, 0],
       verdict: 'equal-tokens',
     })
@@ -1782,28 +1782,27 @@ describe('答题结算', () => {
     expect(next.phase).toBe('play')
   })
 
-  it('答对数多不再直接拿分：团队口径下双方都算答对，改比本轮消耗', () => {
-    // 甲场上 2 个、乙场上 1 个，全部答对。旧规则比的是答对**个数**，那甲稳赢；
-    // 现在只问"这一方有没有答对"，双方都算答对，于是改比本轮消耗——
-    // 甲这一轮花了 2 点、乙一点没花，这一分反而归乙。
+  it('答对数更多时直接拿分，不受 Token 消耗影响', () => {
+    // 甲场上 2 个、乙场上 1 个，全部答对。虽然甲本轮花了 2 点、乙一点没花，
+    // 第一判据仍然让答对数量更多的甲拿分，不会提前落到 Token 比较。
     const quiz = twoVsOne()
     const first = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
     expect(scoredOf(first.events)).toEqual({
       type: 'ROUND_SCORED',
-      gains: [0, 1],
-      scores: [1, 1],
-      correct: [true, true],
+      gains: [1, 0],
+      scores: [2, 0],
+      correctCounts: [2, 1],
       spent: [2, 0],
-      verdict: 'fewer-tokens',
+      verdict: 'more-correct',
     })
 
-    // 下一轮双方都不再出牌，场上还是留下来的那三个 AI：同对同消耗，各 +1，得分照常累加。
+    // 下一轮双方都不再出牌，场上还是这三个 AI：甲仍以 2:1 的答对数拿分。
     const round3 = confirmBoth(first.state).state
     const second = execute(toQuiz(round3), {
       type: 'SUBMIT_ANSWERS',
       results: answersFor(round3),
     })
-    expect(second.state.players.map((p) => p.score)).toEqual([2, 2])
+    expect(second.state.players.map((p) => p.score)).toEqual([3, 0])
   })
 
   it('双方确认后才交换先后手、各补 ROUND_DRAW_SIZE 张牌、宣告下一轮', () => {
@@ -1971,13 +1970,13 @@ describe('回合计分', () => {
 
   it('spent 就是本轮打出的牌的费用和，技能牌也算在内', () => {
     // 「一句话回答」1 点：它不上场，所以不影响"这一方答没答对"，但照样计入消耗，
-    // 于是甲多花了这 1 点，同对同错时的第二判据就倒向乙。
+    // 于是甲多花了这 1 点，答对数量相同时的第二判据就倒向乙。
     const result = scoreWith(['gpt-2', 'one-sentence-answer'], ['gpt-2'])
     expect(scoredEvent(result)).toEqual({
       type: 'ROUND_SCORED',
       gains: [0, 1],
       scores: [0, 1],
-      correct: [true, true],
+      correctCounts: [1, 1],
       spent: [2, 1],
       verdict: 'fewer-tokens',
     })
@@ -1990,12 +1989,13 @@ describe('回合计分', () => {
     const round2 = confirmBoth(settle).state
     expect(round2.players.map((p) => p.spentThisRound)).toEqual([0, 0])
 
-    // 第 2 轮甲什么都不打、乙打一张：上一轮的消耗要是带过来了，判据就不会倒向甲。
-    const deployed = deploy(round2, 1, ['gpt-2'])
+    // 第 2 轮甲什么都不打、乙打一张技能牌：双方答对数仍是 1:1，才能落到消耗判据。
+    // 上一轮的消耗要是带过来了，判据就不会倒向甲。
+    const deployed = deploy(round2, 1, ['one-sentence-answer'])
     const quiz = execute(deployed, { type: 'DEBUG_SKIP_TO_QUIZ' }).state
     const scored = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
     expect(scoredEvent(scored)).toMatchObject({
-      correct: [true, true],
+      correctCounts: [1, 1],
       spent: [0, 1],
       gains: [1, 0],
       verdict: 'fewer-tokens',
@@ -2006,7 +2006,7 @@ describe('回合计分', () => {
 describe('胜负', () => {
   /**
    * 一局"甲一路碾压"的对局：甲开局派一张 AI 并一直答对，乙场上永远空着。
-   * 于是每轮都是 sole-correct，甲每轮 +1，第 3 轮结束就该收场。
+   * 于是每轮都是 more-correct，甲每轮 +1，第 3 轮结束就该收场。
    *
    * 每轮结算完都要双方确认才推进，所以循环里"算分"和"确认"是分开的两步。
    */

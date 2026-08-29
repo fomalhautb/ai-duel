@@ -337,11 +337,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'TUTORIAL_R2_TOKEN_RULE',
-    // 「同结果就比 Token」这条规则只讲不演：三轮都是"只有一方答对"，教学局排不出一个
+    // 「答对数相同才比 Token」这条规则只讲不演：三轮双方答对数都不同，教学局排不出一个
     // 自然的平局，硬凑一轮会把第 3 轮那个放手轮改得别扭（玩家花多少 Token 是不可控的）。
     // 讲的时机挑在这里，是因为玩家刚看完一轮完整结算，脑子里还装着"这一分凭什么给谁"。
     // 真遇上平局时结算层自己会把判定理由和双方消耗写出来（见 RoundSettleLayer 的 verdict）。
-    instruction: '要是双方都答对、或者都答错，就比这一轮消耗的 Token，少的一方得分。',
+    instruction: '只有双方答对的 AI 数量一样，才比这一轮消耗的 Token，少的一方得分。',
     highlight: [anchor('tokenCounter')],
     advance: tap(),
     next: 'TUTORIAL_R3_FREE_PLAY',

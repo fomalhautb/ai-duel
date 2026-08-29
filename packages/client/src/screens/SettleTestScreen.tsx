@@ -28,7 +28,6 @@ import { RoundSettleLayer } from '../ui/RoundSettleLayer'
 import type {
   RoundSettle,
   SettleAiResult,
-  SettleCorrect,
   SettleScore,
   SettleSides,
 } from '../ui/RoundSettleLayer'
@@ -72,7 +71,7 @@ interface Scenario {
  * 3v3、2v4、1v1、5v4、0v2。张数是另一条独立的排版变量——列数跟着张数涨、
  * 单边空场怎么排，只有真摆出来才看得见。
  *
- * 注意「这一方答没答对」是**团队口径**：己方至少一个 AI 答对就算答对，答对几个不参与判定。
+ * 第一判据是双方答对 AI 的实际数量；只有数量相同，才继续比较本轮 Token 消耗。
  * 各张卡到底答没答对不写在这里，是拿 questionId × cardId 去查预生成的真实模型回答
  *（packages/core/src/pregenAnswers.json，由 scripts/build-core-answers.mjs 生成）。
  * **重新生成那份数据之后，某个场景可能就落到另一档判定上了**：判定是照引擎那套现算的，
@@ -84,29 +83,29 @@ interface Scenario {
 const SCENARIOS: Scenario[] = [
   {
     id: 'mine-correct',
-    label: '① 3v3 我方独对',
-    desc: '3v3，两侧各三列；我方消耗 14 对手 9，用来看「消耗更多也能凭独对拿分」这一档',
+    label: '① 3v3 我方答对更多',
+    desc: '3v3，两侧各三列；用来看「消耗更多也能凭答对数量领先拿分」这一档',
     questionId: 'q-mirror',
     round: 2,
     totalRounds: 5,
     scoresBefore: { mine: 1, theirs: 1 },
     // 消耗 4+4+6=14
     mine: ['gpt-4o', 'gemini', 'claude-fable-5'],
-    // 消耗 3+2+4=9（更省也没用，独对那一档根本不比消耗）
+    // 消耗 3+2+4=9（更省也没用，答对数量不同时根本不比消耗）
     foe: ['deepseek-r1', 'doubao', 'glm-5'],
   },
   {
     id: 'spend-tiebreak',
     label: '② 2v4 消耗决胜',
-    desc: '2v4，双方都有人答对；判定落到消耗，我方 6 对 20，靠省 Token 拿下这一分',
+    desc: '2v4，双方各答对 2 个；判定落到消耗，我方 6 对 17，靠省 Token 拿下这一分',
     questionId: 'q-carwash',
     round: 3,
     totalRounds: 5,
     scoresBefore: { mine: 2, theirs: 1 },
     // 消耗 3+3=6
     mine: ['qwen', 'minimax'],
-    // 消耗 7+4+4+5=20（人多不占便宜，还把消耗堆上去了）
-    foe: ['chatgpt-5-6-sol', 'glm-5', 'gemini', 'kimi-k3'],
+    // 消耗 5+4+4+4=17，其中前两张答对、后两张答错，答对数和我方同为 2。
+    foe: ['chatgpt-5-6-sol', 'glm-5', 'gpt-4o', 'claude-5-sonnet'],
   },
   {
     id: 'draw',
@@ -118,7 +117,7 @@ const SCENARIOS: Scenario[] = [
     scoresBefore: { mine: 2, theirs: 2 },
     // 消耗 5
     mine: ['deepseek-v4'],
-    // 消耗 5（和我方同价，两边同对或同错时连消耗都分不出胜负）
+    // 消耗 5（和我方同价，两边答对数相同时连消耗都分不出胜负）
     foe: ['kimi-k3'],
   },
   {
@@ -410,32 +409,29 @@ function unitOf(cardId: CardId, owner: 0 | 1, index: number): AiInstance {
 
 /**
  * 按引擎那套判据算本轮计分（见 core 的 submitAnswers）：
- * 只有一方答对就那方拿分；双方同对或同错就比谁花的 Token 少；消耗也一样就各拿 1 分。
- *
- * 「这一方答没答对」是团队口径的布尔值：己方**至少一个** AI 答对就算答对，
- * 场上一个 AI 都没有的一方算没答对（filter 出来是空数组，some 自然是 false）。
+ * 答对 AI 更多的一方拿分；答对数量相同才比谁花的 Token 少；消耗也一样就各拿 1 分。
  *
  * 消耗直接取这一侧全部上场卡的 tokenCost 之和——当成「这些 AI 都是本轮打出来的」，
  * 这样场景里改一张卡，消耗和胜负会跟着自己变，不用再手工对一遍数。
  */
 function buildScore(scenario: Scenario, results: SettleAiResult[]): SettleScore {
-  const correct: SettleCorrect = {
-    mine: results.some((item) => item.mine && item.correct),
-    theirs: results.some((item) => !item.mine && item.correct),
+  const correctCounts: SettleSides = {
+    mine: results.filter((item) => item.mine && item.correct).length,
+    theirs: results.filter((item) => !item.mine && item.correct).length,
   }
   const spent: SettleSides = {
     mine: tokenSum(scenario.mine),
     theirs: tokenSum(scenario.foe),
   }
   const verdict: RoundVerdict =
-    correct.mine !== correct.theirs
-      ? 'sole-correct'
+    correctCounts.mine !== correctCounts.theirs
+      ? 'more-correct'
       : spent.mine !== spent.theirs
         ? 'fewer-tokens'
         : 'equal-tokens'
   const gains: SettleSides =
-    verdict === 'sole-correct'
-      ? correct.mine
+    verdict === 'more-correct'
+      ? correctCounts.mine > correctCounts.theirs
         ? { mine: 1, theirs: 0 }
         : { mine: 0, theirs: 1 }
       : verdict === 'fewer-tokens'
@@ -444,7 +440,7 @@ function buildScore(scenario: Scenario, results: SettleAiResult[]): SettleScore 
           : { mine: 0, theirs: 1 }
         : { mine: 1, theirs: 1 }
   return {
-    correct,
+    correctCounts,
     spent,
     gains,
     totals: {

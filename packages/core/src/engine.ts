@@ -47,7 +47,7 @@ export const ROUND_DRAW_SIZE = 2
  * 5 点买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
  * 又买不起 ChatGPT 5.6 Sol 那种 7 点的顶配，开局就得做取舍。
  * 一轮里 AI 牌和技能牌都不限张数，Token 就是唯一的额度，
- * 而且省着花本身有意义——同对同错时比的就是本轮消耗（见 submitAnswers）。
+ * 而且省着花本身有意义——答对数量相同时比的就是本轮消耗（见 submitAnswers）。
  */
 export const INITIAL_TOKEN_MAX = 5
 
@@ -64,7 +64,7 @@ export const TOKEN_MAX_GROWTH = 1
 /**
  * 先拿到这么多分就赢。
  *
- * 但必须**独自**达到：双方同时到线（同对同错且消耗相同，各 +1）时不判胜负，继续加赛，
+ * 但必须**独自**达到：双方同时到线（答对数和消耗相同，各 +1）时不判胜负，继续加赛，
  * 直到某一轮结束后一方分数单独领先（见 submitAnswers）。
  * 题库出完仍未分出的兜底也在那里：总分高者胜，相同才是 'draw'。
  */
@@ -335,7 +335,7 @@ function playCard(
   // 同一笔钱记两处：tokens 是"还剩多少"，会在进下一轮时被补满冲掉；
   // spentThisRound 是"这一轮花了多少"，结算要用它比大小，所以得单独攒着。
   // 技能牌待会儿被英雄技能抵消也不退——Token 是真花出去的，作废的只是效果。
-  // 同对同错时比的就是这个数（见 submitAnswers），所以这一笔记的是实际费用而不是卡面
+  // 答对数量相同时比的就是这个数（见 submitAnswers），所以这一笔记的是实际费用而不是卡面
   // tokenCost：核电站减了价，真正付出去的就是减价后那个数。
   player.spentThisRound += cost
 
@@ -653,7 +653,7 @@ function withRng<T>(state: GameState, use: (rng: RandomGenerator) => T): T {
  * 陈丹琦「精准检索」升**己方**一个，梅拉妮·珀金斯「化繁为简」降**对方**一个。
  *
  * 完全免费：不扣 tokens、不记 spentThisRound，也不结束出牌轮——发动完照样接着出牌或 END_PLAY。
- * 不记消耗这一点会影响胜负：同对同错时比的就是本轮 spentThisRound（见 submitAnswers），
+ * 不记消耗这一点会影响胜负：答对数量相同时比的就是本轮 spentThisRound（见 submitAnswers），
  * 发动技能不会让自己在那条决胜线上吃亏。
  * 每局只能发一次，用掉就置上 heroSkillUsed。
  */
@@ -766,17 +766,17 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   }
 
   const events: GameEvent[] = []
-  // 「己方本轮答对」= 己方场上至少一个 AI 答对，边罚下边记。
-  // 初值 false 顺带覆盖了"场上一个 AI 都没有"的一方：它一条结果都没有，自然算没答对。
+  // 本轮先数双方各有几个 AI 答对，第一判据直接比较这个数量。
+  // 初值 0 顺带覆盖了"场上一个 AI 都没有"的一方：它一条结果都没有，自然是答对 0 个。
   // 只认答题结果、不看罚完之后场上还剩谁：被保送的单位答错也留在场上（见下面那条分支），
   // 照场上还有没有人来判就会把它算成答对了。
-  const correct: [boolean, boolean] = [false, false]
+  const correctCounts: [number, number] = [0, 0]
   for (const result of results) {
     // 上面刚校验过 results 和场上一一对应，所以这里必定找得到人。
     const owner = next.players.find((p) =>
       p.board.some((a) => a.instanceId === result.instanceId),
     )!
-    if (result.correct) correct[owner.id] = true
+    if (result.correct) correctCounts[owner.id] += 1
     const index = owner.board.findIndex((a) => a.instanceId === result.instanceId)
     const ai = owner.board[index]!
     events.push({
@@ -808,18 +808,18 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   }
 
   // 计分：每轮就 1 分，按三档判（见 RoundVerdict）。
-  // 场上一个 AI 都没有的一方算没答对，但对局照常走下去。
+  // 场上一个 AI 都没有的一方答对数是 0，但对局照常走下去。
   const spent: [number, number] = [
     next.players[0].spentThisRound,
     next.players[1].spentThisRound,
   ]
   let gains: [number, number]
   let verdict: RoundVerdict
-  if (correct[0] !== correct[1]) {
-    verdict = 'sole-correct'
-    gains = correct[0] ? [1, 0] : [0, 1]
+  if (correctCounts[0] !== correctCounts[1]) {
+    verdict = 'more-correct'
+    gains = correctCounts[0] > correctCounts[1] ? [1, 0] : [0, 1]
   } else if (spent[0] !== spent[1]) {
-    // 双方同对或同错，改比本轮为新牌花掉的 Token，严格少的一方拿这一分。
+    // 只有答对数相同，才比本轮为新牌花掉的 Token，严格少的一方拿这一分。
     // 场上留着的老 AI 这一轮不重复付费，所以"什么都不打"是消耗 0 的合法打法。
     verdict = 'fewer-tokens'
     gains = spent[0] < spent[1] ? [1, 0] : [0, 1]
@@ -831,7 +831,7 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   next.players[0].score += gains[0]
   next.players[1].score += gains[1]
   const scores: [number, number] = [next.players[0].score, next.players[1].score]
-  events.push({ type: 'ROUND_SCORED', gains, scores, correct, spent, verdict })
+  events.push({ type: 'ROUND_SCORED', gains, scores, correctCounts, spent, verdict })
 
   // 停在这里等双方点"进入下一轮"。轮次、Token、手牌全都保持本轮的样子，
   // 结算界面读快照就能显示"本轮消耗"这类只在这一刻有意义的数。

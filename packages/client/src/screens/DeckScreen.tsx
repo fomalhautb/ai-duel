@@ -760,11 +760,8 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
    */
   const settleCard = contextSafe((element: HTMLElement, tilt?: CardTiltHandle) => {
     const inner = element.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR)
-    if (inner !== null) {
-      // 翻面补间还在跑的话，只 set 一下会被它下一帧覆盖回去。
-      gsap.killTweensOf(inner)
-      setFlipAngle(inner, 0)
-    }
+    // setFlipAngle 自带 overwrite，还在跑的翻面补间会被它一并收掉（见 ui/flipCard.ts）。
+    if (inner !== null) setFlipAngle(inner, 0)
     const layer = element.querySelector<HTMLElement>(TILT_LAYER_SELECTOR)
     if (layer !== null) gsap.set(layer, { rotationX: 0, rotationY: 0 })
     tilt?.reset()

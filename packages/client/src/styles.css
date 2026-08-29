@@ -260,7 +260,7 @@ body,
   position: absolute;
   width: 23cqi;
   padding: 1.5cqi;
-  border: 1px solid rgb(232 198 159 / 55%);
+  border: 0.06cqi solid rgb(232 198 159 / 55%);
   border-radius: 0.4cqi;
   /* 极淡的竖向渐变，让这块深色不是一片死板的纯色。 */
   background: linear-gradient(to bottom, rgb(24 31 40 / 94%), rgb(18 23 31 / 92%));
@@ -313,7 +313,7 @@ body,
   content: '';
   position: absolute;
   inset: 0.35cqi;
-  border: 1px solid rgb(232 198 159 / 30%);
+  border: 0.06cqi solid rgb(232 198 159 / 30%);
   border-radius: 0.2cqi;
 }
 
@@ -438,7 +438,7 @@ body,
 /* 细横线往外侧淡出，免得线头在夜空里断得太生硬。 */
 .home__flourish-line {
   width: var(--home-flourish-line-w, 5.4cqi);
-  height: 1px;
+  height: 0.06cqi;
   background: linear-gradient(to right, rgb(232 198 159 / 0%), rgb(232 198 159 / 70%));
 }
 
@@ -598,7 +598,7 @@ body,
 }
 
 .home__start:focus-visible {
-  outline: 2px solid var(--home-ink);
+  outline: 0.12cqi solid var(--home-ink);
   outline-offset: 0.4cqi;
 }
 
@@ -1935,11 +1935,14 @@ body:has(.battle) {
   inset: var(--battle-foe-hand-h) 28px var(--battle-hand-zone-h);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 不设 gap：两行之间的距离全交给中线自己的上下 margin（见 .battle__midline）。
+     两处都留一份的话，行距就是"中线高 + margin + gap"三个数拼出来的，
+     算高度预算时最容易漏掉其中一个。 */
+  gap: 0;
   min-height: 0;
-  /* 上下留白比单行时紧了一圈：同一块高度要塞两排 165px 的小卡，
-     1440×900 这类常见窗口下多留 20px 就会让两排挤到互相压边。
-     顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。 */
+  /* 顶上那 52px 是给 .battle__drop-cue--board 那颗提示药丸（top: 14px，高约 37px）让位的。
+     设计高度下这块内容区有 465px（战场 535 − 上下留白 70），
+     两排 165px 的小卡加 30px 的中线用掉 360px，富余都摊给两行的行内居中。 */
   padding: 52px 24px 18px;
   border: 1px dashed transparent;
   border-radius: 18px;
@@ -1952,6 +1955,11 @@ body:has(.battle) {
 /*
  * 上下两行分别是对方场面和我方场面。两行等分剩下的高度，对手多摆几张也不会把我这边挤没。
  *
+ * 永不换行：一方的场面必须始终是一排，折出第二排会越过中线戳进对方那半边，
+ * "线上面是他、线下面是我"这条读图规则就废了。张数多到摆不下时不折行，
+ * 改成让每张卡互相压边（见 .battle__board-slot），和手牌扇形挤在一起是同一种处理。
+ * gap 是压边的下限：挤到极限时相邻两张之间仍有这 12px，每张至少露出一条边。
+ *
  * 和 .battle__board 一样，这两行刻意不写 transform / z-index / isolation——
  * 一旦其中任何一个成了层叠上下文，Flip 飞行时打在卡上的 z-index 就只在行内部有效，
  * 飞行中的卡会被手牌或遮罩压住。
@@ -1959,20 +1967,28 @@ body:has(.battle) {
 .battle__row {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
-  align-content: center;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 12px;
   min-height: 0;
 }
 
-.battle__row--foe {
-  align-content: flex-start;
-}
-
-.battle__row--mine {
-  align-content: flex-end;
+/*
+ * 场上一张小卡的位置。真正排在行里的是它，不是小卡本身。
+ *
+ * flex: 0 1 var(--tile-w) —— 基准正好是一张卡宽，但允许被压缩（min-width: 0 把
+ * "不小于内容"那道默认下限也撤掉）。卡自己是 flex: none 的定宽块，在 slot 里居中、
+ * 溢出照常画出来，于是空间不够时相邻两张对称地往中间叠，整行始终居中。
+ * 少这一层的话，能压缩的就只有卡本身，卡会被压窄变形。
+ *
+ * 同样刻意不写 transform / z-index / isolation，理由见 .battle__board 上面那段。
+ */
+.battle__board-slot {
+  display: flex;
+  flex: 0 1 var(--tile-w);
+  justify-content: center;
+  min-width: 0;
 }
 
 /*
@@ -2029,11 +2045,105 @@ body:has(.battle) {
     0 0 30px rgb(255 220 141 / 30%);
 }
 
-.battle__board-hint {
-  color: rgb(211 204 185 / 50%);
+/* ---------- 敌我分界中线 ---------- */
+
+/*
+ * 夹在两行场面之间的分界线：一条横贯细线，中间嵌一块深蓝小匾。
+ * 样式取自纸面主题的回合徽章（.paper-turn-line），但没有复用它——
+ * 那一套是浅纸底上的深线，还写死了 max-width: 320px，搬到深蓝战场上既看不清也拉不满。
+ *
+ * 两侧的线是 ::before / ::after 各占一半剩余宽度撑出来的，所以匾永远在正中间，
+ * 回合数从个位涨到两位、后半句在"你出牌 / 对方出牌 / 答题中"之间换，线都不会被推歪。
+ *
+ * 高度是算过的：内容 20px + 上下各 5px 外边距 = 30px，两行小卡能分的高度就少这么多。
+ * 这三个数改任何一个，都要跟着核对 .battle__board 那笔高度预算（见它 padding 上的注释）。
+ *
+ * 不吃指针事件：战场落点是按 .battle__board 的矩形几何判的，中线挡不着它，
+ * 但"点空白处取消选目标"是真的点击，这条线横在战场正中间，不让开就会吃掉一整条的取消。
+ *
+ * 手绘滤镜只加在下面的伪元素和小匾上，这个容器本身仍然不写 transform / z-index /
+ * isolation / filter。filter 会让子元素成为层叠上下文，但中线是两行场面的兄弟节点、
+ * 不是任何飞行卡的祖先，层叠上下文只圈住它自己那条线和那块匾，
+ * 带 z-index 的飞行卡照样画在它上面（.battle__board 上面那段讲的就是这件事）。
+ * 容器留干净是为了它自己：它是这一行的 flex 布局主体，多一道滤镜只会白算一整条的像素。
+ */
+.battle__midline {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: 5px 0;
+  pointer-events: none;
+}
+
+/*
+ * 两端渐隐：线不该在战场内边距那里被生生切断，淡出去才像是纸上洇开的一笔。
+ *
+ * 盒子做成 10px 高、线只用背景画在正中间的 2px 上，是为了给滤镜留出位移的余地：
+ * CSS 滤镜的作用区域按边框盒的百分比算，盒子要是只有线那么薄，
+ * 竖直方向的位移会当场被裁掉，手绘的歪一点都留不下来。
+ * 10px 仍比中间那块匾（20px）矮，这一行的高度还是匾说了算，不影响上面那笔预算。
+ *
+ * 线本身从 1px 加粗到 2px：位移会把边缘打散成半透明像素，1px 的线被摊薄后整条发虚。
+ */
+.battle__midline::before,
+.battle__midline::after {
+  content: '';
+  flex: 1;
+  height: 10px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 2px;
+  /*
+   * 用 rays 而不是图标那几个滤镜：这条线又长又细，图标那档的高频噪声（0.05）
+   * 会沿着线抖成断续的锯齿，rays 的波长有二三十像素，整段一起歪才像随手划的一笔。
+   * 两个伪元素共用同一个滤镜——同宽的盒子会取到同一段噪声，但它们分居匾的两侧、
+   * 隔着大半个战场，看不出是同一条抖法。
+   */
+  filter: url('#ai-duel-rough-rays');
+}
+
+.battle__midline::before {
+  background-image: linear-gradient(to right, rgb(214 204 178 / 0%), rgb(214 204 178 / 35%));
+}
+
+.battle__midline::after {
+  background-image: linear-gradient(to left, rgb(214 204 178 / 0%), rgb(214 204 178 / 35%));
+}
+
+/*
+ * 匾本身。高度写死 20px（border-box，含 1px 描边），文字靠 line-height 撑到正中：
+ * 里面那个更大号的回合数是行内元素，line-height 写成长度就会被它原样继承，
+ * 行盒不会跟着字号变高，匾的高度和上面那笔预算才对得上。
+ *
+ * 滤镜直接扣在整块匾上，边框、底色和里面的字一起歪——这是刻意要的效果，
+ * 和回合牌匾（.battle__turn-plaque-frame 把框拆成单独 SVG 好让字不抖）走的是相反的路。
+ * 选 compass 是这套滤镜里位移最小的一档（2px，还是低频）：12px 的小字配图标那档的 3px 位移
+ * 会糊到影响认读，而低频噪声的波长比一个字还长，每个字整体挪一点、笔画内部不被扯散。
+ */
+.battle__midline-badge {
+  flex: none;
+  height: 20px;
+  margin: 0 12px;
+  padding: 0 12px;
+  border: 1px solid rgb(214 204 178 / 38%);
+  border-radius: 10px;
+  background: #232f48;
+  box-shadow: 0 1px 4px rgb(6 12 24 / 45%);
+  filter: url('#ai-duel-rough-compass');
+  color: rgb(228 218 192 / 88%);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0.1em;
+  /* 字距会在最后一个字后面也留一份，text-indent 补回同样的量，文字才真的居中。 */
+  text-indent: 0.1em;
+  white-space: nowrap;
+}
+
+/* 回合数用铁锈红（同纸面主题的 --c-rust），一眼能从后半句状态文案里挑出来。 */
+.battle__midline-num {
+  color: #c07a52;
+  font-weight: 700;
   font-size: 13px;
-  letter-spacing: 0.16em;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
 }
 
 /* ---------- 拒绝提示 ---------- */
@@ -2345,6 +2455,20 @@ body:has(.battle) {
   height: var(--tile-h);
   perspective: 700px;
   cursor: pointer;
+}
+
+/*
+ * 只在场面挤到互相压边时才看得出来（见 .battle__board-slot）：卡叠在一起时默认是
+ * 后面的盖住前面的（DOM 顺序），指到哪张就把哪张翻到最上面，不然左边那几张永远只露一条边、
+ * 鼠标停上去也认不出是什么。没重叠的时候这条规则什么都不改变。
+ *
+ * 不和 Flip 打架：tile 本来就因为 perspective 是层叠上下文，抬不抬都出不了这一行；
+ * 而飞行途中 Flip 把 z-index 写在内联样式上，压得过这里的 3。
+ * :not() 是必须的——:hover 比单个类更具体，不排除掉的话，
+ * 鼠标一停到可选目标上就会把它从压暗层之上（76）打回 3，正好在最该点得动的时候点不动。
+ */
+.battle__tile:hover:not(.battle__tile--target-lift) {
+  z-index: 3;
 }
 
 /*

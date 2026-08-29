@@ -1360,7 +1360,7 @@ docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md
 packages/core/
   src/index.ts                包的唯一出口，把下面几个模块整个转出去
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
-  src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
+  src/cards.ts                卡牌数据 + 查表 + 三套预设牌组（只有 AI 牌和技能牌）
   src/aiModels.ts             18 张具名 AI 牌的定义（含各自的 OpenRouter 模型 id），被 cards.ts 并进 CARDS；
                               其中 2 张 OpenRouter 调不到，不进卡池，牌组页灰着摆在最后（同「即将上线」的技能牌）
   src/skillCards.ts           24 张技能牌的定义，同样被 cards.ts 并进 CARDS；一张卡对一张原画
@@ -1419,7 +1419,7 @@ packages/client/
     hostDriver.ts             联机房主（唯一跑 execute 的一方）
     guestDriver.ts            联机客人（只发指令）
     quizAutopilot.ts          答题自动驾驶：进 quiz 后隔 2.5 秒替引擎提交本轮结果（客人不接）
-    testMatch.ts              dev 测试房：拿本地 driver 起一局，双方都用起始牌组
+    testMatch.ts              dev 测试房：拿本地 driver 起一局，对手固定用默认卡组
     useMatch.ts               把 driver 接进 React（useSyncExternalStore）
     MatchSession.tsx          持有当前对局的 driver + testMode，跨得过路由切换
   src/tutorial/               新手教程（见 5.3），三段引导共用一层引导层
@@ -1597,7 +1597,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
   手牌里现在打不出去的那几张会压暗、拖不动，点一下弹理由——「Token 不够」。
   「Token 不够」的判据走的正是 core 导出的 `effectivePlayCost`（`HandFan` 的 `playCostOf`），
   客户端不自己再减一遍，否则会出现"卡面写 4 点、明明打得起却是灰的"。
-- 存档 v7（收藏 + 胜场 + 上次确认的英雄 + 教程走完没有）；牌组另一个 key（`ai-duel-decks-v2`）。
+- 存档 v7（收藏 + 胜场 + 上次确认的英雄 + 教程走完没有）；牌组另一个 key（`ai-duel-decks-v3`）。
 - **新手教程整条流程做完了**（见 5.3）：三轮教学对战 → 过渡提示 → 组牌教学 → 选英雄教学 → 完成页，
   入口分流、匹配房里的重玩入口和全程的「跳过教程」都接好了。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。

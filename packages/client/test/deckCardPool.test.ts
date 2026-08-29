@@ -48,7 +48,7 @@ describe('牌组页卡池', () => {
   })
 
   it('卡池 = 调得到模型的 16 张 AI + 已开放的 10 张技能牌', () => {
-    // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、示例牌组和抽卡全都按它走，
+    // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、预设牌组和抽卡全都按它走，
     // 名单一改（开放 / 收回某张技能牌、某张 AI 接上或掉了模型）就该在这里当场红。
     expect(CARD_POOL).toEqual([...PLAYABLE_AI_CARD_IDS, ...OPEN_SKILL_CARD_IDS])
     expect(AI_MODEL_CARD_IDS).toHaveLength(18)

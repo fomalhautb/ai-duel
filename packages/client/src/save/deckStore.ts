@@ -13,11 +13,15 @@
  * 所以拿它去开局的地方（match/testMatch.ts、RoomScreen 的选卡组一步）都要自己查 DECK_SIZE。
  */
 
-import { CARD_POOL, DECK_SIZE, STARTER_DECK } from '@ai-duel/core'
+import { BALANCED_DECK, CARD_POOL, DECK_SIZE, HIGH_COST_DECK, LOW_COST_DECK } from '@ai-duel/core'
 import type { CardId } from '@ai-duel/core'
 
-/** 换存档结构时直接改版本号：旧数据解析不出来就回落成播种预设。 */
-const DECKS_KEY = 'ai-duel-decks-v2'
+/**
+ * 换存档结构时直接改版本号：旧数据解析不出来就回落成播种预设。
+ * v2 → v3 换的不是结构而是预设内容（一套「起始牌组」换成三套流派牌组）：
+ * 老 key 的存档结构照样解析得出来，不换版本号的话已经进过游戏的人永远看不到新预设。
+ */
+const DECKS_KEY = 'ai-duel-decks-v3'
 
 /**
  * 一套牌组 20 张、同名卡最多 3 份、最多 12 套。
@@ -110,25 +114,31 @@ function parseDecks(raw: string): DecksData | null {
 }
 
 /**
- * 首次进入时播种的那一套预设：core 的示例牌组。
+ * 首次进入时播种的三套预设：core 的三副预设牌组，各是一种打法
+ *（平衡 / 低费铺场 / 高费保护，牌表和取舍见 core 的 cards.ts）。
  *
- * 只播一套，不再自造几套「流派」：卡池里能用的技能牌就已开放的那 10 张（24 张里其余 14 张
- * 是「即将上线」，进不了卡池，见 core 的 skillCards.ts）。十张技能还撑不起几套各有打法的
- * 成型牌组，多播几套等于把同一副牌换个名字摆三遍。等剩下的效果也实装、卡池够厚了再考虑加。
+ * 播三套而不是一套，是想让人一进来就看出"牌组是可以有打法的"——三副摆在一起，
+ * 差别一眼就能对出来，比给一副牌再让人自己去猜要直接。
+ * 卡池里能用的技能牌只有已开放的那 10 张（其余 14 张是「即将上线」，见 core 的 skillCards.ts），
+ * 所以三副的技能位重合不少，真正把它们分开的是 AI 牌的费用结构。
  *
  * 预设就是普通牌组：可以改名、改卡、删掉，删完也不会自动长回来（只有一套都不剩时
- * 才补一套空的）。id 写死成 preset-starter，方便对着看是不是原始预设。
+ * 才补一套空的）。id 写死成 preset-*，方便对着看是不是原始预设。
  */
 function presetDecks(): SavedDeck[] {
-  return [{ id: 'preset-starter', name: '起始牌组', cards: [...STARTER_DECK] }]
+  return [
+    { id: 'preset-balanced', name: '默认卡组', cards: [...BALANCED_DECK] },
+    { id: 'preset-low-cost', name: '低费流', cards: [...LOW_COST_DECK] },
+    { id: 'preset-high-cost', name: '强卡流', cards: [...HIGH_COST_DECK] },
+  ]
 }
 
 /** 播种预设。预设也走一遍 sanitizeCards，写错卡 id 只会少几张牌，不会污染存档。 */
 function seedPresets(): DecksData {
   const decks = presetDecks().map((deck) => ({ ...deck, cards: sanitizeCards(deck.cards) }))
   const [first] = decks
-  // presetDecks 恒返回一套，这里只是给类型检查一个交代。
-  return { decks, currentId: first?.id ?? 'preset-starter' }
+  // presetDecks 恒返回三套，这里只是给类型检查一个交代。默认选中第一套。
+  return { decks, currentId: first?.id ?? 'preset-balanced' }
 }
 
 /**
@@ -138,7 +148,7 @@ function seedPresets(): DecksData {
  * getItem 都抛异常，而下面每个修改函数都要先 loadDecks 拿基准数据。没有这份缓存的话，
  * 每次读都重新播种那套预设，于是改完名下一步就被打回原名、新建的牌组在下一次
  * updateDeckCards 里根本不存在（原样返回播种数据），调用方跟着它的 currentId 走，
- * 就会把正在编辑的那一整套卡写进 preset-starter。有了缓存，这一次会话里的编辑至少能自洽，
+ * 就会把正在编辑的那一整套卡写进第一套预设。有了缓存，这一次会话里的编辑至少能自洽，
  * 也就对得上 persist 那句"存不下就算了，这次会话照常能编辑"。
  *
  * 只在读抛异常时才顶上：能读到 localStorage 时一律以盘上那份为准。所以多标签页同时开着

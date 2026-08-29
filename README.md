@@ -26,7 +26,7 @@ pnpm test               # 单元测试：core 规则、答题剧本
 
 ## 文档
 
-- [`docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md`](docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md)
+- [`docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md`](docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md)
   —— 游戏机制：三种卡牌、Token、单轮流程、胜负判定。
 - [`docs/architecture.md`](docs/architecture.md) —— 项目边界、三个包的分工、联机的房主模式、动画约定。
 - [`docs/deploy.md`](docs/deploy.md) —— Cloudflare Worker + Durable Object 部署，push main 自动发布。

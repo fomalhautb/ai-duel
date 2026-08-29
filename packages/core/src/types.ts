@@ -47,7 +47,7 @@ interface CardBase {
   /** 卡面描述文案。 */
   text: string
   /**
-   * 打出这张牌要花的 Token（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 5 节）。
+   * 打出这张牌要花的 Token（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md 第 5 节）。
    *
    * 这是费用的唯一出处：卡面上那枚费用章、手牌"打不起就变灰"的判断、引擎的扣费校验
    * 读的都是它。客户端曾经在 ui/aiModelFace.ts 里另存过一份展示用数值，
@@ -98,7 +98,7 @@ export type HeroId =
  * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
  *
  * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / STARTER_DECK**：
- * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 4 节），
+ * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md 第 4 节），
  * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
  * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。
  */
@@ -162,7 +162,7 @@ export interface AnswerResult {
 
 /**
  * 一轮分三段：双方轮流出牌（play）→ 全场答题结算（quiz）→ 下一轮。
- * 打满 totalRounds 后进 finished。
+ * 有一方单独到 WIN_TARGET 分、或者题库出完了，就进 finished。
  */
 export type GamePhase = 'play' | 'quiz' | 'finished'
 
@@ -238,9 +238,14 @@ export interface PlayerState {
 export interface GameState {
   /** 轮次序号，从 1 开始。一轮 = 双方各出一次牌 + 一次答题结算。 */
   round: number
-  /** 总轮数 = 题库长度：题目不重复，出完就打完。 */
+  /**
+   * 最多能打几轮 = 题库长度：题目在一局里不重复，出完就必须收场。
+   *
+   * 它是上限而不是"这局要打几轮"——正常先到 WIN_TARGET 分就结束了，
+   * 打满只发生在双方一路同分加赛的情况下。
+   */
   totalRounds: number
-  /** 本轮先出牌的一方。开局抛硬币决定，之后每轮交换。 */
+  /** 本轮先出牌的一方。第一轮抛硬币决定（教程可用 GameSetup.firstPlayer 指定），之后每轮交换。 */
   firstPlayer: PlayerId
   /**
    * play 阶段轮到谁出牌。
@@ -268,8 +273,10 @@ export interface GameState {
 /** 玩家能对引擎发出的全部指令。 */
 export type Command =
   /**
-   * 打出一张手牌。一轮内能打几张由剩余 Token 决定（每张按卡面 tokenCost 扣，
-   * 剩的不够就整条被拒）。
+   * 打出一张手牌。
+   *
+   * 两道闸：**每轮至多派出一张新 AI 牌**（第二张整条被拒，技能牌不受限），
+   * 以及每张按卡面 tokenCost 扣 Token、剩的不够就整条被拒。
    *
    * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
    * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；

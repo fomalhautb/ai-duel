@@ -78,6 +78,7 @@ import {
 } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { AiCardBack } from '../ui/AiCardBack'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { midFor, thumbFor } from '../ui/cardArtThumb'
@@ -1676,6 +1677,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
               <h1 className="deck-top__title">组建牌组</h1>
               <i className="deck-top__rule" aria-hidden="true" />
               <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
+              {/* 这一行整体左对齐，静音钮靠 margin-left: auto 顶到右端（见 .deck-mute）。 */}
+              <MuteButton variant="plain" className="deck-mute" />
             </header>
 
             <main className="deck-body">

@@ -23,6 +23,7 @@
 
 import { useLocation } from 'wouter'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsProgress } from '../ui/preloadAssets'
 import './info.css'
@@ -57,6 +58,9 @@ function InfoStage() {
         <img className="info__bg" src={BACKGROUND} alt="" draggable={false} />
 
         <BackButton className="info__back" onClick={() => navigate('/')} />
+
+        {/* 返回在左上角，静音就摆在对角的右上角（位置见 .info__mute）。 */}
+        <MuteButton className="info__mute" />
 
         <h1 className="info__title">开发者信息</h1>
 

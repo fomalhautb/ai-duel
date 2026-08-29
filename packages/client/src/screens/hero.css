@@ -144,6 +144,19 @@
   transition: color 0.18s ease;
 }
 
+/*
+ * 静音钮，和左上角的返回对角摆在右上角。尺寸用 cqi，同这一页其余元素。
+ * top 比返回按钮小一点：那颗是一行文字（按基线落位），这颗是个方块，
+ * 两者顶边写成同一个数反而看着一高一低。
+ */
+.hero__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
+  top: 3.6%;
+  right: 3.09cqi;
+  z-index: 1;
+}
+
 /* 箭头的描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
 .hero__back:hover {
   color: var(--hero-ink-lit);

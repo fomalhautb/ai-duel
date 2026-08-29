@@ -3754,7 +3754,10 @@ body:has(.battle) {
  *
  * fixed 而不是塞进战场：它要从顶栏下沿往下吊，而顶栏和战场是 .battle 那张网格里的两行，
  * 挂在战场里就只能从战场顶边算起，两个基准差着 4px 的顶栏描边。
- * 居中靠 inset-inline: 0 撑满两边再用 margin-inline: auto 把固定宽度顶到中间，
+ * 居中的范围是"去掉左侧栏之后的整块右边"，不是整个视口：和两排扇形手牌
+ * （.hand-fan / .opponent-fan）一样从 --battle-side-w 起算，三者中线才是同一条。
+ * 按视口居中的话匾会偏到左边去，看着像是在侧栏和右上角那块「下一题」牌匾之间居中。
+ * 撑开 left/right 再用 margin-inline: auto 把固定宽度顶到中间，
  * 不用 translate——transform 已经让给了下面进出场那点纵向位移，横向再占一份就得两处合写，
  * 改一边忘一边就会跑偏。
  *
@@ -3764,7 +3767,8 @@ body:has(.battle) {
 .battle__turn-plaque {
   position: fixed;
   top: var(--battle-topbar-h);
-  inset-inline: 0;
+  left: var(--battle-side-w, 0px);
+  right: 0;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -3949,9 +3953,12 @@ body:has(.battle) {
 .battle__banner-slot {
   position: absolute;
   top: 24%;
-  left: 50%;
+  /* 和回合牌匾同理：居中的范围是去掉左侧栏的整块右边，按视口居中会偏到侧栏那边去。
+     宽度撑不下时 margin: auto 会解出一对相等的负边距，横幅照旧对称地溢出，不会歪。 */
+  left: var(--battle-side-w, 0px);
+  right: 0;
   width: 860px;
-  translate: -50% 0;
+  margin-inline: auto;
 }
 
 .battle__banner {

@@ -262,7 +262,7 @@
   /* 标题行盒底边到副标题字形顶边设计稿上是 10px 左右。 */
   margin: 0.5cqi 0 0;
   color: var(--hero-sub);
-  font-size: 1.2cqi;
+  font-size: calc(1.2cqi * var(--fs-mid-scale));
   /* 300 是引进来的最细一档，副标题要明显比标题轻。 */
   font-weight: 300;
   letter-spacing: 0.04em;
@@ -444,7 +444,8 @@
   border-radius: 0.25cqi;
   background: linear-gradient(#f4ead3, #ddceac);
   color: #2b2119;
-  font-size: 0.95cqi;
+  /* 和小字阶梯的 0.95cqi 那档是同一个数，直接用 token，移动档才跟着一起放大。 */
+  font-size: var(--fs-cqi-xs);
   font-weight: 600;
   /* 字距拉开是水墨牌匾的味道；同样大小的右侧留白由 text-indent 补回来，
      否则最后一个字后面多出一格字距，整条字看着偏左。 */
@@ -491,7 +492,7 @@
   width: 20cqi;
   height: 6.07cqi;
   padding: 0 2.68cqi;
-  font-size: 1.72cqi;
+  font-size: calc(1.72cqi * var(--fs-mid-scale));
 }
 
 /* 这两笔在 .plaque-button 里是写死的浅灰，本来是配墨蓝底的；
@@ -682,7 +683,7 @@
 .hero__detail-skill-name {
   margin: 0;
   color: var(--hero-gold);
-  font-size: 1.35cqi;
+  font-size: calc(1.35cqi * var(--fs-mid-scale));
   font-weight: 600;
   line-height: 1;
 }
@@ -720,7 +721,7 @@
   padding: 0.4cqi 0.5cqi;
   color: var(--hero-ink);
   /* 比左上角那颗返回大一档：这里它是详情仅有的两个出口之一，不能比正文还小。 */
-  font-size: 1.5cqi;
+  font-size: calc(1.5cqi * var(--fs-mid-scale));
   letter-spacing: 0.1em;
   transition: color 0.18s ease;
 }

@@ -216,8 +216,10 @@
   color: var(--ink-2);
   font: inherit;
   /* 和 /hero、/room 的返回按钮一样大：那两页写的是 1.15cqi（舞台宽的 1.15%），
-     本页舞台是定死的 1672px 设计宽，换算过来就是 19px。 */
-  font-size: 19px;
+     本页舞台是定死的 1672px 设计宽，换算过来就是 19px。
+     那两页用的是 --fs-cqi-lg，也就是 1.15cqi 再乘 --fs-scale；这里乘同一个系数，
+     移动档下两边才还是一样大（阶梯见 styles.css 开头的 :root）。 */
+  font-size: calc(19px * var(--fs-scale));
   letter-spacing: 0.1em;
   cursor: pointer;
   transition: color 0.16s ease;
@@ -1248,6 +1250,10 @@
 .deck-side__title .paper-orn-title {
   flex: 1;
   min-width: 0;
+  /* paper.css 里那条写死 19px。本页整块画面跟着舞台缩放，手机上落到屏幕上不到 8px，
+     所以在这里按中号字档放大（见 styles.css 的 --fs-mid-scale）。
+     不去改 paper.css 那条：同一个组件还用在新手教程页上，而那一页不缩放、字本来就够大。 */
+  font-size: calc(19px * var(--fs-mid-scale));
 }
 
 /* ---------- 牌组 tab 行 ---------- */
@@ -1286,8 +1292,10 @@
 .deck-tab {
   flex: none;
   /* 名字最长 10 个字（DECK_NAME_MAX），全展开会把一行挤成两三枚 tab；
-     截到这个宽度大约看得见五六个字，其余交给省略号，全名在 title 里。 */
-  max-width: 104px;
+     截到这个宽度大约看得见五六个字，其余交给省略号，全名在 title 里。
+     跟着字号一起放大，否则移动档字大了、框还是这么宽，看得见的字反而少了两个。
+     一行摆不下不要紧：这一行本来就能横滚（见上面 .deck-tabs__list）。 */
+  max-width: calc(104px * var(--fs-scale));
   overflow: hidden;
   padding: 4px 10px;
   border: 1px solid var(--line);
@@ -1323,7 +1331,9 @@
 /* 新建。虚线框呼应空卡槽，表示"这一格还没有东西"。 */
 .deck-tabs__new {
   flex: none;
-  width: 26px;
+  /* 宽度跟着字号走，理由同 .deck-tab 的 max-width：里面就一个「＋」，
+     框不跟着长大的话移动档下那一笔会顶到框线上。 */
+  width: calc(26px * var(--fs-scale));
   padding: 0;
   border: 1px dashed var(--line);
   border-radius: 3px;
@@ -1525,7 +1535,7 @@
 /* 「/ 20」比它小一号，读起来是「30 分之 20」的那个分母。 */
 .deck-tally__total {
   color: var(--ink-2);
-  font-size: 18px;
+  font-size: calc(18px * var(--fs-mid-scale));
 }
 
 .deck-tally__mix {
@@ -1827,11 +1837,13 @@
   letter-spacing: 0.08em;
 }
 
-/* 两个类是为了稳稳盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。 */
+/* 两个类是为了稳稳盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。
+   高度跟着字号一起给：按钮是 overflow: hidden，移动档字放大三成半而盒子不动会切字。
+   宽度是右栏的 100%（约 420px），四个字怎么放都富余，不用跟着改。 */
 .deck-page .deck-confirm {
   width: 100%;
-  height: 54px;
-  font-size: 19px;
+  height: calc(54px * var(--fs-mid-scale));
+  font-size: calc(19px * var(--fs-mid-scale));
 }
 
 .deck-side__hint {
@@ -2037,12 +2049,13 @@
   color: #f3e2b8;
 }
 
-/* 两个类是为了盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。 */
+/* 两个类是为了盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。
+   宽高跟着字号一起给，理由同 .deck-confirm（按钮 overflow: hidden，字大了会被切）。 */
 .deck-page .deck-zoom-side__do {
   flex: none;
-  width: 176px;
-  height: 52px;
-  font-size: 18px;
+  width: calc(176px * var(--fs-mid-scale));
+  height: calc(52px * var(--fs-mid-scale));
+  font-size: calc(18px * var(--fs-mid-scale));
 }
 
 /* 按钮为什么点不了。生命红，和右面板那句「还需选择 N 张」同一种语言。 */

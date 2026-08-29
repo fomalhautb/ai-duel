@@ -69,6 +69,7 @@ import {
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
 import { loadSave } from '../save/save'
+import { SkillCardHoverPreview } from './SkillCardHoverPreview'
 import './deck.css'
 
 gsap.registerPlugin(useGSAP)
@@ -251,6 +252,7 @@ export interface DeckScreenProps {
 export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
+  const [previewedSkill, setPreviewedSkill] = useState<HandCardData | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
   const nextKeyRef = useRef(0)
 
@@ -873,6 +875,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         canAdd={!deckFull && picked < MAX_COPIES}
                         bind={bindPoolCard(cardId)}
                         onAdd={addCard}
+                        onPreview={setPreviewedSkill}
                         hidden={zoomed?.flipId === flipId}
                       />
                     )
@@ -881,8 +884,8 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                 <p className="deck-pool__hint">
                   {deckFull
-                    ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
-                    : '点击放大 · 圆圈或拖拽加入'}
+                    ? `牌组已满 ${DECK_SIZE} 张 · 技能牌悬停看双面 · 先移除才能再加`
+                    : '技能牌悬停看双面 · 点击放大 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -1047,6 +1050,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                                 entryKey={entry.key}
                                 bind={bindDeckCard(entry.key)}
                                 onRemove={removeEntry}
+                                onPreview={setPreviewedSkill}
                                 hidden={zoomed?.flipId === deckFlipId(entry.key)}
                               />
                             )
@@ -1056,9 +1060,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
                       <div className="deck-side__foot">
                         <div className="deck-side__notes">
-                          {/* 文案照实写：这一页是"点一下放大"，移除走圆圈或者把牌拖出面板，
-                              没有悬停放大这回事。 */}
-                          <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
+                          <p className="deck-side__hint">技能牌悬停看双面 · 点击放大 · 圆圈或拖出移除</p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                           ) : (
@@ -1097,6 +1099,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
               }}
               closeOnEscape
             />
+            {previewedSkill !== null && zoomed === null ? (
+              <SkillCardHoverPreview card={previewedSkill} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -1123,6 +1128,7 @@ interface PoolCardProps {
   canAdd: boolean
   bind: CardDragBindings
   onAdd: (cardId: CardId) => void
+  onPreview: (card: HandCardData | null) => void
   /** 这张卡正被放大，原位要就地藏起来。 */
   hidden: boolean
 }
@@ -1133,6 +1139,7 @@ const PoolCard = memo(function PoolCard({
   canAdd,
   bind,
   onAdd,
+  onPreview,
   hidden,
 }: PoolCardProps) {
   return (
@@ -1147,6 +1154,14 @@ const PoolCard = memo(function PoolCard({
         data-picked={picked > 0 ? picked : undefined}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
+        onPointerEnter={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onPointerLeave={() => onPreview(null)}
+        onFocus={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onBlur={() => onPreview(null)}
       >
         <HandCardFace card={card} />
         {/* hover 高亮预先画好，只切 opacity（合成器就能做完，不重画卡面）。
@@ -1179,6 +1194,7 @@ interface DeckSlotItemProps {
   entryKey: string
   bind: CardDragBindings
   onRemove: (entryKey: string) => void
+  onPreview: (card: HandCardData | null) => void
   hidden: boolean
 }
 
@@ -1187,6 +1203,7 @@ const DeckSlotItem = memo(function DeckSlotItem({
   entryKey,
   bind,
   onRemove,
+  onPreview,
   hidden,
 }: DeckSlotItemProps) {
   return (
@@ -1196,6 +1213,14 @@ const DeckSlotItem = memo(function DeckSlotItem({
         data-flip-id={deckFlipId(entryKey)}
         style={hidden ? HIDDEN_IN_PLACE : undefined}
         {...bind}
+        onPointerEnter={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onPointerLeave={() => onPreview(null)}
+        onFocus={() => {
+          if (card.kind === 'skill') onPreview(CARD_BY_ID.get(card.id) ?? card)
+        }}
+        onBlur={() => onPreview(null)}
       >
         {/* 缩放写在内层：外层要留给 hook 和归位补间写 transform，
             两边写同一个属性会互相抹掉（GSAP 是内联 transform，压得死 CSS 那份）。 */}

@@ -34,7 +34,7 @@
 .info__stage {
   container-type: size;
   position: relative;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 

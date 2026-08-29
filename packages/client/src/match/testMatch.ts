@@ -13,7 +13,7 @@
  * 对手固定示例牌组，测试房是一个人直接开的，没有第二个玩家可问。
  */
 
-import { DECK_SIZE, QUESTION_POOL, STARTER_DECK } from '@ai-duel/core'
+import { DECK_SIZE, STARTER_DECK } from '@ai-duel/core'
 import type { CardId } from '@ai-duel/core'
 import { loadDecks } from '../save/deckStore'
 import { loadSave } from '../save/save'
@@ -37,10 +37,10 @@ export function createTestMatchDriver(): MatchDriver {
   return createLocalDriver({
     seat: 0,
     setup: {
+      // 题库不裁：一轮最多拿 1 分，而先到 3 分才结束（见 core 的 WIN_TARGET），
+      // 只塞一道题的话永远打不出真实终局，测试房也就验不到"先到 3 分提前收场"这条。
+      // 想快点看结算页就用测试面板的「跳到答题」连点几轮。
       seed: Date.now(),
-      // 测试房只跑两轮：一轮用来看"结算完接着开下一轮"，第二轮结束直接进最终结算页，
-      // 两条路径各走一次，又不用把整局五道题打完。
-      questions: QUESTION_POOL.slice(0, 2),
       players: [
         {
           name: '我',

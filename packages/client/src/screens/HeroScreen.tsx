@@ -6,6 +6,10 @@
  * 选完之后去哪、存不存，全由调用方决定。
  * 七位英雄的数据直接读 core 的 HEROES 表，页面不再自带一份。
  *
+ * 三条入口共用这一份：独立页（/hero）、匹配后的选英雄一步（RoomScreen），
+ * 以及新手教程的最后一步（/tutorial，多传一个 tutorial prop，
+ * 把教学指定的那位之外的六位暂时锁掉）。教程模式只做减法，不传那个 prop 时行为一字不变。
+ *
  * 界面照着一张 1920×1080 的设计稿复原：hover 上浮 / 倾斜、点开看技能详情都做全了。
  *
  * 技能还没实装的几位（core 的 HeroCard.comingSoon）在卡阵上是置灰 + 常驻「即将加入」的：
@@ -19,7 +23,8 @@
  * 和首页不同的是这里加了 .on-dark：留边是近黑的深蓝（跟着背景图边缘色走），
  * 纸纹在深色上要换成「反相 + screen」那一档，否则会糊出一块块黑斑。
  *
- * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 → 技能详情层。
+ * 舞台内的层叠自下而上：背景图 → 返回 / 标题 / 副标题 → 两排卡牌 →
+ * 底部返回按钮（只有纯查看时才有）→ 技能详情层。
  * 顺序基本由 JSX 的先后决定；只有技能详情那一层用了 z-index 把自己抬到卡牌之上
  * （它内部的遮罩和内容也各写了一档，见 hero.css）。舞台自己那个 z-index 是用来压住
  * 外层纸纹的，和内部层叠无关。
@@ -32,6 +37,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
@@ -113,6 +119,30 @@ const CARD_HOVER_DUR = 0.25
  */
 const CARD_TILT_DEG = 8
 
+/**
+ * 新手教程挂上来的限制（规格 §13：只放行教学指定的那位，其余置灰不可选）。
+ *
+ * 这一层只有"放行谁 / 被挡了喊一声 / 详情开关变了通知一下"三件事：
+ * 提示说什么、下一步去哪全在 tutorial/ 那边，这一页对教程本身一无所知。
+ */
+export interface HeroScreenTutorial {
+  /** 教程里唯一选得了的英雄，其余六位置灰、点了只给一句提示。 */
+  allowedHeroId: HeroId
+  /**
+   * 玩家点了教程锁住的那几位。提示文案由教程自己决定。
+   *
+   * 注意这里**不含** comingSoon 的三位：她们的点击在更外面就被拦掉了（卡面那条「即将加入」
+   * 已经把原因说清楚了），教程期间点她们一句提示都没有。要改成也喊一声的话，
+   * 得先想好那句话怎么把"没实装"和"教学阶段"两件事同时说明白。
+   */
+  onBlocked: () => void
+  /**
+   * 技能详情开 / 关（开着的是哪位）。
+   * 教程靠它在「点她」和「就选她」两步之间来回切——玩家点「返回」或按 ESC 时要能退回上一步。
+   */
+  onDetailChange: (hero: HeroId | null) => void
+}
+
 interface HeroScreenProps {
   /** 预填的英雄；null 表示默认选中第一位。只在挂载时读一次，之后以玩家在页面上的选择为准。 */
   initialHeroId: HeroId | null
@@ -123,6 +153,18 @@ interface HeroScreenProps {
   onConfirm?: (hero: HeroId) => void
   /** 不传就不渲染返回按钮（比如从没有上一步的入口进来）。 */
   onBack?: () => void
+  /** 新手教程模式。不传 = 已实装的那几位随便选（comingSoon 的几位照旧灰着），也就是这一页原本的样子。 */
+  tutorial?: HeroScreenTutorial
+  /**
+   * 盖在整页之上的额外一层，现在只有教程的引导层。
+   *
+   * 挂在 `.hero` 里、`.hero__stage` **外面**，两条理由缺一不可：
+   * - `.hero__stage` 带 `container-type: inline-size`，也就是 layout 包含，
+   *   它会成为内部 `position: fixed` 元素的包含块——引导层放进去，坐标就从视口变成了舞台，
+   *   而这一页根本没有缩放层（排版靠 cqi），引导层按视口坐标量出来的位置会整体错位；
+   * - 层级上 `.hero__stage` 是 `z-index: 1` 的层叠上下文，浮层放在它同级才压得住里面的技能详情层。
+   */
+  overlay?: ReactNode
 }
 
 /**
@@ -138,7 +180,13 @@ export function HeroScreen(props: HeroScreenProps) {
   return ready ? <HeroStage {...props} /> : <LoadingScreen />
 }
 
-function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
+function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: HeroScreenProps) {
+  /*
+   * 纯查看：大厅横幅点进来看看英雄，选中不会被记下（RoomScreen 那边不传 onConfirm）。
+   * 这一屏的标题、副标题和底部按钮都按它换一套说法——照搬「选择你的英雄」会承诺一件做不到的事。
+   */
+  const viewOnly = onConfirm === undefined
+  const showFoot = viewOnly && onBack !== undefined
   /*
    * 预填的英雄要是 comingSoon 就当没预填。存档那一层已经把她们滤成 null 了（见 save/save.ts），
    * 这里再挡一道是因为 initialHeroId 是外面传进来的，将来多一个不走存档的调用方也不会漏。
@@ -147,6 +195,12 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
     initialHeroId !== null && !HEROES[initialHeroId].comingSoon ? initialHeroId : DEFAULT_HERO_ID,
   )
   const rootRef = useRef<HTMLDivElement>(null)
+  /**
+   * 教程回调的镜像。挂载时绑一次的 GSAP 悬停处理器、以及下面那个只认 detailId 的 effect
+   * 都要读最新一份，而直接进依赖会让它们跟着每次渲染重挂。
+   */
+  const tutorialRef = useRef(tutorial)
+  tutorialRef.current = tutorial
   /**
    * 每张卡的按钮节点。两处要用：详情飞回时拿它当落点，关闭详情后把焦点还给它。
    * 存 ref 不存 state：它只被事件回调和 effect 读，进 state 只会白白多几次重渲染。
@@ -214,6 +268,9 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
             { opacity: 0, yPercent: 3, scale: 0.96, duration: 0.55, stagger: 0.05 },
             0.1,
           )
+          // 底部那颗返回按钮从下往上浮，和上面几件从上往下正好对开。
+          // 它只在纯查看时存在，选择器匹配不到元素时 GSAP 整条跳过。
+          .from('.hero__foot', { opacity: 0, yPercent: 30, duration: 0.5 }, 0.25)
       }
 
       cards.forEach((card, index) => {
@@ -244,6 +301,9 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
           // 触屏上 pointerenter 也会触发，而手指抬起后不会有 pointerleave，卡就一直吊在上面。
           // 悬停本来就是鼠标才有的语义，非鼠标直接不进入这套状态。
           if (event.pointerType !== 'mouse') return
+          // 教程里置灰的那几位不该有上浮反馈——悬停会动是最明显的"可点"暗示。
+          // 现查 dataset 而不是捕获 props：这几个处理器挂载时绑一次，之后不重建。
+          if (card.dataset.locked === 'true') return
           gsap.to(lift, {
             yPercent: CARD_HOVER_LIFT,
             scale: CARD_HOVER_SCALE,
@@ -302,6 +362,12 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
    * 拿它当起点会让飞行头一帧突然缩一下。
    */
   const openHero = contextSafe((hero: HeroId, card: HTMLButtonElement) => {
+    // 教程期间只有指定的那位打得开，其余几位点了只给一句提示（锁必须有话说）。
+    const guide = tutorialRef.current
+    if (guide !== undefined && hero !== guide.allowedHeroId) {
+      guide.onBlocked()
+      return
+    }
     selectHero(hero)
     // 上一次飞回如果被打断（补间没跑完 onComplete 就不会来），那次抬高的层级会一直留在卡上。
     // 每次打开先抹掉，卡就不会莫名其妙地压在别的东西上面。
@@ -501,6 +567,17 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
     cardsRef.current.get(hero)?.focus()
   }, [detailId])
 
+  /*
+   * 把技能详情的开关告诉教程。
+   *
+   * 教程的两步（「点她」→「就选她」）分界就在这儿：详情打开进确认那步，
+   * 玩家点「返回」或按 ESC 关掉就退回上一步，不会卡在一句对不上画面的提示上。
+   * 挂载那次会带着 null 跑一遍，正好把教程钉在第一步。
+   */
+  useEffect(() => {
+    tutorialRef.current?.onDetailChange(detailId)
+  }, [detailId])
+
   // ESC 关详情。只在开着的时候挂监听，免得这一页平时也拦一个全局按键。
   useEffect(() => {
     if (detailId === null) return
@@ -535,22 +612,38 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
               <i className="hero__flourish-line" />
               <Sparkle className="hero__flourish-star" />
             </span>
-            选择你的英雄
+            {viewOnly ? '英雄' : '选择你的英雄'}
             <span className="hero__flourish hero__flourish--right" aria-hidden="true">
               <i className="hero__flourish-line" />
               <Sparkle className="hero__flourish-star" />
             </span>
           </h1>
-          <p className="hero__subtitle">选择一位英雄，开启你的对战</p>
+          <p className="hero__subtitle">
+            {viewOnly ? '点开任意一位，查看她的简介与技能' : '选择一位英雄，开启你的对战'}
+          </p>
         </div>
 
-        {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。 */}
-        <div className="hero__grid" inert={detailId !== null}>
+        {/* 第一排 4 张、第二排 3 张，两排各自居中——切法见 FIRST_ROW_COUNT。
+            底下那颗返回按钮一出现，两排卡就得整体上移给它让位（见 hero.css）。 */}
+        <div
+          className={`hero__grid${showFoot ? ' hero__grid--with-foot' : ''}`}
+          inert={detailId !== null}
+        >
           {HERO_ROWS.map((row, rowIndex) => (
             <div className="hero__row" key={rowIndex}>
               {row.map((hero) => {
-                /* 技能还没实装的一位：置灰、点不动。指针交互在上面那段 useGSAP 里一并跳过。 */
+                /*
+                 * 两种点不动，理由不一样，所以文案和标记也不一样：
+                 * - soon：技能还没实装（core 的 HeroCard.comingSoon），任何模式下都点不开，
+                 *   卡面常驻一条「即将加入」封条。指针交互在上面那段 useGSAP 里一并跳过。
+                 * - locked：教程期间只放行指定的那位，其余六位（含 soon 的三位）暂时锁着，
+                 *   点了给一句提示（见 openHero 里的 onBlocked）。教学一结束这层锁就没了。
+                 * 两者同时成立时按 soon 显示：「即将加入」是这张卡的长期状态，
+                 * 而「教学阶段不可选」只是此刻多加的一道，先说那条更要紧的。
+                 */
                 const soon = hero.comingSoon === true
+                const locked = tutorial !== undefined && hero.id !== tutorial.allowedHeroId
+                const blocked = soon || locked
                 return (
                   <button
                     key={hero.id}
@@ -558,24 +651,43 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
                     className={`hero__card${soon ? ' hero__card--soon' : ''}${
                       hero.id === detailId ? ' is-zoomed' : ''
                     }`}
+                    /* data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/heroSteps.ts）。
+                       data-locked 同时给两处用：CSS 照它置灰，悬停处理器照它跳过上浮。
+                       soon 的那几位在教程里也算 locked，但**故意不挂这个属性**：
+                       两档灰化的 filter 会互相盖（data-locked 那条特异性还更高），
+                       封条底下的卡会比别的 soon 卡更暗一截，看着像坏了。
+                       少挂它也不影响别的：她们的灰化归 .hero__card--soon，
+                       悬停处理器压根没往上绑（见上面那段 useGSAP）。 */
+                    data-tutorial-anchor={
+                      tutorial !== undefined && hero.id === tutorial.allowedHeroId
+                        ? 'heroCard'
+                        : undefined
+                    }
+                    data-locked={locked && !soon ? 'true' : undefined}
                     // 不写 aria-pressed：选中在页面上已经没有任何可见标记了，读屏念「已按下」
                     // 反而和眼睛看到的对不上。这颗按钮的实际行为是「打开这位英雄的技能详情」，
                     // 所以标题写成那句，再用 haspopup 说明点下去会弹出一个对话框。
-                    // 置灰的那几张点下去什么都不会发生，所以 haspopup 要撤掉，
-                    // 名字也换成一句把原因说清楚的——卡面上那条「即将加入」是纯视觉的。
+                    // 点不动的那几张 haspopup 要撤掉，名字也换成一句把原因说清楚的——
+                    // 卡面上那条「即将加入」是纯视觉的，读屏念不到。
                     aria-label={
-                      soon ? `${hero.name}：技能即将加入，暂不可选` : `查看 ${hero.name} 的技能`
+                      soon
+                        ? `${hero.name}：技能即将加入，暂不可选`
+                        : locked
+                          ? `${hero.name}（教学阶段不可选）`
+                          : `查看 ${hero.name} 的技能`
                     }
                     // 用 aria-disabled + data-disabled 而不是真的 disabled，同选牌页那颗加号
                     // （见 DeckScreen 的 .deck-circle--add）：真禁用的按钮连焦点都进不去，
                     // 读屏用户就只能靠 Tab 跳过一张莫名消失的卡去猜发生了什么。
-                    aria-disabled={soon || undefined}
+                    aria-disabled={blocked || undefined}
                     data-disabled={soon ? 'true' : undefined}
-                    aria-haspopup={soon ? undefined : 'dialog'}
+                    aria-haspopup={blocked ? undefined : 'dialog'}
                     ref={(node) => {
                       if (node === null) cardsRef.current.delete(hero.id)
                       else cardsRef.current.set(hero.id, node)
                     }}
+                    // soon 在这里就拦掉（她们没有话要说，封条已经解释过了）；
+                    // locked 要进 openHero 才拦，那里会调教程的 onBlocked 弹一句提示。
                     onClick={(event) => {
                       if (soon) return
                       openHero(hero.id, event.currentTarget)
@@ -599,11 +711,13 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
                       </span>
                       {/* 提示条和「即将加入」互斥：一张卡要么点得开、要么点不开，
                           同时挂两条只会互相打架（提示条还是 hover 才出现的）。
-                          标签放在灰化层之外，自己不跟着褪色——它正是用来解释褪色的。 */}
+                          封条放在灰化层之外，自己不跟着褪色——它正是用来解释褪色的。 */}
                       {soon ? (
                         <span className="hero__card-soon">即将加入</span>
                       ) : (
-                        <span className="hero__card-hint">点击查看技能</span>
+                        <span className="hero__card-hint">
+                          {locked ? '教学阶段不可选' : '点击查看技能'}
+                        </span>
                       )}
                     </span>
                   </button>
@@ -612,6 +726,16 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
             </div>
           ))}
         </div>
+
+        {/* 纯查看时舞台底部那颗大按钮：这一屏没有「确认英雄」，退出的路只有左上角那颗小返回，
+            所以在设计稿原本给常驻确认按钮留的位置上补一颗，走的是同一个 onBack。 */}
+        {showFoot && onBack !== undefined ? (
+          <div className="hero__foot" inert={detailId !== null}>
+            <PlaqueButton className="hero__return" onClick={onBack}>
+              返回匹配
+            </PlaqueButton>
+          </div>
+        ) : null}
 
         {/* 技能详情。遮罩是常驻节点（GSAP 用 autoAlpha 开关它），
             大卡只有开着的时候才渲染——Flip 每次都要一个新挂载的落点。 */}
@@ -683,9 +807,15 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
                 {/* 和左上角那颗同一个公共组件（ui/BackButton），只是字号更大，
                     定位交给 .hero__detail-back。 */}
                 <BackButton className="hero__detail-back" ref={detailBackRef} onClick={closeDetail} />
-                {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。 */}
+                {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。
+                    不给 onConfirm 就是纯查看（匹配房里旁观英雄），这时候不出确认按钮。
+                    data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/heroSteps.ts）。 */}
                 {onConfirm === undefined ? null : (
-                  <PlaqueButton className="hero__confirm" onClick={handleConfirm}>
+                  <PlaqueButton
+                    className="hero__confirm"
+                    data-tutorial-anchor="heroConfirm"
+                    onClick={handleConfirm}
+                  >
                     确认英雄
                   </PlaqueButton>
                 )}
@@ -694,6 +824,9 @@ function HeroStage({ initialHeroId, onConfirm, onBack }: HeroScreenProps) {
           )}
         </div>
       </div>
+
+      {/* 额外浮层的插槽，现在只有教程的引导层（放这儿的两条理由见 HeroScreenProps.overlay）。 */}
+      {overlay}
     </div>
   )
 }

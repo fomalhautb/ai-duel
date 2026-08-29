@@ -13,7 +13,7 @@
 import { HERO_ASSETS } from '../screens/HeroScreen'
 import { ROOM_ASSETS } from '../screens/RoomScreen'
 import { AI_MODEL_ART } from './aiModelArt'
-import { CARD_ART_PLACEHOLDERS } from './cardArt'
+import { AI_CARD_BACK_ART, CARD_ART_PLACEHOLDERS } from './cardArt'
 import { preloadAssetsInBackground } from './preloadAssets'
 
 /**
@@ -29,6 +29,16 @@ export const BATTLE_ASSETS: readonly string[] = [
   '/battle/coin-first.webp',
   '/battle/coin-second.webp',
 ]
+
+/**
+ * 翻面才看得见的两张卡背：AI 牌那张美术背面（<img>，地址在 ui/cardArt.ts）和技能牌背面的
+ * 星象边框底图（只写在 CSS 里，styles.css 的 .card-back--skill；换图时两处一起改，
+ * 同 battle-bg.webp 的情况）。
+ *
+ * 不并进 BATTLE_ASSETS：那一份是对局页的加载闸门在等的图，而卡背只在玩家主动翻牌时才用得上，
+ * 为它把进场时间拖长不划算；放在后台队列里，等玩家第一次翻牌时通常已经下完了。
+ */
+const CARD_BACK_ASSETS: readonly string[] = [AI_CARD_BACK_ART, '/cards/card-back-v1.webp']
 
 /** 只跑一次。App 的 effect 在严格模式下会挂载两遍，没这个标志就会排两轮重复的队。 */
 let started = false
@@ -53,6 +63,7 @@ export function startBackgroundPreload(): void {
     await preloadAssetsInBackground(BATTLE_ASSETS)
     await preloadAssetsInBackground(Object.values(AI_MODEL_ART))
     await preloadAssetsInBackground(CARD_ART_PLACEHOLDERS)
+    await preloadAssetsInBackground(CARD_BACK_ASSETS)
     await preloadAssetsInBackground(HERO_ASSETS)
   })()
 }

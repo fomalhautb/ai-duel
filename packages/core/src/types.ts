@@ -26,6 +26,13 @@ export interface Question {
   category: QuestionCategory
   text: string
   /**
+   * 从题面提炼的几个关键词，出牌阶段就公开（题面本身要等双方出完牌才揭晓）。
+   *
+   * 它是出牌阶段唯一的情报：玩家只能靠这几个词猜这道题考什么方向、该派哪张 AI 上场。
+   * 所以词要指向题目的**考点**（「数三角形」「性别判断」），不要泄题也不要写成同义复述。
+   */
+  keywords: string[]
+  /**
    * 正确答案，答题阶段直接摊给玩家看。
    * 本项目不防作弊（见 docs/architecture.md 4.1），所以整份题库连答案一起放在
    * GameState 里发给双方，不做"只在结算时下发"这种服务器权威式的遮挡。
@@ -48,7 +55,7 @@ interface CardBase {
   /** 卡面描述文案。 */
   text: string
   /**
-   * 打出这张牌要花的 Token（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 5 节）。
+   * 打出这张牌要花的 Token（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md 第 5 节）。
    *
    * 这是费用的唯一出处：卡面上那枚费用章、手牌"打不起就变灰"的判断、引擎的扣费校验
    * 读的都是它。客户端曾经在 ui/aiModelFace.ts 里另存过一份展示用数值，
@@ -62,6 +69,14 @@ export interface AiCard extends CardBase {
   kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
+  /**
+   * 答题时去 OpenRouter 调的那个模型 id，`null` 表示 OpenRouter 上根本没有这个模型。
+   *
+   * 写成必填的 `string | null` 而不是可选字段：漏填会被静默当成"调不到"，
+   * 而"调不到"是要把整张牌挡在卡池外的（见 aiModels.ts 的 PLAYABLE_AI_CARD_IDS），
+   * 代价太大，宁可让类型检查在漏填的那一刻就报错。
+   */
+  openrouter: string | null
 }
 
 /**
@@ -108,7 +123,7 @@ export type HeroId =
  * 字段风格对齐 CardBase（id / name / text），另加英文名和技能两项。
  *
  * **它刻意不进 HandCard 联合，也不进 CARDS / CARD_POOL / STARTER_DECK**：
- * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md 第 4 节），
+ * 英雄技能不占 20 张牌的牌组空间（见 docs/AI卡牌对战游戏_游戏机制与流程_V0.3.md 第 4 节），
  * 混进卡池还会连累存档过滤、抽卡和牌组洗牌——那几处都是"遍历卡池"的写法，
  * 多出一张抽不到也打不出的卡只会变成脏数据。英雄的表在 heroes.ts，查表走 getHero。
  */
@@ -199,19 +214,32 @@ export interface AnswerResult {
 
 /**
  * 一轮分四段：双方轮流出牌（play）→ 全场答题（quiz）→ 结算等双方确认（settle）→ 下一轮。
- * 打满 totalRounds 后，最后一轮的双方确认会把状态推进到 finished。
+ *
+ * 分数在 quiz 末尾就算完了，但要等 settle 里双方都确认才推进；到那一刻若有一方
+ * 单独到 WIN_TARGET 分、或者题库已经出完，就直接进 finished 而不是开下一轮。
  *
  * settle 单独占一段是为了让结算界面有一段"局面不再变"的时间：
  * 计分已经算完写进快照，但轮次、Token、手牌都还停在本轮的样子，界面可以放心读快照。
  */
 export type GamePhase = 'play' | 'quiz' | 'settle' | 'finished'
 
+/**
+ * 本轮那 1 分是怎么分出来的。三档按判定顺序排，客户端照它选结算文案。
+ *
+ * - `'sole-correct'`：只有一方答对，那一方 +1。
+ * - `'fewer-tokens'`：双方同对或同错，本轮 Token 消耗**严格**较少的一方 +1。
+ * - `'equal-tokens'`：双方同对或同错，消耗也一样，各 +1（这一档会把两边分数一起推高，
+ *   所以才会有"双方同时到 3 分"这种要加赛的局面）。
+ */
+export type RoundVerdict = 'sole-correct' | 'fewer-tokens' | 'equal-tokens'
+
 export interface PlayerState {
   id: PlayerId
   name: string
   /**
-   * 累计得分。每轮结算最多加 1 分：本轮答对的 AI 多的一方拿分，
-   * 一样多就比谁花的 Token 少，还一样就双方各拿 1 分（规则见 engine.ts 的 submitAnswers）。
+   * 累计得分。每轮 1 分制：只有一方答对就那方 +1，双方同对或同错就比本轮 Token 消耗，
+   * 少的一方 +1、相同则各 +1（判定见 engine 的 submitAnswers）。先到 WIN_TARGET 分且
+   * 双方分数不相等即获胜，所以它最高可能停在 3 分以上（加赛时双方一起涨）。
    */
   score: number
   /**
@@ -222,13 +250,24 @@ export interface PlayerState {
    */
   tokens: number
   /**
-   * 本轮已经花掉的 Token 累计，出牌时和 tokens 一起改。
+   * 本轮已经花掉的 Token，等双方确认结算、真的进下一轮时才清零。
    *
-   * 存这一份而不是拿 tokenMax - tokens 现算：进下一轮时 tokens 会被补满、tokenMax 还要涨，
-   * 差值当场就没了，而结算界面正需要在那之前把"本轮消耗"显示出来。
-   * 它也是平局时的第二判据（消耗少的一方拿分），所以清零必须等到真的进下一轮。
+   * 单独记一份而不是拿 `tokenMax - tokens` 现算：那个差值在出牌阶段对得上，
+   * 但它表达的是"额度剩多少"，而计分要的是"这一轮为新打出的牌付了多少"；
+   * 而且进下一轮时 tokens 会补满、tokenMax 还要涨，差值当场就没了。
+   * 结算界面正需要在那之前把"本轮消耗"显示出来，它也是同对/同错时的判据，
+   * 所以清零必须押后到离开 settle 那一刻。
+   *
+   * 技能牌被英雄技能抵消也照样计入：Token 是真花出去的，作废的只是效果。
    */
-  roundTokenSpent: number
+  spentThisRound: number
+  /**
+   * 本轮派出过新 AI 牌没有，每轮推进时清零。
+   *
+   * 规则是每轮至多派出一张新 AI 牌（技能牌不限张数），这个标志就是那道闸。
+   * 场上原有的 AI 继续留场答题，不受它影响。
+   */
+  aiPlayedThisRound: boolean
   /**
    * 本轮的 Token 上限。开局 INITIAL_TOKEN_MAX，之后每答完一题涨 TOKEN_MAX_GROWTH。
    * 右侧栏那排四芒星画的就是它：亮着的是 tokens，灰的是这一轮已经花掉的。
@@ -261,9 +300,14 @@ export interface PlayerState {
 export interface GameState {
   /** 轮次序号，从 1 开始。一轮 = 双方各出一次牌 + 一次答题结算。 */
   round: number
-  /** 总轮数 = 题库长度：题目不重复，出完就打完。 */
+  /**
+   * 最多能打几轮 = 题库长度：题目在一局里不重复，出完就必须收场。
+   *
+   * 它是上限而不是"这局要打几轮"——正常先到 WIN_TARGET 分就结束了，
+   * 打满只发生在双方一路同分加赛的情况下。
+   */
   totalRounds: number
-  /** 本轮先出牌的一方。开局抛硬币决定，之后每轮交换。 */
+  /** 本轮先出牌的一方。第一轮抛硬币决定（教程可用 GameSetup.firstPlayer 指定），之后每轮交换。 */
   firstPlayer: PlayerId
   /**
    * play 阶段轮到谁出牌。
@@ -275,7 +319,10 @@ export interface GameState {
   /** 本局的题目序列（开局洗好），questions[round - 1] 是本轮的题。 */
   questions: Question[]
   players: [PlayerState, PlayerState]
-  /** 分数相同时是 'draw'，没打完是 null。 */
+  /**
+   * 谁赢了。没打完是 null；'draw' 只可能出现在"题库出完了双方还同分"这一种保底情况下
+   * （先到 WIN_TARGET 分那条路要求分数不相等，同时到分会继续加赛）。
+   */
   winner: PlayerId | 'draw' | null
   /**
    * settle 阶段里两位玩家分别确认过没有，按座位号排。
@@ -296,8 +343,10 @@ export interface GameState {
 /** 玩家能对引擎发出的全部指令。 */
 export type Command =
   /**
-   * 打出一张手牌。一轮内能打几张由剩余 Token 决定（每张按卡面 tokenCost 扣，
-   * 剩的不够就整条被拒）。
+   * 打出一张手牌。
+   *
+   * 两道闸：**每轮至多派出一张新 AI 牌**（第二张整条被拒，技能牌不受限），
+   * 以及每张按卡面 tokenCost 扣 Token、剩的不够就整条被拒。
    *
    * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填（现在只有 `'foe-ai'`：
    * 对方场上一个还没被干扰过的 AI）。该填不填、或者填了个不合法的目标都会被拒；
@@ -365,6 +414,8 @@ export type GameEvent =
       firstPlayer: PlayerId
       /** 本轮题目的类别；题目全文要等到 QUESTION_REVEALED 才展示。 */
       category: QuestionCategory
+      /** 本轮题目的关键词，和类别一样属于出牌阶段就公开的情报（见 Question.keywords）。 */
+      keywords: string[]
     }
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
@@ -448,21 +499,25 @@ export type GameEvent =
   /** 答错被罚下，从场上移进弃牌堆。 */
   | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
   /**
-   * 本轮计分，四个数组都按座位号排，[0] 是 0 号玩家。
+   * 本轮计分。所有成对的字段一律按座位号排，[0] 是 0 号玩家。
    *
-   * - `gains`：本轮拿到的分，只可能是 0 或 1；双方打平时是 [1, 1]。
-   * - `scores`：加完之后的总分。
-   * - `correct`：本轮各自答对的 AI 数，也就是罚下之后还站在场上的数量。
-   * - `spent`：本轮各自花掉的 Token，答对数相同时靠它分胜负。
-   *
-   * correct / spent 是判定依据，界面要把"凭什么这一分给了谁"讲清楚，所以一起发出来。
+   * 除了得分本身还带上判定的全部依据（谁答对了、各花了多少 Token、按哪条规则分的），
+   * 客户端的结算演出和教程的提示语都直接读它，不要自己回头再算一遍——
+   * `correct` 是"己方**至少一个** AI 答对"的团队口径，光看 AI_ANSWERED 那几条推不出来
+   * （场上没有 AI 的一方一条事件都没有，却也算没答对）。
    */
   | {
       type: 'ROUND_SCORED'
+      /** 本轮各得几分：0 或 1，双方同对同错且消耗相同时是 [1, 1]。 */
       gains: [number, number]
+      /** 加完这一轮之后的累计总分。 */
       scores: [number, number]
-      correct: [number, number]
+      /** 本轮各方算不算答对（己方场上至少一个 AI 答对；场上没 AI 视为没答对）。 */
+      correct: [boolean, boolean]
+      /** 本轮各方为新打出的牌花掉的 Token（见 PlayerState.spentThisRound）。 */
       spent: [number, number]
+      /** 这一分是按哪条规则分出来的。 */
+      verdict: RoundVerdict
     }
   /** 某一方在结算界面上确认了本轮。双方都确认后才会有后续的推进事件。 */
   | { type: 'ROUND_CONFIRMED'; player: PlayerId }

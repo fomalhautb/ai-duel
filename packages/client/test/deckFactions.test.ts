@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { AI_MODEL_CARD_IDS, CARD_POOL, SKILL_DESIGN_CARD_IDS, getCard } from '@ai-duel/core'
+import {
+  AI_MODEL_CARD_IDS,
+  CARD_POOL,
+  OPEN_SKILL_CARD_IDS,
+  PLAYABLE_AI_CARD_IDS,
+  getCard,
+} from '@ai-duel/core'
 import { FACTIONS, factionForAi, filterDeckCards } from '../src/screens/deckFactions'
 import type { DeckFaction } from '../src/screens/deckFactions'
 
@@ -36,19 +42,16 @@ describe('阵营归堆', () => {
     ])
   })
 
-  it('剩下的按名单进「国产通用」，没上名单的进「其他」', () => {
-    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'cn')).toEqual([
+  it('不属于上面四家的单张模型全部兜底进「其他」', () => {
+    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'other')).toEqual([
+      'gemini',
       'qwen',
       'doubao',
       'glm-5',
       'minimax',
       'yuanbao',
-      'wenxin-yiyan',
-    ])
-    // gemini 和 grok 不属于上面任何一家，也不是国产，兜底到「其他」。
-    expect(AI_MODEL_CARD_IDS.filter((id) => factionForAi(id) === 'other')).toEqual([
-      'gemini',
       'grok',
+      'wenxin-yiyan',
     ])
   })
 })
@@ -58,13 +61,15 @@ describe('卡池筛选', () => {
 
   it('不选阵营时按种类筛，「全部」就是整个卡池', () => {
     expect(filterDeckCards(CARD_POOL, 'all', null)).toEqual(CARD_POOL)
-    expect(filterDeckCards(CARD_POOL, 'ai', null)).toEqual(AI_MODEL_CARD_IDS)
+    // 卡池里的 AI 只有能上场的那 16 张：GPT-2 和文心一言调不到模型，不进卡池
+    // （牌组页另外把它们拼在末尾，见 DeckScreen 的 DISPLAY_CARD_IDS）。
+    expect(filterDeckCards(CARD_POOL, 'ai', null)).toEqual(PLAYABLE_AI_CARD_IDS)
     expect(filterDeckCards(CARD_POOL, 'skill', null)).toEqual(skillIds)
   })
 
   it('阵营会把 AI 牌收窄到那一家', () => {
     const gpt = filterDeckCards(CARD_POOL, 'ai', 'gpt')
-    expect(gpt).toEqual(['gpt-2', 'gpt-3-5', 'gpt-4o', 'chatgpt-5-6-sol'])
+    expect(gpt).toEqual(['gpt-3-5', 'gpt-4o', 'chatgpt-5-6-sol'])
     for (const option of FACTIONS) {
       const shown = filterDeckCards(CARD_POOL, 'ai', option.id)
       expect(shown.length).toBeGreaterThan(0)
@@ -77,7 +82,7 @@ describe('卡池筛选', () => {
     // 而他并没有表达过"不想看技能牌"。
     for (const option of FACTIONS) {
       expect(filterDeckCards(CARD_POOL, 'skill', option.id)).toEqual(skillIds)
-      // 「全部」页签下选了阵营：AI 被收窄，技能牌仍是完整的那 24 张。
+      // 「全部」页签下选了阵营：AI 被收窄，技能牌一张不少。
       const all = filterDeckCards(CARD_POOL, 'all', option.id)
       expect(all.filter((cardId) => getCard(cardId).kind === 'skill')).toEqual(skillIds)
       expect(all.filter((cardId) => getCard(cardId).kind === 'ai')).toEqual(
@@ -86,10 +91,12 @@ describe('卡池筛选', () => {
     }
   })
 
-  it('24 张技能卡在任何阵营下都看得见', () => {
+  it('开放的技能卡在任何阵营下都看得见', () => {
+    // 只查开放的那几张：「即将上线」的牌不在 CARD_POOL 里，是牌组页自己另拼在末尾展示的
+    // （见 DeckScreen 的 pool），筛选函数本来就不该在这份输入里见到它们。
     for (const option of FACTIONS) {
       const shown = new Set(filterDeckCards(CARD_POOL, 'all', option.id))
-      for (const cardId of SKILL_DESIGN_CARD_IDS) expect(shown.has(cardId)).toBe(true)
+      for (const cardId of OPEN_SKILL_CARD_IDS) expect(shown.has(cardId)).toBe(true)
     }
   })
 })

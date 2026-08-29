@@ -44,7 +44,7 @@
   max-width: 68ch;
   margin: 0 0 16px;
   color: var(--gen-ink-dim);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.8;
 }
 
@@ -59,7 +59,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .generation__picker select {
@@ -68,13 +68,13 @@
   border-radius: 6px;
   background: var(--gen-panel);
   color: var(--gen-ink);
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 .generation__variant {
   color: var(--gen-ink-dim);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .generation__back {
@@ -84,7 +84,7 @@
   border-radius: 6px;
   background: var(--gen-panel);
   color: var(--gen-ink-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   cursor: pointer;
 }
 
@@ -95,7 +95,7 @@
 
 .generation__empty {
   color: var(--gen-ink-muted);
-  font-size: 14px;
+  font-size: var(--fs-lg);
 }
 
 /*
@@ -123,7 +123,7 @@
 .generation__corner {
   width: 200px;
   color: var(--gen-ink-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
 }
 
@@ -144,7 +144,7 @@
 .generation__question-label {
   display: block;
   margin-bottom: 4px;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -152,7 +152,7 @@
 .generation__question-expected {
   display: block;
   color: var(--gen-ink-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .generation__score {
@@ -160,7 +160,7 @@
   margin-top: 4px;
   color: var(--gen-ink-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 /* 首列：模型名 + 这个模型在当前技能下答对几道。 */
@@ -170,7 +170,7 @@
 
 .generation__model-name {
   display: block;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -211,7 +211,7 @@
   margin: 0 0 4px;
   color: var(--gen-ink-dim);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   letter-spacing: 0.08em;
 }
 
@@ -223,7 +223,7 @@
   margin: 0;
   color: var(--gen-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
   /* prompt 里的换行是拼装出来的结构（噪声句一行一条），保留原样才看得出形状。 */
   white-space: pre-wrap;
@@ -243,7 +243,7 @@
   display: inline-block;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.8;
 }
 
@@ -277,7 +277,7 @@
   -webkit-line-clamp: 3;
   line-clamp: 3;
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.7;
   overflow: hidden;
 }

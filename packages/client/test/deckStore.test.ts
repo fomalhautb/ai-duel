@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, STARTER_DECK, UNAVAILABLE_AI_CARD_IDS } from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -88,6 +88,9 @@ const KNOWN_CARD_IDS = new Set(CARD_POOL)
  */
 const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
 
+/** 调不到模型、进不了卡池的那种 AI 牌，用来验存档会把它剔掉。 */
+const UNAVAILABLE_CARD = UNAVAILABLE_AI_CARD_IDS[0]!
+
 describe('牌组存档', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage())
@@ -105,7 +108,7 @@ describe('牌组存档', () => {
     })
 
     // 预设直接取 core 的示例牌组，它本来就是一副能开局的牌，这里守着"没在存档层被改坏"。
-    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 2 份', () => {
+    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 MAX_COPIES 份', () => {
       const deck = loadDecks().decks[0]
       expect(deck?.cards).toEqual([...STARTER_DECK])
       expect(deck?.cards).toHaveLength(DECK_SIZE)
@@ -336,10 +339,18 @@ describe('牌组存档', () => {
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 
-    it('同一张卡最多留 2 份', () => {
+    it('丢掉调不到模型的那种 AI 牌', () => {
+      // 这类牌在 CARDS 里查得到、牌组页也灰着摆出来，但不在卡池里，存档里也不该留下——
+      // 老存档里带着 GPT-2 / 文心一言的牌组就是这么被清掉的。
       seedEmptyDeck()
-      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_B])
-      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_B])
+      const data = updateDeckCards('a', [CARD_A, UNAVAILABLE_CARD, CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
+    })
+
+    it('同一张卡最多留 3 份', () => {
+      seedEmptyDeck()
+      const data = updateDeckCards('a', [CARD_A, CARD_A, CARD_A, CARD_A, CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A, CARD_B])
     })
 
     it('超过 20 张的部分被截掉', () => {
@@ -350,10 +361,10 @@ describe('牌组存档', () => {
 
     it('读存档时同样会过滤：存档里被改坏的卡表读出来是干净的', () => {
       writeRaw({
-        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, '野卡'] }],
+        decks: [{ id: 'a', name: '测试牌组', cards: [CARD_A, CARD_A, CARD_A, CARD_A, '野卡'] }],
         currentId: 'a',
       })
-      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A])
+      expect(loadDecks().decks[0]?.cards).toEqual([CARD_A, CARD_A, CARD_A])
     })
 
     it('cards 不是数组时读成空牌组', () => {

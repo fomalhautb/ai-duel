@@ -113,10 +113,20 @@ textarea {
   font-family: inherit;
 }
 
+/*
+ * 整页高度用 JS 量出来的 --vp-h，不是 100%。
+ *
+ * 100% 取的是初始包含块，也就是"地址栏收起时"那个最大高度；安卓上按「一键全屏」
+ *（收浏览器栏 + 锁横屏，见 ui/fullscreen.ts）时这个值偶尔会慢一拍不跟着变，
+ * 整个 #root 就比屏幕矮一截，底下露出一条画布底色（:root 的 #0d1117），
+ * 看上去就是画面下边多了道黑边——退出重来一次又好了，正是这种偶发。
+ * --vp-h 是当场量的，并且进出全屏、转屏之后还会连着复查几帧补正（见 ui/viewportVars.ts）。
+ * 兜底 100% 只在 JS 还没跑起来时生效。
+ */
 html,
 body,
 #root {
-  height: 100%;
+  height: var(--vp-h, 100%);
   margin: 0;
 }
 
@@ -266,7 +276,7 @@ html {
    * 溢出的 multiply 不用管：.grain 自带 isolation: isolate，混合出不了 .home。
    */
   z-index: 1;
-  width: min(100vw, 100dvh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
@@ -1712,7 +1722,8 @@ html {
  */
 html:has(.battle),
 body:has(.battle) {
-  height: 100%;
+  /* 高度和上面那条通用规则同一个口径，别写回 100%，理由见 html, body, #root 那处注释。 */
+  height: var(--vp-h, 100%);
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -1748,14 +1759,19 @@ body:has(.battle) {
 }
 
 /*
- * 高度用 dvh 不用 vh：手机浏览器的 vh 是"地址栏收起时"那个最大高度，
+ * 高度不能用 vh：手机浏览器的 vh 是"地址栏收起时"那个最大高度，
  * 而页面实际能看见的只有当前这一屏。用 vh 算舞台会算出比屏幕高的一块，
- * 底下那截（正好是手牌所在的地方）被地址栏切掉。dvh 跟着地址栏伸缩，量到的一直是看得见的高。
- * 首页 / hero / room / deck 那几页的舞台同理，全部是这一行的同款。
+ * 底下那截（正好是手牌所在的地方）被地址栏切掉。
+ *
+ * --vp-w / --vp-h 是 JS 当场量出来的视口宽高（见 ui/viewportVars.ts），兜底值是 100vw / 100dvh。
+ * 之所以不直接用 dvh：dvh 在 Chrome 上是攒着更新的，安卓「一键全屏」那两步
+ *（收浏览器栏 + 锁横屏）连着改视口尺寸时它会慢一拍，舞台按旧高度排版，底下露出一条黑边。
+ *
+ * 首页 / hero / room / deck / info 那几页的舞台同理，全部是这一行的同款。
  */
 .battle-stage {
   position: relative;
-  width: min(100vw, 100dvh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
   overflow: hidden;
 }
@@ -6639,7 +6655,7 @@ body:has(.battle) {
  * 画面边上那颗小按钮。什么时候出现、点下去干什么，都在 ui/FullscreenEntry.tsx 里。
  *
  * 位置跟着视口的宽高比走，规矩只有一条：**待在舞台外面的留白里，不压画面**。
- * 全站舞台是 width: min(100vw, 100dvh * 1672 / 941) 的一块 16:9（见 .battle-stage），
+ * 全站舞台是 width: min(--vp-w, --vp-h * 1672 / 941) 的一块 16:9（见 .battle-stage），
  * 视口比它高就上下留白、比它宽就左右留白，按钮分别贴到底边和右边。
  *
  * 底色是半透明的深色而不是纸面：它落在留边上（留边色见 .battle-frame），

@@ -79,7 +79,7 @@
   /* 纸纹是宿主 .room 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero 同一处理）。 */
   z-index: 1;
-  width: min(100vw, 100dvh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 

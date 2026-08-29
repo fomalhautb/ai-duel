@@ -135,6 +135,28 @@ const SCENARIOS: Scenario[] = [
     foe: ['claude-fable-5', 'gemini', 'kimi-k3', 'grok'],
   },
   {
+    id: 'many-cards',
+    label: '⑥ 8v6 横向滚动',
+    desc: '8v6 共十四张，列数超过一屏能排下的五列，两侧一起开横向滚动、拉动时上下同步',
+    questionId: 'q-bamboo',
+    round: 5,
+    totalRounds: 5,
+    scoresBefore: { mine: 2, theirs: 2 },
+    // 十四张已经把能上场的 16 张用掉大半，剩下两张留给"少的那侧空位就空着"这条：
+    // 对方六张、我方八张，对方那行右边空两格。
+    mine: [
+      'gpt-3-5',
+      'gpt-4o',
+      'chatgpt-5-6-sol',
+      'claude-5-sonnet',
+      'claude-fable-5',
+      'deepseek-r1',
+      'deepseek-v4',
+      'gemini',
+    ],
+    foe: ['qwen', 'kimi-k2-6', 'kimi-k3', 'doubao', 'glm-5', 'minimax'],
+  },
+  {
     id: 'one-side-empty',
     label: '⑤ 0v2 单边空场',
     desc: '0v2，我方一个 AI 都没上：场上没 AI 就算没答对，消耗 0 也救不了，验证单边空场的排版',

@@ -5267,13 +5267,20 @@ body:has(.battle) {
 
 /* ---------- 回合结算层：双方作答 ---------- */
 
-/* 上我方、下对方，两块等高：谁答对得多要靠横向比对，两块不一样高就没法比。 */
+/*
+ * 上对方、下我方，两块等高：谁答对得多要靠横向比对，两块不一样高就没法比。
+ * 我方在下是贴着底栏走的——消耗、结论、确认按钮都在底栏，视线从对面扫到自己再落到结论，
+ * 一路往下不用回头。
+ *
+ * 底下留 10px：不留的话对方那块的下边框正好压在底栏那条分割线上（两者都在 y=845），
+ * 一条线上叠着一条边，看着像边框漏到线外面去了。
+ */
 .settle__squads {
   display: grid;
   grid-template-rows: 1fr 1fr;
   gap: 16px;
   min-height: 0;
-  padding: 0 28px;
+  padding: 0 28px 10px;
 }
 
 /*
@@ -5286,6 +5293,9 @@ body:has(.battle) {
   flex-direction: column;
   gap: 10px;
   min-height: 0;
+  /* 网格项的自动最小尺寸是内容的 min-content，不写这行的话，卡多到超宽时整块面板会被
+     里面那行卡撑成两千多像素宽、连着把整层顶出舞台，而不是让那行卡自己滚。 */
+  min-width: 0;
   /* 左边多留 6px 给下面那条竖色条。 */
   padding: 12px 16px 14px 22px;
   border: 1px solid var(--battle-line);
@@ -5379,17 +5389,44 @@ body:has(.battle) {
  * 只有约 170px，正好一张卡，第二行会直接压到另一侧的面板上、最后一行掉出舞台被根上的
  * overflow: hidden 裁掉（5v4 实测两块面板互相压 96px）。宁可每张窄一点。
  *
- * align-content: start + 定高的隐式行：卡不会被拉到整块面板那么高，
- * 高度和张数无关。min-width: 0 那一半交给 minmax(0, 1fr)：不写的话长回答会把列撑出面板。
+ * 列宽 minmax(--settle-card-min-w, 1fr)：平时几列平分，列多到超宽时每列停在最小宽度、
+ * 整行往右溢出，由 [data-scroll='true'] 那条规则开横向滚动（开关在 RoundSettleLayer 的
+ * SETTLE_FIT_COLUMNS，那边按这个最小宽度算出五列是上限）。
+ *
+ * 行高是 minmax(0, 1fr)：永远只有一行（列数保证了这点），这一行就正好等于面板里剩下的高度。
+ * **不能写成按内容撑的 auto**：一侧分到的高度会随题面长短、字号档位变，回答一长行就撑过面板，
+ * 卡的下边框直接画到面板外面、压到底栏那条线上。现在改成卡去适应格子——放不下的字在卡里截断
+ *（见 .settle-card__body 的 overflow），迷你卡面按 --settle-avatar-scale 缩小（见 RoundSettleLayer
+ * 的 useSettleAvatarScale）。min-width: 0 那一半交给列上的 minmax(0, 1fr)：不写的话长回答会把列撑出面板。
  */
 .settle__cards {
+  --settle-card-min-w: 300px;
+
   display: grid;
   flex: 1;
-  grid-auto-rows: minmax(170px, auto);
-  grid-template-columns: repeat(var(--settle-cols, 3), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  grid-template-columns: repeat(var(--settle-cols, 3), minmax(var(--settle-card-min-w), 1fr));
   gap: 14px;
-  align-content: start;
+  /* 理由同 .settle__squad 的 min-width：弹性项也会拿 min-content 当最小宽度，
+     不归零的话这一行永远"正好装得下"，overflow-x 就没有可滚的东西。 */
+  min-width: 0;
   min-height: 0;
+}
+
+/*
+ * 卡太多、一行排不下时才开的横向滚动。
+ *
+ * 只在真的超宽时挂 overflow-x（由 RoundSettleLayer 按列数决定，见 SETTLE_FIT_COLUMNS）：
+ * 滚动容器会连着纵向一起裁，而头像 hover 时要放大到两倍、纵向溢出卡外近百像素，
+ * 常态就挂上的话那一下放大会被削掉一半。超宽这一档里放大被裁是认了的代价——
+ * 卡多到要拉着看的时候，先保证读得到每张卡。
+ *
+ * 滚动条压细一档：这一行本来只有约 170px 高，默认那条粗条会再吃掉一截卡的高度。
+ * 两侧的横向位置由 useSettleScrollSync 绑在一起。
+ */
+.settle__cards[data-scroll='true'] {
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 /* ---------- 回合结算层：一张结果卡 ---------- */
@@ -5403,6 +5440,8 @@ body:has(.battle) {
   display: flex;
   gap: 12px;
   min-width: 0;
+  /* 高度由格子给（.settle__cards 的 1fr），min-height: 0 是不让里面的内容再把它顶大。 */
+  min-height: 0;
   padding: 14px;
   border: 1px solid var(--battle-line);
   border-radius: 8px;
@@ -5446,10 +5485,15 @@ body:has(.battle) {
  * 裁剪放在 tilt 那一层而不是这里，理由和战场小卡一模一样：裁切边要跟着卡一起转、一起放大，
  * 留在这一层的话倾斜时卡角会被一条不动的直边削掉，放大时更是整圈都被切回原尺寸。
  */
+/*
+ * 90×135 是空间够时的原尺寸；空间不够时整块按 --settle-avatar-scale 等比缩小
+ *（这个变量由 RoundSettleLayer 的 useSettleAvatarScale 按卡实际分到的高度现算，
+ * 两侧共用一个值，默认 1）。不缩的话头像会从卡的下边框里戳出去。
+ */
 .settle-card__avatar {
   flex: none;
-  width: 90px;
-  height: 135px;
+  width: calc(90px * var(--settle-avatar-scale, 1));
+  height: calc(135px * var(--settle-avatar-scale, 1));
   perspective: 700px;
 }
 
@@ -5466,14 +5510,21 @@ body:has(.battle) {
  * 卡面的布局尺寸仍是 150×225（.card-face 是 width/height: 100%，靠这一层给的宽高），
  * 只是被缩到 0.6 画出来 —— 150×0.6 = 90，225×0.6 = 135，正好是上面那个框。
  * 改这里的 0.6 要连着改 avatar 的宽高，两处对不上就会露白边或被裁掉一截。
+ * 外面还要再乘一次 --settle-avatar-scale，理由同 .settle-card__avatar：两处乘的是同一个数。
  */
 .settle-card__avatar-inner {
   width: var(--card-w);
   height: var(--card-h);
-  transform: scale(0.6);
+  transform: scale(calc(0.6 * var(--settle-avatar-scale, 1)));
   transform-origin: top left;
 }
 
+/*
+ * 文字区。overflow: hidden **只加在这一层**：卡里放不下的字到此为止，不会画到卡外面去。
+ * 加在外面那层 .settle-card 上不行——hover 时头像要放大到 2 倍溢出好几层，
+ * 卡上一裁就把放大的部分切掉了（整条链上唯一一处裁剪在 .settle 根上，见那边注释）。
+ * 头像是 body 的兄弟节点，不受这里的裁剪影响。
+ */
 .settle-card__body {
   position: relative;
   display: flex;
@@ -5481,6 +5532,8 @@ body:has(.battle) {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /*
@@ -5490,27 +5543,52 @@ body:has(.battle) {
  * 只压 body 不压头像：卡面还得看得清是哪个模型答错的。
  */
 
-/* 右边留出判定章的地方，卡名才不会钻到章底下。 */
+/* 右边留出判定章的地方，卡名才不会钻到章底下。名字长了最多两行，再长截断——
+   名字挤走的是下面的回答，而这张卡要看的是回答。 */
 .settle-card__name {
+  display: -webkit-box;
+  flex: none;
   margin: 0;
+  overflow: hidden;
   padding-right: 120px;
   color: var(--battle-ink);
   font-size: calc(18px * var(--fs-mid-scale));
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
+/*
+ * 大字回答。最多两行，再长就在第二行末尾截成「…」。
+ *
+ * 模型偶尔会把一整段推理当成答案交上来（几十上百字），不截的话这一段会把卡撑高、
+ * 顶穿面板下边框一直画到底栏那条线上去。两行是照最挤的一档留的：手机档字更大、
+ * 卡分到的高度更小，两行加上下面两行推理刚好还装得下。
+ * flex: none 是要它优先占住这两行——空间不够时先挤下面的推理，回答本身不缩。
+ */
 .settle-card__answer {
+  display: -webkit-box;
+  flex: none;
   margin: 0;
+  overflow: hidden;
   color: var(--battle-ink);
   font-size: 30px;
   font-weight: 700;
   line-height: 1.2;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
-/* 推理只是佐证，最多两行；再长就截掉，不让它把卡撑高、把一排卡挤歪。 */
+/* 推理只是佐证，最多两行；再长就截掉，不让它把卡撑高、把一排卡挤歪。
+   flex 上写成可缩（min-height: 0）：卡矮到装不下三块时，先由它让出地方，
+   而不是整块文字一起溢出去——它是这张卡里最不重要的一行。 */
 .settle-card__reasoning {
   display: -webkit-box;
+  flex: 0 1 auto;
   margin: 0;
+  min-height: 0;
   overflow: hidden;
   color: var(--battle-ink-muted);
   font-size: var(--fs-base);

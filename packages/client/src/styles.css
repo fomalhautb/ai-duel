@@ -140,6 +140,18 @@ body,
 }
 
 .home__stage {
+  /*
+   * 金色高亮和人物介绍卡片共用的一对时长：进入比离开慢一点，
+   * 出现时看得出是"浮上来的"，退场则干脆一些，不拖着尾巴挡画面。
+   * 放在舞台上是为了两处读同一份，免得调节奏时只改到一边。
+   * 这里的大小关系是有讲究的，别改反：换人时是两张介绍卡片在同一块地方交叉，
+   * "离开短于进入"加上下面那份起跑延迟，才能让旧卡先退干净、不和新卡叠成重影，
+   * 理由见 .home__cast-panel。
+   */
+  --home-cast-fade-in: 0.26s;
+  --home-cast-fade-out: 0.2s;
+  /* 只有介绍卡片用的一份起跑延迟，理由见 .home__cast-panel.is-open。 */
+  --home-cast-panel-in-delay: 0.08s;
   container-type: size;
   position: relative;
   /*
@@ -226,8 +238,8 @@ body,
    */
   visibility: hidden;
   transition:
-    opacity 0.22s ease,
-    visibility 0s linear 0.22s;
+    opacity var(--home-cast-fade-out) ease-in,
+    visibility 0s linear var(--home-cast-fade-out);
 }
 
 .home__cast-glow.is-lit {
@@ -235,12 +247,13 @@ body,
   visibility: visible;
   /* 淡入时 visibility 要立刻生效，所以延迟归零。 */
   transition:
-    opacity 0.22s ease,
+    opacity var(--home-cast-fade-in) ease-out,
     visibility 0s linear 0s;
 }
 
 /*
- * 人物介绍卡片。左右位置由 HomeScreen 按人物的 alpha 包围盒现算，这里只管长相。
+ * 人物介绍卡片。七个人各有一份常驻在 DOM 里，位置由 HomeScreen 按各自的 alpha 包围盒算好写进内联样式，
+ * 这里只管长相和淡入淡出——所以不用过渡 left/right，切人是两张卡片各自淡出淡入。
  * 调子对着首页夜空走：深蓝底 + 米金细线，双线内衬呼应战场的 .ornate-frame，但换成首页色板。
  */
 .home__cast-panel {
@@ -260,19 +273,38 @@ body,
   transform: translateY(0.6cqi);
   /* 和发光层同一套 visibility 配方，理由见上面。 */
   visibility: hidden;
+  /*
+   * 缓动这里和发光层不一样：进出两侧都用 ease，不用"离开 ease-in、进入 ease-out"那套。
+   * 相邻两人的卡片在屏幕上是大面积摞着的（实测最挤的一对重叠八成，姓名行还在同一高度），
+   * 指针从一个人滑到另一个人，就是两张卡在同一块地方交叉淡入淡出。
+   * 两侧用同一条曲线、离开又比进入短，两张卡的透明度加起来才始终不超过 1，看着像一张卡在换内容；
+   * 换成 ease-in 淡出的话，旧卡前段走得慢、高透明度被拖到后半程，正好撞上冲得快的新卡，
+   * 中间那零点一秒两张卡的边框和文字都清清楚楚，成了重影。
+   * 发光层没这个顾虑：每个人的剪影各占一块地方，重叠得少，上面也没有字。
+   */
   transition:
-    opacity 0.24s ease,
-    transform 0.24s ease,
-    visibility 0s linear 0.24s;
+    opacity var(--home-cast-fade-out) ease,
+    transform var(--home-cast-fade-out) ease,
+    visibility 0s linear var(--home-cast-fade-out);
 }
 
 .home__cast-panel.is-open {
   opacity: 1;
   transform: translateY(0);
   visibility: visible;
+  /*
+   * 淡入这一侧：visibility 立刻生效（此时 opacity 还是 0，看不见），时长换成进入那一份，
+   * 再让整段淡入晚一点起跑。
+   *
+   * 这点延迟是给上面说的"两张卡摞着交叉"留的余地：不延迟的话，中间有 44ms 两张卡都在四分之一
+   * 以上、最密的一帧同时到 0.42，重叠八成的那一对会同时读到两组姓名和两圈边框，是看得见的重影；
+   * 晚 0.08s 起跑之后，两张同时最高只到 0.14，再没有哪一帧是双方都过四分之一的，重影就没了。
+   * 再往后拖并不会更好：换人的总时长会明显变长，快速扫过几个人时卡片根本来不及出现。
+   * 发光层不跟这个延迟，它要跟手——先亮边缘再浮出档案，顺序上也说得通。
+   */
   transition:
-    opacity 0.24s ease,
-    transform 0.24s ease,
+    opacity var(--home-cast-fade-in) ease var(--home-cast-panel-in-delay),
+    transform var(--home-cast-fade-in) ease var(--home-cast-panel-in-delay),
     visibility 0s linear 0s;
 }
 
@@ -650,8 +682,9 @@ body,
 
   /*
    * 高亮和介绍卡片改成直接出现／消失，不淡入也不位移。
-   * visibility 那条不能一起压成 1ms：它本来就是 0s 时长、靠延迟排在淡出之后的，
-   * 淡出没了，它的延迟也得归零，否则隐藏会莫名慢半拍。
+   * 必须整条 transition: none，不能改成压时长（比如上面那样写 transition-duration: 1ms）：
+   * 这两处还挂着两种延迟——visibility 靠延迟排在淡出之后，介绍卡片的淡入又整体晚 0.08s 起跑。
+   * 只压时长的话延迟会原样留着，结果是隐藏慢半拍、卡片还要等 0.08s 才出现。
    */
   .home__cast-glow,
   .home__cast-glow.is-lit,

@@ -1713,11 +1713,16 @@ body:has(.battle) {
   font: inherit;
   line-height: 1;
   cursor: pointer;
+  /* 和匾额上的字、首页铜牌上的字同一种手绘抖法（滤镜见 ui/HandDrawnFilterDefs.tsx）。
+     套在按钮这一层，箭头和文字一起抖：按钮里就这两样东西，也没有背景和描边，
+     和分别套在两个子元素上画出来是一样的，少写一条规则。
+     代价是使用方所在的页面必须渲染过 HandDrawnFilterDefs，否则 Chrome 上整颗按钮不画。 */
+  filter: url('#ai-duel-rough-icon');
 }
 
 /*
  * 箭头是独立一层，hover 时只有它左移，按钮本身不动：
- * 页面可能拿 GSAP 给按钮写入场用的 transform（/hero 就是），
+ * 页面可能拿 GSAP 给按钮写入场用的 transform（/hero、/room 就是），
  * 位移放在子元素上，父子各写各的 transform，不会互相抹掉。
  *
  * 宽高按 viewBox 的 23:15 给，换算过来正好是设计稿上箭头相对文字的大小。

@@ -60,8 +60,10 @@ PANEL_HOLLOW = (390, 512, 2961, 1186)
 # 削掉一截（见 tighten 的说明）。所以边界一律放在元素之间的空白里，宽出来的部分
 # tighten 会自己收回去。放宽的上限是「不要碰到邻居的像素」——中间那几件挨得近，
 # 下面注掉的读数就是量出来的安全范围。
+#
+# 左上角的返回箭头（原图 100,92~217,201）不在这张表里：它已经改画成矢量了
+# （见 client 的 ui/BackButton.tsx），切出来也没人用。
 REGIONS: list[tuple[str, tuple[int, int, int, int], bool]] = [
-    ("back-arrow", (100, 92, 217, 201), True),
     ("book", (2809, 92, 2968, 209), True),
     ("flourish-l", (844, 184, 1246, 301), True),
     ("flourish-r", (2098, 184, 2475, 301), True),

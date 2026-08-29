@@ -826,30 +826,31 @@
 }
 
 /* ============================================================
-   即将上线的技能牌
+   选不进牌组的牌
    ------------------------------------------------------------
-   这批牌（core 的 COMING_SOON_SKILL_CARD_IDS）摆在卡池最后，只能看不能选。
+   两类：还没开放的技能牌（core 的 COMING_SOON_SKILL_CARD_IDS）和调不到模型的 AI 牌
+   （UNAVAILABLE_AI_CARD_IDS）。都摆在卡池最后，只能看不能选。
    压得比"选满份数"更狠一档：那种灰是"这张已经拿够了"，这种是"这张还拿不到"，
-   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __soon 牌子。
+   同屏摆在一起要分得出来；真正说清楚是哪一种的还是卡上那块 __blocked 牌子。
    同样只压正面：背面那段说明还是要读的。
    ============================================================ */
-.deck-pool-card[data-soon] {
+.deck-pool-card[data-blocked] {
   cursor: not-allowed;
 }
 
-.deck-pool-card[data-soon] .card-face {
+.deck-pool-card[data-blocked] .card-face {
   filter: grayscale(1) brightness(0.48);
 }
 
 /* hover 那圈金光是"这张可以拿"的意思，加不了的牌不该亮它。
    多带一个属性选择器就压过了上面那条 .deck-pool-card:hover .deck-pool-card__glow，
    不用 !important。 */
-.deck-pool-card[data-soon]:hover .deck-pool-card__glow {
+.deck-pool-card[data-blocked]:hover .deck-pool-card__glow {
   opacity: 0;
 }
 
 /*
- * 卡面正中那块「即将上线」的牌子。
+ * 卡面正中那块写着「这张为什么选不了」的牌子（「即将上线」或「暂未接入」）。
  *
  * 是 .deck-pool-card 的直接子级（同 __glow / __seal），所以不跟着卡面倾斜和翻面，
  * 也不跟着 --deck-pool-scale 放大——它按屏幕像素排，和问号、圆钮是一档。
@@ -858,7 +859,7 @@
  * transform 不用 translate 独立属性：这一层虽然现在没有 GSAP 碰，但整页别处有过
  * "GSAP 内联 transform 压死独立属性"的坑，统一写 transform 省得日后踩。
  */
-.deck-pool-card__soon {
+.deck-pool-card__blocked {
   position: absolute;
   z-index: 4;
   top: 50%;

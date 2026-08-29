@@ -1154,7 +1154,8 @@ packages/core/
   src/index.ts                包的唯一出口，把下面几个模块整个转出去
   src/types.ts                全部数据形状（状态、卡牌、题目、指令、事件）
   src/cards.ts                卡牌数据 + 查表 + 示例牌组（只有 AI 牌和技能牌）
-  src/aiModels.ts             18 张具名 AI 牌的定义，被 cards.ts 并进 CARDS；默认牌组 = 这 18 张 + 2 张技能牌
+  src/aiModels.ts             18 张具名 AI 牌的定义（含各自的 OpenRouter 模型 id），被 cards.ts 并进 CARDS；
+                              其中 2 张 OpenRouter 调不到，不进卡池，牌组页灰着摆在最后（同「即将上线」的技能牌）
   src/skillCards.ts           24 张技能牌的定义，同样被 cards.ts 并进 CARDS；一张卡对一张原画
                               另标出开放的 9 张（OPEN_SKILL_CARD_IDS）和「即将上线」的 15 张：
                               后者只在牌组页灰着展示，不进卡池

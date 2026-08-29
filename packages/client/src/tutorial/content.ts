@@ -79,29 +79,35 @@ export const TUTORIAL_CARDS = {
    */
   skill: 'fixed-answer' as CardId,
   /**
-   * 第 2 轮"可以再派一张"时高亮的 AI，只留 GPT-2（1 费）这一张。
+   * 第 2 轮打完技能牌之后还放行哪些 AI——**空的，一张都不放行**。
    *
-   * 收窄到一张是 Token 对账的硬要求，不是排版偏好：第 2 轮玩家最多花
-   * 复读机 4 + GPT-2 1 = 5 点，严格小于对手那一轮的 6 点，
-   * 于是无论玩家怎么操作都稳拿"消耗更少"那一分（对账见下面 TUTORIAL_FOE_PLAYS）。
-   * 再放进一张 2 费的就会打成 6 比 6 平手，第 2 轮的教学结论当场翻车。
+   * 这是 Token 对账逼出来的，不是懒得选：第 2 轮玩家的消耗必须严格小于对手那一轮的 6 点，
+   * 才能稳拿"双方同对就比消耗"那一分（对账见下面 TUTORIAL_FOE_PLAYS）。复读机自己就要 4 点，
+   * 于是增派的 AI 只能是 1 费——而卡池里最便宜的 AI 是 2 费（GPT-3.5 和豆包），
+   * 放进来就是 6 比 6 平手，第 2 轮的教学结论当场翻车。
+   *
+   * 这里原本放的是 1 费的 GPT-2，但它在 OpenRouter 上调不到、根本不在卡池里
+   *（见 core 的 UNAVAILABLE_AI_CARD_IDS），玩家学完回到牌组页会发现刚用过的那张是灰的、
+   * 自己拼不出这副牌。宁可让第 2 轮少一个可选动作，也不留这处对不上。
+   *
+   * 留成数组而不是删掉这个字段：等以后有了 1 费的可用 AI，把它填回来、
+   * 再把 steps.ts 里 TUTORIAL_R2_PLAY 的文案改回"你也可以再派一张"就行。
    */
-  optionalAi: ['gpt-2'] as CardId[],
+  optionalAi: [] as CardId[],
 }
 
 /**
  * 玩家的抽牌顺序：前 5 张是起手，之后每轮补 2 张。
  *
- * 起手必须凑齐教学要用的全部牌：第 1 轮指定的 AI（gpt-3-5）、第 2 轮的技能牌（复读机）、
- * 第 2 轮可选增派的那张 GPT-2。豆包和 deepseek-r1 只是把起手补满，教程不点名用它们
- * ——尤其豆包（2 费）：它现在**不在** optionalAi 里，第 2 轮是压暗打不出的，
- * 留在手上正好让"这一轮只放行这一张"看得见对照。
+ * 起手必须凑齐教学点名要用的牌：第 1 轮指定的 AI（gpt-3-5）和第 2 轮的技能牌（复读机）。
+ * 另外三张只是把起手补满，教程不点名用它们——第 2 轮一张 AI 都不放行（见 TUTORIAL_CARDS
+ * 的 optionalAi），它们全程压暗打不出，正好让"这一轮只用打技能牌"看得见对照。
  */
 const PLAYER_DRAW_ORDER: CardId[] = [
   // 起手 5 张
   'gpt-3-5',
   'fixed-answer',
-  'gpt-2',
+  'gpt-4o',
   'doubao',
   'deepseek-r1',
   // 第 2 轮补 2 张
@@ -115,7 +121,13 @@ const PLAYER_DRAW_ORDER: CardId[] = [
   'minimax',
 ]
 
-/** 玩家牌组里摸不到的那部分，只为把 20 张凑满。每张一份，不会和上面的关键牌重号。 */
+/**
+ * 玩家牌组里摸不到的那部分，只为把 20 张凑满。
+ * gpt-4o 和起手那张凑成两份（上限 3 份，还有余量），其余每张一份。
+ *
+ * 挑的全是卡池里的牌（GPT-2、文心一言那种"调不到模型"的不放）：第 3 轮玩家可以自由出牌，
+ * 填充牌虽然摸不到，但这条约束和技能牌那边一个道理，统一守着省得日后改抽牌顺序时翻车。
+ */
 const PLAYER_FILLER: CardId[] = [
   'gpt-4o',
   'chatgpt-5-6-sol',
@@ -127,7 +139,7 @@ const PLAYER_FILLER: CardId[] = [
   'glm-5',
   'yuanbao',
   'grok',
-  'wenxin-yiyan',
+  'deepseek-r1',
 ]
 
 /**
@@ -137,9 +149,11 @@ const PLAYER_FILLER: CardId[] = [
  */
 const FOE_DRAW_ORDER: CardId[] = ['minimax', 'claude-fable-5', 'grok', 'gpt-4o', 'qwen']
 
-/** 对手牌组的填充部分。gpt-2 和豆包各两份，凑够 15 张；对手不出技能牌，所以一张技能牌都不放。 */
+/**
+ * 对手牌组的填充部分。gpt-3-5 和豆包各两份，凑够 15 张；对手不出技能牌，所以一张技能牌都不放。
+ * 同 PLAYER_FILLER：只放卡池里的牌，GPT-2 和文心一言那两张调不到模型的不进这里。
+ */
 const FOE_FILLER: CardId[] = [
-  'gpt-2',
   'gpt-3-5',
   'chatgpt-5-6-sol',
   'claude-5-sonnet',
@@ -151,8 +165,9 @@ const FOE_FILLER: CardId[] = [
   'doubao',
   'glm-5',
   'yuanbao',
-  'wenxin-yiyan',
-  'gpt-2',
+  'minimax',
+  'grok',
+  'gpt-3-5',
   'doubao',
 ]
 
@@ -178,9 +193,10 @@ export const TUTORIAL_FOE_OPENING_HAND: CardId[] = FOE_DRAW_ORDER.slice(0, 5)
  *（第 2 轮那 6 点正好花光当轮额度，是对手出得起的最贵一张）。
  *
  * 第 2 轮那 6 点是故意花的：它必须**严格大于**玩家在教学限制内可能的最大消耗
- *（复读机 4 + 唯一放行的 GPT-2 1 = 5），这样"双方同对就比 Token"那一分才稳稳属于玩家。
+ *（第 2 轮只放行复读机一张，4 点封顶），这样"双方同对就比 Token"那一分才稳稳属于玩家。
  * 下限那头也是稳的：玩家这一轮就算一张都不打（消耗 0），0 < 6 照样赢。
- * 换对手这一轮的牌就要重算这条不等式——只要它掉到 5 或以下，第 2 轮的教学结论就翻车。
+ * 换对手这一轮的牌、或者往 optionalAi 里放牌，都要重算这条不等式——
+ * 只要玩家那头够得着 6，第 2 轮的教学结论就翻车。
  */
 export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['claude-fable-5'], ['grok']]
 
@@ -193,7 +209,7 @@ export const TUTORIAL_FOE_PLAYS: CardId[][] = [['minimax'], ['claude-fable-5'], 
  * - 第 1 轮：玩家全对、对手全错（minimax 被罚下）→ 只有一方答对，玩家 +1。
  * - 第 2 轮：双方全对（被复读机干扰的 claude-fable-5 也答对——干扰只是标记，
  *   还没接进答题，顺带给它第 3 轮答错埋个伏笔）→ 双方同对就比本轮消耗，
- *   玩家最多 5 点、对手 6 点，玩家更省，玩家 +1。
+ *   玩家最多 4 点、对手 6 点，玩家更省，玩家 +1。
  * - 第 3 轮：玩家全对、对手全错 → 玩家 +1，3:0 收场。
  */
 function isCorrectFor(round: number, owner: PlayerId): boolean {
@@ -252,7 +268,6 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
           answer: '无法判断',
           reasoning: '题目里没写性别，我不敢替它补一个。',
         },
-        'gpt-2': { correct: true, answer: '没说', reasoning: '真没说。一个字都没说。' },
         doubao: { correct: true, answer: '判断不了', reasoning: '题目没有提到性别哦～不能乱猜的。' },
         'claude-fable-5': { correct: true, answer: '无法判断', reasoning: '信息不足，不做推断。' },
       },
@@ -264,7 +279,6 @@ const ANSWER_LINES: Record<string, { fallback: ScriptedLine[]; lines: Record<str
       ],
       lines: {
         'gpt-3-5': { correct: true, answer: '不变', reasoning: '浮力那条定律刚好把它抵掉。' },
-        'gpt-2': { correct: true, answer: '不变', reasoning: '不变。不变。真的不变。' },
         doubao: { correct: true, answer: '不会变', reasoning: '水面高度保持原样哒～' },
         'claude-fable-5': {
           correct: false,

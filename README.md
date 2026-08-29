@@ -22,16 +22,17 @@
 
 两台电脑各开一个浏览器，一方建房、一方输房间码，就能开打。
 
-### 匹配房
-
-<p align="center">
-  <img src="docs/screenshots/room.jpg" alt="匹配房界面" width="880">
-</p>
-
 ### 对局界面
 
 <p align="center">
   <img src="docs/screenshots/battle.jpg" alt="对局界面" width="880">
+</p>
+
+
+### 匹配房
+
+<p align="center">
+  <img src="docs/screenshots/room.jpg" alt="匹配房界面" width="880">
 </p>
 
 ### 组建牌组

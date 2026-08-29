@@ -893,28 +893,28 @@
 }
 
 /*
- * 选中圆章：金底墨字，钉在卡的左下角，约三分之一探出卡外。
- * 一份显示「✓」，多带几份就显示「×2」「×3」。
+ * 选中圆章：金底墨字，钉在卡的左下角，位置和右下角那颗「＋」左右对称（同样内缩 7px、同样 52px）。
+ * 显示带了几份：「×1」「×2」「×3」。
  *
  * 四个角是分配好的：左上是卡面自带的 Token 圆章（不能压），右上是问号，
  * 右下是「＋」，只剩左下给它。
  *
  * 圆底和描边画在 ::before 上、只给这一层套手绘滤镜，章上的字留在元素本体：
- * 位移滤镜作用在文字上会把「✓」和「×2」扯糊。
+ * 位移滤镜作用在文字上会把「×2」这类数字扯糊。
  * isolation: isolate 是为了把下面那句 z-index: -1 关在圆章内部——
  * 不隔离的话它会一路落到 .paper-page__inner 的负层，整个跑到卡面后面去。
  */
 .deck-pool-card__seal {
   position: absolute;
-  bottom: -9px;
-  left: -9px;
+  bottom: 7px;
+  left: 7px;
   display: grid;
   place-items: center;
   isolation: isolate;
-  width: 26px;
-  height: 26px;
+  width: 52px;
+  height: 52px;
   color: #241d10;
-  font-size: 12.5px;
+  font-size: 25px;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -926,7 +926,7 @@
   position: absolute;
   z-index: -1;
   inset: 0;
-  border: 1.5px solid #8b6a24;
+  border: 3px solid #8b6a24;
   border-radius: 50%;
   background: var(--c-gold);
   filter: url('#ai-duel-rough-icon');
@@ -988,12 +988,12 @@
 }
 
 /* 右下角。四个角的分配见 .deck-pool-card__seal 的注释；右下正好是卡面插画的底部留白，
-   圆圈压上去不会盖到任何文字。卡放大之后按钮也跟着大一号，不然点起来偏小。 */
+   圆圈压上去不会盖到任何文字。尺寸和左下角那枚份数圆章一致（52px），两个角看起来才是一对。 */
 .deck-circle--add {
   right: 7px;
   bottom: 7px;
-  width: 30px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
 }
 
 .deck-circle--add:hover:not([data-disabled]) {
@@ -1016,8 +1016,8 @@
 .deck-circle--remove {
   right: -6px;
   bottom: -6px;
-  width: 26px;
-  height: 26px;
+  width: 40px;
+  height: 40px;
   opacity: 0;
 }
 

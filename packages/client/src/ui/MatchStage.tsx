@@ -2004,22 +2004,17 @@ function BattleField({
             </div>
 
             <div className="battle__row battle__row--mine">
-              {me.board.length === 0 ? (
-                // 这行提示不套 slot：它是一句话，不是格子，被挤窄了只会把字折断。
-                <span className="battle__board-hint">将手牌拖入战场</span>
-              ) : (
-                me.board.map((ai) => (
-                  <div className="battle__board-slot" key={ai.instanceId}>
-                    <BoardTile
-                      ai={ai}
-                      held={inspecting?.instanceId === ai.instanceId}
-                      // 干扰技能只打对面，我方这一行永远不是目标。
-                      target="none"
-                      onActivate={() => handleInspect(ai)}
-                    />
-                  </div>
-                ))
-              )}
+              {me.board.map((ai) => (
+                <div className="battle__board-slot" key={ai.instanceId}>
+                  <BoardTile
+                    ai={ai}
+                    held={inspecting?.instanceId === ai.instanceId}
+                    // 干扰技能只打对面，我方这一行永远不是目标。
+                    target="none"
+                    onActivate={() => handleInspect(ai)}
+                  />
+                </div>
+              ))}
             </div>
           </div>
 

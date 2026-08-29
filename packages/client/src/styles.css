@@ -2012,13 +2012,6 @@ body:has(.battle) {
     0 0 30px rgb(255 220 141 / 30%);
 }
 
-.battle__board-hint {
-  color: rgb(211 204 185 / 50%);
-  font-size: 13px;
-  letter-spacing: 0.16em;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
-}
-
 /* ---------- 敌我分界中线 ---------- */
 
 /*

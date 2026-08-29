@@ -1,0 +1,56 @@
+/*
+ * 教程引导层。挂在 .battle 里面，坐标全是舞台内坐标（见 TutorialOverlay 的文件头）。
+ */
+
+/*
+ * 整层不吃指针事件：洞里的真实 UI 要照常点得到、拖得动。
+ * z-index 1000 夹在对局常规 UI（顶栏 70、结算 90）之上、全屏过场（1100）之下——
+ * 过场演的时候提示自动让位，不跟抛硬币 / 答题揭晓抢画面。
+ * position: fixed 的包含块是 .battle-scaler（它有 transform），所以 inset: 0 正好是整块舞台。
+ */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* 压暗块。四周拼起来正好是"舞台减去洞"，洞区一个像素都不盖（见 overlayGeometry.ts）。
+   颜色偏冷深蓝，和战场底色同一族，压下去像是灯暗了而不是蒙了层灰。 */
+.tutorial-overlay__shade {
+  position: absolute;
+  background: rgba(9, 14, 24, 0.58);
+}
+
+/*
+ * 洞的描边。只画边不画底，中间必须是透明的——底下就是玩家要操作的那个元素。
+ * 呼吸由 GSAP 补间 opacity（见 TutorialOverlay），这里不写 @keyframes，
+ * 免得和补间抢同一个属性。
+ */
+.tutorial-overlay__ring {
+  position: absolute;
+  border: 2px solid #f2c66b;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px rgba(242, 198, 107, 0.18),
+    0 0 26px rgba(242, 198, 107, 0.35);
+}
+
+/*
+ * 提示气泡。位置由 JS 现算（贴着第一个洞放），这里只管长相。
+ * 用纸面配色和对局界面的匾额保持一族；字号偏大，一句话一眼看完。
+ */
+.tutorial-overlay__tip {
+  position: absolute;
+  margin: 0;
+  padding: 16px 22px;
+  box-sizing: border-box;
+  border: 2px solid #b9a06a;
+  border-radius: 12px;
+  background: #f4eede;
+  color: #2b2c35;
+  font-size: 21px;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: 0 10px 26px rgba(6, 10, 18, 0.45);
+}

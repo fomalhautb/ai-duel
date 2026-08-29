@@ -53,6 +53,7 @@ import { HandCardFace, HandFan } from './HandFan'
 import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
 import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { MatchResult } from './MatchResult'
+import type { MatchStageCue, MatchStageTutorial } from './matchStageTutorial'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
@@ -313,9 +314,29 @@ export interface MatchStageProps {
   testMode?: boolean
   /** 结算层里的按钮，由各个界面自己决定是"再来一局"还是"回首页"。 */
   resultActions?: ReactNode
+  /**
+   * 新手教程挂上来的限制与回调（见 ui/matchStageTutorial.ts）。正式对局不传。
+   *
+   * 这个 prop 只做两件事：把逐张手牌的锁和「结束出牌」的锁并进现有的判据里，
+   * 以及在几段演出的收尾处喊一声。界面的其余部分对教程一无所知。
+   */
+  tutorial?: MatchStageTutorial
+  /**
+   * 盖在对局画面上的额外一层，现在只有教程的引导层。
+   *
+   * 必须由这里渲染而不是让调用方并排放在 MatchStage 外面：`.battle-scaler` 带 transform，
+   * 是个层叠上下文，挂在外面的浮层不管写多大的 z-index 都会整块盖住全屏过场。
+   */
+  overlay?: ReactNode
 }
 
-export function MatchStage({ driver, testMode = false, resultActions }: MatchStageProps) {
+export function MatchStage({
+  driver,
+  testMode = false,
+  resultActions,
+  tutorial,
+  overlay,
+}: MatchStageProps) {
   const view = useMatch(driver)
 
   // 还没拿到局面（联机客人在等房主开局），或者开局前就断了。
@@ -347,6 +368,8 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
         state={view.state}
         testMode={testMode}
         resultActions={resultActions}
+        tutorial={tutorial}
+        overlay={overlay}
       />
     </BattleFrame>
   )
@@ -385,6 +408,8 @@ function BattleField({
   state,
   testMode,
   resultActions,
+  tutorial,
+  overlay,
 }: {
   driver: MatchDriver
   view: MatchView
@@ -392,6 +417,8 @@ function BattleField({
   state: GameState
   testMode: boolean
   resultActions?: ReactNode
+  tutorial?: MatchStageTutorial
+  overlay?: ReactNode
 }) {
   const mySeat = view.seat
   const foeSeat = other(mySeat)
@@ -603,6 +630,17 @@ function BattleField({
    */
   const seatRef = useRef(mySeat)
   seatRef.current = mySeat
+  /**
+   * 教程挂上来的那一份 prop。走 ref 的理由同 seatRef：
+   * 报信号的地方全是动画收尾这类延迟回调，闭包捕获到的是好几秒前那次渲染的值。
+   */
+  const tutorialRef = useRef(tutorial)
+  tutorialRef.current = tutorial
+
+  /** 报一声舞台演出信号。没挂教程时整个是空操作，正式对局一分钱都不花。 */
+  const stageCue = (name: MatchStageCue): void => {
+    tutorialRef.current?.onStageCue?.(name)
+  }
 
   /** 还没播的横幅文案，先进先出。 */
   const bannerQueueRef = useRef<string[]>([])
@@ -739,6 +777,11 @@ function BattleField({
           node.remove()
           bannerBusyRef.current = false
           pumpBanner()
+          // 队列彻底空了才算"这一轮的横幅播完"（教程的提示要等它，否则会和横幅糊在一起）。
+          // pumpBanner 已经把下一条起起来了的话 bannerBusy 是开着的，这一下不成立。
+          if (!bannerBusyRef.current && bannerQueueRef.current.length === 0) {
+            stageCue('round-banner-done')
+          }
         },
       })
       .fromTo(
@@ -1023,6 +1066,7 @@ function BattleField({
             rows: [],
             score: null,
           }))
+          stageCue('quiz-open')
           break
         case 'AI_ANSWERED': {
           // 结果渲染在揭晓层内部，不去动战场上那张即将被 React 移除的小卡。
@@ -1126,6 +1170,8 @@ function BattleField({
       // 同步区间，里面新建的补间（飞行本身、以及命中特效那几条）都得包一层才归 context 管（架构 5.5）。
       const hit = () => {
         playSkillHitFx(target)
+        // 教程的「技能牌使用后立即生效」要等这一下：命中特效之前说，玩家还没看见任何变化。
+        stageCue('skill-hit')
         finish()
       }
       const fly = () => flyToTile(node, target, safe ? safe(hit) : hit)
@@ -1301,6 +1347,8 @@ function BattleField({
             // 万一哪天 ref 的更新时机变了（现在靠渲染期赋值，稳稳排在 GSAP 的 rAF 之前），
             // 这一句也不会误清别人的层。
             setQuizReveal((current) => (current?.key === shownKey ? null : current))
+            // 揭晓层退场了，教程的提示这才有地方站（它在 1000，这一层在 1100）。
+            stageCue('quiz-closed')
             // 同一批里跟在 ROUND_SCORED 后面的下一轮横幅一直憋到这里才放出来。
             pumpBanner()
             // 屏幕空出来了，这一轮的补牌这才从各自的卡堆飞出去（见 dealHeld）。
@@ -1326,12 +1374,15 @@ function BattleField({
           },
           0.12,
         )
+        // 两条 call 都是 0 时长，插进来不会改变后面那两段的起跑时间（'+=' 仍旧相对同一个末端）。
+        .call(() => stageCue('quiz-rows-done'))
         .fromTo(
           node.querySelector('.quiz-reveal__score'),
           { autoAlpha: 0, scale: 0.88 },
           { autoAlpha: 1, scale: 1, duration: 0.35, ease: 'back.out(1.6)', overwrite: 'auto' },
           '+=0.2',
         )
+        .call(() => stageCue('quiz-score-shown'))
         .to(
           node,
           { autoAlpha: 0, duration: 0.45, ease: 'power2.in', overwrite: 'auto' },
@@ -1775,6 +1826,28 @@ function BattleField({
     landing ||
     targeting !== null ||
     dealing
+  /**
+   * 「结束出牌」比手牌多一道教程的闸：教学前两轮要求玩家先完成指定操作才能结束出牌
+   *（规格 §15）。刻意不并进 actionsLocked——那个还喂给 HandFan 的 disabled，
+   * 并进去会把手牌一起锁死，而那两步恰恰要玩家去打某一张牌。
+   */
+  const endPlayLocked = actionsLocked || tutorial?.endPlayBlocked === true
+  /**
+   * 发牌演完那一下报一次信号（开局 5 张和每轮补的 2 张都算）。
+   * 只认下降沿：教程要等的是"牌已经躺进手里"这个时刻，牌还在飞的时候说什么都没用。
+   *
+   * 一轮里可能报两次：放行（dealHeld 转 false）和扇形报上 dealBusy 差着一次提交，
+   * 中间那一帧两个都是 false，这条 effect 会先报一次，等牌真落地再报一次。
+   * 不去修那一帧是因为没必要——信号只是"到过没有"，重复到达不产生任何额外动作，
+   * 而等它的两步同时还等着「轮次横幅播完」，那条比发牌晚得多。
+   */
+  const dealingRef = useRef(dealing)
+  useEffect(() => {
+    const was = dealingRef.current
+    dealingRef.current = dealing
+    if (was && !dealing) stageCue('deal-done')
+    // stageCue 读的是 ref，闭包旧不旧都无所谓，所以依赖只列 dealing。
+  }, [dealing])
   /**
    * 手牌彻底冻住（连 hover 都不接）的时刻：屏幕上有牌在飞或刚落地、展示层正演着，
    * 或者正在给一张技能牌选目标。
@@ -2385,7 +2458,7 @@ function BattleField({
             {/* 每张小卡都套一层 slot：真正排在行里的是 slot，它可以被挤得比卡还窄，
                 卡在里面居中溢出，于是场面摆满时相邻两张对称地互相压边，而不是折行
                 （行已改成永不换行，理由见 .battle__row）。 */}
-            <div className="battle__row battle__row--foe">
+            <div className="battle__row battle__row--foe" data-tutorial-anchor="battlefieldFoe">
               {foe.board.map((ai) => (
                 <div className="battle__board-slot" key={ai.instanceId}>
                   <BoardTile
@@ -2425,7 +2498,7 @@ function BattleField({
               </span>
             </div>
 
-            <div className="battle__row battle__row--mine">
+            <div className="battle__row battle__row--mine" data-tutorial-anchor="battlefieldMine">
               {me.board.map((ai) => (
                 <div className="battle__board-slot" key={ai.instanceId}>
                   <BoardTile
@@ -2466,7 +2539,8 @@ function BattleField({
                 三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
                 换文案撑不破框。 */}
             <PlaqueButton
-              disabled={actionsLocked}
+              data-tutorial-anchor="endTurnButton"
+              disabled={endPlayLocked}
               onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
             >
               {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
@@ -2545,6 +2619,8 @@ function BattleField({
         // 本轮已经派过新 AI：手上其余 AI 牌一起压暗（每轮至多一张，引擎那边会拒第二张）。
         // 技能牌不受影响，还是想打几张打几张。
         aiPlayedThisRound={me.aiPlayedThisRound}
+        // 教程这一步只放行指定的那几张，其余的和"打不起"同一套压暗 + 摇头 + 弹提示。
+        extraBlocked={tutorial?.blockedCards ?? null}
         frozen={handFrozen}
         lockReason={handLockReason}
         // 选目标态下这张牌留在扇形里抬起来亮着，整排其余的压暗（不接指针那件事归 frozen，
@@ -2661,6 +2737,13 @@ function BattleField({
           actions={resultActions}
         />
       ) : null}
+
+      {/*
+        额外浮层的插槽，现在只有教程的引导层。它自己写 z-index（1000 那一档）：
+        比顶栏、手牌、结算层都高，但低于下面那三个全屏过场，过场演的时候它自动让位。
+        必须挂在这里而不是 MatchStage 外面，理由见 MatchStageProps.overlay。
+      */}
+      {overlay}
 
       {/*
         三个全屏过场。它们和特效层不一样，是要**吃掉指针事件**的：
@@ -2975,7 +3058,8 @@ function NextQuestionPlaque({
   keywords: string[]
 }) {
   return (
-    <div className="battle__next-plaque">
+    // data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/steps.ts）。
+    <div className="battle__next-plaque" data-tutorial-anchor="keywordPanel">
       {/* 两根挂绳，让匾看着是吊在侧栏顶上的。一个容器加两个伪元素，比两个空 span 省 DOM。 */}
       <span className="battle__next-plaque-cords" aria-hidden="true" />
       <div className="battle__next-plaque-body">
@@ -3029,7 +3113,7 @@ function NextQuestionPlaque({
 function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
   const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
   return (
-    <div className="battle__tokens">
+    <div className="battle__tokens" data-tutorial-anchor="tokenCounter">
       <div className="battle__token-grid" style={{ '--token-rows': rows } as CSSProperties}>
         {Array.from({ length: max }, (_, index) => {
           // index 是格子号，DOM 顺序就是视觉顺序：左列从上到下，再右列

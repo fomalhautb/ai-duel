@@ -17,6 +17,7 @@ import { HomeScreen } from './screens/HomeScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { TutorialScreen } from './screens/TutorialScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
 import { CardGallery } from './dev/CardGallery'
@@ -44,6 +45,9 @@ export function App() {
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
+        {/* 新手教程的教学对战。自己建 driver、自己收，不进 MatchSession，也不记胜场
+            （教学局是写死结局的剧本）。组牌 / 选英雄 / 完成页是后面接的另一段。 */}
+        <Route path="/tutorial" component={TutorialScreen} />
         {/* 开发页导航，集中收录调试入口。 */}
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}

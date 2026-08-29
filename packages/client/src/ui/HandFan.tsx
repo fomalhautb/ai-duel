@@ -213,6 +213,17 @@ export interface HandFanProps {
    */
   aiPlayedThisRound?: boolean
   /**
+   * 调用方额外锁上的几张牌：**牌的 id（对局里就是手牌实例 id）** → 点它时弹的那句提示。
+   *
+   * 现在只有新手教程用：教学的前两轮只放行指定的那一两张牌，其余的一律锁住
+   * （规格 §15）。挂进下面那张 blocked 表就自动获得和「Token 不够」同一套压暗 + 摇头 + 弹提示，
+   * 不用另写一条锁的画法，也不会出现"点了没反应"。
+   *
+   * 优先级排在规则判据之前：一张牌既被教程锁着又刚好买不起时，玩家该看到的是
+   * "这一步不该打它"，而不是"钱不够"。
+   */
+  extraBlocked?: ReadonlyMap<string, string> | null
+  /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
    * 这张牌**留在扇形里**，只是抬高一点、单独亮着，同一时刻整排其余的牌一起压暗
@@ -490,6 +501,7 @@ export function HandFan({
   disabled = false,
   tokens = null,
   aiPlayedThisRound = false,
+  extraBlocked = null,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -514,18 +526,22 @@ export function HandFan({
    * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
    *
    * 顺序和引擎的校验一致：先看"本轮已派出 AI 牌"，再看费用（见 aiPlayedThisRound）。
+   * 调用方给的 extraBlocked 排在最前面，理由见那个 prop 的说明。
    */
   const blocked = useMemo(() => {
     const tips = new Map<string, string>()
     for (const card of cards) {
-      if (aiPlayedThisRound && card.kind === 'ai') {
+      const extra = extraBlocked?.get(card.id)
+      if (extra !== undefined) {
+        tips.set(card.id, extra)
+      } else if (aiPlayedThisRound && card.kind === 'ai') {
         tips.set(card.id, AI_PLAYED_TIP_TEXT)
       } else if (tokens !== null && card.tokenCost !== undefined && card.tokenCost > tokens) {
         tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
       }
     }
     return tips
-  }, [cards, tokens, aiPlayedThisRound])
+  }, [cards, tokens, aiPlayedThisRound, extraBlocked])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -1407,6 +1423,9 @@ export function HandFan({
     <div
       className="hand-fan"
       ref={rootRef}
+      // 教程用的语义锚点（见 tutorial/steps.ts 的 TutorialAnchorName）。
+      // 写死在这里是安全的：这个组件只有对局界面在用，别处用的是 HandCardFace 或 OpponentFan。
+      data-tutorial-anchor="hand"
       data-casting={castingId === null ? undefined : 'true'}
       data-locked={lockReason === null ? undefined : lockReason}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}

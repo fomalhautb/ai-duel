@@ -39,6 +39,7 @@ import type {
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
+import { battleStageMetrics } from './battleStage'
 import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
@@ -244,29 +245,51 @@ export function MatchStage({ driver, testMode = false, resultActions }: MatchSta
   // 下面那个组件的一整套 hook 都要求 state 存在，所以拆成两个组件而不是在中间早退。
   if (view.state === null) {
     return (
-      <div className="battle battle--waiting">
-        <HandDrawnFilterDefs />
-        <BattleTopBar />
-        <div className="battle__waiting">
-          <p className="battle__waiting-text">
-            {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
-          </p>
-          {view.status === 'aborted' ? (
-            <div className="battle__result-actions">{resultActions}</div>
-          ) : null}
+      <BattleFrame>
+        <div className="battle battle--waiting">
+          <HandDrawnFilterDefs />
+          <BattleTopBar />
+          <div className="battle__waiting">
+            <p className="battle__waiting-text">
+              {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
+            </p>
+            {view.status === 'aborted' ? (
+              <div className="battle__result-actions">{resultActions}</div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </BattleFrame>
     )
   }
 
   return (
-    <BattleField
-      driver={driver}
-      view={view}
-      state={view.state}
-      testMode={testMode}
-      resultActions={resultActions}
-    />
+    <BattleFrame>
+      <BattleField
+        driver={driver}
+        view={view}
+        state={view.state}
+        testMode={testMode}
+        resultActions={resultActions}
+      />
+    </BattleFrame>
+  )
+}
+
+/**
+ * 16:9 舞台外壳：把整个对局界面锁进设计稿的比例里，窗口太宽留左右边、太窄留上下边。
+ *
+ * 三层各管一件事（样式和取舍见 styles.css 里"对局界面的 16:9 舞台"）：
+ * .battle-frame 铺留边并把舞台居中，.battle-stage 定下 16:9 的那块地方，
+ * .battle-scaler 永远是 1672×941 的盒子、再整体缩到舞台大小。
+ * 等待页和正式对局都要套上：它们共用同一套写死像素的排版，也共用 .battle 的顶栏。
+ */
+function BattleFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="battle-frame">
+      <div className="battle-stage">
+        <div className="battle-scaler">{children}</div>
+      </div>
+    </div>
   )
 }
 
@@ -1231,6 +1254,9 @@ function BattleField({
     const card = slot.getBoundingClientRect()
     const cx = card.left + card.width / 2
     const cy = card.top + card.height / 2
+    // 下面全程在视口坐标里比矩形，本来不用换算；只有 TARGET_SNAP 这个放宽量是照舞台内像素
+    // 定的，得跟着舞台一起缩，否则窗口越小，这圈"擦边也算命中"的余量在画面上就越大。
+    const snap = TARGET_SNAP * battleStageMetrics().scale
 
     // 先在**整行**里找最近的那张（不是只在合法目标里找），最后才看它能不能打：
     // 只挑合法的话，松手在一张已干扰的小卡上会打中旁边那张，玩家眼里就是"我明明放在它身上"。
@@ -1239,8 +1265,8 @@ function BattleField({
       const tile = tileOf(boardRef, ai.instanceId)
       if (tile === null) continue
       const rect = tile.getBoundingClientRect()
-      if (cx < rect.left - TARGET_SNAP || cx > rect.right + TARGET_SNAP) continue
-      if (cy < rect.top - TARGET_SNAP || cy > rect.bottom + TARGET_SNAP) continue
+      if (cx < rect.left - snap || cx > rect.right + snap) continue
+      if (cy < rect.top - snap || cy > rect.bottom + snap) continue
       // 放宽之后相邻两张小卡的判定区会重叠，取牌心最近的那张，和肉眼看到的一致。
       const distance = Math.hypot(
         cx - (rect.left + rect.right) / 2,
@@ -2301,10 +2327,13 @@ function tileOf(
 function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): void {
   const from = node.getBoundingClientRect()
   const to = tile.getBoundingClientRect()
+  // 位移要除以舞台缩放：两个 rect 量到的是缩放之后的屏幕像素，而 GSAP 的 x / y 写的是
+  // 舞台内像素（口径见 ui/battleStage.ts）。scale 是纯比值，两个宽度相除时自然抵消，不用管。
+  const { scale } = battleStageMetrics()
   gsap.to(node, {
     // 变换原点在正中，所以只要把两个矩形的中心对上，缩放多少都不影响落点。
-    x: `+=${to.left + to.width / 2 - (from.left + from.width / 2)}`,
-    y: `+=${to.top + to.height / 2 - (from.top + from.height / 2)}`,
+    x: `+=${(to.left + to.width / 2 - (from.left + from.width / 2)) / scale}`,
+    y: `+=${(to.top + to.height / 2 - (from.top + from.height / 2)) / scale}`,
     scale: from.width === 0 ? 1 : to.width / from.width,
     autoAlpha: 0,
     duration: SKILL_FLIGHT_DUR,

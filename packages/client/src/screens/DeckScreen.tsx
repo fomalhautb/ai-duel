@@ -82,7 +82,6 @@ import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverla
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
@@ -1645,9 +1644,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     // pageRef（既是 useGSAP 的 scope，也是「把牌拖出面板 = 移除」那块落点）挂在最外层
     // 而不是舞台上：挂舞台上的话，往右一甩正好落进右边那条留边，判不出落点、牌会飞回去。
     <div className="deck-frame paper-page grain" ref={pageRef}>
-      {/* 全页共用的 SVG 定义，各挂一次：少了 <use> 找不到 symbol、CSS 里的 url(#…) 找不到滤镜。
-          两者都是 0 尺寸，不占布局。 */}
-      <HandDrawnFilterDefs />
+      {/* 纸面组件的 <use> 要在同一个文档里找得到 symbol，每页各挂一次（0 尺寸，不占布局）。
+          手绘滤镜不用管，App 已经全局挂了一份。 */}
       <PaperIconDefs />
 
       <div className="deck-page">

@@ -40,7 +40,6 @@ import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BackButton } from '../ui/BackButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
 import './room.css'
@@ -532,8 +531,6 @@ function RoomStage({
 
   return (
     <div className="room grain on-dark" ref={rootRef}>
-      {/* 返回按钮的手绘抖动要用它，缺了这一份 Chrome 上整颗按钮不画（见 ui/BackButton.tsx）。 */}
-      <HandDrawnFilterDefs />
       <div className="room__stage">
         <img className="room__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 

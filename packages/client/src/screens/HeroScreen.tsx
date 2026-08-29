@@ -46,7 +46,6 @@ import type { HeroId } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { PlaqueButton } from '../ui/PlaqueButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
@@ -593,8 +592,6 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
 
   return (
     <div className="hero grain on-dark" ref={rootRef}>
-      {/* 匾额按钮的框线和文字都引用这里定义的滤镜，页面上必须渲染一份。 */}
-      <HandDrawnFilterDefs />
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 

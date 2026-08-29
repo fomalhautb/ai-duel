@@ -6,7 +6,6 @@
  */
 
 import type { ReactNode } from 'react'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { PaperIconDefs } from '../ui/paper'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import './tutorial.css'
@@ -14,8 +13,7 @@ import './tutorial.css'
 export function TutorialPaperPage({ children }: { children: ReactNode }) {
   return (
     <div className="tutorial-page paper-page grain">
-      {/* 匾额按钮的框线和文字引用这里定义的滤镜，纸面组件要 PaperIconDefs，各挂一次。 */}
-      <HandDrawnFilterDefs />
+      {/* 纸面组件的 <use> 要找得到 symbol，各挂一次。手绘滤镜由 App 全局挂，这里不用管。 */}
       <PaperIconDefs />
       {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
       <div className="paper-page__inner tutorial-page__inner">

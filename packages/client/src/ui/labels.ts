@@ -4,7 +4,7 @@ import type { QuestionCategory } from '@ai-duel/core'
 
 /** 题目类别的中文名。右上角那块「下一题」牌匾和答题横幅都读它。 */
 export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
-  bias: '偏见测试',
-  vision: '视觉测试',
-  brainteaser: '脑筋急转弯',
+  meme: '梗题',
+  bias: '刻板印象',
+  life: '生活类',
 }

@@ -220,77 +220,84 @@
  * position: fixed 写的是**视口坐标**，不跟任何舞台走：教学对战、组牌、选英雄三屏各有各的
  * 缩放层，跟着谁都会在别的屏上跑偏。层级压过对局界面的全屏过场（1100），
  * 否则抛硬币、答题揭晓演着的时候它会被盖掉，而这颗按钮任何时候都该点得到。
+ *
+ * 右边不是一个死数：全站常驻的静音钮（.mute-toggle）占着同一个角，而且层级比这里高，
+ * 贴着边摆的话文字会被它压住、连点都点不到。--corner-clear-right 就是那颗按钮的占位宽度，
+ * 它在移动档变大时这里跟着一起往左挪（变量定义见 styles.css）。
+ *
+ * 按钮本体是全站的八角匾额（PlaqueButton），这里只管落位，尺寸在下面 .tutorial-skip__plaque。
+ * 选择器多带一级 .plaque-button：不加的话和 styles.css 里那份特异性相同，
+ * 谁生效就取决于两份样式表谁后加载（实测是 styles.css 赢，按钮直接落到页面左下角去了）。
  */
+.plaque-button.tutorial-skip,
 .tutorial-skip {
   position: fixed;
-  top: 18px;
-  right: 22px;
+  top: 16px;
+  right: var(--corner-clear-right);
   z-index: 2000;
+}
+
+/*
+ * 匾额改小一档。默认那副尺寸（224×68、24px 字）是给「结束出牌」这种主按钮的，
+ * 摆到屏幕角上会比页面标题还抢眼，而这颗按钮的本意正相反。
+ *
+ * 只改盒子不改画法：匾额的框线是一张按 preserveAspectRatio="none" 拉满的 SVG，
+ * 高宽比变了之后切角和描边跟着一起压扁，仍然是同一副手绘线条。
+ */
+.plaque-button.tutorial-skip__plaque {
+  width: auto;
+  height: 34px;
+  padding: 0 16px;
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+}
+
+/*
+ * 确认条：一行「跳过教程？」加确定 / 取消两颗小匾额。
+ *
+ * 底下垫一块墨色：这三屏底色深浅不一（教学对战是夜色，组牌和选英雄是浅纸），
+ * 问句是浅色字，没有这块垫底在纸面那两屏上根本读不出来。
+ * 切角照匾额那套八角走，不用圆角——整套界面里没有圆角胶囊这种东西。
+ */
+.tutorial-skip--confirm {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 14px;
-  border: 1px solid rgb(226 205 155 / 32%);
-  border-radius: 999px;
-  background: rgb(14 18 26 / 62%);
-  color: rgb(232 220 195 / 72%);
+  padding: 7px 12px;
+  background: rgb(20 17 12 / 78%);
+  /* 八角：四个角各切掉 8px，和匾额同一副轮廓（那边按百分比切，这里高度固定，写死更准）。 */
+  clip-path: polygon(
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px),
+    0 8px
+  );
+  color: #f3ead6;
   font-size: var(--fs-lg);
   letter-spacing: 0.1em;
   line-height: 1;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.tutorial-skip:hover {
-  border-color: rgb(226 205 155 / 60%);
-  color: #f2e6cc;
-}
-
-/* 展开成确认条之后整块不再是按钮，光标和 hover 变色都交给里面那两颗小按钮。 */
-.tutorial-skip--confirm {
-  cursor: default;
-  color: rgb(232 220 195 / 82%);
-}
-
-.tutorial-skip--confirm:hover {
-  border-color: rgb(226 205 155 / 32%);
-  color: rgb(232 220 195 / 82%);
 }
 
 .tutorial-skip__ask {
-  letter-spacing: 0.08em;
+  /* 问句也挂手绘抖动，和旁边匾额上的字是一套笔迹（滤镜由 App 全局挂）。 */
+  filter: url('#ai-duel-rough-icon');
 }
 
-.tutorial-skip__btn {
-  padding: 4px 10px;
-  border: 1px solid rgb(226 205 155 / 45%);
-  border-radius: 999px;
-  background: rgb(226 205 155 / 16%);
-  color: #f2e6cc;
+/* 确认条里的两颗比外面那颗再小一档：它们是这一小块里的次级操作。 */
+.plaque-button.tutorial-skip__btn {
+  height: 30px;
+  padding: 0 12px;
   font-size: var(--fs-base);
-  letter-spacing: 0.08em;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color 0.18s ease;
-}
-
-.tutorial-skip__btn:hover {
-  background: rgb(226 205 155 / 30%);
-}
-
-/* 「取消」是次要选项，只留一圈线，不填底色。 */
-.tutorial-skip__btn--ghost {
-  border-color: rgb(226 205 155 / 26%);
-  background: none;
-  color: rgb(232 220 195 / 70%);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tutorial-overlay__next,
-  .tutorial-skip,
-  .tutorial-skip__btn {
+  .tutorial-overlay__next {
     transition-duration: 1ms;
   }
 }

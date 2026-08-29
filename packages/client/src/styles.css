@@ -2370,7 +2370,7 @@ body:has(.battle) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 168px;
+  width: 252px;
   margin-inline: auto;
   pointer-events: none;
   opacity: 0;
@@ -2399,7 +2399,7 @@ body:has(.battle) {
 .battle__turn-plaque-cords {
   position: relative;
   width: 100%;
-  height: 14px;
+  height: 21px;
 }
 
 .battle__turn-plaque-cords::before,
@@ -2408,16 +2408,16 @@ body:has(.battle) {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1.5px;
+  width: 2px;
   background: #8a92ad;
 }
 
 .battle__turn-plaque-cords::before {
-  left: 30px;
+  left: 45px;
 }
 
 .battle__turn-plaque-cords::after {
-  right: 30px;
+  right: 45px;
 }
 
 /*
@@ -2429,20 +2429,20 @@ body:has(.battle) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
-  height: 44px;
-  border-radius: 6px;
+  height: 66px;
+  border-radius: 9px;
   background: var(--battle-navy);
   box-shadow:
-    0 4px 12px rgb(10 14 24 / 50%),
+    0 6px 16px rgb(10 14 24 / 50%),
     inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 
 /*
  * 外框线。单独画成 SVG 才好套手绘滤镜：直接给匾体加 border 再 filter，
  * 里面的字会跟着一起抖歪（PlaqueButton 那边同理，见 .plaque-button__frame）。
- * preserveAspectRatio: none 让 168×44 的 viewBox 直接铺满匾体，描边宽度按 1.5 画、
+ * preserveAspectRatio: none 让 252×66 的 viewBox 直接铺满匾体，描边宽度按 1.5 画、
  * 一半压在边界外，看到的正好是 1px 左右。
  */
 .battle__turn-plaque-frame {
@@ -2461,7 +2461,7 @@ body:has(.battle) {
   /* 和框线分开套滤镜，抖法也换一种，免得字和框歪成同一条线。 */
   filter: url('#ai-duel-rough-icon');
   color: #b8c2d9;
-  font-size: 14px;
+  font-size: 21px;
   letter-spacing: 0.3em;
   /* letter-spacing 会在最后一个字后面也留一份，补一个同样大小的首行缩进把它抵回来。 */
   text-indent: 0.3em;
@@ -2469,13 +2469,13 @@ body:has(.battle) {
 
 .battle__turn-plaque-dots {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
 }
 
 .battle__turn-plaque-dots i {
-  width: 3px;
-  height: 3px;
+  width: 4.5px;
+  height: 4.5px;
   border-radius: 50%;
   background: #b8c2d9;
   opacity: 0.5;
@@ -2506,7 +2506,7 @@ body:has(.battle) {
 
   40% {
     opacity: 1;
-    transform: translateY(-3px);
+    transform: translateY(-4.5px);
   }
 }
 

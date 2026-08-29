@@ -2032,11 +2032,11 @@ function BattleField({
                 （PlaqueButton 那边同理，见它的 .plaque-button__frame）。 */}
             <svg
               className="battle__turn-plaque-frame"
-              viewBox="0 0 168 44"
+              viewBox="0 0 252 66"
               preserveAspectRatio="none"
               aria-hidden="true"
             >
-              <rect x="0.75" y="0.75" width="166.5" height="42.5" rx="5.5" />
+              <rect x="0.75" y="0.75" width="250.5" height="64.5" rx="8.25" />
             </svg>
             <span className="battle__turn-plaque-label">对方回合</span>
             {/* 三个跳动的点：静止的一行字看着像界面卡住了，这里要说的恰恰是"对方还在动"。 */}

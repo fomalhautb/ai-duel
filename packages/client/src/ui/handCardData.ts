@@ -7,8 +7,9 @@
  *
  * backText 走 cardBackText，和对局里那张卡完全一样。
  * art 不填，交给 HandCardFace 按 id 查找原画或占位插画（见 ui/cardArt.ts），
- * 配图也就和对局里那张卡是同一张。英雄牌也走同一条路：
- * 它自己的立绘（assets/人物卡简介/）还没接进构建，先跟着分一张占位图。
+ * 配图也就和对局里那张卡是同一张。英雄牌也走同一条路，跟着分一张占位图——
+ * public/hero/ 下那七张人物原画（见 ui/heroArt.ts）眼下只有选英雄页和对局侧栏在用，
+ * 图鉴和橱窗还是通用文字卡面。
  */
 
 import type { Card } from '@ai-duel/core'

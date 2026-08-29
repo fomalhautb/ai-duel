@@ -53,6 +53,7 @@ import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { CARD_HEIGHT, CARD_WIDTH } from './fanMath'
 import { flipTo, setFlipAngle, syncFlipFaces } from './flipCard'
+import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
 import { playSkillHitFx, playSummonFx } from './playSummonFx'
@@ -146,19 +147,6 @@ const CANCEL_HOLD = 1.3
  */
 const DEAL_HOLD_FALLBACK = 0.8
 
-/*
- * 量侧栏英雄牌能画多大时，要先给卡堆探出去的那一截让开地方（见 useHeroCardScale）。
- *
- * 卡堆的尺寸和位置在 styles.css 里全是按英雄牌折算的：宽 0.34 卡宽，
- * 往右探出 0.52 个卡堆宽（卡堆自己 0.3 + 张数徽章 0.22）≈ 0.18 卡宽，
- * 往下探出 0.22 个卡堆高 ≈ 0.08 卡高。英雄牌在面板里是居中摆的，所以两边都得留这么多。
- * 另外那点固定像素是给张数徽章的：它有 min-width，小尺寸下不跟着卡一起缩。
- * 改 .battle__deck 那几个系数时这里要跟着改，不然卡堆会顶到雕花框上。
- */
-const DECK_OVERHANG_X = 0.18
-const DECK_OVERHANG_Y = 0.08
-const DECK_OVERHANG_FIXED = 12
-
 /** 答题结果逐条淡入的间隔（秒）。 */
 const QUIZ_ROW_STAGGER = 0.16
 /** 计分那行出来之后停留多久（秒）再整层淡出，露出已经更新的战场和比分。 */
@@ -213,6 +201,18 @@ interface InspectTarget {
   card: HandCardData
   flipId: string
   source: InspectSource
+  /**
+   * 英雄原画卡的图片地址（见 ui/heroArt.ts）。非空时展示层画的是这张整图，
+   * 不是 card 拼出来的文字卡面；card 仍然要给，图取不到时还得靠它兜底。
+   */
+  art: string | null
+  /**
+   * 放大态卡下方那行字幕。
+   *
+   * 只有英雄牌用得上：原画上没印技能，而"点开英雄牌看技能"正是这条链路存在的理由，
+   * 所以把「技能名：技能说明」补在卡下面。战场小卡的卡面自带说明，为 null。
+   */
+  caption: string | null
 }
 
 /** 左侧栏两块玩家面板各是谁的。卡堆和发牌动画靠它对上号。 */
@@ -438,6 +438,8 @@ function BattleField({
   const revealCardRef = useRef<HTMLDivElement>(null)
   /** 展示卡的裁剪层。飞行途中它把顶栏那一截挡住，落位后由 JS 撤掉（原因见 .reveal-clip）。 */
   const revealClipRef = useRef<HTMLDivElement>(null)
+  /** 放大英雄牌时卡下方那行技能字幕。只有那条链路会挂上，别的展示为 null。 */
+  const revealCaptionRef = useRef<HTMLParagraphElement>(null)
   /** 战场上每张小卡的倾斜跟随，按 tile 元素存着（tile 上没有别的稳定标识可用）。 */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
   /** 上面那段演出是否还在进行中。事件回调和延迟回调读它判活，见 landing。 */
@@ -1507,14 +1509,21 @@ function BattleField({
     const slot = inspectOriginOf(ai.instanceId, 'tile')
     if (slot === null) return
     inspectFlipRef.current = Flip.getState(slot)
-    openInspect({ card: handCardOfAi(ai), flipId: ai.instanceId, source: 'tile' })
+    openInspect({
+      card: handCardOfAi(ai),
+      flipId: ai.instanceId,
+      source: 'tile',
+      art: null,
+      caption: null,
+    })
   }
 
   /**
    * 点侧栏的英雄牌：走和战场小卡完全同一条链路飞到屏幕中央放大，再点一下收回。
    *
-   * 英雄牌正面印的就是「技能名：技能说明」（见 ui/heroCard.ts），放大之后正好看清，
-   * 所以"看英雄技能"这件事不另做一套界面。
+   * 侧栏画的是英雄原画（见 ui/heroArt.ts），放大的也得是同一张图，否则飞到一半会换脸；
+   * 原画上没有技能文字，所以另外给一行字幕补上「技能名：技能说明」——
+   * "看英雄技能"这件事就靠这一下，不另做界面。
    * 侧栏那张是靠 CSS 的 transform scale 缩小画出来的，Flip 那边必须开 scale: true
    *（和战场小卡一样，见下面消费 inspectFlipRef 的那段）。
    */
@@ -1524,8 +1533,15 @@ function BattleField({
     const flipId = heroFlipId(player.id)
     const slot = inspectOriginOf(flipId, 'hero')
     if (slot === null) return
+    const hero = getHero(player.hero)
     inspectFlipRef.current = Flip.getState(slot)
-    openInspect({ card: heroCardData(getHero(player.hero)), flipId, source: 'hero' })
+    openInspect({
+      card: heroCardData(hero),
+      flipId,
+      source: 'hero',
+      art: heroArtSrc(hero.id),
+      caption: `${hero.skillName}：${hero.skillText}`,
+    })
   }
 
   /**
@@ -1921,6 +1937,25 @@ function BattleField({
         const clip = revealClipRef.current
         if (clip !== null) gsap.set(clip, { clipPath: 'none' })
 
+        // 技能字幕（只有英雄牌有）等卡快飞到位再淡上来，起飞那一刻就亮着的话，
+        // 字会先在半空中和飞行的卡各说各话。
+        // fromTo 默认 immediateRender: true，所以哪怕带着 delay，隐藏也是这一帧就生效；
+        // CSS 里不写初始 opacity，是为了万一这段没跑到，字幕仍然是看得见的那一档。
+        const caption = revealCaptionRef.current
+        if (caption !== null) {
+          gsap.fromTo(
+            caption,
+            { autoAlpha: 0 },
+            {
+              autoAlpha: 1,
+              duration: 0.28,
+              delay: REVEAL_IN_DUR * 0.6,
+              ease: 'power2.out',
+              overwrite: 'auto',
+            },
+          )
+        }
+
         // onComplete 是飞完才跑的，出了 useGSAP 回调的同步区间，
         // 里面新建的浮动补间不包一层就不归 context 管，组件卸载时 revert 不掉。
         const landed = () => {
@@ -2047,15 +2082,26 @@ function BattleField({
    *
    * key 让两条链路各自持有一份展示卡（对手出牌会中止正在进行的查看，两者相接时
    * DOM 不能被复用）：裁剪层每次都是新挂载的，上一轮撤裁剪时写的内联样式不会留到下一轮。
+   *
+   * art / caption 只有查看英雄牌那条会填（见 InspectTarget）：强制展示的永远是一张手牌，
+   * 画的是文字卡面、也不配字幕。
    */
   const showcase =
     reveal !== null
-      ? { card: reveal.card, flipId: reveal.flipId, key: `reveal-${reveal.key}` }
+      ? {
+          card: reveal.card,
+          flipId: reveal.flipId,
+          key: `reveal-${reveal.key}`,
+          art: null,
+          caption: null,
+        }
       : inspecting !== null
         ? {
             card: inspecting.card,
             flipId: inspecting.flipId,
             key: `inspect-${inspecting.flipId}`,
+            art: inspecting.art,
+            caption: inspecting.caption,
           }
         : null
 
@@ -2306,16 +2352,31 @@ function BattleField({
         onClick={handleShowcaseClick}
       />
       {showcase !== null ? (
-        <div className="reveal-clip" key={showcase.key} ref={revealClipRef}>
+        // 英雄牌那条链路要换一档更大的倍率，理由见 .reveal-clip--hero。
+        <div
+          className={showcase.art === null ? 'reveal-clip' : 'reveal-clip reveal-clip--hero'}
+          key={showcase.key}
+          ref={revealClipRef}
+        >
           <div className="reveal-card" ref={revealCardRef} data-flip-id={showcase.flipId}>
             {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。
                 放大查看不翻面，只用 setFlipAngle 把它定死在正面。 */}
             <div className="reveal-card__inner">
               <div className="reveal-card__face" data-flip-face="front">
-                {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
-                <div className="reveal-card__scale">
-                  <HandCardFace card={showcase.card} />
-                </div>
+                {showcase.art === null ? (
+                  // 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。
+                  <div className="reveal-card__scale">
+                    <HandCardFace card={showcase.card} />
+                  </div>
+                ) : (
+                  // 英雄原画是一张 2:3 的整图，没有需要跟着放大的排版，直接铺满这一面就行。
+                  <img
+                    className="reveal-card__art"
+                    src={showcase.art}
+                    alt={showcase.card.name}
+                    draggable={false}
+                  />
+                )}
               </div>
               <div className="reveal-card__face reveal-card__face--back" data-flip-face="back">
                 {/* 背面必须是对手手牌里那张一模一样的隐藏牌背，起飞瞬间才不会跳变。
@@ -2326,6 +2387,14 @@ function BattleField({
               </div>
             </div>
           </div>
+          {/* 技能字幕。挂在裁剪层里、当展示卡的兄弟节点，不能塞进 .reveal-card：
+              那一层的 transform 归 Flip 和呼吸浮动管，字幕跟着飞进来会一起被缩放和摇晃。
+              收回时整个裁剪层随 showcase 卸载，字幕不用另外清理。 */}
+          {showcase.caption === null ? null : (
+            <p className="reveal-caption" ref={revealCaptionRef}>
+              <span className="reveal-caption__text">{showcase.caption}</span>
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -2545,7 +2614,8 @@ function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): str
 }
 
 /**
- * 侧栏里的一块玩家面板：一张尽量大的英雄牌，玩家名压在卡底，卡堆叠在卡的右下角。
+ * 侧栏里的一块玩家面板：一张占满整块的英雄牌，玩家名压在卡底，卡堆压在卡面一角
+ *（我方在右下、对方在右上，上下镜像，见 styles.css 的 .battle__deck）。
  *
  * 刻意不显示得分和手牌张数：比分顶栏正中已经有一份，手牌张数看两排扇形本身就够，
  * 在这块巴掌大的地方再写一遍只会把英雄牌挤小。
@@ -2569,8 +2639,10 @@ function PlayerPanel({
   const panelRef = useRef<HTMLDivElement>(null)
   useHeroCardScale(panelRef)
   const hero = player.hero === null ? null : getHero(player.hero)
+  const art = hero === null ? null : heroArtSrc(hero.id)
   return (
-    <div className="battle__player-panel" data-player={player.id} ref={panelRef}>
+    // data-side 只给 CSS 用：卡堆和名字条要按"这块是上面还是下面"上下镜像。
+    <div className="battle__player-panel" data-player={player.id} data-side={side} ref={panelRef}>
       <div className={heroHeld ? 'battle__hero battle__hero--held' : 'battle__hero'}>
         {hero === null ? null : (
           <>
@@ -2585,8 +2657,8 @@ function PlayerPanel({
               role="button"
               tabIndex={0}
               aria-label={`查看英雄 ${hero.name}`}
-              // 卡上的技能说明缩到这个尺寸后未必读得清，鼠标停一下能看全文；
-              // 真要看清整张卡是点开放大（正面印的就是「技能名：技能说明」）。
+              // 原画卡上没有技能文字，鼠标停一下能看全文；
+              // 点开放大则是把同一张原画飞到中央，技能写在卡下方的字幕里（见 handleInspectHero）。
               title={`${hero.name}（${hero.enName}）｜${hero.skillName}：${hero.skillText}`}
               // 走 pointerdown 而不是 click，理由同战场小卡：按下就该有反应。
               onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2600,7 +2672,13 @@ function PlayerPanel({
                 onInspectHero(player)
               }}
             >
-              <HandCardFace card={heroCardData(hero)} />
+              {/* 有原画就直接铺整张图（名字和英文名已经画在图里）；
+                  没配图的英雄退回通用的文字卡面，至少还看得出是谁、技能是什么。 */}
+              {art === null ? (
+                <HandCardFace card={heroCardData(hero)} />
+              ) : (
+                <img className="battle__hero-art" src={art} alt="" draggable={false} />
+              )}
             </div>
             {/* 技能用掉之后卡面压灰，再加这枚角标点明原因——只压灰的话会被当成"这张卡没启用"。
                 英雄技能一局只发动一次，玩家得能一眼看出还能不能指望上它。 */}
@@ -2617,8 +2695,12 @@ function PlayerPanel({
 /**
  * 把面板量出来的大小换算成英雄牌的缩放系数，写成 CSS 变量 --hero-card-scale。
  *
- * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面那个盒子按缩小后的尺寸占位，
- * 里面那张卡整体 scale，字和插画一起缩，而不是重画一套小卡面。
+ * 卡面排版是照 150×225 写死的，所以这里和战场小卡一个路子：外面那个盒子按换算后的尺寸占位，
+ * 里面那张卡整体 scale，字和插画跟着一起变，而不是另画一套卡面。
+ *（换成原画之后卡面里其实只有一张图，缩放这条路仍然留着——没配图的英雄还要退回文字卡面。）
+ *
+ * 取宽高两边能容下的较小值，也就是"2:3 塞满这块面板"。不给卡堆留位：卡堆现在整个压在
+ * 卡面里面（见 styles.css 的 .battle__deck），不再往外探出去顶雕花框。
  *
  * 系数直接写在 DOM 节点的 style 上、不走 React state：走 state 的话每量一次都要重渲染
  * 整个对局界面。这个变量只喂给 CSS 的宽高和 scale，而 GSAP 从头到尾不碰这几个元素的
@@ -2637,12 +2719,7 @@ function useHeroCardScale(ref: RefObject<HTMLElement | null>): void {
     const apply = () => {
       // 面板自己的大小由左侧栏那张 1fr / 1fr 的网格定死，和里面这张卡画多大无关，
       // 所以改这个变量不会反过来改面板尺寸，ResizeObserver 不会陷进循环。
-      const usableWidth = node.clientWidth - DECK_OVERHANG_FIXED
-      const usableHeight = node.clientHeight - DECK_OVERHANG_FIXED
-      const scale = Math.min(
-        usableWidth / (CARD_WIDTH * (1 + DECK_OVERHANG_X * 2)),
-        usableHeight / (CARD_HEIGHT * (1 + DECK_OVERHANG_Y * 2)),
-      )
+      const scale = Math.min(node.clientWidth / CARD_WIDTH, node.clientHeight / CARD_HEIGHT)
       node.style.setProperty('--hero-card-scale', String(Math.max(scale, 0)))
     }
     apply()
@@ -2653,13 +2730,15 @@ function useHeroCardScale(ref: RefObject<HTMLElement | null>): void {
 }
 
 /**
- * 卡堆：几张错位叠着的牌背加一枚剩余张数的徽章，压在英雄牌右下角。
+ * 卡堆：几张错位叠着的牌背，剩余张数用一个大数字压在最上面那张的正中间。
  *
  * 最上面那张不是装饰，它同时是发牌飞行的起点：两排扇形靠 data-deck-side 找到这块，
  * 量它的位置当新牌的起飞点（见 BattleField 的 dealOriginOf）。所以它必须是一个真实尺寸的盒子。
  * 牌背复用对手手牌那张隐藏牌背（CardBackHidden），两处看着是同一副牌。
  *
- * 张数为 0 时数字变红：牌堆空了之后每轮补牌都会白抽一次（引擎里 drawCards 直接返回），
+ * 数字放中间而不是做成角上的小徽章：卡堆整个压在英雄牌上，边上没地方挂徽章，
+ * 而"还剩几张"是对局里要一眼扫到的数（字号和描边见 .battle__deck-count）。
+ * 张数为 0 时变红：牌堆空了之后每轮补牌都会白抽一次（引擎里 drawCards 直接返回），
  * 这件事画面上没有别的地方说得出来。
  */
 function DeckPile({ side, count }: { side: DealSide; count: number }) {

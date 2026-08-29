@@ -3818,7 +3818,7 @@ body:has(.battle) {
 .battle__result-panel::before {
   position: absolute;
   inset: 0;
-  background: url('/battle/final-victory-bg.png') center / contain no-repeat;
+  background: url('/battle/final-victory-bg.webp') center / contain no-repeat;
   content: '';
   opacity: 0.95;
   filter:

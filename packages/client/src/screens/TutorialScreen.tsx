@@ -104,7 +104,7 @@ function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore)
     }
   }, [])
 
-  // 战场背景和硬币没到位就先只画 loader，理由同 MatchScreen。
+  // 场地和卡面没到位就先只画 loader，理由同 MatchScreen。
   const assetsReady = useAssetsReady(BATTLE_ASSETS)
   if (!assetsReady || driver === null) return <LoadingScreen />
   return <TutorialMatch driver={driver} onFinished={onFinished} />

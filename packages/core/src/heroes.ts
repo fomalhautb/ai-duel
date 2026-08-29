@@ -19,18 +19,9 @@ import type { HeroCard, HeroId } from './types'
 /**
  * **这里的键序就是选英雄界面的展示顺序**：界面直接 Object.values(HEROES) 保序渲染，
  * 不再自己排一遍。所以调整顺序等于调整界面排布，改之前先看设计稿。
+ * 现在的约定：已实装的 4 位在前，comingSoon 的 3 位排在最后（选英雄界面把它们灰着摆在末尾）。
  */
 export const HEROES: Record<HeroId, HeroCard> = {
-  'fei-fei-li': {
-    kind: 'hero',
-    id: 'fei-fei-li',
-    name: '李飞飞',
-    enName: 'Fei-Fei Li',
-    text: '她推动建立 ImageNet 大规模图像数据集，使 AI 首次能够系统学习「看懂现实世界」，也是现代计算机视觉与以人为本 AI 的重要推动者。',
-    skillName: '再看一眼',
-    skillText: '当题目含有图片、图表或视觉信息时，可保送 1 个 Agent 进入下一轮。',
-    comingSoon: true,
-  },
   'danqi-chen': {
     kind: 'hero',
     id: 'danqi-chen',
@@ -51,16 +42,6 @@ export const HEROES: Record<HeroId, HeroCard> = {
     skillText: '每局限一次：指定 1 个对方场上 Agent，降级为同系列上一代。',
     roleText: '节奏压制：削弱对手的核心 Agent，阻止其形成高等级、强能力组合。',
   },
-  'mira-murati': {
-    kind: 'hero',
-    id: 'mira-murati',
-    name: '米拉·穆拉蒂',
-    enName: 'Mira Murati',
-    text: '生成式 AI 产品化的重要推动者，长期参与将前沿模型转化为真实可用的产品与工具。',
-    skillName: '快速部署',
-    skillText: '每局限一次：双方 Agent 已选、题目未揭晓时，可重新选择己方 Agent，仅需支付新旧 Agent 的 Token 差额。',
-    comingSoon: true,
-  },
   'ada-lovelace': {
     kind: 'hero',
     id: 'ada-lovelace',
@@ -71,6 +52,35 @@ export const HEROES: Record<HeroId, HeroCard> = {
     skillText: '整局每一轮的 Token 上限额外 +2。',
     roleText: '经济发育型：每轮都多一笔资源，可更早选强 Agent、保留更多调整空间。',
   },
+  'grace-hopper': {
+    kind: 'hero',
+    id: 'grace-hopper',
+    name: '格蕾丝·霍珀',
+    enName: 'Grace Hopper',
+    text: '编译器先驱、程序调试文化代表人物。',
+    skillName: 'Debug',
+    skillText: '每局抵消对方打出的第一张技能牌的效果。',
+  },
+  'fei-fei-li': {
+    kind: 'hero',
+    id: 'fei-fei-li',
+    name: '李飞飞',
+    enName: 'Fei-Fei Li',
+    text: '她推动建立 ImageNet 大规模图像数据集，使 AI 首次能够系统学习「看懂现实世界」，也是现代计算机视觉与以人为本 AI 的重要推动者。',
+    skillName: '再看一眼',
+    skillText: '当题目含有图片、图表或视觉信息时，可保送 1 个 Agent 进入下一轮。',
+    comingSoon: true,
+  },
+  'mira-murati': {
+    kind: 'hero',
+    id: 'mira-murati',
+    name: '米拉·穆拉蒂',
+    enName: 'Mira Murati',
+    text: '生成式 AI 产品化的重要推动者，长期参与将前沿模型转化为真实可用的产品与工具。',
+    skillName: '快速部署',
+    skillText: '每局限一次：双方 Agent 已选、题目未揭晓时，可重新选择己方 Agent，仅需支付新旧 Agent 的 Token 差额。',
+    comingSoon: true,
+  },
   'margaret-hamilton': {
     kind: 'hero',
     id: 'margaret-hamilton',
@@ -80,15 +90,6 @@ export const HEROES: Record<HeroId, HeroCard> = {
     skillName: '容错系统',
     skillText: '当己方 Agent 作答失误时，可免费调用手牌中的另一名 Agent 重新作答 1 次。',
     comingSoon: true,
-  },
-  'grace-hopper': {
-    kind: 'hero',
-    id: 'grace-hopper',
-    name: '格蕾丝·霍珀',
-    enName: 'Grace Hopper',
-    text: '编译器先驱、程序调试文化代表人物。',
-    skillName: 'Debug',
-    skillText: '每局抵消对方打出的第一张技能牌的效果。',
   },
 }
 

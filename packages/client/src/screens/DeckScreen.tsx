@@ -75,7 +75,7 @@ import {
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { AiCardBack } from '../ui/AiCardBack'
-import { cardArtFor } from '../ui/cardArt'
+import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
 import { CardHelpMark } from '../ui/CardHelpMark'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
@@ -83,6 +83,7 @@ import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
+import { LoadingScreen } from '../ui/LoadingScreen'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
@@ -90,6 +91,7 @@ import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardBackText } from '../ui/cardText'
 import { flipTo, setFlipAngle } from '../ui/flipCard'
+import { useAssetsReady } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
@@ -275,8 +277,46 @@ const CARD_BY_ID = new Map<CardId, HandCardData>(
 const THUMB_CARD_BY_ID = new Map<CardId, HandCardData>(
   DISPLAY_CARD_IDS.map((cardId) => {
     const card = handCardOfDefinition(getCard(cardId))
-    return [cardId, { ...card, art: thumbFor(cardArtFor(cardId)) }]
+    return [cardId, { ...card, art: thumbArtFor(cardId) }]
   }),
+)
+
+/**
+ * 一张卡在这一页的缩略图地址。
+ *
+ * 上面那份卡表和下面的预加载清单都走这一个函数：两处各写一遍 thumbFor(cardArtFor(id)) 的话，
+ * 哪天改了取图规则却只改一边，预加载等的就不是卡面真正显示的那张，白卡照旧。
+ */
+function thumbArtFor(cardId: CardId): string {
+  return thumbFor(cardArtFor(cardId))
+}
+
+/**
+ * 这一页要用到的全部图片，加载完之前不上场（见文件末尾的 DeckScreen）。
+ *
+ * 主要是卡池和格子里那几十张缩略图——它们是这一页唯一"铺满屏幕"的图，
+ * 不等的话进页面看到的是一片白卡，然后一张张显影。
+ * 放大查看用的原画不在这里：那是玩家点开某一张才用得上的，为它把进页面拖慢十几秒不划算，
+ * 它们由后台预加载负责（见 ui/backgroundPreload.ts 的 CARD_ART_ASSETS）。
+ *
+ * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ *
+ * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
+ * 两边各写一遍迟早会对不上。
+ */
+export const DECK_ASSETS = Array.from(
+  new Set([
+    // 卡池背景那张深蓝星图，和对局的战场底图是同一张（见 deck.css 的 .deck-pool）。
+    '/battle/battle-bg.webp',
+    // 放大查看时右边那张技能牌背面的边框底图（见下面的 SkillCardBack）。
+    // 它是这一页少数几张不走卡面的图，而且一翻开就要用，所以并进闸门一起等。
+    '/cards/skills/skill-card-back.webp',
+    ...DISPLAY_CARD_IDS.map(thumbArtFor),
+    // 占位图的缩略图。眼下卡池里每张卡都有专属原画，谁也分不到占位图，
+    // 但新卡的原画补齐之前会先落到这儿（见 ui/cardArt.ts 的 placeholderArtFor），
+    // 到那时不用回来改这份清单。四张加起来 100 KB 出头，白等也不心疼。
+    ...CARD_ART_PLACEHOLDERS.map(thumbFor),
+  ]),
 )
 
 /**
@@ -433,7 +473,22 @@ export interface DeckScreenProps {
   overlay?: ReactNode
 }
 
-export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
+/**
+ * 这一页的加载闸门。
+ *
+ * 拆成两个组件而不是在 DeckStage 里写条件渲染，理由同 HomeScreen：里面的 useGSAP
+ * 和量尺寸的那些 effect 都只在挂载时跑一次，必须等真实 DOM 就位再挂。
+ *
+ * 正常情况下这一步是白给的——后台预加载在玩家还看着首页时就把缩略图下完了，
+ * settled 缓存让 useAssetsReady 第一帧就返回 true，loader 一眼都不会闪。
+ * 它挡的是预加载还没轮到这一组、玩家已经点进来的情况。
+ */
+export function DeckScreen(props: DeckScreenProps) {
+  const ready = useAssetsReady(DECK_ASSETS)
+  return ready ? <DeckStage {...props} /> : <LoadingScreen />
+}
+
+function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   /**
    * 选中的阵营，null = 不按阵营筛。只在「AI 牌」页签下生效（见 shown）。
@@ -2327,7 +2382,7 @@ function SkillCardBack({ card }: { card: HandCardData }) {
     <div className="deck-skill-back" data-copy-size={longCopy ? 'long' : 'normal'}>
       <img
         className="deck-skill-back__frame"
-        src="/cards/skills/skill-card-back.jpg"
+        src="/cards/skills/skill-card-back.webp"
         alt=""
         draggable={false}
       />

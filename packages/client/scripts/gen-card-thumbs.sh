@@ -10,8 +10,9 @@
 # 什么时候要重跑：
 #   - public/cards/ 下新增、替换或删除了原画（新 AI 卡、新技能卡、换插画、加占位图）；
 #   - 改了下面的 THUMB_W / THUMB_H / QUALITY（比如列表卡尺寸变大，300 宽不够清晰了）。
-# 烤的是 public/cards/ 下**全部** webp（thumbs/ 自己除外），子目录有多少烤多少，
-# 新开一层目录（models/、skills/…）不用改脚本。
+# 烤的是 public/cards/ 下**全部** webp（thumbs/ 自己除外，外加名字里带 card-back 的背面图——
+# 背面永远是整张大卡，没有列表场景，烤出来只会是没人引用、还要跟着部署的僵尸文件），
+# 子目录有多少烤多少，新开一层目录（models/、skills/…）不用改脚本。
 # 脚本是幂等的，每次全量重烤覆盖，不做增量判断——几十张图总共几秒，不值得为此引入时间戳比对。
 #
 # 用法（在仓库任意目录下都能跑）：
@@ -72,6 +73,9 @@ while IFS= read -r src; do
   printf '%-40s %6.1f KB\n' "thumbs/$rel" "$(echo "scale=2; $bytes / 1024" | bc)"
 # thumbs/ 自己也在 CARDS_DIR 下，重跑时必须排除，否则会把缩略图再缩一遍。
 # 这里靠 -prune 剪掉整棵子树；上面的 rm -rf 已经删过一次，双保险。
-done < <(find "$CARDS_DIR" -path "$THUMBS_DIR" -prune -o -name '*.webp' -type f -print | sort)
+done < <(
+  find "$CARDS_DIR" -path "$THUMBS_DIR" -prune -o \
+    -name '*.webp' ! -name '*card-back*' -type f -print | sort
+)
 
 printf '\n共 %d 张，合计 %.1f KB\n' "$count" "$(echo "scale=2; $total_bytes / 1024" | bc)"

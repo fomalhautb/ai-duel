@@ -17,7 +17,7 @@ export const CARD_ART_PLACEHOLDERS = [
 ] as const
 
 /** /card 图鉴里所有 AI 牌共用的背面图，英雄牌和技能牌仍显示带说明文字的详情背面。 */
-export const AI_CARD_BACK_ART = '/cards/card-back-v4-relaxed-ornament.png'
+export const AI_CARD_BACK_ART = '/cards/card-back-v4-relaxed-ornament.webp'
 
 /**
  * 按 id 稳定地挑一张占位图：同一个 id 永远拿到同一张。

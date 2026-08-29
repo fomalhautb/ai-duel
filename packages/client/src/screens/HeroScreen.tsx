@@ -86,8 +86,8 @@ const HERO_ROWS = [HERO_LIST.slice(0, FIRST_ROW_COUNT), HERO_LIST.slice(FIRST_RO
 /**
  * 没有预填英雄时的兜底：排在最前面的那位**可选**英雄。
  *
- * 不能直接取 HERO_LIST[0]——第一位现在正好是 comingSoon 的李飞飞，点都点不开，
- * 拿她兜底等于让「确认英雄」交出一位玩家根本选不了的人。
+ * 不写死 HERO_LIST[0]——现在 comingSoon 的几位都排在末尾，第一位确实可选，
+ * 但顺序随时会调，硬取第一位有朝一日会交出一位玩家根本点不开的英雄。
  * 选中在页面上没有任何标记（金框和光环都撤了），这份默认值只是给「确认英雄」兜个底。
  * `!` 是给 noUncheckedIndexedAccess 让路——七位里至少有一位已实装（引擎的默认英雄就在其中）。
  */

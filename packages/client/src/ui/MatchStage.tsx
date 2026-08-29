@@ -2376,7 +2376,7 @@ function BattleField({
 
             {/*
               敌我分界的中线：一条横贯细线，中间嵌一块深蓝小匾，报第几回合、轮到谁出牌。
-              顶栏的回合数和右侧栏的状态行各自也说了一遍，这里再说是因为位置本身就是信息——
+              顶栏的回合数也说了一遍，这里再说是因为位置本身就是信息——
               线两边就是双方的场面，匾正压在分界上，视线不用离开战场。
 
               线和小匾各自套了手绘滤镜（见 styles.css 的 .battle__midline），
@@ -2420,25 +2420,31 @@ function BattleField({
           ) : null}
         </main>
 
-        <aside className="battle__sidebar battle__sidebar--right" aria-label="回合操作">
-          <OrnateFrame className="battle__sidebar-frame battle__sidebar-frame--actions">
-            {/*
-              终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
-              最后一题的类别，看着像还有一题要考。
-            */}
-            {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
-            <TokenTrack tokens={me.tokens} max={me.tokenMax} />
-            {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
-                三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
-                换文案撑不破框。 */}
-            <PlaqueButton
-              disabled={actionsLocked}
-              onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
-            >
-              {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
-            </PlaqueButton>
-          </OrnateFrame>
-        </aside>
+        {/*
+          回合操作的三块：「下一题」牌匾、Token 细条、结束按钮。
+
+          它们原来挤在一条羊皮纸右侧栏里，现在拆开各自贴着屏幕边悬浮在战场上方
+          （牌匾右上吊着、细条贴最右缘居中、按钮落右下角，定位全在 styles.css 里）。
+          写成 .battle__layout 的绝对定位子元素而不是 fixed：基准框的上边沿正好是顶栏下沿，
+          牌匾"从顶边吊下来"直接 top: 0 就行。
+        */}
+
+        {/*
+          终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
+          最后一题的类别，看着像还有一题要考。
+        */}
+        {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
+        <TokenTrack tokens={me.tokens} max={me.tokenMax} />
+        {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
+            三句都是四五个字，按钮宽度写死 184px 且 overflow: hidden，换文案撑不破框。 */}
+        <div className="battle__end-turn">
+          <PlaqueButton
+            disabled={actionsLocked}
+            onClick={() => sendMine({ type: 'END_PLAY', player: mySeat })}
+          >
+            {waitingForFoe ? '等待对方…' : quizWait ? '答题中…' : '结束出牌'}
+          </PlaqueButton>
+        </div>
       </div>
 
       {/*
@@ -2879,18 +2885,23 @@ const TOKEN_STAR_PATH =
   'M49.5 4L50.5 4L57 43L96 49.5L96 50.5L57 57L50.5 96L49.5 96L43 57L4 50.5L4 49.5L43 43Z'
 
 /**
- * Token 上限到几点为止还排成一列。
+ * Token 细条里留给星星那一列的高度预算（px）。
  *
- * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列，
- * 正好对上"上限每轮 +2"的节奏：第 3 轮 8 点是一列的最后一轮，第 4 轮 10 点起变两列。
- *
- * 两列是目前的上限。题库现在 5 道题（也就是一局 5 轮），最后一轮上限 12 点、折成 6 行，
- * 侧栏还很宽裕；题库要是扩到十几道，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
+ * 这个数是从 styles.css 的 .battle__token-rail 推出来的：细条高 470，减去上下内边距 26、
+ * 落款那两行约 28、以及它和星星之间的 10，剩下约 406，取个整 400。
+ * 改细条高度或落款字号要回来跟着改。
  */
-const TOKEN_SINGLE_COLUMN_MAX = 8
+const TOKEN_STACK_H = 400
+
+/** 一颗星星的边长（px）。同 styles.css 的 .battle__token-star，两处必须一致。 */
+const TOKEN_STAR_SIZE = 30
+
+/** 星星之间最松和最紧的间距（px）。负数就是让星星互相压边——见 TokenTrack。 */
+const TOKEN_GAP_MAX = 18
+const TOKEN_GAP_MIN = -18
 
 /**
- * 右侧栏顶上那块「下一题」牌匾。
+ * 右上角吊着的那块「下一题」牌匾。
  *
  * 只报类别不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
  *
@@ -2934,30 +2945,46 @@ function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
 }
 
 /**
- * 剩余 Token：一颗四芒星＝一点，发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
+ * 剩余 Token：贴着屏幕最右缘那条细板，一颗四芒星＝一点，
+ * 发着黄光的是还剩的，灰下去的是这一轮已经花掉的。
  *
  * 星星**从下往上**烧：最底下那颗是第 1 点，越往上编号越大，花钱是从顶上往下灭的，
  * 像一格格烧下去的蜡烛。数字那行照旧压在星星底下，当这一块的落款。
  *
- * 上限 8 点以内排成一列，超过折成两列——上限每轮 +2（见 core 的 TOKEN_MAX_GROWTH），
- * 一局打到后面有十几点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
+ * **永远单列**。上限每轮 +2（见 core 的 TOKEN_MAX_GROWTH），点数一多就只压间距不换列：
+ * 换成两列的话"从下往上烧"会断成两段，读不出还剩几点。
+ * 间距在这里算好交给 CSS（--token-gap）：细条高度是写死的，CSS 自己算不出一列该留多宽。
+ * 挤到极限时间距是负的，星星互相压边——这时靠每颗星星那圈深色描边分开彼此
+ *（见 styles.css 的 .battle__token-star）。
+ *
+ * 压边也有极限：TOKEN_GAP_MIN 那一档下，一列最多排得下约 30 颗。题库现在 5 道题
+ *（一局 5 轮），上限最高 12 点，还很宽裕；题库要是扩到十几道以上，得回来把星星缩小。
  */
 function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
-  const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
+  // max 为 1 时没有间隔，除数兜到 1 免得算出 Infinity。
+  const gapCount = Math.max(max - 1, 1)
+  const gap = Math.min(
+    TOKEN_GAP_MAX,
+    Math.max(TOKEN_GAP_MIN, (TOKEN_STACK_H - max * TOKEN_STAR_SIZE) / gapCount),
+  )
   return (
-    <div className="battle__tokens">
-      <div className="battle__token-grid" style={{ '--token-rows': rows } as CSSProperties}>
+    <div className="battle__token-rail">
+      <div
+        className="battle__token-stack"
+        style={{ '--token-gap': `${gap.toFixed(2)}px` } as CSSProperties}
+      >
         {Array.from({ length: max }, (_, index) => {
-          // index 是格子号，DOM 顺序就是视觉顺序：左列从上到下，再右列
-          //（CSS 那边 grid-auto-flow: column）。Token 却是从下往上数的，
-          // 所以这里把格子号翻译成"它是这一列自下而上的第几点"。
-          const column = Math.floor(index / rows)
-          const point = column * rows + (rows - 1 - (index % rows))
+          // index 是从上往下的行号，Token 却是从下往上数的，翻一下：
+          // 最上面那颗编号最大，也就是最先被花掉的那点。
+          const point = max - 1 - index
           return <TokenStar key={point} spent={point >= tokens} />
         })}
       </div>
       <span className="battle__token-count">
-        {tokens}/{max} token
+        <span className="battle__token-count-value">
+          {tokens}/{max}
+        </span>
+        <span className="battle__token-count-unit">token</span>
       </span>
     </div>
   )

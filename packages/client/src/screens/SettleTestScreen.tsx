@@ -378,7 +378,7 @@ function questionOf(questionId: string): Question {
  *
  * 走的就是对局里那个 scriptedAnswers，所以回答文本和 correct 天然对得上——
  * 手写一个「答对了」再配一句和它相反的理由，界面上一眼就穿帮。
- * 这里查的都是没被干扰过的单位（unitOf 不写 interferedBy），也就是 baseline 那一档。
+ * 这里查的都是没被干扰过的单位（unitOf 不写 interference），也就是 baseline 那一档。
  */
 function buildResults(scenario: Scenario): SettleAiResult[] {
   const question = questionOf(scenario.questionId)

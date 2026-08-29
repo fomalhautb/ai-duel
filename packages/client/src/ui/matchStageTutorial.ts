@@ -35,7 +35,7 @@ export interface MatchStageTutorial {
   /**
    * 逐张手牌的额外锁：**手牌实例 id** → 点它时弹的那句提示。
    *
-   * 挂进 HandFan 的 blocked 判据（和「Token 不够」「本轮已派出 AI 牌」同一套压暗 + 摇头），
+   * 挂进 HandFan 的 blocked 判据（和「Token 不够」同一套压暗 + 摇头），
    * 所以被锁的牌看得出来是关着的，点一下也有话说，不会点了没反应。
    */
   blockedCards?: ReadonlyMap<string, string> | null

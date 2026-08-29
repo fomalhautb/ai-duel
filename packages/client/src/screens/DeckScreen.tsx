@@ -24,8 +24,8 @@
  *   （ui/flipCard.ts，由右上角的问号热区驱动），再里面是正反两个 face。
  *   两面身上的 data-flip-face 是 flipCard.ts 认人的契约。倾斜句柄按 id 存在
  *   poolTiltsRef / deckTiltsRef 里，卡增减时增量挂 / 摘（见下面那个 useGSAP）。
- *   **AI 牌和即将上线的牌没有背面这一层和那个问号**：前者的背面是全套通用的美术图、翻过去
- *   读不到任何东西（对局手牌同一口径），后者翻过去只是一段还没生效的效果说明（见 flippable）；
+ *   **即将上线的牌没有背面这一层和那个问号**：它们翻过去只是一段还没生效的效果说明，
+ *   问号留着只会让人白点（见 flippable）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
  *   （不传 veilRef），点遮罩和 ESC 都能关。正面大卡落在中央偏左（落位由 deck.css 覆盖），
@@ -74,7 +74,8 @@ import {
 } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
-import { AI_CARD_BACK_ART, cardArtFor } from '../ui/cardArt'
+import { AiCardBack } from '../ui/AiCardBack'
+import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { thumbFor } from '../ui/cardArtThumb'
 import { CardHelpMark } from '../ui/CardHelpMark'
 import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverlay'
@@ -82,6 +83,7 @@ import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
+import { LoadingScreen } from '../ui/LoadingScreen'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { battleStageMetrics, toStagePoint } from '../ui/battleStage'
@@ -89,6 +91,7 @@ import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardBackText } from '../ui/cardText'
 import { flipTo, setFlipAngle } from '../ui/flipCard'
+import { useAssetsReady } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
@@ -221,7 +224,13 @@ function handCardOfDefinition(card: HandCard): HandCardData {
     tokenCost: card.tokenCost,
   }
   if (card.kind === 'ai') {
-    return { ...base, kind: 'ai', model: card.model }
+    return {
+      ...base,
+      kind: 'ai',
+      model: card.model,
+      skillName: card.skillName,
+      skillText: card.skillText,
+    }
   }
   return { ...base, kind: 'skill' }
 }
@@ -268,8 +277,46 @@ const CARD_BY_ID = new Map<CardId, HandCardData>(
 const THUMB_CARD_BY_ID = new Map<CardId, HandCardData>(
   DISPLAY_CARD_IDS.map((cardId) => {
     const card = handCardOfDefinition(getCard(cardId))
-    return [cardId, { ...card, art: thumbFor(cardArtFor(cardId)) }]
+    return [cardId, { ...card, art: thumbArtFor(cardId) }]
   }),
+)
+
+/**
+ * 一张卡在这一页的缩略图地址。
+ *
+ * 上面那份卡表和下面的预加载清单都走这一个函数：两处各写一遍 thumbFor(cardArtFor(id)) 的话，
+ * 哪天改了取图规则却只改一边，预加载等的就不是卡面真正显示的那张，白卡照旧。
+ */
+function thumbArtFor(cardId: CardId): string {
+  return thumbFor(cardArtFor(cardId))
+}
+
+/**
+ * 这一页要用到的全部图片，加载完之前不上场（见文件末尾的 DeckScreen）。
+ *
+ * 主要是卡池和格子里那几十张缩略图——它们是这一页唯一"铺满屏幕"的图，
+ * 不等的话进页面看到的是一片白卡，然后一张张显影。
+ * 放大查看用的原画不在这里：那是玩家点开某一张才用得上的，为它把进页面拖慢十几秒不划算，
+ * 它们由后台预加载负责（见 ui/backgroundPreload.ts 的 CARD_ART_ASSETS）。
+ *
+ * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ *
+ * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
+ * 两边各写一遍迟早会对不上。
+ */
+export const DECK_ASSETS = Array.from(
+  new Set([
+    // 卡池背景那张深蓝星图，和对局的战场底图是同一张（见 deck.css 的 .deck-pool）。
+    '/battle/battle-bg.webp',
+    // 放大查看时右边那张技能牌背面的边框底图（见下面的 SkillCardBack）。
+    // 它是这一页少数几张不走卡面的图，而且一翻开就要用，所以并进闸门一起等。
+    '/cards/skills/skill-card-back.webp',
+    ...DISPLAY_CARD_IDS.map(thumbArtFor),
+    // 占位图的缩略图。眼下卡池里每张卡都有专属原画，谁也分不到占位图，
+    // 但新卡的原画补齐之前会先落到这儿（见 ui/cardArt.ts 的 placeholderArtFor），
+    // 到那时不用回来改这份清单。四张加起来 100 KB 出头，白等也不心疼。
+    ...CARD_ART_PLACEHOLDERS.map(thumbFor),
+  ]),
 )
 
 /**
@@ -426,7 +473,22 @@ export interface DeckScreenProps {
   overlay?: ReactNode
 }
 
-export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
+/**
+ * 这一页的加载闸门。
+ *
+ * 拆成两个组件而不是在 DeckStage 里写条件渲染，理由同 HomeScreen：里面的 useGSAP
+ * 和量尺寸的那些 effect 都只在挂载时跑一次，必须等真实 DOM 就位再挂。
+ *
+ * 正常情况下这一步是白给的——后台预加载在玩家还看着首页时就把缩略图下完了，
+ * settled 缓存让 useAssetsReady 第一帧就返回 true，loader 一眼都不会闪。
+ * 它挡的是预加载还没轮到这一组、玩家已经点进来的情况。
+ */
+export function DeckScreen(props: DeckScreenProps) {
+  const ready = useAssetsReady(DECK_ASSETS)
+  return ready ? <DeckStage {...props} /> : <LoadingScreen />
+}
+
+function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   /**
    * 选中的阵营，null = 不按阵营筛。只在「AI 牌」页签下生效（见 shown）。
@@ -753,11 +815,8 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
    */
   const settleCard = contextSafe((element: HTMLElement, tilt?: CardTiltHandle) => {
     const inner = element.querySelector<HTMLElement>(FLIP_LAYER_SELECTOR)
-    if (inner !== null) {
-      // 翻面补间还在跑的话，只 set 一下会被它下一帧覆盖回去。
-      gsap.killTweensOf(inner)
-      setFlipAngle(inner, 0)
-    }
+    // setFlipAngle 自带 overwrite，还在跑的翻面补间会被它一并收掉（见 ui/flipCard.ts）。
+    if (inner !== null) setFlipAngle(inner, 0)
     const layer = element.querySelector<HTMLElement>(TILT_LAYER_SELECTOR)
     if (layer !== null) gsap.set(layer, { rotationX: 0, rotationY: 0 })
     tilt?.reset()
@@ -1275,7 +1334,7 @@ export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenP
   })
 
   /** 问号热区的进出。卡池卡和迷你卡共用，翻面层由 flipHelp 自己从热区往上找。
-      热区只长在能翻面的牌上（见 PoolCard 的 flippable），AI 牌和即将上线的牌都到不了这里。 */
+      热区只长在能翻面的牌上（见 PoolCard 的 flippable），即将上线的牌到不了这里。 */
   const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
   const handleHelpLeave = useStable((help: HTMLElement) => flipHelp(help, false))
   /**
@@ -2044,7 +2103,7 @@ interface PoolCardProps {
    * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
    */
   onAdd: (cardId: CardId, cardEl: HTMLElement) => void
-  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。AI 牌和选不了的卡不挂问号（见 flippable）。 */
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。选不了的卡不挂问号（见 flippable）。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
   onHelpToggle: (help: HTMLElement) => void
@@ -2065,14 +2124,11 @@ const PoolCard = memo(function PoolCard({
   hidden,
 }: PoolCardProps) {
   /*
-   * 能不能翻面。不能翻的那两类，问号、热区和背面整层一起不渲染：
-   * - AI 牌：背面是全套通用的那张美术图，翻过去什么信息都没有（同对局手牌，见 HandFan 的 flippable）；
-   * - 选不了的牌（「即将上线」和「暂未接入」）：背面只是一段还没生效的效果说明，
-   *   问号留着只会让人一直去点，热区还会把「点卡面 = 弹一句原因」那一下吃掉。
-   *
-   * 两类合起来的效果：能翻面的只剩「能选进牌组的技能牌」。
+   * 能不能翻面。选不了的牌（「即将上线」和「暂未接入」）不能翻，问号、热区和背面整层一起不渲染：
+   * 它们的背面只是一段还没生效的效果说明，问号留着只会让人一直去点，
+   * 热区还会把「点卡面 = 弹一句原因」那一下吃掉。
    */
-  const flippable = card.kind !== 'ai' && blockedLabel === null
+  const flippable = blockedLabel === null
   return (
     // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
     // 没有这个盒子的话邻牌会立刻塌陷补位。
@@ -2108,8 +2164,8 @@ const PoolCard = memo(function PoolCard({
               {/* 看得见的问号圆章。正面这一份不用另加 .card-glare：HandCardFace 自带一层。 */}
               {flippable ? <CardHelpMark className="deck-pool-card__help-mark" /> : null}
             </div>
-            {/* 背面整层只给技能牌渲染（理由见 flippable）。一屏几十张卡，
-                白铺一层看不到的卡背图不便宜。 */}
+            {/* 背面整层只给能翻面的牌渲染（理由见 flippable）。一屏几十张卡，
+                白铺一层看不到的卡背不便宜。 */}
             {flippable ? (
               <div
                 className="deck-pool-card__face deck-pool-card__face--back"
@@ -2220,8 +2276,6 @@ const DeckSlotItem = memo(function DeckSlotItem({
   onHelpToggle,
   hidden,
 }: DeckSlotItemProps) {
-  /* 同 PoolCard：AI 牌不翻面，问号和背面整层都不渲染。 */
-  const flippable = card.kind !== 'ai'
   return (
     <li className="deck-slot">
       <div
@@ -2239,39 +2293,35 @@ const DeckSlotItem = memo(function DeckSlotItem({
               <div className="deck-mini__card">
                 <HandCardFace card={card} />
               </div>
-              {flippable ? <CardHelpMark className="deck-mini__help-mark" /> : null}
+              <CardHelpMark className="deck-mini__help-mark" />
             </div>
-            {flippable ? (
-              <div className="deck-mini__face deck-mini__face--back" data-flip-face="back">
-                <div className="deck-mini__card">
-                  <CardBackFace card={card} />
-                </div>
-                <CardHelpMark className="deck-mini__help-mark" />
+            <div className="deck-mini__face deck-mini__face--back" data-flip-face="back">
+              <div className="deck-mini__card">
+                <CardBackFace card={card} />
               </div>
-            ) : null}
+              <CardHelpMark className="deck-mini__help-mark" />
+            </div>
           </div>
           {/* 同 PoolCard 里那颗：只管交互的透明热区，留在 __inner 外面不跟着翻面。 */}
-          {flippable ? (
-            <button
-              type="button"
-              className="deck-help deck-help--mini"
-              aria-label={`查看「${card.name}」的背面`}
-              /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
-                 理由见 handleHelpToggle。 */
-              onPointerEnter={(event) => {
-                if (event.pointerType !== 'mouse') return
-                onHelpEnter(event.currentTarget)
-              }}
-              onPointerLeave={(event) => {
-                if (event.pointerType !== 'mouse') return
-                onHelpLeave(event.currentTarget)
-              }}
-              onPointerUp={(event) => {
-                if (event.pointerType === 'mouse') return
-                onHelpToggle(event.currentTarget)
-              }}
-            />
-          ) : null}
+          <button
+            type="button"
+            className="deck-help deck-help--mini"
+            aria-label={`查看「${card.name}」的背面`}
+            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+               理由见 handleHelpToggle。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpEnter(event.currentTarget)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              onHelpLeave(event.currentTarget)
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === 'mouse') return
+              onHelpToggle(event.currentTarget)
+            }}
+          />
         </div>
         {/* 同 .deck-pool-card__glow：hover 只切 opacity。挂在外层而不是缩放层里，
             这样它按格子的实际尺寸铺满，不用跟着 --deck-mini-scale 反算。 */}
@@ -2296,19 +2346,14 @@ const DeckSlotItem = memo(function DeckSlotItem({
  * 技能牌那一支的 markup 和对局手牌那份（ui/HandFan.tsx 里 .hand-fan__face--back 那段）保持一致，
  * 用的也是全局的 .card-back 一套样式：同一张牌在对局里和在这一页翻过来必须长得一样，
  * 铺的是星象边框底图再压卡名和 backText（底图见 .card-back--skill）。
- * AI 牌那一支只剩放大查看的伴随层还在用（卡池卡和格子里的 AI 牌不翻面了，见 PoolCard 的
- * flippable），铺的是统一卡背图。
+ * AI 牌那一支铺的是 AiCardBack：统一星图卡背上叠一块纸面，写 AI 名称和它的专属技能，
+ * 卡池卡、牌组格子翻面和放大查看的伴随层共用同一份。
  */
 function CardBackFace({ card }: { card: HandCardData }) {
   return (
     <div className={cardBackClassName(card.kind)}>
       {card.kind === 'ai' ? (
-        <img
-          className="card-back__art"
-          src={AI_CARD_BACK_ART}
-          alt="AI 牌统一卡牌背面"
-          draggable={false}
-        />
+        <AiCardBack card={card} />
       ) : (
         <>
           <span className="card-back__title">{card.name}</span>
@@ -2337,7 +2382,7 @@ function SkillCardBack({ card }: { card: HandCardData }) {
     <div className="deck-skill-back" data-copy-size={longCopy ? 'long' : 'normal'}>
       <img
         className="deck-skill-back__frame"
-        src="/cards/skills/skill-card-back.jpg"
+        src="/cards/skills/skill-card-back.webp"
         alt=""
         draggable={false}
       />

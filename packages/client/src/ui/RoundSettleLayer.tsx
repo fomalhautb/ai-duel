@@ -132,6 +132,13 @@ export interface SettleAiResult {
   answer: string
   /** 回答的理由，两行以内的小字。 */
   reasoning: string
+  /**
+   * 答错了但被「保送」留在场上（`AI_SAFE_PASSED`），卡上多盖一枚「保送」。
+   *
+   * 判定照旧算答错：这张卡仍然画成错的、也不进 `SettleScore.correct` 的计数
+   *（保送只免罚下，不改计分，见 core 的 submitAnswers）。这枚章说的只是"它没下场"。
+   */
+  safePassed?: true
 }
 
 /** 我方 / 对方各算不算答对。团队口径：己方至少一个 AI 答对就算答对（见 core 的 submitAnswers）。 */
@@ -408,9 +415,15 @@ export function RoundSettleLayer({
 
       // 「正确 x / N」和「本轮领先」是计分到了这一帧才被 React 渲染出来的，
       // 这两句必须在本次提交绘制之前跑完（useGSAP 是布局 effect），否则它们会先闪一下再被藏起来。
-      gsap.set(all(root, '.settle__squad-sep, .settle__squad-correct, .settle__lead-badge'), {
-        autoAlpha: 0,
-      })
+      // 「保送」那枚章也在这里压住：它是 AI_SAFE_PASSED 到了才被渲染出来的，
+      // 而那条事件和计分同一批，所以上面那段"新卡片"的初始化多半已经跑过、轮不到它。
+      gsap.set(
+        all(
+          root,
+          '.settle__squad-sep, .settle__squad-correct, .settle__lead-badge, .settle-card__safe',
+        ),
+        { autoAlpha: 0 },
+      )
 
       // 读题时间从挂载算起，这里只补上"还差的那一段"：
       // 结果事件比读题时间早到（自动驾驶 2.5s < 4s）就等剩下的 1.5s，晚到就立刻开演。
@@ -506,6 +519,23 @@ export function RoundSettleLayer({
         const body = all(card, '.settle-card__body')
         if (card.dataset.correct === 'false' && body.length > 0) {
           tl.to(body, { opacity: WRONG_BODY_OPACITY, duration: dur(0.25), overwrite: 'auto' }, stampAt)
+        }
+        // 被保送的那张：判定章盖完紧接着补上「保送留场」，顺序就是玩家读这张卡的顺序
+        //（先看到答错，再看到它居然没下场）。
+        const safe = all(card, '.settle-card__safe')
+        if (safe.length > 0) {
+          tl.fromTo(
+            safe,
+            { autoAlpha: 0, y: -6 },
+            {
+              autoAlpha: 1,
+              y: 0,
+              duration: dur(0.28),
+              ease: 'back.out(2)',
+              overwrite: 'auto',
+            },
+            stampAt + gap(STAMP_DUR),
+          )
         }
       })
       at = stampStart + Math.max(0, cards.length - 1) * gap(STAMP_STAGGER) + dur(STAMP_DUR)
@@ -848,6 +878,9 @@ function SettleCard({ result }: { result: SettleAiResult }) {
       </div>
 
       <span className="settle-card__verdict">{result.correct ? '✓ 正确' : '✗ 错误'}</span>
+      {/* 「保送」贴在判定章下面：判定照旧是错的，这枚只补一句"但它没被罚下"。
+          答对的卡永远不会有它——保送只在答错那一步才起作用。 */}
+      {result.safePassed === true ? <span className="settle-card__safe">保送留场</span> : null}
     </article>
   )
 }

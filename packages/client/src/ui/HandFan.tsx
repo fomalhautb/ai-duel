@@ -16,7 +16,7 @@
  * 2. 触屏按住即抬起放大——不用特意做，浏览器在按下时就发 pointerenter。
  * 3. 触屏拖拽时把牌抬到手指上方，免得手指盖住卡面（见 dragTargetOf 和 TOUCH_DRAG_LIFT）。
  * 4. 卡面的倾斜跟随和高光在触屏上整个关掉（见 ui/cardTilt.ts），问号从"移入翻面"
- *    换成"点一下翻面"（见 handleHelpToggle）。问号只长在技能牌上，理由见 flippable。
+ *    换成"点一下翻面"（见 handleHelpToggle）。
  *
  * 一张牌的 transform 拆成三层，每层只管一件事（详见下面 JSX 里的注释）：
  * slot 管扇形摆位和拖拽跟随（x / y / rotation / scale），
@@ -26,7 +26,7 @@
  * 新牌进场是"从侧栏那摞牌堆飞到自己的扇形槽位"：起点由父组件通过 getDealOrigin 给，
  * 飞行本身就是那张牌的第一次布局补间（位移 + 从牌堆那么小放大到手牌尺寸）。
  * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这里的背面是玩家主动翻牌才看到的
- * 技能牌详情，不是牌堆或对手手牌的隐藏牌背。AI 牌根本没有背面这一层（见 flippable）。
+ * 详情面——AI 牌是名称加专属技能，技能牌是效果说明——不是牌堆或对手手牌的隐藏牌背。
  *
  * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
  * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
@@ -39,8 +39,8 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
- * 「这一张现在打不出去」是另一条线：传 tokens / aiPlayedThisRound 之后逐张判，只压暗那几张，
- * 见 HandFanProps.tokens 和 HandFanProps.aiPlayedThisRound。
+ * 「这一张现在打不出去」是另一条线：传 tokens 之后逐张判，只压暗那几张，
+ * 见 HandFanProps.tokens。
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -51,6 +51,7 @@ import { cardArtFor } from './cardArt'
 import { CardHelpMark } from './CardHelpMark'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
+import { AiCardBack } from './AiCardBack'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { PlaqueButton } from './PlaqueButton'
 import { attachCardTilt } from './cardTilt'
@@ -83,7 +84,8 @@ gsap.registerPlugin(useGSAP)
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
- * backText 是非 AI 牌翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
+ * AI 牌的 skillName / skillText 来自 core，正面铭牌和详情背面必须共用；
+ * backText 是其他牌翻面时的补充说明，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
@@ -97,9 +99,13 @@ export interface HandCardData {
   kind: 'ai' | 'skill' | 'hero'
   /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
   model?: string
+  /** AI 牌的专属技能名；技能牌和英雄牌不用这两个字段。 */
+  skillName?: string
+  /** AI 牌的专属技能效果。 */
+  skillText?: string
   /** 卡面正面的描述文案。 */
   text: string
-  /** 非 AI 牌翻到背面时展示的补充说明；AI 牌使用统一美术背面。 */
+  /** 非 AI 牌翻到背面时展示的补充说明。 */
   backText: string
   /**
    * 打出这张牌要花的 Token，卡面左上角那枚费用章画的就是它。
@@ -214,17 +220,15 @@ export interface HandFanProps {
    */
   tokens?: number | null
   /**
-   * 这一轮已经派出过新的 AI 牌了。
+   * 这张牌现在**实际**要扣多少 Token，只影响上面那条"打不起"的判断。
    *
-   * 规则是每轮至多派一张新 AI（引擎那边会拒掉第二张），所以为 true 时手上**其余的 AI 牌**
-   * 一律画成打不出：和「Token 不够」同一套压暗，按一下弹「本轮已派出 AI 牌」。
-   * 技能牌完全不受影响，一轮想打几张打几张。
+   * 卡面印的 `tokenCost` 是原价，而局面里可能有减费（「核电站」本轮全场便宜 1 点、可叠加），
+   * 两者能差好几点。变灰的判据必须和引擎扣费用同一个口径，否则玩家会看到
+   * "明明还剩 3 点、卡面写 4 点的牌却是灰的"，而那张牌其实打得出去。
    *
-   * 和 tokens 各判各的，两条可以同时成立（一张打不起的 AI，本轮又已经派过人）。
-   * 那时弹的是这一句，和引擎的校验顺序一致：这条闸和钱多钱少无关，
-   * 说成"Token 不够"会让玩家以为攒够钱就能再派一个。
+   * 不传就按卡面原价判：对局之外的地方（图鉴、演示页）没有局面可问。
    */
-  aiPlayedThisRound?: boolean
+  playCostOf?: (card: HandCardData) => number
   /**
    * 调用方额外锁上的几张牌：**牌的 id（对局里就是手牌实例 id）** → 点它时弹的那句提示。
    *
@@ -415,8 +419,6 @@ const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
 }
 /** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
 const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
-/** 本轮已经派过新 AI，手上其余 AI 牌被点时弹的小字。 */
-const AI_PLAYED_TIP_TEXT = '本轮已派出 AI 牌'
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
@@ -535,7 +537,7 @@ export function HandFan({
   onPlay,
   disabled = false,
   tokens = null,
-  aiPlayedThisRound = false,
+  playCostOf,
   extraBlocked = null,
   frozen = false,
   lockReason = null,
@@ -556,11 +558,10 @@ export function HandFan({
   /**
    * 这一刻打不出去的那几张牌：id → 点它时该弹的那句提示。
    *
-   * 两条判据合在一张表里（本轮已派过 AI、Token 不够），因为 canDrag 和渲染两条路
-   * 问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
+   * 判据只剩「Token 不够」一条（AI 牌和技能牌都不限张数），但仍然收进一张表里：
+   * canDrag 和渲染两条路问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
    * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
    *
-   * 顺序和引擎的校验一致：先看"本轮已派出 AI 牌"，再看费用（见 aiPlayedThisRound）。
    * 调用方给的 extraBlocked 排在最前面，理由见那个 prop 的说明。
    */
   const blocked = useMemo(() => {
@@ -569,14 +570,17 @@ export function HandFan({
       const extra = extraBlocked?.get(card.id)
       if (extra !== undefined) {
         tips.set(card.id, extra)
-      } else if (aiPlayedThisRound && card.kind === 'ai') {
-        tips.set(card.id, AI_PLAYED_TIP_TEXT)
-      } else if (tokens !== null && card.tokenCost !== undefined && card.tokenCost > tokens) {
-        tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
+      } else if (tokens !== null && card.tokenCost !== undefined) {
+        // 没给 playCostOf 就按卡面印的原价判（图鉴、演示页这类没有减费概念的地方）。
+        const cost = playCostOf === undefined ? card.tokenCost : playCostOf(card)
+        if (cost > tokens) tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
       }
     }
     return tips
-  }, [cards, tokens, aiPlayedThisRound, extraBlocked])
+    // 刻意不把 playCostOf 列进依赖：它每次渲染都是个新函数，列了等于每次都重算一遍。
+    // 它读的那份局面（剩余额度、核电站的减免）一变，tokens 必然跟着变
+    // ——减免和金钟罩都是打出一张牌才会变的，而打牌就要扣 Token，靠 tokens 当变化沿够用。
+  }, [cards, tokens, extraBlocked])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -697,7 +701,7 @@ export function HandFan({
    * 问号的全部零件：一个透明热区（.hand-fan__help，只管交互）
    * 加正反两面各一个的问号圆章（.hand-fan__help-mark，只管样子）。
    * 它们必须一起淡入淡出，否则会出现"看得见问号但点不动"或者反过来的错位。
-   * AI 牌一个零件都没有（见 flippable），所以这里会返回空数组，调用方都先判了长度。
+   * 拿不到槽位（牌刚被打出去）时返回空数组，调用方都先判了长度。
    */
   const helpPartsOf = (id: string): HTMLElement[] => {
     const slot = slotsRef.current.get(id)
@@ -1617,9 +1621,6 @@ export function HandFan({
     >
       {cards.map((card) => {
         const dragBindings = cardDrag.bind(card.id)
-        /* 只有技能牌能翻面：AI 牌的背面是全套通用的那张美术图，翻过去什么信息都没有，
-           所以它连问号带背面整层一起不渲染（同 DeckScreen 卡池卡 / 迷你卡的口径）。 */
-        const flippable = card.kind !== 'ai'
         return (
           <div
             key={card.id}
@@ -1667,27 +1668,29 @@ export function HandFan({
                   <HandCardFace card={card} />
                   {/* 看得见的问号圆章之一。放在这里而不是 HandCardFace 里面：
                     那个组件被战场小卡复用，而小卡没有翻面这回事，不该跟着长出一个问号。 */}
-                  {flippable ? <CardHelpMark className="hand-fan__help-mark" /> : null}
+                  <CardHelpMark className="hand-fan__help-mark" />
                 </div>
-                {/* 背面整层只给技能牌渲染（连同背面那个问号）：AI 牌的背面是一张统一美术图，
-                  翻过去一个字都读不到，所以它干脆不翻面（见上面的 flippable）。 */}
-                {flippable ? (
-                  <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                    <div className={cardBackClassName(card.kind)}>
-                      <span className="card-back__title">{card.name}</span>
-                      <p className="card-back__text">{card.backText}</p>
-                      {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
-                        这一层和正面共用 --glare-x / --glare-y，位置是对的：
-                        .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
-                        而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
-                      <div className="card-glare" />
-                      {/* 背面同一个角上的问号圆章：翻过去之后指针底下仍然压着一个问号，
-                        看起来就是"同一个问号跟着卡转到了背面"。
-                        排在高光层后面，免得被那层 soft-light 混得发灰。 */}
-                      <CardHelpMark className="hand-fan__help-mark" />
-                    </div>
+                <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
+                  <div className={cardBackClassName(card.kind)}>
+                    {card.kind === 'ai' ? (
+                      <AiCardBack card={card} />
+                    ) : (
+                      <>
+                        <span className="card-back__title">{card.name}</span>
+                        <p className="card-back__text">{card.backText}</p>
+                      </>
+                    )}
+                    {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
+                      这一层和正面共用 --glare-x / --glare-y，位置是对的：
+                      .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
+                      而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
+                    <div className="card-glare" />
+                    {/* 背面同一个角上的问号圆章：翻过去之后指针底下仍然压着一个问号，
+                      看起来就是"同一个问号跟着卡转到了背面"。
+                      排在高光层后面，免得被那层 soft-light 混得发灰。 */}
+                    <CardHelpMark className="hand-fan__help-mark" />
                   </div>
-                ) : null}
+                </div>
               </div>
               {/*
               问号的触发热区：完全透明，只管交互（hover 翻面、拦住在它身上按下时抓起牌，
@@ -1701,27 +1704,25 @@ export function HandFan({
               与之配套，卡面那一整棵子树在 CSS 里是 pointer-events: none（见 .hand-fan__inner），
               翻面途中转动的卡面抢不走指针。别给卡面加指针事件，加了这条抖动就会回来。
             */}
-              {flippable ? (
-                <button
-                  type="button"
-                  className="hand-fan__help"
-                  aria-label="查看卡牌详情"
-                  /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
-                     理由见 handleHelpToggle。 */
-                  onPointerEnter={(event) => {
-                    if (event.pointerType !== 'mouse') return
-                    handleHelpEnter(card.id)
-                  }}
-                  onPointerLeave={(event) => {
-                    if (event.pointerType !== 'mouse') return
-                    handleHelpLeave(card.id)
-                  }}
-                  onPointerUp={(event) => {
-                    if (event.pointerType === 'mouse') return
-                    handleHelpToggle(card.id)
-                  }}
-                />
-              ) : null}
+              <button
+                type="button"
+                className="hand-fan__help"
+                aria-label="查看卡牌详情"
+                /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
+                   理由见 handleHelpToggle。 */
+                onPointerEnter={(event) => {
+                  if (event.pointerType !== 'mouse') return
+                  handleHelpEnter(card.id)
+                }}
+                onPointerLeave={(event) => {
+                  if (event.pointerType !== 'mouse') return
+                  handleHelpLeave(card.id)
+                }}
+                onPointerUp={(event) => {
+                  if (event.pointerType === 'mouse') return
+                  handleHelpToggle(card.id)
+                }}
+              />
             </div>
             {/*
               触屏轻点选中之后，浮在牌顶上方的「打出」。鼠标点一下就直接打出，
@@ -1737,7 +1738,14 @@ export function HandFan({
               这时 slot 的 scale 正好是 1（被抬起的牌就是放大到顶那一档），所以按钮是原尺寸。
             */}
             {selectedId === card.id && !effectiveDisabled && !frozen ? (
-              <PlaqueButton className="hand-fan__play" onClick={() => playCard(card.id, true)}>
+              <PlaqueButton
+                className="hand-fan__play"
+                /* 新手教程给这张牌挖洞时要把这颗按钮一起圈进去：它浮在卡的上方、
+                   在 slot 的矩形之外，不圈进去就会被压暗层盖灰、还会被引导气泡整个压住
+                   （气泡贴着洞的上沿放）。见 tutorial/TutorialOverlay.tsx 的 anchorRect。 */
+                data-tutorial-extend="true"
+                onClick={() => playCard(card.id, true)}
+              >
                 打出
               </PlaqueButton>
             ) : null}
@@ -1767,7 +1775,7 @@ export function HandFan({
  * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌；完整技能牌原画直接展示；
  * 没有专属原画的卡继续使用渐变信息层。
  * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
- * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
+ * 主色来自 AI_MODEL_FACE；技能名来自 core，和背面技能详情共用同一份。
  */
 /**
  * 一张牌翻到背面时那层容器该带哪些 class。
@@ -1803,7 +1811,12 @@ export function HandCardFace({ card }: { card: HandCardData }) {
         draggable={false}
       />
       {face !== undefined && cost !== undefined ? (
-        <CardFaceOverlay cost={cost} skillName={face.skillName} name={card.name} accent={face.accent} />
+        <CardFaceOverlay
+          cost={cost}
+          skillName={card.skillName ?? '技能待定'}
+          name={card.name}
+          accent={face.accent}
+        />
       ) : illustratedSkill ? null : (
         <div className="card-face__body">
           <div className="card-face__name">{card.name}</div>

@@ -1,21 +1,18 @@
 /**
  * 教学对战之后的两块纯文字页面：过渡提示（规格 §12 开头）和教程完成页（规格 §14）。
  *
- * 两块共用一层纸面板，所以放在同一个文件里——它们的区别只有里面写什么字。
- * 视觉语言照搬现有的纸面页（.paper-page + .grain + OrnateFrame），
- * 不另起一套：这两屏各自只出现几秒，值不上一份专属版式。
+ * 两块共用一层纸面板（TutorialPaperPage，教学开始页也用它），所以放在同一个文件里——
+ * 它们的区别只有里面写什么字。
  *
  * 完成页刻意**不做规则总结**（规格 §14 明确要求）：玩家刚打完一局，
  * 再糊一屏定义只会把刚学会的东西冲淡。
  */
 
 import { useEffect } from 'react'
-import type { ReactNode } from 'react'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { PlaqueButton } from '../ui/PlaqueButton'
-import { OrnateFrame } from '../ui/OrnateFrame'
-import { OrnateTitle, PaperIconDefs } from '../ui/paper'
+import { OrnateTitle } from '../ui/paper'
 import { markTutorialDone } from '../save/save'
+import { TutorialPaperPage } from './TutorialPaperPage'
 import './tutorial.css'
 
 /** 过渡提示自己往下走的时间。够读完那句话，也留得住"想快点就直接点按钮"。 */
@@ -25,21 +22,6 @@ const INTERLUDE_MS = 4200
 export interface TutorialScore {
   mine: number
   foe: number
-}
-
-/** 两块页面共用的纸面板外壳。 */
-function TutorialPaperPage({ children }: { children: ReactNode }) {
-  return (
-    <div className="tutorial-page paper-page grain">
-      {/* 匾额按钮的框线和文字引用这里定义的滤镜，纸面组件要 PaperIconDefs，各挂一次。 */}
-      <HandDrawnFilterDefs />
-      <PaperIconDefs />
-      {/* .paper-page__inner 把内容抬到两层纸纹之上（纸纹是 .grain 的两个绝对定位伪元素）。 */}
-      <div className="paper-page__inner tutorial-page__inner">
-        <OrnateFrame className="tutorial-panel">{children}</OrnateFrame>
-      </div>
-    </div>
-  )
 }
 
 /**

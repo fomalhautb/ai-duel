@@ -78,7 +78,27 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
     apply(message.command)
   })
 
-  room.onPeerLeft(() => {
+  /*
+   * 链路一恢复就重发一份完整局面，这是整套断线恢复的收口。
+   *
+   * 断线期间发出去的 match:sync 全都丢了（转发器不缓存，对端不在就直接扔掉），
+   * 但那些消息一条也不用补——每条 sync 带的都是**完整** state，
+   * 后一条天然覆盖前一条，所以只要重发最新的一份，客人就对齐了。
+   * 这也是为什么房主这边不需要重发队列，只有客人的指令才需要（见 socket.ts）。
+   *
+   * events 故意留空：它是"从上一个局面到这个局面的过程"，用来播动画的。
+   * 断线期间的过程已经没法完整重放了，硬塞一批对不上的事件只会让动画错乱，
+   * 不如让客人直接跳到最新局面——状态正确比动画连贯重要。
+   */
+  room.onLinkChange((up) => {
+    if (disposed) return
+    core.patch({ link: up ? 'ok' : 'down' })
+    if (!up) return
+    const { state } = core.getSnapshot()
+    if (state) room.relay({ type: 'match:sync', state, events: [] })
+  })
+
+  room.onLinkLost(() => {
     if (disposed) return
     core.patch({ status: 'aborted', abortReason: '对手断开了连接' })
   })

@@ -1,5 +1,5 @@
 /**
- * 新手教程的整条流程：教学对战 → 过渡提示 → 组牌教学 → 选英雄教学 → 完成页。
+ * 新手教程的整条流程：教学开始页 → 教学对战 → 过渡提示 → 组牌教学 → 选英雄教学 → 完成页。
  *
  * 全在 `/tutorial` 这一条路由里按 phase 换画面，做法和 RoomScreen 内嵌
  * DeckScreen / HeroScreen 那一套一样：换路由就要重建教程状态，而这条流程是一段连贯的引导，
@@ -22,6 +22,7 @@ import { markTutorialDone } from '../save/save'
 import { useTutorialController } from '../tutorial/TutorialController'
 import { TutorialDeckStage } from '../tutorial/TutorialDeckStage'
 import { TutorialHeroStage } from '../tutorial/TutorialHeroStage'
+import { TutorialIntro } from '../tutorial/TutorialIntro'
 import { TutorialOverlay } from '../tutorial/TutorialOverlay'
 import { TutorialComplete, TutorialInterlude } from '../tutorial/TutorialOutro'
 import type { TutorialScore } from '../tutorial/TutorialOutro'
@@ -37,14 +38,14 @@ import { useAssetsReady } from '../ui/preloadAssets'
  * 教程现在演到哪一屏。顺序就是流程顺序，只往前走，没有回退。
  * 和 tutorial/steps.ts 那张步骤表是两回事：那张表只管教学对战内部的二十来步。
  */
-type Phase = 'match' | 'interlude' | 'deck' | 'hero' | 'complete'
+type Phase = 'intro' | 'match' | 'interlude' | 'deck' | 'hero' | 'complete'
 
 /** 教学对战没打完就跳过时给完成页兜的比分。正常走完会被真实比分覆盖。 */
 const UNPLAYED_SCORE: TutorialScore = { mine: 0, foe: 0 }
 
 export function TutorialScreen() {
   const [, navigate] = useLocation()
-  const [phase, setPhase] = useState<Phase>('match')
+  const [phase, setPhase] = useState<Phase>('intro')
   /** 教学对战的最终比分，完成页要显示（脚本正常走完是 3:0）。 */
   const [score, setScore] = useState<TutorialScore>(UNPLAYED_SCORE)
 
@@ -61,7 +62,9 @@ export function TutorialScreen() {
 
   return (
     <>
-      {phase === 'match' ? (
+      {phase === 'intro' ? (
+        <TutorialIntro onStart={() => setPhase('match')} />
+      ) : phase === 'match' ? (
         <TutorialMatchPhase
           onFinished={(finalScore) => {
             setScore(finalScore)
@@ -101,7 +104,7 @@ function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore)
     }
   }, [])
 
-  // 战场背景和硬币没到位就先只画 loader，理由同 MatchScreen。
+  // 场地和卡面没到位就先只画 loader，理由同 MatchScreen。
   const assetsReady = useAssetsReady(BATTLE_ASSETS)
   if (!assetsReady || driver === null) return <LoadingScreen />
   return <TutorialMatch driver={driver} onFinished={onFinished} />

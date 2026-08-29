@@ -45,6 +45,8 @@ export type TutorialStepId =
   | 'TUTORIAL_R2_PLAY'
   | 'TUTORIAL_R2_REVEAL'
   | 'TUTORIAL_R2_SCORE'
+  /** 「同结果就比 Token」那条规则：教学局排不出一个自然的平局，所以只讲不演（见 §8）。 */
+  | 'TUTORIAL_R2_TOKEN_RULE'
   | 'TUTORIAL_R3_FREE_PLAY'
   | 'TUTORIAL_R3_REVEAL'
   | 'TUTORIAL_R3_SCORE'
@@ -259,7 +261,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     next: 'TUTORIAL_R2_FOE_PLAY',
   },
 
-  // ---------- 第 2 轮：技能牌与 Token 决胜（规格 §7 / §8） ----------
+  // ---------- 第 2 轮：技能牌真的会改结果（规格 §7 / §8） ----------
   {
     id: 'TUTORIAL_R2_FOE_PLAY',
     // 本轮对手先手：先让它派出新 AI，玩家的干扰技能才有目标（规格 §7）。
@@ -283,16 +285,19 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'TUTORIAL_R2_SKILL_HIT',
     readyOn: [cue('skill-hit')],
-    instruction: '技能牌使用后立即生效。',
+    // 这句只说"生效了"，不剧透它会答成什么样：那一下留到揭晓时自己演，
+    // 玩家看见对手张口就是「香蕉」，比先讲一遍再看一遍有力得多。
+    instruction: '技能牌使用后立即生效，它这一轮已经被干扰了。',
     highlight: [anchor('battlefieldFoe')],
     advance: tap(),
     next: 'TUTORIAL_R2_PLAY',
   },
   {
     id: 'TUTORIAL_R2_PLAY',
-    // 这一轮不放行任何增派的 AI（optionalAi 是空的）：玩家的消耗要严格小于对手的 6 点，
-    // 复读机已经占掉 4 点，而卡池里最便宜的 AI 是 2 费，放进来就打平了
-    //（原委见 TUTORIAL_CARDS.optionalAi）。所以这一步只剩"结束出牌"一个动作。
+    // 这一轮不放行任何增派的 AI（optionalAi 是空的），所以这一步只剩"结束出牌"一个动作。
+    // 不是付不起：打完 4 费的复读机还剩 2 点，卡池里最便宜的 AI 正好 2 费。
+    // 是这一课要教的是"技能真的会改结果"，同一步里再塞一个可选动作会把注意力引开
+    //（原委见 TUTORIAL_CARDS.optionalAi）。
     // optionalAi 将来填回牌时，这里的文案和 highlight 要一起改回"你也可以再派一张"。
     instruction: '场上的 AI 会继续作答，这一轮不用再派新的。',
     highlight: [...TUTORIAL_CARDS.optionalAi.map(card), anchor('endTurnButton')],
@@ -313,8 +318,19 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'TUTORIAL_R2_SCORE',
     readyOn: [cue('round-banner-done')],
-    instruction: '双方都答对时，本轮消耗 Token 更少的一方得分。',
+    instruction: '被干扰的 AI 只会回答「香蕉」，它答错了——这一分又是你的。',
     highlight: [anchor('scoreBoard')],
+    advance: tap(),
+    next: 'TUTORIAL_R2_TOKEN_RULE',
+  },
+  {
+    id: 'TUTORIAL_R2_TOKEN_RULE',
+    // 「同结果就比 Token」这条规则只讲不演：三轮都是"只有一方答对"，教学局排不出一个
+    // 自然的平局，硬凑一轮会把第 3 轮那个放手轮改得别扭（玩家花多少 Token 是不可控的）。
+    // 讲的时机挑在这里，是因为玩家刚看完一轮完整结算，脑子里还装着"这一分凭什么给谁"。
+    // 真遇上平局时结算层自己会把判定理由和双方消耗写出来（见 RoundSettleLayer 的 verdict）。
+    instruction: '要是双方都答对、或者都答错，就比这一轮消耗的 Token，少的一方得分。',
+    highlight: [anchor('tokenCounter')],
     advance: tap(),
     next: 'TUTORIAL_R3_FREE_PLAY',
   },

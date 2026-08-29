@@ -1738,7 +1738,14 @@ export function HandFan({
               这时 slot 的 scale 正好是 1（被抬起的牌就是放大到顶那一档），所以按钮是原尺寸。
             */}
             {selectedId === card.id && !effectiveDisabled && !frozen ? (
-              <PlaqueButton className="hand-fan__play" onClick={() => playCard(card.id, true)}>
+              <PlaqueButton
+                className="hand-fan__play"
+                /* 新手教程给这张牌挖洞时要把这颗按钮一起圈进去：它浮在卡的上方、
+                   在 slot 的矩形之外，不圈进去就会被压暗层盖灰、还会被引导气泡整个压住
+                   （气泡贴着洞的上沿放）。见 tutorial/TutorialOverlay.tsx 的 anchorRect。 */
+                data-tutorial-extend="true"
+                onClick={() => playCard(card.id, true)}
+              >
                 打出
               </PlaqueButton>
             ) : null}

@@ -1,14 +1,47 @@
-# 斗AI
+<h1 align="center">出牌吧！AI！</h1>
 
-一款以「AI 模型的弱点」为核心机制的卡牌对战游戏。
+<p align="center">这题你AI会吗</p>
 
-卡牌分三种：**AI 牌**是一个个真实的 AI 模型，上场后每回合结束都要答一道题，答错就被罚下，
-答对留在场上继续滚分；**技能牌**打出即生效，然后进弃牌区；**英雄牌**在开局前选，每人一张。
-题目专挑人类一眼看穿、AI 却真会翻车的那种：偏见、幻觉、误判、过度自信、上下文遗忘……
+<p align="center">
+  <a href="https://playyourcardai.online"><strong>playyourcardai.online</strong></a>
+  ·
+  <a href="https://playyourcardai.online/info">关于本作</a>
+</p>
 
-## 团队成员
+<p align="center">
+  <img src="docs/screenshots/home.jpg" alt="出牌吧！AI！首页" width="880">
+</p>
 
-石在、司马冰清、刘利剑、叶丁元。
+## 这是什么
+
+一款以「AI 模型的弱点」为核心机制的双人卡牌对战游戏，打开浏览器就能玩，不用装东西也不用注册。
+
+牌分三种：**AI 牌**是一个个真实的 AI 模型，上场后每回合结束都要答一道题，
+答错就被罚下，答对留在场上继续滚分；**技能牌**打出即生效，然后进弃牌区；**英雄牌**在开局前选，每人一张。
+题目专挑人类一眼看穿、AI 却真会翻车的那种：偏见、幻觉、误判、过度自信、上下文遗忘。
+
+两台电脑各开一个浏览器，一方建房、一方输房间码，就能开打。
+
+### 对局界面
+
+<p align="center">
+  <img src="docs/screenshots/battle.jpg" alt="对局界面" width="880">
+</p>
+
+### 组建牌组
+
+<p align="center">
+  <img src="docs/screenshots/deck.jpg" alt="组建牌组界面" width="880">
+</p>
+
+## 黑客松
+
+本作是 **SheNicest 2026 年 8 月黑客松**的参赛作品。
+从一张白纸到线上能联机对战的完整成品——规则、美术、前端、部署——全部在**五天之内**完成。
+
+## 团队
+
+石在 · 司马冰清 · 刘利剑 · 叶丁元
 
 ## 开始
 
@@ -24,9 +57,9 @@ pnpm test               # 单元测试：core 规则、答题剧本
 `VITE_SERVER_URL=http://127.0.0.1:8787` 让前端连得到转发器。
 **线上是同一个 Worker、同一个域名**，不需要这个配置。
 
-## 文档
+## 技术栈
 
-- [`docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md`](docs/AI卡牌对战游戏_游戏机制与流程_V0.2.md)
-  —— 游戏机制：三种卡牌、Token、单轮流程、胜负判定。
-- [`docs/architecture.md`](docs/architecture.md) —— 项目边界、三个包的分工、联机的房主模式、动画约定。
-- [`docs/deploy.md`](docs/deploy.md) —— Cloudflare Worker + Durable Object 部署，push main 自动发布。
+TypeScript + pnpm monorepo，三个包：`core` 是纯规则引擎（无渲染、无 IO），
+`client` 是 Vite + React + GSAP（全部是 DOM，没有画布），
+`server` 是一个 Cloudflare Worker，同时干「转发房间消息」和「托管前端静态资源」两件事，
+房间状态放在 Durable Object 里。选 Cloudflare 的原因只有一条：免费档能挂长连接且不休眠。

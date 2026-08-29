@@ -40,8 +40,7 @@ import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BackButton } from '../ui/BackButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
 import './room.css'
 
@@ -54,7 +53,7 @@ const ROOM_CODE_PATTERN = /^\d{4}$/
  * 这一页要用到的全部图片：背景（和 /hero 共用）+ 全部 UI 切片。
  * 切片是 assets/slice-room-ui.py 从 assets/room-ui-sheet.png 切出来的，改素材要重跑那个脚本。
  *
- * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ * 必须是模块级常量：useAssetsProgress 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  *
  * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
  * 两边各写一遍迟早会对不上。
@@ -124,7 +123,8 @@ function prefersReducedMotion() {
 export function RoomScreen() {
   const [, navigate] = useLocation()
   const session = useMatchSession()
-  const ready = useAssetsReady(ROOM_ASSETS)
+  const assets = useAssetsProgress(ROOM_ASSETS)
+  const ready = assets.ready
   const [room, setRoom] = useState<RoomHandle | null>(null)
   /*
    * 两种失败分开存，因为它们该显示在不同的地方：开房失败是左栏（房间码那半边）的事，
@@ -144,7 +144,7 @@ export function RoomScreen() {
    * 匹配成功的那一刻才会写成 host / guest，从此选完就要进对局。
    */
   const [role, setRole] = useState<'host' | 'guest' | null>(null)
-  /** 对手中途退出后显示在大厅左栏的一行说明。见下面 onPeerLeft。 */
+  /** 对手中途退出后显示在大厅左栏的一行说明。见下面 onLinkLost。 */
   const [peerLeftNotice, setPeerLeftNotice] = useState<string | null>(null)
   /** 加一就重跑连接 effect = 关掉旧房、重开一间新房。 */
   const [resetTick, setResetTick] = useState(0)
@@ -212,16 +212,20 @@ export function RoomScreen() {
           tryStart(connected)
         })
 
-        connected.onPeerLeft(() => {
+        connected.onLinkLost(() => {
           // 对局已经交接给 driver 了，掉线由 driver 自己处理（显示「对手断开了连接」）。
           if (handedOff.current) return
           /*
-           * 还没开局就走人：房主和客人都统一「关掉当前连接、重开一间新房」。
+           * 还没开局，对手断了整整一个宽限期（socket.ts 的 PEER_GRACE）还没回来：
+           * 房主和客人都统一「关掉当前连接、重开一间新房」。
+           *
+           * 短暂的抖动走不到这里——socket 层会自动重连，只有真的走了才触发这个回调，
+           * 所以这里不需要再自己等一次。
            *
            * 不为房主保留原来那间房，是因为客人这一侧根本保不住：join 成功的那一刻
            * socket 层就把它自己原来那条连接关了（见 net/socket.ts 的 join），旧码已经死了。
            * 两边走同一条路径就少一个分支，代价只是房主换个码——而对方已经走了，
-           * 旧码本来也没人在用。不做重连恢复、不做超时等待，重开一间最省事。
+           * 旧码本来也没人在用。
            */
           connected.dispose()
           setPeerLeftNotice(PEER_LEFT_NOTICE)
@@ -234,7 +238,7 @@ export function RoomScreen() {
 
     return () => {
       cancelled = true
-      // onPeerLeft 那条路径里已经 dispose 过一次，这里是第二次——
+      // onLinkLost 那条路径里已经 dispose 过一次，这里是第二次——
       // WebSocket.close() 对已关闭的连接是空操作，不用另外记状态。
       if (!handedOff.current) handle?.dispose()
     }
@@ -336,12 +340,16 @@ export function RoomScreen() {
      */
     handedOff.current = true
     session.start(createGuestDriver({ room }))
-    room.relay({ type: 'match:loadout', deck, hero })
+    /*
+     * 走可靠通道：这条消息丢了，房主永远凑不齐双方的选择，两边就一起卡在选牌界面——
+     * 而且没有任何后续消息能把它补回来（房主也不知道该等谁）。
+     */
+    room.relayReliable({ type: 'match:loadout', deck, hero })
     // guestDriver 起手是 state: null，落在对局界面现成的「等待房主开局」画面上。
     navigate('/match')
   }
 
-  if (!ready) return <LoadingScreen />
+  if (!ready) return <LoadingScreen progress={assets.progress} />
 
   if (phase === 'deck') {
     return (
@@ -524,8 +532,6 @@ function RoomStage({
 
   return (
     <div className="room grain on-dark" ref={rootRef}>
-      {/* 返回按钮的手绘抖动要用它，缺了这一份 Chrome 上整颗按钮不画（见 ui/BackButton.tsx）。 */}
-      <HandDrawnFilterDefs />
       <div className="room__stage">
         <img className="room__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 

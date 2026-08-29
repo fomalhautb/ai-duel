@@ -6,7 +6,8 @@
  * 以及哪道题对哪个模型太简单——这两件事都得把答案原文摆在一起看才判断得出来。
  *
  * 数据来自 generationResults.json，由 scripts/build-generation-data.mjs 合并生成，
- * 手改没有意义（下次跑脚本就被覆盖）。correct 是脚本里的人工判定表给的，不是这一页算的。
+ * 手改没有意义（下次跑脚本就被覆盖）。correct 来自 scripts/judge-answers.mjs 的 LLM 自动判卷
+ * 结果（verdicts-run4.json），不是这一页算的。
  *
  * 和 /card 一样是纯开发页：只求信息全、找得快，不做美化。
  */
@@ -36,7 +37,7 @@ interface PromptPair {
 
 interface Cell {
   answer: string
-  /** null 表示人工判定表还没覆盖这个组合，页面显示「待判定」而不是当成失败。 */
+  /** null 表示判卷没给出明确结论（或没覆盖这个组合），页面显示「待判定」而不是当成失败。 */
   correct: boolean | null
 }
 
@@ -140,7 +141,7 @@ function ResultTable({ skill }: { skill: SkillInfo }) {
  * 一个题目列头，外加 hover 时弹出的完整 prompt。
  *
  * 悬浮层挂在 th 里面而不是单独浮在页面上：鼠标从列头移进悬浮层时，:hover 仍然落在同一个 th 上，
- * 层不会先消失——重复轰炸那档的 user prompt 有一千多字，必须让鼠标能进去滚。
+ * 层不会先消失——prompt 两段加起来不短，必须让鼠标能进去滚。
  * 同理不能用 title 属性：原生提示既不能滚也不保留换行。
  */
 function QuestionHead({ skill, question, index }: { skill: SkillInfo; question: QuestionInfo; index: number }) {

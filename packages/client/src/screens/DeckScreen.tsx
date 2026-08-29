@@ -83,7 +83,6 @@ import { CardZoomOverlay, ZOOM_IN_DUR, ZOOM_OUT_DUR } from '../ui/CardZoomOverla
 import type { CardZoomHandle, CardZoomTarget } from '../ui/CardZoomOverlay'
 import { cardBackClassName, HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { OrnateFrame } from '../ui/OrnateFrame'
 import { PlaqueButton } from '../ui/PlaqueButton'
@@ -92,7 +91,7 @@ import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardBackText } from '../ui/cardText'
 import { flipTo, setFlipAngle } from '../ui/flipCard'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { prefersReducedMotion } from '../ui/reducedMotion'
 import { useCardDrag } from '../ui/useCardDrag'
 import type { CardDragBindings, CardDragHandle } from '../ui/useCardDrag'
@@ -300,7 +299,7 @@ function thumbArtFor(cardId: CardId): string {
  * 放大查看用的原画不在这里：那是玩家点开某一张才用得上的，为它把进页面拖慢十几秒不划算，
  * 它们由后台预加载负责（见 ui/backgroundPreload.ts 的 CARD_ART_ASSETS）。
  *
- * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ * 必须是模块级常量：useAssetsProgress 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  *
  * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
  * 两边各写一遍迟早会对不上。
@@ -483,12 +482,12 @@ export interface DeckScreenProps {
  * 和量尺寸的那些 effect 都只在挂载时跑一次，必须等真实 DOM 就位再挂。
  *
  * 正常情况下这一步是白给的——后台预加载在玩家还看着首页时就把缩略图下完了，
- * settled 缓存让 useAssetsReady 第一帧就返回 true，loader 一眼都不会闪。
+ * settled 缓存让 useAssetsProgress 第一帧就返回 ready，loader 一眼都不会闪。
  * 它挡的是预加载还没轮到这一组、玩家已经点进来的情况。
  */
 export function DeckScreen(props: DeckScreenProps) {
-  const ready = useAssetsReady(DECK_ASSETS)
-  return ready ? <DeckStage {...props} /> : <LoadingScreen />
+  const assets = useAssetsProgress(DECK_ASSETS)
+  return assets.ready ? <DeckStage {...props} /> : <LoadingScreen progress={assets.progress} />
 }
 
 function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
@@ -1648,9 +1647,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     // pageRef（既是 useGSAP 的 scope，也是「把牌拖出面板 = 移除」那块落点）挂在最外层
     // 而不是舞台上：挂舞台上的话，往右一甩正好落进右边那条留边，判不出落点、牌会飞回去。
     <div className="deck-frame paper-page grain" ref={pageRef}>
-      {/* 全页共用的 SVG 定义，各挂一次：少了 <use> 找不到 symbol、CSS 里的 url(#…) 找不到滤镜。
-          两者都是 0 尺寸，不占布局。 */}
-      <HandDrawnFilterDefs />
+      {/* 纸面组件的 <use> 要在同一个文档里找得到 symbol，每页各挂一次（0 尺寸，不占布局）。
+          手绘滤镜不用管，App 已经全局挂了一份。 */}
       <PaperIconDefs />
 
       <div className="deck-page">

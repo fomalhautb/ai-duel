@@ -473,8 +473,9 @@ function applySkillEffect(
 ): void {
   const player = state.players[playerId]
   switch (card.id) {
-    // 干扰两张：记下是被哪张打中的，答题时由答案生成层按种类模拟
+    // 干扰两张：记下是被哪张打中的，答题时按这个种类去查对应那一档的预生成回答
     // （见 script.ts；写字面量而不是 card.id 是为了对上 InterferenceCardId 的类型）。
+    // 这个函数只在没被英雄技能抵消时才被调用，所以被抵消的那一下目标身上什么都不会留。
     case 'fixed-answer':
       target!.interference = 'fixed-answer'
       return
@@ -657,9 +658,10 @@ function useHeroSkill(
     )
   }
 
-  // 换掉 cardId 就是这个技能的全部效果：费用、卡面、答题剧本全部跟着新卡走。
+  // 换掉 cardId 就是这个技能的全部效果：费用、卡面、预生成的答题表现全部跟着新卡走。
   // 身上那两个「本轮」标记（interference / safePassed）原样留着——被干扰、被保送和升降级
-  // 是三码事，同一个单位身上互不影响，升完照样只会答香蕉、也照样答错不罚下。
+  // 是三码事，同一个单位身上互不影响：升完仍按新卡查被干扰那一档的回答，也照样答错不罚下。
+  // 降到链底可能降出 GPT-2 这种没跑过预生成的卡，那一档由 script.ts 兜底，不会缺格抛错。
   // 金钟罩同理管不着这里：它挡的是技能牌，而英雄技能不是技能牌（见 types.ts 的 shielded）。
   target.cardId = toCardId
   target.levelShift = (target.levelShift ?? 0) + (direction === 'upgrade' ? 1 : -1)

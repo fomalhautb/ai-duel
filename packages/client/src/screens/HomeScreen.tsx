@@ -45,7 +45,6 @@ import { useLocation } from 'wouter'
 import { getCard } from '@ai-duel/core'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { HandCardFace } from '../ui/HandFan'
 import type { HandCardData } from '../ui/HandFan'
 import { attachCardTilt } from '../ui/cardTilt'
@@ -55,7 +54,7 @@ import { midFor } from '../ui/cardArtThumb'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
@@ -305,8 +304,8 @@ export const HOME_ASSETS = Array.from(
  */
 export function HomeScreen() {
   useBackgroundMusic('beginning')
-  const ready = useAssetsReady(HOME_ASSETS)
-  return ready ? <HomeStage /> : <LoadingScreen />
+  const assets = useAssetsProgress(HOME_ASSETS)
+  return assets.ready ? <HomeStage /> : <LoadingScreen progress={assets.progress} />
 }
 
 function HomeStage() {
@@ -553,10 +552,6 @@ function HomeStage() {
 
   return (
     <div className="home grain">
-      {/* var(--rough-*) 代进去的 url(#…) 要在同一个文档里找得到滤镜定义，每个页面各挂一次。
-          本身是 0 尺寸的 svg，不占布局。 */}
-      <HandDrawnFilterDefs />
-
       <div
         className={`home__stage${hoveredCast !== null ? ' is-cast-hover' : ''}`}
         ref={stageRef}

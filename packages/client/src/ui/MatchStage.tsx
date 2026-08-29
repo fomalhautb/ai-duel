@@ -58,7 +58,6 @@ import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
 import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
-import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { MatchResult } from './MatchResult'
 import type { MatchStageCue, MatchStageTutorial } from './matchStageTutorial'
 import { OpponentFan } from './OpponentFan'
@@ -367,11 +366,14 @@ export function MatchStage({
     return (
       <BattleFrame>
         <div className="battle battle--waiting">
-          <HandDrawnFilterDefs />
           <BattleTopBar />
           <div className="battle__waiting">
             <p className="battle__waiting-text">
-              {view.status === 'aborted' ? view.abortReason : '正在等房主开局…'}
+              {view.status === 'aborted'
+                ? view.abortReason
+                : view.link === 'down'
+                  ? '网络不稳，正在重连…'
+                  : '正在等房主开局…'}
             </p>
             {view.status === 'aborted' ? (
               <div className="battle__result-actions">{resultActions}</div>
@@ -2613,7 +2615,6 @@ function BattleField({
 
   return (
     <div className="battle">
-      <HandDrawnFilterDefs />
       <BattleTopBar status={{ round: state.round, myScore: me.score, foeScore: foe.score }} />
 
       <div className="battle__layout">
@@ -3216,6 +3217,15 @@ function flyToTile(node: HTMLElement, tile: HTMLElement, onArrive: () => void): 
  */
 function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string | null {
   if (view.status !== 'playing') return null
+  /*
+   * 链路断着的时候，"该谁出牌"已经不是玩家最需要知道的事了。
+   *
+   * 这一档要排在最前面：网络断了还照常显示「对方出牌」，玩家会一直等一个永远不会到的动作，
+   * 而且看不出问题出在网络上——这正是原来最让人困惑的那个现象。
+   *
+   * 手牌不跟着锁：轮到自己时照样能出，指令会先攒在重发队列里，链路一通就送到（见 socket.ts）。
+   */
+  if (view.link === 'down') return '网络不稳，正在重连…'
   if (state.phase === 'quiz') return '答题中'
   if (state.phase === 'settle') return '结算中'
   return state.activePlayer === mySeat ? '你出牌' : '对方出牌'

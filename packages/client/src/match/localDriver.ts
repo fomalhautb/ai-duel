@@ -19,7 +19,7 @@ export interface LocalDriverOptions {
    */
   seat: PlayerId | 'active'
   /**
-   * 答题结果从哪来，不填就是 core 的固定剧本（见 quizAutopilot 的 answersFor）。
+   * 答题结果从哪来，不填就是 core 查预生成的真实模型回答（见 quizAutopilot 的 answersFor）。
    * 教学对战靠它把每一轮的对错写死。
    */
   answersFor?: QuizAnswersFor

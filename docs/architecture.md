@@ -296,8 +296,10 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 英雄不对、技能用过了、目标不在该在的那一侧、目标已经到链顶/链底，都回 `COMMAND_REJECTED`。
 效果就是把那个单位的 `cardId` 换成升级链上相邻的一张（`AI_UPGRADE_CHAINS` / `upgradeTargetOf` /
 `downgradeTargetOf`，在 `src/aiModels.ts`），然后发一条 `HERO_SKILL_USED`（带前后两张卡的 id）。
-**能力变化全靠"换成了另一张卡"**：费用、卡面、答题剧本本来就按 `cardId` 查，
-换完自然换了一整套答题表现，引擎不必再理解"强了多少"。
+**能力变化全靠"换成了另一张卡"**：费用、卡面、预生成的答题表现本来就按 `cardId` 查，
+换完自然换了一整套答案，引擎不必再理解"强了多少"。
+（降到链底可能降出 GPT-2 这种"调不到模型、没跑过预生成"的卡，那时 `scriptedAnswers`
+给一句固定的"答不出来"并判错，不会缺格抛错。）
 链只覆盖真有代际关系的四个系列（GPT / Claude / DeepSeek / Kimi），其余 8 张升不了也降不了。
 被干扰过、被保送过的单位照样能升降级，几个标记各管各的、互不覆盖：
 升完照样只会答「香蕉」，也照样答错不罚下。
@@ -334,11 +336,14 @@ JSON 深拷贝和联机转发都少一份冗余（`PlayerState.shielded` 同一�
 哪天有了"上场后被增益/削弱"的数值，再把卡面数值拷贝一份到实例上。
 
 **题库和答题结果。** `src/questions.ts` 是题库（`QUESTION_POOL`），每道题带类别
-（`bias` 偏见测试 / `vision` 视觉测试 / `brainteaser` 脑筋急转弯）、题面、正确答案 `answer`
+（`meme` 梗题 / `bias` 刻板印象 / `life` 生活类）、题面、正确答案 `answer`
 和一句 `explanation`。答案和说明拆成两个字段是排版逼出来的：结算界面把 `answer` 当大字标题排，
 写成整句会挤成两三行，"为什么是这个答案"归 `explanation` 那行小字。
-`src/script.ts` 的 `scriptedAnswers(question, aiUnits)` 是一张写死的
-「题目 × AI 牌 → 对错 + 回答 + 理由」静态表，纯函数、确定性。
+`src/script.ts` 的 `scriptedAnswers(question, aiUnits)` 查的是 `src/pregenAnswers.json`：
+一张「题目 × AI 牌 × 干扰变体 → 对错 + 回答 + 理由」的静态表，纯函数、确定性。
+表里装的是**真实模型回答**——离线用 OpenRouter 跑完存下来的（生成 `scripts/pregen-answers.mjs`、
+判卷 `scripts/judge-answers.mjs`、合成 `scripts/build-core-answers.mjs`），
+所以对局里不联网也不会失败。变体那一维对应场上那个 AI 被哪张干扰牌打中（见 `AiInstance.interference`）。
 它不是引擎的一部分：答题结果由 `SUBMIT_ANSWERS` 指令从外面喂进来（为什么这么分见 4.5）。
 一条 `AnswerResult` 是 `{ instanceId, correct, answer, reasoning }`，
 `answer` 同样是短语、`reasoning` 是两行以内的理由，正好对上结算卡里那一大一小两行。
@@ -438,9 +443,9 @@ JSON 深拷贝和联机转发都少一份冗余（`PlayerState.shielded` 同一�
   │                             │                             │
   ├── GET /api/room ───────────>│                             │
   │<────────── 房间码 "4213" ───┤                             │
-  ├─ WS /room/4213?role=host ──>│                             │
+  ├ WS /room/4213?role=host&peer=… >│                         │
   │<────────── #room:ok ────────┤                             │
-  │                             │<─ WS /room/4213?role=guest ─┤
+  │                             │<WS /room/4213?role=guest&peer=…┤
   │<──────── #peer:joined ──────┤                             │
   │                             │                             │
   │ createGame(seed, 双方牌组)  │                             │
@@ -460,7 +465,11 @@ JSON 深拷贝和联机转发都少一份冗余（`PlayerState.shielded` 同一�
 - 房主自己的操作也走同一条路径（本地 `execute` → 广播事件），
   这样两边的动画时序是一致的，不用为"自己的操作"写第二套逻辑。
 
-代价是**房主断线 = 对局结束**。黑客松阶段接受，UI 上提示一句就行。
+代价是**房主掉线掉够久 = 对局结束**：只有房主在跑引擎，它不回来这局就没法继续。
+
+但"掉线"要熬过一段宽限期才算数。断线本身是常态（切网、锁屏、地铁），
+所以连接层做了自动重连、心跳探活和指令重发，链路断了先显示"正在重连"，
+满 60 秒还没回来才判中断（细节见 `docs/deploy.md` 第 6 节）。
 
 ### 4.3 客人的视图从哪来
 
@@ -473,11 +482,15 @@ JSON 深拷贝和联机转发都少一份冗余（`PlayerState.shielded` 同一�
 `packages/server` 是一个 Cloudflare Worker，只做三件事：
 
 1. `GET /api/room` → 摇一个没人用的 4 位房间码，回给建房的人。
-2. `GET /room/:code?role=host|guest` → 升级成 WebSocket，把人放进房间（上限 2 人），
+2. `GET /room/:code?role=host|guest&peer=<玩家id>` → 升级成 WebSocket，把人放进房间（上限 2 人），
    然后通知房里原本那个人 `#peer:joined`。
 3. 收到消息 → 原样转给房里的另一个人，**不看内容**。
 
-外加连接断开时给还剩下的人发 `#peer:left`。
+外加连接通断时给房里另一个人发 `#peer:online` / `#peer:offline`。
+
+**房里有几个人是按玩家算的，不是按连接算的**：一个玩家断线重连会换一条新连接，
+但还是同一个玩家。玩家身份就是 URL 上的 `peer` 参数，转发器靠它把"重连"和
+"另一个人来了"区分开，也靠它让重连的人不被自己还没被回收的旧连接挡在门外。
 
 **一个房间 = 一个 Durable Object 实例，房间码就是它的名字。**
 同一个码永远被路由到同一个实例，所以不需要维护一张全局房间表——
@@ -525,27 +538,28 @@ Token 补满、进下一轮。所以自动驾驶这一层只管交卷，不管�
 联机客人的那次确认走的还是现成的 `match:command` 通道：和出牌指令一模一样地转给房主执行，
 新局面再跟着 `match:sync` 回来。转发器只认消息信封、不认指令类型，服务端一行都不用改。
 
-现在结果来自 core 的固定剧本 `scriptedAnswers`（见 3.4）。**将来接真实模型 API，
-只需要换掉 autopilot 里对它的那一次调用**——`SUBMIT_ANSWERS` 和 `AnswerResult` 的形状、
+现在结果来自 core 的 `scriptedAnswers`，也就是那份离线预生成的真实模型回答（见 3.4）。
+**将来改成对局中途实时调模型 API，只需要换掉 autopilot 里对它的那一次调用**——
+`SUBMIT_ANSWERS` 和 `AnswerResult` 的形状、
 引擎的时序、界面的动画都不用动。这个分法就是为了那一天准备的：
 把"要联网、会失败、要等"的那一步整个挡在引擎外面。
 
 **干扰类技能就落在这一层。** 用户拍板：「复读机」「黑白颠倒」的效果本体是
 **往那个 AI 的 prompt 里注入一句话**，注入什么写在 `script.ts` 的 `INTERFERENCE_PROMPTS` 里
-（按 `AiInstance.interference` 查），接上真实 API 之后由 driver 拼 prompt 时取用，
-答成什么样交给模型自己。
+（按 `AiInstance.interference` 查），答成什么样交给模型自己。
 
 那两句是**提示词，不是开关**：模型可以照做，也可以不理。「复读机」那句尤其是骗它的
 ——给模型编一条"本轮答「香蕉」可得双倍积分"的假计分规则，再加一句"你自己权衡"，
 赌它上钩；硬命令句谁都会拒，一个划算的假承诺才骗得动。
-接上真实 API 之后，这两张牌的强度就不是常数了：同一张打在不同模型身上可能是两个结果，
-这正是它们好玩的地方，而引擎和界面只认 `AnswerResult`，一行都不用改。
 
-在那之前，`scriptedAnswers` 按"它上钩了"这个**等效结果**改写剧本查出来的回答：
-复读机一律 `{ correct: false, answer: '香蕉' }`，黑白颠倒把 `correct` 取反
-（翻成答对就报标准答案，翻成答错就在原答案前加个否定）。
-不模拟"识破"那一种是因为剧本里没有模型可问，而两张牌总得先能看出效果来。
-这一层是临时的，真实 API 接上就整个去掉。
+这两句**已经离线跑过一遍了**：预生成时每道题都按三份上下文（无注入 / 复读机 / 黑白颠倒）
+各跑一次，所以命中之后查的就是那个模型在被注入时真说出来的话（见 3.4）。
+于是这两张牌的强度本来就不是常数：同一张打在不同模型身上是两个结果，有的当场答香蕉、
+有的识破了照常答题——这正是它们好玩的地方，而引擎和界面只认 `AnswerResult`。
+
+`INTERFERENCE_PROMPTS` 里那两句必须和 `scripts/pregen-answers.mjs` 的注入词**一字不差**：
+那边跑出来的答案就是这份表的数据来源，文案对不上就成了"界面说注入了 A、播的却是 B 的结果"。
+改文案要两边一起改，并重跑预生成。
 
 ## 5. client：全部是 React DOM + GSAP
 
@@ -689,7 +703,7 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 `firstPlayer` 指定先手（第 1 轮玩家先手、第 2 轮对手先手是脚本的一部分），
 `noShuffle` 让起手和每轮抽到的牌完全由教学牌组的排列决定，
 `questions` 塞三道教学题；答题结果由教程自己的预设答案表经 `SUBMIT_ANSWERS` 喂进来，
-不走 `script.ts` 那张正式剧本表（注入口是 `quizAutopilot` 的 `answersFor`）。
+不走 `script.ts` 那张正式的预生成答案表（注入口是 `quizAutopilot` 的 `answersFor`）。
 
 那张预设表**必须和技能牌的真实效果对齐**：它照样读引擎写在单位身上的 `interference` 标记，
 被「复读机」干扰的 AI 一律只答「香蕉」判错，和正式对局一个样。第 2 轮那一分就是这么来的
@@ -1353,8 +1367,9 @@ packages/core/
                               （卡面素材在 assets/人物卡简介/，未接入构建）
   src/collection.ts           卡池、初始收藏、抽卡（纯函数）
   src/questions.ts            题库：题目数量决定一局打几轮
-  src/script.ts               固定剧本：题目 × AI 牌 → 对错 + 回答 + 理由（将来换成真实 API）；
+  src/script.ts               查表：题目 × AI 牌 × 干扰变体 → 对错 + 回答 + 理由；
                               另有干扰牌的 prompt 注入文案 INTERFERENCE_PROMPTS
+  src/pregenAnswers.json      上面那张表的数据，由 scripts/build-core-answers.mjs 生成，手改无效
   src/engine.ts               createGame / execute；另导出 effectivePlayCost（客户端算实际费用要用）
   test/                       Vitest
 packages/client/
@@ -1584,13 +1599,14 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 **还没做的**，按建议顺序：
 
-1. **接真实模型 API**——答题结果现在是 `script.ts` 里写死的固定剧本，
-   换的时候只动 autopilot 里那一次调用（见 4.5）。
+1. **对局中途实时调模型 API**——答题结果现在是**离线预生成**的真实模型回答
+   （`script.ts` 查 `pregenAnswers.json`，生成/判卷/合成三个脚本在 `scripts/`），
+   所以对局里不联网、不会失败、也不烧额度。改成实时调用只动 autopilot 里那一次调用（见 4.5），
+   收益是能出新题、能让同一张牌每局答得不一样。
 2. **剩下 14 张技能牌的效果**——24 张里已经有 10 张在引擎里真的生效
    （复读机、黑白颠倒、玉净瓶、保送、金钟罩、核电站、模型蒸馏、内存紧缺、国产替代、鸡犬升天，
    名单和各自的结算见 `core/src/skillCards.ts` 的文件头注释），其余 14 张打出去只有卡面
-   和亮相动画。两张干扰牌的真正效果（往 prompt 里注入一句话）还要等接上模型 API（第 1 条），
-   在那之前剧本模式按等效结果模拟（见 4.5）。
+   和亮相动画。两张干扰牌是完整的：注入词已经离线跑过一遍，命中后目标改用那一档的真实回答。
    动手加新效果时注意：一律写在 `applySkillEffect` 里，而它只在"没被英雄技能抵消"时被调用
    （见 3.4 的 Debug）。
 3. **剩下 3 位英雄**——7 位里 4 位已经实装（见 3.4），选英雄页、联机协议和两个主动技能的
@@ -1601,8 +1617,10 @@ Vite 的 dev server 自带这个回退，开发时不用管。
    全部实装之后要另想办法给教学局配一位不干扰脚本的对手。
 4. **补卡池和题库**——卡池是 16 张 AI 牌 + 10 张已开放的技能牌（另 2 张 AI 调不到模型、
    14 张技能牌「即将上线」），
-   题库 5 道占位题（正常一局三五轮就分出胜负，5 道是加赛的上限），视觉测试那两道的图还没有，
-   题面先用文字描述顶着；关键词是照现有题面补的，换题时要一起写。
+   题库 8 道题（正常一局三五轮就分出胜负，8 道是加赛的上限），分梗题 / 刻板印象 / 生活类三档。
+   加题不只是往 `questions.ts` 里写一条：题面要和 `scripts/pregen-answers.mjs` 那份一字不差、
+   还得把这道题的 8×16×3 格答案跑出来，否则对局里查表就缺格。
+   关键词是照现有题面补的，换题时要一起写。
    卡池扩容顺带让赢局抽卡重新生效（`INITIAL_COLLECTION` 现在等于整个卡池，见 3.5）。
 5. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
 6. **联机端到端实测**——协议和转发器都有测试，房主/客人 driver 也接好了，

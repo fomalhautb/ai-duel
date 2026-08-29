@@ -1,8 +1,13 @@
 /* 共用 /design 的纸张、纸纹和色板；装饰线只在这里定义，换卡不重新生成图片。 */
+/*
+ * 字色和框线色读的是 --paper-ink / --paper-line-dark，不是随面翻转的 --ink / --line-dark：
+ * 卡面本身永远是米色纸，可它会被摆进深色面板里（组卡页的卡池就把 --ink 翻成了浅色，
+ * 见 screens/deck.css 的 .deck-pool），跟着翻的话纸上的卡名就变成一片看不清的浅色。
+ */
 .card-overlay {
-  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--line-dark));
+  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--paper-line-dark));
   --card-metal-light: color-mix(in srgb, var(--paper) 76%, var(--c-gold));
-  --card-ink: color-mix(in srgb, var(--card-accent) 30%, var(--ink));
+  --card-ink: color-mix(in srgb, var(--card-accent) 30%, var(--paper-ink));
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -16,7 +21,7 @@
   width: 18.5%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--card-accent) 52%, var(--ink));
+  background: color-mix(in srgb, var(--card-accent) 52%, var(--paper-ink));
   box-shadow: 0 1px 3px rgb(43 34 21 / 40%);
   color: var(--paper);
 }

@@ -32,7 +32,7 @@ import { MatchStage } from '../ui/MatchStage'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 
 /**
  * 教程现在演到哪一屏。顺序就是流程顺序，只往前走，没有回退。
@@ -105,8 +105,8 @@ function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore)
   }, [])
 
   // 场地和卡面没到位就先只画 loader，理由同 MatchScreen。
-  const assetsReady = useAssetsReady(BATTLE_ASSETS)
-  if (!assetsReady || driver === null) return <LoadingScreen />
+  const assets = useAssetsProgress(BATTLE_ASSETS)
+  if (!assets.ready || driver === null) return <LoadingScreen progress={assets.progress} />
   return <TutorialMatch driver={driver} onFinished={onFinished} />
 }
 

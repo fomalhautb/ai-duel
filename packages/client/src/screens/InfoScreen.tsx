@@ -23,9 +23,8 @@
 
 import { useLocation } from 'wouter'
 import { BackButton } from '../ui/BackButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { LoadingScreen } from '../ui/LoadingScreen'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import './info.css'
 
 /** 团队名单，不写分工——四个人的活儿是混着干的。 */
@@ -36,7 +35,7 @@ const BACKGROUND = '/info/info-bg.webp'
 /**
  * 这一页要用到的全部图片，就一张背景。
  *
- * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ * 必须是模块级常量：useAssetsProgress 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  *
  * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
  * 两边各写一遍迟早会对不上。
@@ -45,8 +44,8 @@ export const INFO_ASSETS = [BACKGROUND]
 
 export function InfoScreen() {
   // 整页就压在这一张背景图上，它没到位的话文字会先浮在一片空底上，所以等它加载完再上场。
-  const ready = useAssetsReady(INFO_ASSETS)
-  return ready ? <InfoStage /> : <LoadingScreen />
+  const assets = useAssetsProgress(INFO_ASSETS)
+  return assets.ready ? <InfoStage /> : <LoadingScreen progress={assets.progress} />
 }
 
 function InfoStage() {
@@ -54,9 +53,6 @@ function InfoStage() {
 
   return (
     <div className="info">
-      {/* BackButton 的手绘滤镜要用，每页各渲染一次，否则 Chrome 上整颗按钮不画。 */}
-      <HandDrawnFilterDefs />
-
       <div className="info__stage">
         <img className="info__bg" src={BACKGROUND} alt="" draggable={false} />
 

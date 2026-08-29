@@ -46,8 +46,7 @@ import type { HeroId } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { PlaqueButton } from '../ui/PlaqueButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { attachCardTilt } from '../ui/cardTilt'
 import type { CardTiltHandle } from '../ui/cardTilt'
 import {
@@ -96,7 +95,7 @@ const DEFAULT_HERO_ID: HeroId = HERO_LIST.find((hero) => !hero.comingSoon)!.id
 /**
  * 这一页要用到的全部图片：背景 + 七张人物卡。加载完之前不上场（见下面的 HeroScreen）。
  *
- * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ * 必须是模块级常量：useAssetsProgress 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  * 没往 index.html 的 preload 清单里加——那份清单只服务首页的关键路径，
  * 多写一条就是每个玩家进首页都白下一张用不上的图。
  *
@@ -176,8 +175,8 @@ interface HeroScreenProps {
  * 之后不会再补跑。理由和 HomeScreen 那道闸门完全一样。
  */
 export function HeroScreen(props: HeroScreenProps) {
-  const ready = useAssetsReady(HERO_ASSETS)
-  return ready ? <HeroStage {...props} /> : <LoadingScreen />
+  const assets = useAssetsProgress(HERO_ASSETS)
+  return assets.ready ? <HeroStage {...props} /> : <LoadingScreen progress={assets.progress} />
 }
 
 function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: HeroScreenProps) {
@@ -593,8 +592,6 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
 
   return (
     <div className="hero grain on-dark" ref={rootRef}>
-      {/* 匾额按钮的框线和文字都引用这里定义的滤镜，页面上必须渲染一份。 */}
-      <HandDrawnFilterDefs />
       <div className="hero__stage">
         <img className="hero__bg" src="/hero/hero-bg.webp" alt="" draggable={false} />
 

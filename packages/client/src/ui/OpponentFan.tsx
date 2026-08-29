@@ -389,8 +389,17 @@ export function OpponentFan({
             if (el) slotsRef.current.set(card.id, el)
             else slotsRef.current.delete(card.id)
           }}
-          onPointerEnter={() => handleEnter(card.id)}
-          onPointerLeave={() => handleLeave(card.id)}
+          /* 上浮只给鼠标：触屏上手指划过对手那排会把牌一张张顶起来，
+             而这层提示本来就只是"指到了哪张"。触屏点一下直接走下面的 onReveal。
+             判据用这次事件的 pointerType，带触屏的笔记本接鼠标时照常上浮。 */
+          onPointerEnter={(event) => {
+            if (event.pointerType !== 'mouse') return
+            handleEnter(card.id)
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType !== 'mouse') return
+            handleLeave(card.id)
+          }}
           onClick={() => {
             if (disabled) return
             onReveal(card.id)

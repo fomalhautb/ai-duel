@@ -57,7 +57,14 @@ export function createGuestDriver({ room }: GuestDriverOptions): MatchDriver {
     }
   })
 
-  room.onPeerLeft(() => {
+  room.onLinkChange((up) => {
+    if (disposed) return
+    // 客人这边不用做重同步：链路一恢复房主就会重发一份完整局面（见 hostDriver）。
+    // 这里只把状态告诉界面，让它显示"正在重连"。
+    core.patch({ link: up ? 'ok' : 'down' })
+  })
+
+  room.onLinkLost(() => {
     if (disposed) return
     // 房主是唯一跑规则的地方，它一走这局就没法继续了。
     core.patch({ status: 'aborted', abortReason: '房主断开了连接，本局结束' })
@@ -70,7 +77,12 @@ export function createGuestDriver({ room }: GuestDriverOptions): MatchDriver {
 
     send(command: Command) {
       if (disposed) return
-      room.relay({ type: 'match:command', command })
+      /*
+       * 必须走可靠通道。指令和局面不一样，它是**增量**——丢一条就是少出一张牌，
+       * 后面的消息补不回来，房主会一直停在"等待对方出牌"，玩家这边点了却毫无反应。
+       * 这正是原来最常见的那个卡死。relayReliable 会一直重发到房主确认为止。
+       */
+      room.relayReliable({ type: 'match:command', command })
     },
 
     dispose() {

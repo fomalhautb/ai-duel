@@ -17,6 +17,17 @@ export type MatchStatus =
   /** 对局中断（对手断线等），和 finished 不一样，没有赢家。 */
   | 'aborted'
 
+/**
+ * 联机链路的通断。
+ *
+ * 'down' 不代表对局结束，只代表此刻消息送不到对面——网络抖动、切网、锁屏都会这样。
+ * 界面据此显示"正在重连"，让玩家知道自己在等什么，而不是对着一个没反应的界面猜。
+ * 断得太久（socket.ts 里的 PEER_GRACE）才会变成 status: 'aborted'。
+ *
+ * 单机玩法（本地热座、教程）没有链路可言，恒为 'ok'。
+ */
+export type MatchLink = 'ok' | 'down'
+
 export interface MatchView {
   /** 当前局面。客人这边是房主 relay 过来的那一份，不是自己算的。 */
   state: GameState | null
@@ -30,6 +41,8 @@ export interface MatchView {
   lastRejection: string | null
   /** status 为 aborted 时的原因。 */
   abortReason: string | null
+  /** 联机链路通不通。单机玩法恒为 'ok'。 */
+  link: MatchLink
 }
 
 export interface MatchDriver {
@@ -67,8 +80,8 @@ export interface DriverCore {
  * 而 React 要等渲染完的 effect 里才订阅得上——不攒着的话这批事件必然丢，
  * 动画层就会漏掉发牌动画，直接从空手牌跳到满手牌。
  */
-export function createDriverCore(initial: MatchView): DriverCore {
-  let view = initial
+export function createDriverCore(initial: Omit<MatchView, 'link'>): DriverCore {
+  let view: MatchView = { ...initial, link: 'ok' }
   const listeners = new Set<() => void>()
   let eventListener: ((events: GameEvent[]) => void) | null = null
   let buffered: GameEvent[] = []

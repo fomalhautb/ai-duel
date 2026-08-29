@@ -51,12 +51,16 @@ export function syncFlipFaces(inner: HTMLElement) {
 /**
  * 不补间、直接把翻面层摆到某个角度。
  *
- * 用来给"一上来就该是背面"的场景定初值（对手牌的展示卡就是这样起飞的）。
+ * 用来给"一上来就该是背面"的场景定初值（对手牌的展示卡就是这样起飞的），
+ * 也用来在翻面途中把牌硬掰回某一面（放大查看的 AI 牌翻到背面后又被关掉就是这样）。
  * 必须走这里而不是裸 gsap.set：CSS 里正面的 opacity 默认是 1，
  * 只转角度不同步 opacity 的话，卡明明转到了背面那一侧，画面上还是一张镜像的正面。
+ *
+ * overwrite 不能省：gsap.set 默认不动别的补间，还在跑的 flipTo 会在下一帧接着把角度改回去，
+ * 这里"定死"的角度只撑一帧。摆定角度本来就该压过正在跑的翻面。
  */
 export function setFlipAngle(inner: HTMLElement, rotationY: number) {
-  gsap.set(inner, { rotationY })
+  gsap.set(inner, { rotationY, overwrite: true })
   syncFlipFaces(inner)
 }
 

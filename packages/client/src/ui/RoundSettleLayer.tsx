@@ -29,8 +29,8 @@
  * 时间线开打时现从 `dataset.text` 读。这样中途任何一次重渲染都不会把打了一半的字抹掉。
  */
 
-import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { TextPlugin } from 'gsap/TextPlugin'
@@ -113,6 +113,10 @@ const AVATAR_HOVER_SCALE = 2
  * 所以空位就空着。张数超过这个数时列数跟着涨，见渲染处 .settle__squads 上的注释。
  */
 const MIN_CARD_COLUMNS = 3
+/** 结果卡里那张迷你卡面在空间够时的高度（px）。和 .settle-card__avatar 的 135px 是同一个数。 */
+const SETTLE_AVATAR_H = 135
+/** 结果卡的上下内边距之和（px）。和 .settle-card 的 padding: 14px 是同一个数。 */
+const SETTLE_CARD_PAD_Y = 28
 
 /** 我方 / 对方两个数一组。事件里的数组按座位号排，进这一层之前先换算成"我"和"对面"。 */
 export interface SettleSides {
@@ -247,6 +251,10 @@ export function RoundSettleLayer({
   const seenCardsRef = useRef(new Set<Element>())
   /** 每个头像上挂着的 hover 倾斜句柄，卸载时逐个 detach。 */
   const tiltsRef = useRef(new Map<HTMLElement, CardTiltHandle>())
+  /** 两块结果面板的外层。迷你卡面的缩放比就写在它身上，往下传给两侧的卡。 */
+  const squadsRef = useRef<HTMLDivElement>(null)
+
+  useSettleAvatarScale(squadsRef)
 
   const { question, score, results } = settle
   const mine = results.filter((item) => item.mine)
@@ -719,7 +727,11 @@ export function RoundSettleLayer({
         两侧取同一个列数（而不是各按各的张数算），是为了保住"两侧的卡永远一样宽"：
         列宽不一样的话，横着比"谁答对得多"就得先在心里换算一次。少的那侧空位就空着。
       */}
-      <div className="settle__squads" style={{ '--settle-cols': cols } as CSSProperties}>
+      <div
+        className="settle__squads"
+        ref={squadsRef}
+        style={{ '--settle-cols': cols } as CSSProperties}
+      >
         <SettleSquad
           side="mine"
           results={mine}
@@ -766,6 +778,38 @@ export function RoundSettleLayer({
       </footer>
     </div>
   )
+}
+
+/**
+ * 按结果卡实际分到的高度算出迷你卡面的缩放比，写成 --settle-avatar-scale 挂在两块面板的外层上。
+ *
+ * 卡的高度是格子给的（.settle__cards 的 1fr），而格子有多高要看这一层上面还剩多少：
+ * 题面几行、说明几行、手机档字号大一截，都会把它压小。头像却是死的 90×135，
+ * 压到装不下时就会从卡的下边框里戳出去，戳到面板外面、压到底栏那条线上。
+ * 所以让头像去适应格子：够放就是 1（原尺寸），不够就按比例缩。
+ *
+ * 两侧取同一个值（两块 .settle__cards 里较矮的那块），保证两边的头像一样大——
+ * 各算各的话，标头因为多了一枚「本轮领先」徽章高一两个像素，两侧卡面就会差一号。
+ *
+ * 不会和 ResizeObserver 打转：头像缩小只会让卡里的内容变矮，卡本身的高度是格子定的，
+ * 观察的 .settle__cards 不会因此改变尺寸。
+ */
+function useSettleAvatarScale(ref: RefObject<HTMLDivElement | null>): void {
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (node === null) return
+    const rows = Array.from(node.querySelectorAll<HTMLElement>('.settle__cards'))
+    if (rows.length === 0) return
+    const apply = () => {
+      const room = Math.min(...rows.map((row) => row.clientHeight)) - SETTLE_CARD_PAD_Y
+      const scale = Math.min(1, Math.max(room, 0) / SETTLE_AVATAR_H)
+      node.style.setProperty('--settle-avatar-scale', String(scale))
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    for (const row of rows) observer.observe(row)
+    return () => observer.disconnect()
+  }, [ref])
 }
 
 /**

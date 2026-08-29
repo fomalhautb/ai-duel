@@ -36,6 +36,22 @@ export const STARTING_HAND_SIZE = 5
  */
 export const ROUND_DRAW_SIZE = 2
 
+/**
+ * 第 1 轮的 Token 上限。
+ *
+ * 4 点刚好买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
+ * 又买不起 ChatGPT 5.6 Sol 那种 7 点的顶配，开局就得做取舍。
+ */
+export const INITIAL_TOKEN_MAX = 4
+
+/**
+ * 每答完一题，Token 上限涨这么多。
+ *
+ * 上限只涨不减，所以第 n 轮的上限恒为 INITIAL_TOKEN_MAX + (n - 1) × 这个数；
+ * 右侧栏那排星星的格子数就是它算出来的，超过 8 格会自动折成两列。
+ */
+export const TOKEN_MAX_GROWTH = 2
+
 /** 没指定英雄时用谁。选英雄的界面还没做，所以双方默认都是格蕾丝·霍珀。 */
 const DEFAULT_HERO: HeroId = 'grace-hopper'
 
@@ -83,6 +99,9 @@ export function createGame(setup: GameSetup): ExecuteResult {
       id,
       name: config.name,
       score: 0,
+      // 开局就是满的：第 1 轮双方各 4 点，之后每轮补满并涨 2（见 submitAnswers 那段）。
+      tokens: INITIAL_TOKEN_MAX,
+      tokenMax: INITIAL_TOKEN_MAX,
       hand: [],
       deck: shuffle(deck, rng),
       board: [],
@@ -164,7 +183,9 @@ export function execute(state: GameState, command: Command): ExecuteResult {
 
 /**
  * 打出一张手牌。
- * 出牌没有费用，一轮内想打几张打几张；只有卡面标了 `target` 的技能牌要指定目标。
+ *
+ * 一轮内能打几张由剩余 Token 决定：每张牌按卡面 tokenCost 扣，扣不起就整条拒绝。
+ * 另外只有卡面标了 `target` 的技能牌要指定目标。
  */
 function playCard(
   state: GameState,
@@ -180,6 +201,12 @@ function playCard(
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
 
+  // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
+  // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
+  if (player.tokens < card.tokenCost) {
+    return reject(state, `Token 不够：这张牌要 ${card.tokenCost} 点，只剩 ${player.tokens} 点`)
+  }
+
   // 目标先校验完再动手牌：拒绝要退回原样的 state（reject 回的就是传进来那份），
   // 而下面这些改动全落在副本 next 上，顺序写反了以后加分支时容易漏掉。
   // 找到的是 next 里的那个单位，直接给它盖 interfered 就行。
@@ -193,6 +220,8 @@ function playCard(
   }
 
   player.hand.splice(handIndex, 1)
+  // 扣费和抽走手牌绑在一起：上面所有会拒绝的分支都已经走完，到这里这张牌必定打得出去。
+  player.tokens -= card.tokenCost
 
   const events: GameEvent[] = []
   if (card.kind === 'ai') {
@@ -333,7 +362,10 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   next.activePlayer = next.firstPlayer
   next.phase = 'play'
   // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
+  // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉。
   for (const player of next.players) {
+    player.tokenMax += TOKEN_MAX_GROWTH
+    player.tokens = player.tokenMax
     drawCards(player, ROUND_DRAW_SIZE, events)
   }
   announceRound(next, events)

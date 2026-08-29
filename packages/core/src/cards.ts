@@ -15,6 +15,8 @@ export const CARDS: Record<CardId, HandCard> = {
   'placeholder-skill': {
     kind: 'skill',
     id: 'placeholder-skill',
+    // 两张技能牌都定得很便宜：它们现在几乎没有实际效果，定贵了就是逼玩家永远别打它们。
+    tokenCost: 1,
     name: '占位技能',
     text: '占位卡面：打出后亮个相就进弃牌堆，暂时没有任何效果。',
   },
@@ -23,6 +25,7 @@ export const CARDS: Record<CardId, HandCard> = {
     id: 'skill-must-answer',
     // 第一张要选目标的技能牌。本迭代只做"选中并标记"，答题时还不会真的照这句话回答。
     target: 'foe-ai',
+    tokenCost: 2,
     name: '必须回答',
     // 卡面描述最多三行（约 35 个字，见 styles.css 的 .card-face__text），再长会被截掉，
     // 所以这句去掉了引号，压到刚好三行以内。

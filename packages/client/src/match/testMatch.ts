@@ -10,7 +10,7 @@
  * 注意 0 号不一定先出牌——第一轮先手由 createGame 抛硬币掷出，之后每轮交换。
  */
 
-import { STARTER_DECK } from '@ai-duel/core'
+import { QUESTION_POOL, STARTER_DECK } from '@ai-duel/core'
 import { createLocalDriver } from './localDriver'
 import type { MatchDriver } from './driver'
 
@@ -19,6 +19,8 @@ export function createTestMatchDriver(): MatchDriver {
     seat: 0,
     setup: {
       seed: Date.now(),
+      // 测试房只跑一轮，视觉和流程调试可以在一次答题后直接检查最终结算页。
+      questions: [QUESTION_POOL[0]!],
       players: [
         { name: '我', deck: [...STARTER_DECK] },
         { name: '测试对手', deck: [...STARTER_DECK] },

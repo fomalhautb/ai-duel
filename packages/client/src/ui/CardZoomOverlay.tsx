@@ -1,6 +1,7 @@
 /**
- * 卡牌放大查看：点开一张卡，遮罩淡入，卡从原位 Flip 飞到屏幕中央放大，落位后轻轻上下浮动；
+ * 卡牌放大查看：点开一张卡，遮罩淡入，卡从原位 Flip 飞到屏幕中央放大并停住；
  * 点遮罩（放大期间点屏幕任意处都会落在遮罩上）再飞回原位、遮罩淡出。
+ * 停住之后卡本身不再有任何自发动效——观感由调用方给它挂的倾斜跟随负责（/deck 就是这么做的）。
  *
  * 组件**不**持有"现在看的是哪张"这份状态：调用方通常还要拿它把原位那个元素藏起来
  * （不然屏幕中央和原位会同时出现两张一模一样的卡），状态归调用方才能和"隐藏原位"
@@ -13,6 +14,9 @@
  * （OVERLAY_IN_DUR、REVEAL_IN_DUR、REVEAL_FLIGHT_Z……），新对局流程刚落地，还没迁到这里来。
  * 所以改本文件这批常量时要连 MatchStage 那份一起改，否则同一个展示层会演出两种观感。
  * 现在只有 /deck 用这个组件。
+ *
+ * 有一处两边已经不一样了：MatchStage 那份落位后还挂着一条上下呼吸的浮动，这里没有
+ *（/deck 停留期间只跟指针倾斜，再叠一层自发浮动会互相抢镜）。
  */
 
 import { useEffect, useImperativeHandle, useRef } from 'react'
@@ -67,17 +71,6 @@ export function fadeVeilOut(veil: HTMLElement, onComplete?: () => void): void {
   })
 }
 
-/**
- * 停留期间极轻微的上下浮动，免得画面完全定住像卡住了。
- *
- * 浮动写在展示卡自己的 y 上没问题：Flip 落位时已经把飞行用的内联 transform 收干净了，
- * 收尾时也会先 kill 掉这条补间再取位置，两者不会抢同一个属性。
- * 返回补间是为了让调用方收尾时 kill——不停的话它会继续去改一个马上要卸载的节点。
- */
-export function startZoomFloat(card: HTMLElement): gsap.core.Tween {
-  return gsap.to(card, { y: '-=8', duration: 1.15, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-}
-
 export interface ShowcaseCardProps {
   card: HandCardData
   /**
@@ -87,7 +80,7 @@ export interface ShowcaseCardProps {
   flipId: string
   /** 裁剪层，撤裁剪要用（见 .reveal-clip 的 CSS 注释）。 */
   clipRef?: Ref<HTMLDivElement>
-  /** 展示卡本体：飞行、浮动、取飞回起点都对着它。 */
+  /** 展示卡本体：飞行、取飞回起点都对着它。 */
   cardRef?: Ref<HTMLDivElement>
   /**
    * 背面内容。只有整段要翻面的链路才传（强制展示：牌背朝上飞过来的路上翻正）；
@@ -107,7 +100,9 @@ export function ShowcaseCard({ card, flipId, clipRef, cardRef, back }: ShowcaseC
         {/* 翻面层，结构和手牌一致：两面重叠、由 flipTo 按角度切 opacity（见 ui/flipCard.ts）。 */}
         <div className="reveal-card__inner">
           <div className="reveal-card__face" data-flip-face="front">
-            {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。 */}
+            {/* 卡面布局尺寸仍是 150×225，靠这一层整体放大，字和描边才一起变大而不是被拉伸。
+                跟着指针跑的高光不用在这儿另加一层：HandCardFace 自带一份 .card-glare，
+                调用方给这张展示卡挂 cardTilt 时（/deck 就是这么做的）会连它一起抓到。 */}
             <div className="reveal-card__scale">
               <HandCardFace card={card} />
             </div>
@@ -150,7 +145,7 @@ export interface CardZoomHandle {
    */
   requestClose: () => void
   /**
-   * 立即中止：停浮动、丢掉飞回、回调 onClose，但**不播飞回、也不淡出遮罩**。
+   * 立即中止：丢掉飞回、回调 onClose，但**不播飞回、也不淡出遮罩**。
    * 给"别的链路要抢这块遮罩、等不了飞回那 0.6 秒"的场景用，遮罩交给抢占方接着淡入。
    */
   abort: () => void
@@ -212,8 +207,6 @@ export function CardZoomOverlay({
    * 改写的元素，容易留下收不干净的补间。
    */
   const heldRef = useRef(false)
-  /** 停留期间的呼吸浮动，收尾时要停掉，免得它继续改一个马上要卸载的节点。 */
-  const floatRef = useRef<gsap.core.Tween | null>(null)
   /**
    * target 的同步副本。
    *
@@ -230,8 +223,6 @@ export function CardZoomOverlay({
   const requestClose = () => {
     if (targetRef.current === null || !heldRef.current || flipBackRef.current !== null) return
     heldRef.current = false
-    floatRef.current?.kill()
-    floatRef.current = null
     const el = cardRef.current
     // 趁展示卡还在屏幕中央、还没被调用方摘掉，量下它此刻的位置当飞回的起点。
     if (el !== null) {
@@ -252,8 +243,6 @@ export function CardZoomOverlay({
     abort: () => {
       if (targetRef.current === null) return
       heldRef.current = false
-      floatRef.current?.kill()
-      floatRef.current = null
       flipBackRef.current = null
       targetRef.current = null
       onClose()
@@ -273,7 +262,7 @@ export function CardZoomOverlay({
 
   // 两个分支各管一程：target 从空变成有牌时飞进展示位，从有牌变回空时飞回原位。
   useGSAP(
-    (_context, safe) => {
+    () => {
       const pending = flipInRef.current
       if (pending !== null && target !== null) {
         flipInRef.current = null
@@ -289,20 +278,18 @@ export function CardZoomOverlay({
         if (inner !== null) setFlipAngle(inner, 0)
 
         // 裁剪层直接撤掉。那份裁剪是给"从顶栏后面起飞"的卡准备的（见 .reveal-clip），
-        // 放大查看的起点整个在顶栏下方，从头到尾用不着；留着反而会在呼吸浮动擦到顶栏
-        // 那条线时把卡裁掉一截。
+        // 放大查看的起点整个在顶栏下方，从头到尾用不着；留着的话调用方给展示卡挂的倾斜
+        // 一转到顶栏那条线上方，卡就会被裁掉一截。
         const clip = clipRef.current
         if (clip !== null) gsap.set(clip, { clipPath: 'none' })
 
-        // onComplete 是飞完才跑的，出了 useGSAP 回调的同步区间，
-        // 里面新建的浮动补间不包一层就不归 context 管，组件卸载时 revert 不掉。
+        // 落位。从这一刻起才受理关闭，见 heldRef。
         const landed = () => {
           // 飞到一半被 abort 掉的话这段飞行并不会被 kill（卡已经脱离文档，改它也画不出来），
-          // onComplete 照样会在 0.55 秒后跑一次。那时再起一条浮动就是往一个死节点上挂补间，
-          // 还会把 floatRef 占住（下一次真正的收尾就 kill 错了对象），所以认一下卡还是不是当前那张。
+          // onComplete 照样会在 0.55 秒后跑一次。那时这一轮早就结束了，还去抬 heldRef 的话，
+          // 下一轮刚打开、卡还在飞就成了"已落位"，半路的关闭会被受理。所以认一下卡还是不是当前那张。
           if (cardRef.current !== card) return
           heldRef.current = true
-          floatRef.current = startZoomFloat(card)
         }
 
         Flip.from(pending, {
@@ -311,7 +298,8 @@ export function CardZoomOverlay({
           ease: ZOOM_IN_EASE,
           // 用 scale 而不是 width/height，卡面里的字会跟着一起放大，看起来才像同一张卡在变大。
           scale: true,
-          onComplete: safe ? safe(landed) : landed,
+          // landed 只改一个 ref、不建补间，所以不用包 contextSafe。
+          onComplete: landed,
         })
         return
       }
@@ -349,8 +337,12 @@ export function CardZoomOverlay({
         />
       ) : null}
       {target === null ? null : (
-        // key 让每次打开都是一个新挂载的节点：浮动写在展示卡自己的 y 上，
-        // 复用旧节点的话上一轮停下时那点偏移会留到下一轮的起飞位置上。
+        // key 让"直接换一张卡看"也走重新挂载，而不是在原节点上换内容。
+        //
+        // target 从 null 变过来时本来就是新挂载（下面这段整个不渲染），key 管的是另一条路：
+        // 调用方不经过 null、直接把 target 换成另一张卡。那时复用旧节点会把上一轮留在它身上的
+        // 内联状态带过去——飞行写的 transform、调用方挂的倾斜角度和高光；而且 cardRef 还指着
+        // 同一个元素，上面 landed 里那条"卡还是不是当前那张"的判断就跟着失灵了。
         <ShowcaseCard
           key={target.flipId}
           card={target.card}

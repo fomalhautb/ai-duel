@@ -131,8 +131,11 @@ export interface HeroScreenTutorial {
 interface HeroScreenProps {
   /** 预填的英雄；null 表示默认选中第一位。只在挂载时读一次，之后以玩家在页面上的选择为准。 */
   initialHeroId: HeroId | null
-  /** 详情飞回卡槽的动画播完才回调——跳转要是抢在动画前面，这段飞行等于白做。 */
-  onConfirm: (hero: HeroId) => void
+  /**
+   * 详情飞回卡槽的动画播完才回调——跳转要是抢在动画前面，这段飞行等于白做。
+   * 不传就不渲染详情里的「确认英雄」：大厅横幅进来的是纯查看，选谁都不会被记下。
+   */
+  onConfirm?: (hero: HeroId) => void
   /** 不传就不渲染返回按钮（比如从没有上一步的入口进来）。 */
   onBack?: () => void
   /** 新手教程模式。不传 = 七位随便选，也就是这一页原本的样子。 */
@@ -388,7 +391,7 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
         const confirmed = pendingConfirmRef.current
         if (confirmed === null) return
         pendingConfirmRef.current = null
-        onConfirm(confirmed)
+        onConfirm?.(confirmed)
       }
 
       const veil = veilRef.current
@@ -702,14 +705,17 @@ function HeroStage({ initialHeroId, onConfirm, onBack, tutorial, overlay }: Hero
                     定位交给 .hero__detail-back。 */}
                 <BackButton className="hero__detail-back" ref={detailBackRef} onClick={closeDetail} />
                 {/* 和对战里「结束出牌」同一颗按钮，只是配色换成这一页的米金（见 hero.css）。
+                    不给 onConfirm 就是纯查看（匹配房里旁观英雄），这时候不出确认按钮。
                     data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/heroSteps.ts）。 */}
-                <PlaqueButton
-                  className="hero__confirm"
-                  data-tutorial-anchor="heroConfirm"
-                  onClick={handleConfirm}
-                >
-                  确认英雄
-                </PlaqueButton>
+                {onConfirm === undefined ? null : (
+                  <PlaqueButton
+                    className="hero__confirm"
+                    data-tutorial-anchor="heroConfirm"
+                    onClick={handleConfirm}
+                  >
+                    确认英雄
+                  </PlaqueButton>
+                )}
               </div>
             </>
           )}

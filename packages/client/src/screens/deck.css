@@ -21,6 +21,8 @@
    liftCardOut：起拖那一刻把这张牌切成 position: fixed（fixed 不受祖先 overflow 裁剪），
    松手回位后再切回来；它原来占的格子由外层的 .deck-pool-slot / .deck-slot 撑着，
    所以邻牌不会塌陷补位。两边的 onDragStart 都调它。
+   另外两段会飞出容器的动画同样先过这一手：放大查看飞回原位（liftCardForFlight），
+   以及新加的那一份牌从卡池飞进格子（pendingInsertRef 那个 useGSAP）。
    注意舞台带 transform（见下），fixed 的包含块是 .deck-scaler 而不是视口，
    写进 left/top 的必须是舞台内坐标（liftCardOut 里会换算）。
    ============================================================ */
@@ -59,7 +61,7 @@
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero、room 同一处理）。 */
   position: relative;
   z-index: 1;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(100vw, 100dvh * 1672 / 941);
   aspect-ratio: 1672 / 941;
 
   /* --battle-grain 的作用域补丁，同 design.css 里那段。
@@ -84,6 +86,25 @@
   /* 牌组格子之间的间距。也进 --deck-mini-scale 的公式，所以是变量不是字面量。 */
   --deck-slot-gap: 10px;
 
+  /* 卡池网格的列间距。进下面 --deck-pool-scale 的公式，所以是变量不是字面量。 */
+  --deck-pool-gap: 18px;
+
+  /* 卡池里那张卡的放大比。卡面同样是写死的像素，只能整张按比例放大（同 --deck-mini-scale）。
+     这个值同时决定卡池格子的宽高和网格的列宽。
+
+     列数定死 5 列（不是 auto-fill），所以卡宽是照可用宽度反算的。可用宽度这么摊：
+       舞台宽 1672 −60（.deck-body 左右各 30 内边距）−496（右栏 --deck-side-w）
+              −20（两栏之间的 gap）−44（.deck-grid 左右各 22 内边距）= 1052px
+     再减掉 4 道列间距，除以 5 就是一张牌的宽：(1052 − 18×4) / 5 = 196px，
+     除以卡面原宽 150px 得到 1.3067。
+     公式里没给滚动条留位置：.deck-grid 没有自定义 ::-webkit-scrollbar，
+     用的是 macOS 那种不占内容宽的悬浮滚动条（右边格子区那 8px 是因为它自定义了滚动条才要预留）。
+     末尾的 “/ 1px” 是把算出来的长度除成无单位数：scale 只吃纯数字。
+     改右栏宽、两栏 gap、.deck-grid 的内边距、列数或列间距，都要回来重算这条。 */
+  --deck-pool-scale: calc(
+    (1672px - 60px - var(--deck-side-w) - 20px - 44px - var(--deck-pool-gap) * 4) / 5 / 150 / 1px
+  );
+
   /* 牌组格子里那张迷你卡的缩放比。
      卡面里的字号、内边距全是写死的像素，只能整张按比例缩（同 HomeScreen 的做法）。
      这个值同时决定格子的宽高。
@@ -92,7 +113,7 @@
      真正的硬约束只剩"一行三张要正好铺满右栏内宽"。右栏内宽这么摊：
        右栏总宽 −2px（.deck-side 左右边框）−48px（.deck-side__body 左右内边距）
               −8px（.deck-slots 的滚动条槽）−16px（左右各留 8px 余量）
-     那 16px 余量是给两样东西的：格子右上角的「×」按钮探出 6px（见 .deck-circle--remove），
+     那 16px 余量是给两样东西的：格子右下角的「送回」按钮探出 6px（见 .deck-circle--remove），
      以及滚动条两端的菱形装饰。剩下的宽度减掉两道 gap，除以 3 就是一张牌的宽，
      再除以卡面原宽 150px 得到缩放比。
      两个自变量现在都是定值，算出来恒等于 0.8933；仍然写成公式而不是直接写死这个数，
@@ -168,13 +189,22 @@
  */
 .deck-back {
   flex: none;
-  padding: 0;
+  /* 抬一层：hover 时箭头会往左挪出按钮的盒子，不抬的话它按文档顺序排在后面的
+     花饰、标题之后画，谁在它上面就把探出去的那截箭头盖掉。 */
+  position: relative;
+  z-index: 1;
+  /* 左边留出箭头 hover 时要挪的那 0.26em，再用等量负外边距把按钮拉回原位：
+     位置看起来没变，但箭头始终待在按钮自己的盒子里。 */
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
   border: 0;
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 14px;
-  letter-spacing: 0.14em;
+  /* 和 /hero、/room 的返回按钮一样大：那两页写的是 1.15cqi（舞台宽的 1.15%），
+     本页舞台是定死的 1672px 设计宽，换算过来就是 19px。 */
+  font-size: 19px;
+  letter-spacing: 0.1em;
   cursor: pointer;
   transition: color 0.16s ease;
 }
@@ -286,8 +316,8 @@
 }
 
 /* ---------- 筛选栏 ---------- */
-/* 现在只剩种类页签一行（阵营筛选拆了：core 的卡池没有阵营这个维度）。
-   仍然写成纵向弹性容器：再加一行筛选时直接往里塞，不用重排这一节。 */
+/* 两行：上面一行种类页签（全部 / AI 牌 / 技能牌），下面一行阵营药丸。
+   写成纵向弹性容器，再加一行筛选时直接往里塞，不用重排这一节。 */
 .deck-pool__head {
   /* 在滚动区之外，不跟着卡片滚，所以不用 sticky。
      背景仍然要不透明：它压在卡池那张背景图上。 */
@@ -477,9 +507,11 @@
   overflow-y: auto;
 
   display: grid;
-  /* 卡是 150×225 的固定尺寸，列数跟着面板宽度自己变。 */
-  grid-template-columns: repeat(auto-fill, var(--card-w));
-  gap: 20px 18px;
+  /* 列数定死 5 列，列宽是照右栏之外的可用宽度配平出来的（推导见 .deck-page 里的 --deck-pool-scale）。
+     不用 auto-fill：卡面放大之后一行只摆得下 5 张，跟着宽度自己算反而会因为几个像素的进位
+     突然掉成 4 列，一整屏的排版跟着重来一遍。 */
+  grid-template-columns: repeat(5, calc(var(--card-w) * var(--deck-pool-scale)));
+  gap: 20px var(--deck-pool-gap);
   justify-content: center;
   padding: 20px 22px 24px;
 }
@@ -491,29 +523,113 @@
  * 由这个盒子替它把格子占住，邻牌才不会塌陷补位、松手也才有原位可回。
  */
 .deck-pool-slot {
-  width: var(--card-w);
-  height: var(--card-h);
+  width: calc(var(--card-w) * var(--deck-pool-scale));
+  height: calc(var(--card-h) * var(--deck-pool-scale));
 }
 
 /*
  * 卡池里的一张卡。这是拖拽 hook 绑事件、写 transform 的那个元素，也是 Flip 起飞的那个，
  * 所以它自己**不能**有 CSS transform——GSAP 写的是内联 transform，两边会互相抹掉。
- * hover 因此只用描边、阴影和亮度，没有位移。
+ * hover 因此只用描边、阴影和亮度，没有位移；放大也不在这一层，交给里面的 __scale。
+ *
+ * perspective 给里面的倾斜层和翻面层用。它不是 transform，
+ * 和 GSAP 写的内联 transform 互不干扰。放在这一层而不是外面的 .deck-pool-slot 上：
+ * 带 perspective 的元素会成为后代 position: fixed 的包含块，挂在 slot 上的话，
+ * 起拖时把这张卡切成 fixed 逃出网格 overflow 的那一手（见 liftCardOut）就当场失效。
+ * 距离跟着卡一起放大，否则同样的倾斜角在变大的卡面上透视会更夸张（同手牌的 .hand-fan__slot）。
  */
 .deck-pool-card {
   position: relative;
+  width: calc(var(--card-w) * var(--deck-pool-scale));
+  height: calc(var(--card-h) * var(--deck-pool-scale));
+  /* 和 .card-face 的圆角对齐，选中金边才贴着卡走而不是在四角鼓出来。
+     卡面那 8px 是画在缩放层里面的，屏幕上看到的是放大之后的圆角，所以这里也要乘同一个比例；
+     写死 8px 的话，选中金边（本身还带 2px 扩散）和 hover 光晕在四角会比卡本身方一点。 */
+  border-radius: calc(8px * var(--deck-pool-scale));
+  perspective: calc(1000px * var(--deck-pool-scale));
+  cursor: pointer;
+  /*
+   * 触屏上"竖着滑 = 滚卡池，横着拖 = 把牌拖进右边的牌组面板"。
+   *
+   * 不能写 touch-action: none：卡池是一整块滚动区（见 .deck-grid），格子铺满整个可视区，
+   * 手指落点几乎必然在某张牌上，写成 none 就等于整个卡池滚不动了。
+   * 也不能不写：默认值下手指一动浏览器就当成滚动，把拖拽整个收走（只补一发 pointercancel），
+   * 牌一次都拖不出去。pan-y 把两件事按方向分开，正好对上这一页的两种手势——
+   * 卡池和牌组面板是左右并排的，"加入 / 移除"本来就是横向动作。
+   * 竖着起手的拖拽会被浏览器接管，useCardDrag 收到 pointercancel 后按取消处理，牌回原位；
+   * 那种情况下玩家还可以用卡面上的 ⊕ / ⊖ 圆钮，不会没路可走。
+   */
+  touch-action: pan-y;
+}
+
+/*
+ * 倾斜层：由 ui/cardTilt.ts 往这里写 rotationX / rotationY（挂在 DeckScreen 那个
+ * 依赖 shown / deck 的 useGSAP 里）。加不进牌组时的摇头也画在这一层，走的是空着的 z 轴 rotation。
+ * 单开一层是因为倾斜和翻面都要动 rotationY，写在同一个元素上就是两边抢一个属性。
+ * preserve-3d 必需：少了它，翻面层会被压成一张平面图片再做倾斜，立体感就没了。
+ * position 也不能去掉：问号热区挂在这一层里，靠它当绝对定位的基准。
+ */
+.deck-pool-card__tilt {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+/*
+ * 翻面层：由 ui/flipCard.ts 的 flipTo 往这里写 rotationY，指针进出问号热区时各翻一次。
+ *
+ * pointer-events: none 会顺着继承传给整棵卡面子树，让卡面彻底退出命中测试。
+ * 少了这条，翻面途中绕 Y 轴扫出来的卡面会挡在问号热区前面把指针抢走，牌就会来回翻个没完
+ * （原委见 styles.css 的 .hand-fan__inner）。卡面纯粹是画面：拖拽和点击绑在 .deck-pool-card 上，
+ * 事件照常从这一层底下的 .deck-pool-card 冒泡，不受影响。
+ */
+.deck-pool-card__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/*
+ * 正反两面。两层完全重叠，靠 opacity 互斥：同一时刻只有一面是 1。
+ * 这里没有 backface-visibility 是故意的，理由见 ui/flipCard.ts。
+ * flipTo 认的是 data-flip-face 属性，不是这两个类名——类名只管样式。
+ */
+.deck-pool-card__face {
+  position: absolute;
+  inset: 0;
+}
+
+.deck-pool-card__face--front {
+  opacity: 1;
+}
+
+.deck-pool-card__face--back {
+  transform: rotateY(180deg);
+  opacity: 0;
+}
+
+/*
+ * 卡面的缩放层。卡面（HandCardFace / .card-back）里的字号、内边距全是写死的 150×225 口径，
+ * 只能整张按比例放大。缩放必须落在这一层：外面那几层要么归 GSAP 写 transform，
+ * 要么要按屏幕像素摆问号和圆圈按钮，都不能带 CSS transform。
+ */
+.deck-pool-card__scale {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: var(--card-w);
   height: var(--card-h);
-  /* 和 .card-face 的圆角对齐，选中金边才贴着卡走而不是在四角鼓出来。 */
-  border-radius: 8px;
-  cursor: pointer;
+  transform: scale(var(--deck-pool-scale));
+  transform-origin: top left;
 }
 
 /*
  * 离屏的卡不渲染内部。卡池一屏几十张，每张里面都有一整份卡面（插画、文字层、
  * 羽化伪元素、高光层），滚动时全量重画很贵。
  *
- * 挂在 .card-face 上，而不是外层的 .deck-pool-slot / .deck-pool-card——
+ * 挂在 .card-face 上，而不是它上面任何一层（.deck-pool-slot / .deck-pool-card /
+ * __tilt / __inner / __face / __scale）——
  * content-visibility: auto 会连带 paint 包含，而 paint 包含有两个副作用，外层一个都受不起：
  *   1. 把「内容」裁到自己的 padding 盒。卡面自带的投影（0 10px 24px）、hover 的光晕、
  *      选中的金边全画在盒子外面，挂在外层就会被整齐切掉一圈；
@@ -558,54 +674,63 @@
 }
 
 /*
- * 技能牌悬停时的正反面预览。
+ * 卡池卡右上角的问号圆圈（纯展示）。正反两面各一个，都在 __inner 里面，
+ * 所以它们跟着卡一起歪、一起转过去。
  *
- * 它挂在 16:9 舞台的缩放层内，所以这里使用设计稿坐标，不再额外按视口缩放。
- * pointer-events: none 保证预览即使盖到原卡上也不会触发反复 enter / leave。
+ * 摆在 __face 里、缩放层**外面**：它要按屏幕像素算，跟着 --deck-pool-scale 一起放大就太大了。
+ * z-index 是为了盖在卡面之上：所在的 __face 不是 preserve-3d，这里按普通 2D 层叠算。
+ * 配色走本页深蓝面板那套（金描边 + 夜色底），不抄手牌那份天蓝。
+ * 二十几张卡上常驻二十几个问号太吵，只在指到某张卡时淡入。
+ *
+ * 显隐是纯 CSS（opacity + transition）。要改成 GSAP 的 autoAlpha 驱动的话，
+ * 必须先把下面那条 :hover 规则删掉，否则两边抢同一个属性。
  */
-.deck-skill-preview {
-  position: fixed;
-  z-index: 1050;
-  top: 50%;
-  left: 47%;
+.deck-pool-card__help-mark {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 3;
   display: grid;
-  grid-template-columns: repeat(2, 284px);
-  gap: 28px;
-  padding: 18px 20px 14px;
-  border: 1px solid rgb(225 211 179 / 32%);
-  border-radius: 16px;
-  background: rgb(24 31 48 / 88%);
-  box-shadow: 0 24px 64px rgb(8 11 18 / 55%);
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgb(217 164 65 / 70%);
+  border-radius: 50%;
+  background: rgb(18 24 38 / 82%);
+  color: #f0dfb4;
+  font-size: 14px;
+  line-height: 1;
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.16s ease;
 }
 
-.deck-skill-preview__side {
-  margin: 0;
+.deck-pool-card:hover .deck-pool-card__help-mark {
+  opacity: 1;
 }
 
-.deck-skill-preview__card,
+/*
+ * 「星象边框」技能牌背面（DeckScreen 的 SkillCardBack）。
+ *
+ * 只在放大查看的伴随层里用：那时卡够大，才撑得起这张带边框的底图和居中的名称 / 效果排版。
+ * 卡池和格子里翻面看到的那张是另一份（全局 .card-back，和对局手牌同一份），
+ * 150×225 里只塞得下小字紧排。
+ *
+ * 尺寸写死 284×426（底图的设计尺寸），要多大由外面那层 .deck-zoom-side__scale 缩，
+ * 里面这些 % 定位和写死的字号才不用跟着改。
+ */
 .deck-skill-back {
   width: 284px;
   height: 426px;
   border-radius: 15px;
   box-shadow: 0 12px 30px rgb(0 0 0 / 35%);
   overflow: hidden;
-}
-
-.deck-skill-preview__side figcaption {
-  margin-top: 8px;
-  color: rgb(239 233 216 / 76%);
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-align: center;
-}
-
-.deck-skill-back {
   position: relative;
   color: #4c4438;
   background: #eee4d2;
+  /* 和 .card-back 一样：裁掉高光层溢出的部分，并把它那层 soft-light 关在这张卡里面
+     （这张卡里有一层 .card-glare，见 DeckScreen 的 SkillCardBack）。 */
+  isolation: isolate;
 }
 
 .deck-skill-back__frame {
@@ -699,8 +824,9 @@
   outline-offset: -4px;
 }
 
-/* 选满两份：整卡退到背景里，明确「这张不用再看了」。滤镜只压卡面，
-   角标和圆圈按钮是它的兄弟节点，仍然保持清晰。 */
+/* 选满两份：整卡退到背景里，明确「这张不用再看了」。滤镜只压正面卡面（.card-face），
+   问号、圆圈按钮和圆章都在这棵子树外面，仍然保持清晰；背面（.card-back）也不压——
+   翻过去是为了读那段说明，褪色只会让它更难读。 */
 .deck-pool-card[data-picked='2'] .card-face {
   filter: grayscale(0.72) brightness(0.66);
 }
@@ -713,8 +839,11 @@
 }
 
 /*
- * 选中圆章：金底墨字，钉在卡的右上角，约三分之一探出卡外。
+ * 选中圆章：金底墨字，钉在卡的左下角，约三分之一探出卡外。
  * 一份显示「✓」，两份（MAX_COPIES）显示「×2」。
+ *
+ * 四个角是分配好的：左上是卡面自带的 Token 圆章（不能压），右上是问号，
+ * 右下是「＋」，只剩左下给它。
  *
  * 圆底和描边画在 ::before 上、只给这一层套手绘滤镜，章上的字留在元素本体：
  * 位移滤镜作用在文字上会把「✓」和「×2」扯糊。
@@ -723,8 +852,8 @@
  */
 .deck-pool-card__seal {
   position: absolute;
-  top: -9px;
-  right: -9px;
+  bottom: -9px;
+  left: -9px;
   display: grid;
   place-items: center;
   isolation: isolate;
@@ -766,9 +895,9 @@
 }
 
 /* ============================================================
-   圆圈按钮（卡池的「＋」和牌组的「×」共用）
+   圆圈按钮（卡池的「＋」和牌组的「送回」共用）
    ------------------------------------------------------------
-   两边都靠 useCardDrag 的 ignoreSelector: '.deck-circle' 让开拖拽，
+   两边都靠 useCardDrag 的 ignoreSelector: '.deck-circle, .deck-help' 让开拖拽，
    所以类名别改，改了按在按钮上就会把整张牌抓起来。
    ============================================================ */
 .deck-circle {
@@ -804,45 +933,151 @@
   filter: url('#ai-duel-rough-icon');
 }
 
-/* 挪到左上角。右上角让给选中圆章（.deck-pool-card__seal）——那枚章还探出卡外，
-   两个都钉在右上就会叠在一起。左上是整版插画，圆圈压上去不会盖到任何文字。 */
+/* 右下角。四个角的分配见 .deck-pool-card__seal 的注释；右下正好是卡面插画的底部留白，
+   圆圈压上去不会盖到任何文字。卡放大之后按钮也跟着大一号，不然点起来偏小。 */
 .deck-circle--add {
-  top: 7px;
-  left: 7px;
-  width: 28px;
-  height: 28px;
+  right: 7px;
+  bottom: 7px;
+  width: 30px;
+  height: 30px;
 }
 
-.deck-circle--add:hover:not(:disabled) {
+.deck-circle--add:hover:not([data-disabled]) {
   background: rgb(140 96 46 / 92%);
   color: #fff6e2;
   box-shadow: 0 0 0 2px rgb(217 164 65 / 45%);
 }
 
-.deck-circle--add:disabled {
+/* 加不进去（牌组满了 / 已经两份）。用 data-disabled 而不是真的 disabled：
+   真禁用的按钮连 click 都不发，就没法在点它的时候摇头 + 弹一句原因（见 DeckScreen 的 addFromPool）。
+   所以这里只画出禁用的样子，行为归 JS 判。 */
+.deck-circle--add[data-disabled] {
   color: rgb(243 234 214 / 34%);
   cursor: not-allowed;
 }
 
-/* 牌组那边的按钮要按屏幕像素算，不能跟着迷你卡一起缩——缩完只有十来像素，点不中。
-   位置压在格子外沿一点：迷你卡本来就小，按钮整个落在卡面里会挡掉一角插画。 */
+/* 牌组那边的「送回卡池」按钮要按屏幕像素算，不能跟着迷你卡一起缩——缩完只有十来像素，点不中。
+   放右下角，和卡池那颗「＋」上下对齐（一个加入、一个送回，是一来一回的一对）；
+   右上角让给问号。位置压在格子外沿一点：迷你卡本来就小，按钮整个落在卡面里会挡掉一角插画。 */
 .deck-circle--remove {
-  top: -6px;
   right: -6px;
-  width: 20px;
-  height: 20px;
+  bottom: -6px;
+  width: 26px;
+  height: 26px;
   opacity: 0;
 }
 
-/* 二十个格子上常驻二十个叉太吵，只在指到那一格时露出来。 */
+/* 二十个格子上常驻二十颗按钮太吵，只在指到那一格时露出来。 */
 .deck-slot:hover .deck-circle--remove,
 .deck-circle--remove:focus-visible {
   opacity: 1;
 }
 
+/*
+ * 触屏上没有 hover，上面那条规则永远不成立——「×」就永远是透明的，
+ * 牌加进牌组之后再也拿不出来（横拖移除那条路也不是人人想得到）。所以粗指针下常驻显示。
+ * 二十个叉一起亮确实吵，但"点不到"比"有点吵"严重得多。
+ *
+ * 顺带把两颗圆钮都放大一档：28 / 20 是照鼠标指针定的，而这一页整个还要再按视口缩一次
+ * （手机横屏大约缩到一半），指尖根本按不中。位置跟着往外挪，圆钮才不会盖掉更多插画。
+ */
+@media (pointer: coarse) {
+  .deck-circle--add {
+    top: 5px;
+    left: 5px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .deck-circle--remove {
+    top: -8px;
+    right: -8px;
+    width: 28px;
+    height: 28px;
+    opacity: 1;
+  }
+
+  /*
+   * 问号同理：它的显隐挂在 .deck-pool-card:hover / .deck-slot:hover 上，触屏永远等不到，
+   * 于是"翻到背面看效果"这件事在手机上整个消失。粗指针下常驻显示。
+   * 热区再放大一圈（26 → 34、迷你卡 20 → 26），圆圈本身不动——热区是全透明的，变大看不出来。
+   * 再大就要开始抢卡面了：从卡的右上角起手拖牌是常事。
+   */
+  .deck-pool-card .deck-help,
+  .deck-slot .deck-help {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .deck-pool-card__help-mark,
+  .deck-mini__help-mark {
+    opacity: 1;
+  }
+
+  /* 这两条要多带一级父类：热区的基准尺寸（.deck-help / .deck-help--mini）写在本文件更靠后，
+     单类对单类同分时靠后的赢，不带父类的话这里改的宽高一个都落不下去。 */
+  .deck-pool-card .deck-help {
+    top: 3px;
+    right: 3px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .deck-slot .deck-help--mini {
+    top: 1px;
+    right: 1px;
+    width: 26px;
+    height: 26px;
+  }
+}
+
 .deck-circle--remove:hover {
   background: rgb(150 52 42 / 94%);
   color: #ffeee6;
+}
+
+/* ============================================================
+   问号（看背面）
+   ------------------------------------------------------------
+   只管交互的透明热区，卡池卡和迷你卡共用这一个类；看得见的圆圈是各自的 __help-mark。
+   视觉和热区必须分开：圆圈要跟着卡翻到背面去，而热区绝对不能跟着翻，
+   否则牌一翻过去按钮就转到指针够不着的地方，翻回来又被 hover 到，来回抖个没完
+   （原委见 styles.css 的 .hand-fan__help）。所以热区挂在 __tilt 里、__inner 外。
+
+   类名进了两处 useCardDrag 的 ignoreSelector（'.deck-circle, .deck-help'），改名要一起改，
+   否则按在问号上会把整张牌抓起来。
+
+   默认 visibility: hidden 而不是只把 opacity 归零：这块热区盖在卡面右上角，
+   留着可点的话会把「点卡面 = 放大查看」那一下吃掉。
+   卡 hover 之后才现身——而想 hover 到它，本来也得先 hover 到卡上。
+   ============================================================ */
+.deck-help {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: help;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.deck-pool-card:hover .deck-help,
+.deck-slot:hover .deck-help {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 迷你卡上小一号，位置也往里收一点：格子本来就只有一百来像素宽。 */
+.deck-help--mini {
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
 }
 
 /* ============================================================
@@ -967,11 +1202,111 @@
   min-width: 0;
 }
 
+/* ---------- 牌组 tab 行 ---------- */
+/*
+ * 每套牌组一枚小牌匾，当前那套用赭红底标出来（和阵营筛选、以前那个下拉的选中态同一种颜色语言）。
+ * 末尾那颗「＋」是新建，不在滚动区里，tab 多到要滚时它仍然停在原地。
+ *
+ * 这一行是 flex: none 的定高行：整页锁死在一屏内（见文件头），它多占的高度是从
+ * 下面格子区能看见的行数里扣的，所以别让它换行长高。
+ */
+.deck-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+/*
+ * tab 装不下时横向滚动。
+ *
+ * 用 scrollbar-width: none 藏掉滚动条，而不是 ::-webkit-scrollbar：本页别处（.deck-slots）
+ * 刻意避开 scrollbar-width 是因为那里要**画**一个自定义滚动条，两者同时写的话 Chrome
+ * 会忽略整套 ::-webkit 规则；这里只想让它彻底消失，一行标准属性就够，Firefox 也认。
+ * 12 套顶天了，横滚一小段就到头，不给滚动条也不至于找不着北。
+ */
+.deck-tabs__list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.deck-tab {
+  flex: none;
+  /* 名字最长 10 个字（DECK_NAME_MAX），全展开会把一行挤成两三枚 tab；
+     截到这个宽度大约看得见五六个字，其余交给省略号，全名在 title 里。 */
+  max-width: 104px;
+  overflow: hidden;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 30%);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.deck-tab:hover:not([data-current='true']) {
+  border-color: var(--c-rust);
+  background: rgb(255 255 255 / 55%);
+  color: var(--c-rust);
+}
+
+/* 当前这一套：赭红底 + 同色描边 + 加粗，一眼能从一排里挑出来。 */
+.deck-tab[data-current='true'] {
+  border-color: rgb(192 122 82 / 62%);
+  background: rgb(192 122 82 / 16%);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* 新建。虚线框呼应空卡槽，表示"这一格还没有东西"。 */
+.deck-tabs__new {
+  flex: none;
+  width: 26px;
+  padding: 0;
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+.deck-tabs__new:hover:not(:disabled) {
+  border-color: var(--c-rust);
+  color: var(--c-rust);
+}
+
+/* 已经 12 套（MAX_DECKS）。禁用而不是藏起来：位置留着，一行 tab 的长度才不会跳。 */
+.deck-tabs__new:disabled {
+  border-color: rgb(185 177 158 / 55%);
+  color: rgb(107 106 95 / 45%);
+  cursor: not-allowed;
+}
+
 /* ---------- 牌组管理条 ---------- */
 /*
- * 当前牌组名 + 切换 / 改名 / 删除 / 新建。
+ * 当前牌组名 + 改名 / 删除。切换和新建都搬到上面那行 tab 里去了。
  *
- * 下拉列表和删除确认都做成绝对定位的浮层，不进文档流：整页锁死在一屏内（见文件头），
+ * 删除确认做成绝对定位的浮层，不进文档流：整页锁死在一屏内（见文件头），
  * 管理条一旦能把面板撑高，挤掉的就是下面格子区能看见的行数。
  * 只有 .deck-manage__row 那一行算高度。
  * 本页私有，样式全用纸面 token，改配色只动这一段。
@@ -980,8 +1315,8 @@
   flex: none;
   position: relative;
   /*
-   * 浮层要压住下面的进度条和格子网格。格子（.deck-slot）是 position: relative，
-   * 在同一个层叠上下文里按文档顺序排在管理条之上，不显式抬一层的话下拉会被格子盖掉。
+   * 删除确认浮层要压住下面的进度条和格子网格。格子（.deck-slot）是 position: relative，
+   * 在同一个层叠上下文里按文档顺序排在管理条之上，不显式抬一层的话浮层会被格子盖掉。
    */
   z-index: 2;
 }
@@ -1052,100 +1387,6 @@
 
 .deck-manage__btn:disabled {
   border-color: rgb(185 177 158 / 55%);
-  color: rgb(107 106 95 / 45%);
-  cursor: not-allowed;
-}
-
-/* ---- 切换牌组的下拉 ---- */
-.deck-manage__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: 0;
-  /* 12 套顶天了，超过就自己滚，别把浮层拉到盖住整块面板。 */
-  max-height: 238px;
-  overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--line-dark);
-  border-radius: 3px;
-  /* 浮在进度条和格子上面，必须不透明；投影只压一点，浮层是"纸叠在纸上"不是弹窗。 */
-  background: var(--paper);
-  box-shadow: 0 8px 18px rgb(35 47 75 / 20%);
-}
-
-.deck-manage__list {
-  margin: 0 0 6px;
-  padding: 0;
-  list-style: none;
-}
-
-.deck-manage__item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 2px;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color 0.16s ease,
-    color 0.16s ease;
-}
-
-.deck-manage__item:hover {
-  background: rgb(35 47 75 / 8%);
-  color: var(--ink);
-}
-
-/* 当前这一套。用赭红底而不是打钩，和阵营筛选的选中态是同一种颜色语言。 */
-.deck-manage__item[data-current='true'] {
-  background: rgb(192 122 82 / 16%);
-  color: var(--ink);
-}
-
-.deck-manage__item-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.deck-manage__item-count {
-  flex: none;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  letter-spacing: 0.04em;
-}
-
-/* 列表底部的新建项。虚线框呼应空卡槽，表示"这一格还没有东西"。 */
-.deck-manage__new {
-  width: 100%;
-  padding: 5px 8px;
-  border: 1px dashed var(--line);
-  border-radius: 2px;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    color 0.16s ease;
-}
-
-.deck-manage__new:hover:not(:disabled) {
-  border-color: var(--c-rust);
-  color: var(--c-rust);
-}
-
-.deck-manage__new:disabled {
   color: rgb(107 106 95 / 45%);
   cursor: not-allowed;
 }
@@ -1338,7 +1579,8 @@
   align-content: start;
   justify-content: center;
   margin: 0;
-  /* 上下留白是给格子右上角那颗探出 6px 的「×」按钮的：这一层现在会裁剪溢出内容。 */
+  /* 这一层会裁剪溢出内容，所以上下都要留白：下边是给右下角那颗探出 6px 的「送回」按钮的，
+     上边是给首行迷你卡 hover 光晕（.deck-mini__glow 那圈 9px 外晕）的。 */
   padding: 8px 0 10px;
   list-style: none;
 }
@@ -1420,18 +1662,80 @@
 /*
  * 格子里那份牌。同 .deck-pool-card：它是拖拽 hook 和 Flip 动的那个元素，
  * 自己不能有 CSS transform，缩放交给内层的 .deck-mini__card。
+ * perspective 同理不能挂在外面的 .deck-slot 上（会成为 fixed 后代的包含块，
+ * 把「拖出格子区」那一手废掉），详见 .deck-pool-card。
  */
 .deck-mini {
   position: absolute;
   inset: 0;
+  perspective: calc(1000px * var(--deck-mini-scale));
   cursor: pointer;
+  /* 同 .deck-pool-card：竖滑滚格子区，横拖把这份牌拖出面板（= 移除）。理由见那里。 */
+  touch-action: pan-y;
+}
+
+/* 下面四层和卡池卡一一对应（__tilt / __inner / __face / 缩放层），每层为什么单独存在
+   见 .deck-pool-card__tilt 那几段。这边的缩放层沿用原有的类名 .deck-mini__card。 */
+.deck-mini__tilt {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.deck-mini__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.deck-mini__face {
+  position: absolute;
+  inset: 0;
+}
+
+.deck-mini__face--front {
+  opacity: 1;
+}
+
+.deck-mini__face--back {
+  transform: rotateY(180deg);
+  opacity: 0;
 }
 
 .deck-mini__card {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: var(--card-w);
   height: var(--card-h);
   transform: scale(var(--deck-mini-scale));
   transform-origin: top left;
+}
+
+/* 迷你卡上的问号圆圈。同 .deck-pool-card__help-mark，只是小一号、贴得更靠边。 */
+.deck-mini__help-mark {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgb(217 164 65 / 70%);
+  border-radius: 50%;
+  background: rgb(18 24 38 / 82%);
+  color: #f0dfb4;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.deck-slot:hover .deck-mini__help-mark {
+  opacity: 1;
 }
 
 /*
@@ -1507,4 +1811,213 @@
   letter-spacing: 0.06em;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ============================================================
+   加不进牌组时的浮字
+   ------------------------------------------------------------
+   整页只有一个节点，位置和文案都由 DeckScreen 的 showAddTip 在触发那一刻现写
+   （为什么不跟着状态渲染，见那里）。默认 visibility: hidden，由 GSAP 的 autoAlpha 开关。
+
+   层级要卡在两者之间：压过拖起来的牌（useCardDrag 写的 zIndex 1000），
+   又低于展示遮罩（.reveal-overlay 是 1100）——否则放大查看期间它会浮在压暗层上面。
+   所以它必须渲染在 .paper-page__inner 里面，那一层才是这两个值所在的层叠上下文。
+   ============================================================ */
+.deck-add-tip {
+  position: absolute;
+  z-index: 1050;
+  padding: 4px 12px;
+  border: 1px solid rgb(255 229 164 / 55%);
+  border-radius: 999px;
+  background: rgb(14 21 36 / 92%);
+  box-shadow: 0 4px 14px rgb(4 9 19 / 45%);
+  color: #ffeec5;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* ============================================================
+   放大查看：本页对展示层的作用域覆盖
+   ------------------------------------------------------------
+   .reveal-* 那套（styles.css 的「屏幕中央的展示层」）和对局页的 MatchStage 共用，
+   全局那份一个字都不能动，本页要改观感只能在这里靠 .deck-page 多一层特指度压过去。
+   ============================================================ */
+
+/*
+ * 正面大卡落到中央偏左，右边那半留给伴随层的背面大卡（双栏的观感参考 /hero 的技能详情）。
+ * 只改 left：宽高和上下位置照旧，飞入飞回那两段补间也就不用跟着调。
+ *
+ * 39% / 61% 是这么定的：卡宽 255（150 × --reveal-scale），两张之间留 110 左右的过道，
+ * 于是两张卡的中心各距舞台中线 182px ≈ 舞台宽 1672 的 11%。
+ * 改 --reveal-scale 或伴随层那张卡的宽度时，这两个数要一起重算（伴随层那半在
+ * .deck-zoom-side__card / __actions 上）。
+ */
+.deck-page .reveal-card {
+  left: 39%;
+  /*
+   * 裁剪层是 pointer-events: none（它要让点击穿过去落到遮罩上 = 关闭查看），
+   * 这里把卡自己收回来，倾斜跟随才有 pointerenter / pointermove 可听。
+   * 代价是点这张卡本身不再关闭查看——出口还有三个：伴随层的「返回」、点卡外的暗幕、ESC。
+   */
+  pointer-events: auto;
+}
+
+/*
+ * 裁剪层抬到伴随层（1150）之上。
+ *
+ * 卡池最右那一列的起飞位置正好和右边伴随层重叠，不抬的话飞入的前半程会被那块面板挡住。
+ * 仍然留在遮罩（1100）和飞回原位那一程（1200）之间，两头的相对关系没变。
+ */
+.deck-page .reveal-clip {
+  z-index: 1160;
+}
+
+/* ============================================================
+   放大查看的伴随层
+   ------------------------------------------------------------
+   右边一张同尺寸的背面大卡 + 一行操作。整层常驻（第一次打开之后就不再卸载），
+   由 GSAP 改 autoAlpha 淡入淡出——跟着状态挂载 / 卸载的话那 0.25 秒淡出没有节点可演。
+   GSAP 只碰这一层的 opacity / visibility，所以里面的排版照常可以用 CSS transform；
+   唯一的例外是卡里的倾斜层 __tilt，那一层的 transform 归 GSAP 独占（见下）。
+
+   自己 pointer-events: none、只让里面两块可点：卡和按钮之外的地方要能点穿到暗幕上（= 关闭）。
+   ============================================================ */
+.deck-zoom-side {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/*
+ * 背面大卡的盒子。定位口径完全照抄 .reveal-card（top 46% + 负 margin 顶掉自己的一半），
+ * 两张卡才在同一条水平线上；61% 是正面那张 39% 的镜像，推导见 .deck-page .reveal-card。
+ * 这一层没人写 transform（GSAP 动的是外面那层的 autoAlpha、和里面倾斜层的角度），排版尽管用。
+ *
+ * 倾斜跟随（DeckScreen 那个管放大层的 useGSAP）挂在这一层上：它是量指针位置比例的那个矩形，
+ * 也是 cardTilt 打 data-glare 的那个元素，所以 pointer-events 必须开着。
+ * perspective 取和 .reveal-card 一样的 1400px：两张卡尺寸相同，透视也得相同，
+ * 同样的角度歪起来才是一对。它不是 transform，和里面倾斜层写的内联 transform 互不干扰。
+ */
+.deck-zoom-side__card {
+  position: absolute;
+  top: 46%;
+  left: 61%;
+  width: calc(var(--card-w) * var(--reveal-scale));
+  height: calc(var(--card-h) * var(--reveal-scale));
+  margin-top: calc(var(--card-h) * var(--reveal-scale) * -0.5);
+  margin-left: calc(var(--card-w) * var(--reveal-scale) * -0.5);
+  border-radius: calc(8px * var(--reveal-scale));
+  perspective: 1400px;
+  pointer-events: auto;
+}
+
+/*
+ * 倾斜层：ui/cardTilt.ts 往这里写 rotationX / rotationY。
+ *
+ * 单开一层是因为 GSAP 写的是内联 transform，会把同一个元素上的 CSS transform 整个盖掉——
+ * 下面那层缩放层正靠 transform: scale() 吃饭，让它兼任的话卡背会当场缩回原始尺寸。
+ * 同卡池卡的 .deck-pool-card__tilt。
+ *
+ * 投影放在这一层而不是外面的 __card 上：它跟着卡一起转，卡歪了影子还平着会很假。
+ * 用的是 .reveal-card__face 那一份，两张卡才像并排摆在同一个光里。
+ */
+.deck-zoom-side__tilt {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    0 26px 60px rgb(0 0 0 / 62%),
+    0 6px 18px rgb(0 0 0 / 45%),
+    0 0 42px rgb(255 233 190 / 20%);
+}
+
+/*
+ * 卡背的缩放层。两种卡背的原始尺寸不一样，所以各缩各的，缩完都是上面那个盒子的大小。
+ * transform-origin 取左上角，缩完正好落在盒子的原点上。
+ */
+.deck-zoom-side__scale {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+/* AI 牌背走全局的 .card-back（和对局手牌同一份），布局尺寸是写死的 150×225。 */
+.deck-zoom-side__scale--ai {
+  width: var(--card-w);
+  height: var(--card-h);
+  transform: scale(var(--reveal-scale));
+}
+
+/* 技能牌背是本页那张 284×426 的星象边框图（.deck-skill-back）。
+   末尾的 “/ 1px” 是把算出来的长度除成无单位数：scale 只吃纯数字（同 --deck-mini-scale）。
+   改 .deck-skill-back 的尺寸时这条要跟着改。 */
+.deck-zoom-side__scale--skill {
+  width: 284px;
+  height: 426px;
+  transform: scale(calc(var(--card-w) * var(--reveal-scale) / 284 / 1px));
+}
+
+/*
+ * 卡下面那一行操作。定位同样照 .reveal-card 那套数算：卡的中心在 46%、
+ * 往下让开半张卡的高度再留一口气。
+ * 只有横向要居中，所以 transform 里只写 translateX——纵向已经被 margin-top 摆好了。
+ */
+.deck-zoom-side__actions {
+  position: absolute;
+  top: 46%;
+  left: 61%;
+  margin-top: calc(var(--card-h) * var(--reveal-scale) * 0.5 + 26px);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* 「返回」用公共的 BackButton（排版在 styles.css 的 .ui-back），这里只补配色和字号。
+   底下是压暗的遮罩，所以字要浅色，不能沿用顶栏那颗的墨色。 */
+.deck-zoom-side__back {
+  flex: none;
+  /* 同 .deck-back：抬一层，左侧再留出箭头 hover 的位移量。 */
+  position: relative;
+  z-index: 1;
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
+  border: 0;
+  background: none;
+  color: rgb(239 233 216 / 78%);
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.deck-zoom-side__back:hover {
+  color: #f3e2b8;
+}
+
+/* 两个类是为了盖过 .plaque-button 自己那份 width: min(224px, 100%) 和 68px 高。 */
+.deck-page .deck-zoom-side__do {
+  flex: none;
+  width: 176px;
+  height: 52px;
+  font-size: 18px;
+}
+
+/* 按钮为什么点不了。生命红，和右面板那句「还需选择 N 张」同一种语言。 */
+.deck-zoom-side__why {
+  flex: none;
+  color: #e79c92;
+  font-size: 13px;
+  letter-spacing: 0.08em;
 }

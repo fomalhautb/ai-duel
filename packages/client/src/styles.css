@@ -53,6 +53,43 @@ body,
   margin: 0;
 }
 
+/*
+ * 触屏的几条全局底线。手机是正式支持的设备（见 docs/architecture.md 的项目边界），
+ * 而浏览器给触屏的默认手势正好都和"拖牌"冲突，得在这里一次性关掉：
+ *
+ * - touch-action: manipulation 只保留滚动和捏合，砍掉**双击放大**。
+ *   双击放大最要命的不是放大本身，而是它让浏览器把每一次点击都推迟约 300ms 去等第二下，
+ *   点牌因此永远慢半拍。真正要拖的元素还要再单独写 touch-action: none
+ *   （手牌 .hand-fan__slot、卡池 .deck-pool-card / .deck-mini，以及整页的 .battle），
+ *   否则手指往上一拖，浏览器认为你想滚页面，拖拽当场被抢走。
+ * - overscroll-behavior: none 关掉下拉刷新和橡皮筋回弹。页面本来就不滚，
+ *   但触屏上"拖到边界继续拖"会被当成整页手势，画面整块跟着位移。
+ * - -webkit-tap-highlight-color 是 iOS/Android 点按时糊上去的那块半透明蓝，
+ *   盖在卡面上很脏，而按下的反馈这边全部自己做（放大、摇头、压入）。
+ * - text-size-adjust 挡掉移动端浏览器"自动放大小字"，那会把按舞台缩放算好的版式撑破。
+ */
+html {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+}
+
+/*
+ * 卡牌一族一律不吃长按菜单和文字选中。
+ *
+ * 触屏上按住一张牌 0.5 秒，系统会弹出"拷贝图片 / 存储到照片"的菜单并把这次拖拽整个截走——
+ * 而"按住一张牌"恰恰是这个游戏最基本的动作。选中同理：拖拽全程手指在卡面上划，
+ * 不禁掉就会拖出一片选区。
+ * 挂在卡面这几个类上而不是全局，是为了让 /generation 那种真有文字要读的页面还能正常选中复制。
+ */
+.card-face,
+.card-back,
+.card-back-hidden {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
 /* ---------- 页面外壳 ---------- */
 
 /*
@@ -162,7 +199,7 @@ body,
    * 溢出的 multiply 不用管：.grain 自带 isolation: isolate，混合出不了 .home。
    */
   z-index: 1;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(100vw, 100dvh * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
@@ -637,6 +674,17 @@ body,
   color: var(--home-ink-lit);
   text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
 }
+/* 真能点的那一项（现在只有「信息」）。它是 <button>，得把浏览器自带的边框、底色和
+   小一号的字全收回来，才和旁边两个 <span> 排在同一条基线上、看起来是同一排字。
+   font 用简写一次性覆盖 font-size / font-weight / line-height 那一整组——
+   .home__nav 上给的 2cqi 字号是继承来的，只改 font-family 补不回来。 */
+.home__nav-item--link {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
 
 .home__nav-dot {
   width: 1.1cqi;
@@ -755,6 +803,12 @@ body,
   cursor: grab;
   /* 拖拽全程按着鼠标在卡面上划，不禁掉选中的话会拖出一片蓝色选区。 */
   user-select: none;
+  /* 触屏上手指往上一拖，浏览器默认当成"想滚页面"，直接把这次拖拽收走（连 pointermove
+     都不再发，只补一发 pointercancel）。这一条是唯一拦得住它的手段——pointerdown 里的
+     preventDefault 拦不住，滚动是在另一条线程上先斩后奏的。
+     整页的 .battle 上也有一条同样的声明，这里再写一遍是为了手牌被搬到别的页面上单独用时
+     也还拖得动（比如将来的教学页）。 */
+  touch-action: none;
   will-change: transform;
 }
 
@@ -863,6 +917,21 @@ body,
 }
 
 /*
+ * 触屏上把这块热区放大到 32px 见方（所在的 .hand-fan__tilt 有 zoom: 1.9，
+ * 实际落到屏幕上还要再乘一次舞台缩放）。22px 是照鼠标指针的精度定的，
+ * 指尖按不准；看得见的那个问号圆圈不动，热区变大是看不出来的。
+ * 再大就要开始抢卡面了——玩家从卡的右上角起手拖牌是常事。
+ */
+@media (pointer: coarse) {
+  .hand-fan__help {
+    top: 4px;
+    right: 4px;
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/*
  * 看得见的那个问号圆圈：纯展示，pointer-events: none，交互全归上面那块透明热区。
  * 正反两面各放一个，都在 .hand-fan__inner 里面，所以倾斜和翻面都会带着它一起转。
  *
@@ -893,6 +962,70 @@ body,
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
+}
+
+/*
+ * 触屏轻点选中一张牌之后，浮在它正上方的「打出」（鼠标点一下就直接出牌，见 HandFan 的
+ * handleTap，桌面上这颗按钮不会出现）。
+ *
+ * 位置写在 slot 的局部坐标里（bottom: 100% 就是卡的顶边），于是牌抬起来、被推开、
+ * 跟着窗口缩放，按钮全自动跟着走。
+ *
+ * 配色跟着右下角的「结束出牌」走（纸白匾额 + 墨蓝字），对局界面上那几块悬浮 UI 是一套；
+ * 尺寸再小一档，它是贴着一张牌出现的，不该比牌还抢眼。
+ *
+ * 下面每条选择器都多带一级 .hand-fan，和 .battle__end-turn / .hero__confirm 一个套路：
+ * .plaque-button 自带 position: relative、width: min(224px, 100%)、height: 68px 和一整套配色，
+ * 单类对单类是平手，而它在本文件里更靠后，平手就轮到它赢——实测的表现是这颗按钮
+ * 既不定位也不改尺寸，按 224×68 直接摊在牌的上方半空里。
+ */
+.hand-fan .hand-fan__play {
+  --plaque-fill: var(--battle-paper-shade);
+  --plaque-edge: var(--battle-line-dark);
+  --plaque-line: rgb(120 100 66 / 55%);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  /* 和卡顶留一口气，免得像是从牌里长出来的。 */
+  margin-bottom: 12px;
+  /* 负半个宽度就是居中。走 margin 不走 transform：.plaque-button 按下时的压入
+     自己要写 transform，两边会互相抹掉。 */
+  margin-left: -66px;
+  width: 132px;
+  height: 46px;
+  padding: 0 12px;
+  color: var(--battle-navy);
+  font-size: 18px;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  /* 同 .battle__end-turn：底纹在纸色上要用 multiply，screen 会把纹理洗成全白。 */
+  background-image:
+    radial-gradient(ellipse at 50% 32%, rgb(255 255 255 / 45%), rgb(129 111 75 / 14%) 100%),
+    var(--battle-grain);
+  background-blend-mode: normal, multiply;
+}
+
+/* 覆盖层那两道内阴影原本配的是墨蓝底，压在纸面上会糊成脏影子（同 .battle__end-turn）。 */
+.hand-fan .hand-fan__play::before {
+  background: linear-gradient(to bottom, rgb(255 255 255 / 45%), transparent 38%);
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 55%),
+    inset 0 -7px 9px rgb(112 96 62 / 22%);
+}
+
+/* 四角短线和那两颗星在 .plaque-button 里写死的是配墨蓝底的浅灰，纸面上要压深一档。 */
+.hand-fan .hand-fan__play .plaque-button__corner {
+  stroke: rgb(120 100 66 / 45%);
+}
+
+.hand-fan .hand-fan__play .plaque-button__spark {
+  fill: #a08c68;
+}
+
+.hand-fan .hand-fan__play:hover {
+  --plaque-fill: #f2ead7;
+  --plaque-line: rgb(120 100 66 / 78%);
+  color: #1b2434;
 }
 
 /* ---------- 出不了牌时的手牌（灰墨态） ---------- */
@@ -1426,9 +1559,15 @@ body:has(.battle) {
   background-color: #161e2c;
 }
 
+/*
+ * 高度用 dvh 不用 vh：手机浏览器的 vh 是"地址栏收起时"那个最大高度，
+ * 而页面实际能看见的只有当前这一屏。用 vh 算舞台会算出比屏幕高的一块，
+ * 底下那截（正好是手牌所在的地方）被地址栏切掉。dvh 跟着地址栏伸缩，量到的一直是看得见的高。
+ * 首页 / hero / room / deck 那几页的舞台同理，全部是这一行的同款。
+ */
 .battle-stage {
   position: relative;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(100vw, 100dvh * 1672 / 941);
   aspect-ratio: 1672 / 941;
   overflow: hidden;
 }
@@ -5687,38 +5826,35 @@ body:has(.battle) {
 .gallery__faces[data-preview-size='original'] .gallery__card { width: 300px; height: 450px; }
 .gallery__original { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
 
-/* ---------- 触屏设备提示（TouchDeviceNotice） ---------- */
+/* ---------- 竖屏提示（OrientationNotice） ---------- */
 
 /*
- * 挂在应用最外层、盖住整页的一层提示：这游戏还没为触屏做过适配。
- * 判据和"为什么不记住"见 ui/TouchDeviceNotice.tsx。
+ * 竖屏时盖住整页的一层提示：请把手机横过来。
+ * 什么时候弹、为什么留一颗「仍要继续」，都在 ui/OrientationNotice.tsx 里。
  *
  * z-index 取一个比对局界面里所有浮层（最高是展示遮罩那档 1100~1200）都大的数：
  * 提示可能出现在任何一页，包括正在对局的那一页，被压在牌底下就白提示了。
  */
-.touch-notice {
+.rotate-notice {
   position: fixed;
   z-index: 9000;
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background-color: rgb(12 16 26 / 62%);
+  /* 竖屏提示自己也可能落在刘海屏的耳朵里，安全区照着让开。 */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background-color: rgb(12 16 26 / 88%);
 }
 
-.touch-notice__panel {
-  /* .plaque-button（见上面那一节）的 background-image 里引用了 --battle-grain，
-     而它只定义在 .battle 上。这一层不在 .battle 里，取不到值整条声明就作废，
-     连同一条里的高光渐变一起没了，「确认」会变成一块死板的纯色。
-     同样的作用域补丁 deck.css 和 design.css 里各有一份，改的时候三处一起改。 */
-  --battle-grain: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'180'%20height%3D'180'%3E%3Cfilter%20id%3D'n'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.55'%20numOctaves%3D'3'%20seed%3D'7'/%3E%3CfeColorMatrix%20type%3D'saturate'%20values%3D'0'/%3E%3C/filter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23n)'%20opacity%3D'.18'/%3E%3C/svg%3E");
+.rotate-notice__panel {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   width: min(420px, 100%);
-  padding: 34px 30px 30px;
+  padding: 34px 30px 26px;
   border: 1px solid var(--line-dark, #8a8270);
   color: var(--ink, #2e2e38);
   /* 一张纸：底色 + .grain 的两层纸纹，和全站其它纸面同一套（见 ui/paper/paper.css）。 */
@@ -5727,7 +5863,41 @@ body:has(.battle) {
   text-align: center;
 }
 
-.touch-notice__title {
+/*
+ * 一部转向横屏的手机。线条按墨色画，和纸面是一套。
+ * 转的是整个图形（transform-origin 在正中），90° 转完停一下再转回来，
+ * 循环里那两段停顿就是让人看清"从竖到横"这件事。
+ */
+.rotate-notice__icon {
+  width: 64px;
+  height: 64px;
+  fill: none;
+  stroke: var(--ink, #2e2e38);
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: rotate-notice-turn 2.6s ease-in-out infinite;
+}
+
+.rotate-notice__icon circle {
+  fill: var(--ink, #2e2e38);
+  stroke: none;
+}
+
+@keyframes rotate-notice-turn {
+  0%,
+  22% {
+    transform: rotate(0deg);
+  }
+  45%,
+  78% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.rotate-notice__title {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
@@ -5736,11 +5906,60 @@ body:has(.battle) {
   text-indent: 0.3em;
 }
 
-.touch-notice__text {
+.rotate-notice__text {
   margin: 0;
   color: var(--ink-2, #6b6a5f);
   font-size: 17px;
   line-height: 1.75;
+}
+
+/*
+ * 「一键横屏」：进全屏 + 锁横屏的那颗（什么时候出现见 ui/OrientationNotice.tsx）。
+ * 这是整块提示的主要动作，所以给足对比——墨色实心，和下面那行淡淡的「仍要继续」拉开层级。
+ * 高度按触屏的 44px 起步，宽度取面板的大半而不是撑满，免得看着像一条横幅。
+ */
+.rotate-notice__rotate {
+  min-height: 44px;
+  padding: 12px 28px;
+  border: 1px solid var(--ink, #2e2e38);
+  background-color: var(--ink, #2e2e38);
+  color: var(--paper, #f0ecdf);
+  font: inherit;
+  font-size: 17px;
+  letter-spacing: 0.25em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.25em;
+  cursor: pointer;
+}
+
+.rotate-notice__rotate:active {
+  /* 触屏没有 hover，按下去这一下就是唯一的反馈。 */
+  opacity: 0.82;
+}
+
+/*
+ * 「仍要继续」是给开了旋转锁定的人留的出口，不是主要动作，所以画成一行淡淡的下划线字，
+ * 不做成按钮——做成按钮就和「请横屏」抢注意力了。
+ * 点击区靠内边距撑到 44px 高：这条提示只出现在触屏上，指尖比光标粗得多。
+ */
+.rotate-notice__skip {
+  padding: 12px 16px;
+  border: 0;
+  background: none;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 停在转到一半的那一帧：图形本身还说得清"要转过去"，只是不再动。 */
+  .rotate-notice__icon {
+    animation: none;
+    transform: rotate(-45deg);
+  }
 }
 
 /* ---------- 结算界面调试页（/result） ---------- */

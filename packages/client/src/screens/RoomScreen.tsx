@@ -84,7 +84,7 @@ const COPY_FEEDBACK_MS = 1600
  *
  * - `lobby`：房间码 + 加入框，也就是这一页原本的样子。
  * - `deck` / `hero`：选卡组 / 选英雄。两种情况会走到这里——匹配成功后的必经流程，
- *   以及大厅底下两块横幅点进来的「提前配好」预设模式，靠 role 区分（见下面）。
+ *   以及大厅底下两块横幅点进来的「纯查看」预设模式（没有确认按钮），靠 role 区分（见下面）。
  * - `waiting`：房主已经锁完自己的选择、还没收到客人的 loadout 时的等待屏。
  */
 type Phase = 'lobby' | 'deck' | 'hero' | 'waiting'
@@ -138,7 +138,7 @@ export function RoomScreen() {
   const [phase, setPhase] = useState<Phase>('lobby')
   /**
    * 我在这次对局里是哪一方。null = 还没匹配上，也就是「预设模式」：
-   * 玩家只是从大厅横幅点进来提前配好卡组 / 英雄，确认后回大厅接着等人。
+   * 玩家只是从大厅横幅点进来看看卡组 / 英雄，那一屏没有确认按钮，返回就回大厅接着等人。
    * 匹配成功的那一刻才会写成 host / guest，从此选完就要进对局。
    */
   const [role, setRole] = useState<'host' | 'guest' | null>(null)
@@ -305,20 +305,14 @@ export function RoomScreen() {
   function handleDeckConfirm(deck: CardId[]): void {
     // 这里不用落盘：选牌页每加减一张就自己写 deckStore 了（见 DeckScreen 文件头），
     // 下次进来的预填也是从那份存档来的。
-    if (role === null) {
-      setPhase('lobby')
-      return
-    }
+    // 只有匹配后的流程才走得到这里：预设模式那一屏根本没有确认按钮。
     pickedDeckRef.current = deck
     setPhase('hero')
   }
 
   function handleHeroConfirm(hero: HeroId): void {
+    // 同 handleDeckConfirm：预设模式没有确认按钮，走到这里的必然是匹配后的流程。
     saveHero(hero)
-    if (role === null) {
-      setPhase('lobby')
-      return
-    }
     const deck = pickedDeckRef.current
     // 匹配流程必然先过 deck 阶段，deck 为空只可能是连接被重置过；
     // room 为空同理。两种都没法继续，退回大厅重来。
@@ -350,7 +344,9 @@ export function RoomScreen() {
   if (phase === 'deck') {
     return (
       <DeckScreen
-        onConfirm={handleDeckConfirm}
+        // 预设模式（role === null）是从大厅横幅进来的纯查看，不给确认按钮：
+        // 牌组的增删本来就实时写存档，确认在这里只等于"返回大厅"。
+        onConfirm={role === null ? undefined : handleDeckConfirm}
         onBack={role === null ? () => setPhase('lobby') : undefined}
       />
     )
@@ -360,7 +356,8 @@ export function RoomScreen() {
     return (
       <HeroScreen
         initialHeroId={loadSave().savedHero}
-        onConfirm={handleHeroConfirm}
+        // 同上：查看英雄时不给确认按钮，选中也就不会被记下。
+        onConfirm={role === null ? undefined : handleHeroConfirm}
         // 匹配流程里上一步是选卡组；预设模式的英雄是从横幅直接进来的，上一步就是大厅。
         onBack={() => setPhase(role === null ? 'lobby' : 'deck')}
       />
@@ -665,8 +662,8 @@ function RoomStage({
         {/*
          * 两个入口都不再跳路由，而是就地把 RoomScreen 切到 deck / hero 阶段：
          * 离开本页会让 cleanup 关掉当前这间房、回来时换一个新码，对方手里的码当场作废。
-         * 现在整页始终挂着，连接全程不断，提前配好的选择也直接写进存档，
-         * 匹配上之后那一轮选择会拿它预填。
+         * 现在整页始终挂着，连接全程不断。这两个入口是纯查看，不带确认按钮；
+         * 牌组页的增删本来就实时写存档，匹配上之后那一轮选择会拿它预填。
          *
          * .room__banner-lift 是专给 GSAP 入场用的一层：位移只写在它身上，
          * 按钮自己那份 transform 留给 :active 的下压（理由见上面入场时间线的注释）。
@@ -680,7 +677,7 @@ function RoomStage({
               alt=""
               draggable={false}
             />
-            <span className="room__banner-label">选择AI卡组</span>
+            <span className="room__banner-label">卡组</span>
           </span>
         </button>
 
@@ -692,7 +689,7 @@ function RoomStage({
               alt=""
               draggable={false}
             />
-            <span className="room__banner-label">选择英雄</span>
+            <span className="room__banner-label">英雄</span>
           </span>
         </button>
 

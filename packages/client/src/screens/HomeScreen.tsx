@@ -54,6 +54,7 @@ import { cardArtFor } from '../ui/cardArt'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -410,7 +411,23 @@ function HomeStage() {
     })
   }
 
-  const handleStagePointerLeave = () => {
+  /**
+   * 触屏上点一下人物也要能亮起来。
+   *
+   * 高亮本来全靠 pointermove，而手指点一下（不划动）压根不会发 pointermove，
+   * 只有 pointerdown。所以触屏这边补一发：按在谁身上就照亮谁，点到空处自然什么都不亮。
+   * 鼠标不走这条——它的 move 已经足够，按下再探一次是白跑一帧。
+   */
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return
+    handleStagePointerMove(event)
+  }
+
+  const handleStagePointerLeave = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // 触屏的 pointerleave 是**手指抬起**那一刻发的，照做的话点谁都只亮一下就灭，
+    // 介绍卡片根本来不及看。所以触屏上不靠它收：高亮一直留着，
+    // 直到下一次点在别人身上或者点到空处（那一下 handleStagePointerDown 会算出 null）。
+    if (event.pointerType !== 'mouse') return
     // 已排队的那帧必须取消：它闭包里存的是离场前的坐标，跑起来会把刚清掉的高亮又设回去，
     // 而指针已经在舞台外，不会再有 pointermove 来纠正——高亮和介绍卡片就一直亮着了。
     cancelCastProbe()
@@ -462,7 +479,11 @@ function HomeStage() {
         const straighten = -seat.rot
         // hover 只做上浮、放大、回正，不动层级：卡与卡的遮挡一律按 DOM 顺序，
         // 抬起来的卡照样被右边的邻居、以及上层的人物和道具压住，这正是设计稿要的效果。
-        const enter = () => {
+        // 上浮只给鼠标：触屏的 pointerenter / pointerleave 是按下和抬手那一刻发的，
+        // 照做就是"按住抬起来、松手掉回去"，一闪而过，除了掉帧什么也没留下。
+        // 和 /hero 选英雄页那排卡是同一个处理。
+        const enter = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: CARD_LIFT_PERCENT,
             scale: 1.06,
@@ -472,7 +493,8 @@ function HomeStage() {
             overwrite: 'auto',
           })
         }
-        const leave = () => {
+        const leave = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: 0,
             scale: 1,
@@ -509,6 +531,7 @@ function HomeStage() {
         className={`home__stage${hoveredCast !== null ? ' is-cast-hover' : ''}`}
         ref={stageRef}
         onPointerMove={handleStagePointerMove}
+        onPointerDown={handleStagePointerDown}
         onPointerLeave={handleStagePointerLeave}
       >
         <img className="home__layer" src="/home/home-bg.webp" alt="" draggable={false} />
@@ -594,18 +617,26 @@ function HomeStage() {
           </span>
         </p>
 
-        {/* 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。 */}
         <button
           type="button"
           className="home__start"
-          onClick={() => navigate(loadSave().tutorialDone ? '/room' : '/tutorial')}
+          onClick={() => {
+            // 手机上顺手进全屏并锁横屏：这是整个流程里第一次、也是最自然的一次用户点击，
+            // 而全屏和方向锁都只认用户手势。不支持（iPhone）或被拒都只是没生效，
+            // 不影响往下走，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
+            // 只对触屏做：电脑上按个"开始游戏"就把浏览器变全屏太越界了，那边有 F11。
+            if (isCoarsePointer()) void enterLandscapeFullscreen()
+            // 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。
+            navigate(loadSave().tutorialDone ? '/room' : '/tutorial')
+          }}
         >
           <span className="home__start-label">开始游戏</span>
         </button>
 
         {/*
-          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组还没有对应页面。这两项刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+          「信息」已经有 /info 了，所以只有它是真按钮（样式差别见 .home__nav-item--link）。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
@@ -616,9 +647,13 @@ function HomeStage() {
             牌组
           </span>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button
+            type="button"
+            className="home__nav-item home__nav-item--link"
+            onClick={() => navigate('/info')}
+          >
             信息
-          </span>
+          </button>
         </nav>
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。

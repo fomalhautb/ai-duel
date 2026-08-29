@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, STARTER_DECK } from '@ai-duel/core'
+import { CARD_POOL, STARTER_DECK, UNAVAILABLE_AI_CARD_IDS } from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -87,6 +87,9 @@ const KNOWN_CARD_IDS = new Set(CARD_POOL)
  * `!` 是给 noUncheckedIndexedAccess 让路——卡池至少 20 张，前三张一定在。
  */
 const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
+
+/** 调不到模型、进不了卡池的那种 AI 牌，用来验存档会把它剔掉。 */
+const UNAVAILABLE_CARD = UNAVAILABLE_AI_CARD_IDS[0]!
 
 describe('牌组存档', () => {
   beforeEach(() => {
@@ -333,6 +336,14 @@ describe('牌组存档', () => {
     it('过滤掉卡池里没有的卡 id', () => {
       seedEmptyDeck()
       const data = updateDeckCards('a', [CARD_A, '并不存在的卡', CARD_B])
+      expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
+    })
+
+    it('丢掉调不到模型的那种 AI 牌', () => {
+      // 这类牌在 CARDS 里查得到、牌组页也灰着摆出来，但不在卡池里，存档里也不该留下——
+      // 老存档里带着 GPT-2 / 文心一言的牌组就是这么被清掉的。
+      seedEmptyDeck()
+      const data = updateDeckCards('a', [CARD_A, UNAVAILABLE_CARD, CARD_B])
       expect(data.decks[0]?.cards).toEqual([CARD_A, CARD_B])
     })
 

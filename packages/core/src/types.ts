@@ -69,6 +69,14 @@ export interface AiCard extends CardBase {
   kind: 'ai'
   /** 卡面上印的模型名，纯展示用，引擎不读它。 */
   model: string
+  /**
+   * 答题时去 OpenRouter 调的那个模型 id，`null` 表示 OpenRouter 上根本没有这个模型。
+   *
+   * 写成必填的 `string | null` 而不是可选字段：漏填会被静默当成"调不到"，
+   * 而"调不到"是要把整张牌挡在卡池外的（见 aiModels.ts 的 PLAYABLE_AI_CARD_IDS），
+   * 代价太大，宁可让类型检查在漏填的那一刻就报错。
+   */
+  openrouter: string | null
 }
 
 /**

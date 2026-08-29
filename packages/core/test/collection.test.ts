@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AI_MODEL_CARD_IDS,
+  AI_MODEL_CARDS,
   CARD_POOL,
   CARDS,
   COMING_SOON_SKILL_CARD_IDS,
@@ -8,6 +9,8 @@ import {
   HEROES,
   INITIAL_COLLECTION,
   OPEN_SKILL_CARD_IDS,
+  PLAYABLE_AI_CARD_IDS,
+  UNAVAILABLE_AI_CARD_IDS,
   SKILL_DESIGN_CARD_IDS,
   STARTER_DECK,
 } from '../src/index'
@@ -30,11 +33,23 @@ describe('卡池与初始收藏', () => {
     ).toEqual(AI_MODEL_CARD_IDS)
   })
 
-  it('18 张 AI 都已解锁，且在默认的 20 张牌组里各有一张', () => {
+  it('能上场的 16 张 AI 都已解锁，默认牌组里各带一张（最便宜的两张各两张）', () => {
     expect(STARTER_DECK).toHaveLength(20)
-    for (const id of AI_MODEL_CARD_IDS) {
+    // 补第二份的这两张：全场最便宜的 AI（各 2 点），顶掉两张调不到模型的牌空出来的位置。
+    const doubled = ['gpt-3-5', 'doubao']
+    for (const id of PLAYABLE_AI_CARD_IDS) {
       expect(INITIAL_COLLECTION).toContain(id)
-      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(1)
+      expect(STARTER_DECK.filter((cardId) => cardId === id)).toHaveLength(
+        doubled.includes(id) ? 2 : 1,
+      )
+    }
+  })
+
+  it('默认牌组里没有一张是卡池外的牌', () => {
+    // 起始牌组会被直接播成玩家的第一套牌组（见 client 的 deckStore），
+    // 混进一张卡池外的牌，读档时会被当脏数据剔掉，玩家一进构筑页就看到一副缺张的牌。
+    for (const id of STARTER_DECK) {
+      expect(CARD_POOL).toContain(id)
     }
   })
 
@@ -103,8 +118,12 @@ describe('卡池与初始收藏', () => {
     ])
   })
 
-  it('卡池 = 全部卡牌定义减去「即将上线」的那批', () => {
-    expect(CARD_POOL).toHaveLength(Object.keys(CARDS).length - COMING_SOON_SKILL_CARD_IDS.length)
+  it('卡池 = 全部卡牌定义减去「即将上线」和「调不到模型」的那两批', () => {
+    expect(CARD_POOL).toHaveLength(
+      Object.keys(CARDS).length -
+        COMING_SOON_SKILL_CARD_IDS.length -
+        UNAVAILABLE_AI_CARD_IDS.length,
+    )
     expect(new Set(CARD_POOL).size).toBe(CARD_POOL.length)
     // 反过来也要成立：卡池里不许有 CARDS 查不到的 id，否则开局 getCard 会抛错。
     for (const id of CARD_POOL) expect(CARDS[id]).toBeDefined()
@@ -136,6 +155,38 @@ describe('卡池与初始收藏', () => {
     for (const id of Object.keys(HEROES)) {
       expect(CARDS).not.toHaveProperty(id)
       expect(CARD_POOL).not.toContain(id)
+      expect(STARTER_DECK).not.toContain(id)
+    }
+  })
+})
+
+describe('调不到模型的 AI 牌', () => {
+  it('18 张 AI 分成能上场的 16 张和调不到模型的 2 张', () => {
+    // 名单写死在这里：改动它意味着某张牌能不能上场变了，而那件事牵着卡池、初始收藏、
+    // 示例牌组一整串，应该在这一行当场红。顺序跟着 AI_MODEL_CARDS 的键序走。
+    expect(AI_MODEL_CARD_IDS).toHaveLength(18)
+    expect(UNAVAILABLE_AI_CARD_IDS).toEqual(['gpt-2', 'wenxin-yiyan'])
+    expect(PLAYABLE_AI_CARD_IDS).toHaveLength(16)
+    expect([...PLAYABLE_AI_CARD_IDS, ...UNAVAILABLE_AI_CARD_IDS].sort()).toEqual(
+      [...AI_MODEL_CARD_IDS].sort(),
+    )
+  })
+
+  it('两份名单的依据就是 openrouter 填没填', () => {
+    for (const id of UNAVAILABLE_AI_CARD_IDS) {
+      expect(AI_MODEL_CARDS[id]?.openrouter).toBeNull()
+    }
+    for (const id of PLAYABLE_AI_CARD_IDS) {
+      // OpenRouter 的 id 一律是「厂商/模型」两段，写漏斜杠调用时会 404。
+      expect(AI_MODEL_CARDS[id]?.openrouter).toMatch(/^[a-z0-9-]+\/\S+$/)
+    }
+  })
+
+  it('调不到模型的那两张不进卡池，但卡面定义留着给牌组页画', () => {
+    for (const id of UNAVAILABLE_AI_CARD_IDS) {
+      expect(CARDS[id]).toBeDefined()
+      expect(CARD_POOL).not.toContain(id)
+      expect(INITIAL_COLLECTION).not.toContain(id)
       expect(STARTER_DECK).not.toContain(id)
     }
   })

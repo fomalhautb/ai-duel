@@ -29,6 +29,7 @@ import type { TutorialScore } from '../tutorial/TutorialOutro'
 import { TutorialSkip } from '../tutorial/TutorialSkip'
 import { TUTORIAL_FOE_SEAT, TUTORIAL_PLAYER_SEAT } from '../tutorial/content'
 import { MatchStage } from '../ui/MatchStage'
+import { MuteButton } from '../ui/MuteButton'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
@@ -66,6 +67,7 @@ export function TutorialScreen() {
         <TutorialIntro onStart={() => setPhase('match')} />
       ) : phase === 'match' ? (
         <TutorialMatchPhase
+          onSkip={skip}
           onFinished={(finalScore) => {
             setScore(finalScore)
             setPhase('interlude')
@@ -78,13 +80,21 @@ export function TutorialScreen() {
       ) : (
         <TutorialHeroStage onDone={() => setPhase('complete')} />
       )}
-      <TutorialSkip onSkip={skip} />
+      {/* 对战屏的跳过钮画在顶栏里（往下传给 TutorialMatchPhase），不在这儿挂第二颗：
+          顶栏右上角已经有静音钮，再悬一颗视口固定的按钮会正好叠在它上面。 */}
+      {phase === 'match' ? null : <TutorialSkip onSkip={skip} />}
     </>
   )
 }
 
 /** 教学对战那一屏。拆出来是为了让 driver 跟着这一屏一起建、一起收。 */
-function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore) => void }) {
+function TutorialMatchPhase({
+  onFinished,
+  onSkip,
+}: {
+  onFinished: (score: TutorialScore) => void
+  onSkip: () => void
+}) {
   /**
    * driver 在 effect 里建、在 effect 的清理里收，**不放在 ref 或惰性 state 里**。
    *
@@ -107,7 +117,7 @@ function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore)
   // 场地和卡面没到位就先只画 loader，理由同 MatchScreen。
   const assets = useAssetsProgress(BATTLE_ASSETS)
   if (!assets.ready || driver === null) return <LoadingScreen progress={assets.progress} />
-  return <TutorialMatch driver={driver} onFinished={onFinished} />
+  return <TutorialMatch driver={driver} onFinished={onFinished} onSkip={onSkip} />
 }
 
 /**
@@ -117,9 +127,11 @@ function TutorialMatchPhase({ onFinished }: { onFinished: (score: TutorialScore)
 function TutorialMatch({
   driver,
   onFinished,
+  onSkip,
 }: {
   driver: TutorialDriver
   onFinished: (score: TutorialScore) => void
+  onSkip: () => void
 }) {
   const tutorial = useTutorialController(driver)
   /**
@@ -134,6 +146,13 @@ function TutorialMatch({
     <MatchStage
       driver={driver}
       tutorial={tutorial.stage}
+      // 教程不给「离开」图标：这一屏的出口是同一格里的「跳过教程」。
+      topBarActions={
+        <>
+          <MuteButton variant="plain" className="battle-topbar__icon" />
+          <TutorialSkip onSkip={onSkip} className="tutorial-skip--inbar" />
+        </>
+      }
       overlay={
         <TutorialOverlay
           instruction={tutorial.step.instruction}

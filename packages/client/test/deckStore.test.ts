@@ -6,7 +6,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, STARTER_DECK, UNAVAILABLE_AI_CARD_IDS } from '@ai-duel/core'
+import {
+  BALANCED_DECK,
+  CARD_POOL,
+  HIGH_COST_DECK,
+  LOW_COST_DECK,
+  UNAVAILABLE_AI_CARD_IDS,
+} from '@ai-duel/core'
 import {
   createDeck,
   DECK_NAME_MAX,
@@ -23,7 +29,7 @@ import {
 import type { DecksData } from '../src/save/deckStore'
 
 /** 和 deckStore.ts 里的 DECKS_KEY 保持一致；改版本号时这里也要跟着改。 */
-const DECKS_KEY = 'ai-duel-decks-v2'
+const DECKS_KEY = 'ai-duel-decks-v3'
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -91,6 +97,9 @@ const [CARD_A, CARD_B, CARD_C] = [CARD_POOL[0]!, CARD_POOL[1]!, CARD_POOL[2]!]
 /** 调不到模型、进不了卡池的那种 AI 牌，用来验存档会把它剔掉。 */
 const UNAVAILABLE_CARD = UNAVAILABLE_AI_CARD_IDS[0]!
 
+/** 播种出来的三套预设 id，顺序就是 deckStore 里 presetDecks 的顺序。 */
+const PRESET_IDS = ['preset-balanced', 'preset-low-cost', 'preset-high-cost']
+
 describe('牌组存档', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage())
@@ -100,21 +109,27 @@ describe('牌组存档', () => {
   })
 
   describe('播种预设', () => {
-    it('没有存档时播种一套「起始牌组」并设为当前', () => {
+    it('没有存档时播种三套预设，默认选中第一套', () => {
       const data = loadDecks()
-      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-starter'])
-      expect(data.decks[0]?.name).toBe('起始牌组')
-      expect(data.currentId).toBe('preset-starter')
+      expect(data.decks.map((deck) => deck.id)).toEqual(PRESET_IDS)
+      expect(data.decks.map((deck) => deck.name)).toEqual(['默认卡组', '低费流', '强卡流'])
+      expect(data.currentId).toBe('preset-balanced')
     })
 
-    // 预设直接取 core 的示例牌组，它本来就是一副能开局的牌，这里守着"没在存档层被改坏"。
-    it('预设就是 core 的示例牌组：20 张、卡都在卡池里、同名卡不超过 MAX_COPIES 份', () => {
-      const deck = loadDecks().decks[0]
-      expect(deck?.cards).toEqual([...STARTER_DECK])
-      expect(deck?.cards).toHaveLength(DECK_SIZE)
-      for (const cardId of deck?.cards ?? []) {
-        expect(KNOWN_CARD_IDS).toContain(cardId)
-        expect(countCopies(deck?.cards ?? [], cardId)).toBeLessThanOrEqual(MAX_COPIES)
+    // 预设直接取 core 的三副预设牌组，它们本来就是能开局的牌，这里守着"没在存档层被改坏"。
+    it('三套预设逐副对上 core：各 20 张、卡都在卡池里、同名卡不超过 MAX_COPIES 份', () => {
+      const decks = loadDecks().decks
+      expect(decks.map((deck) => deck.cards)).toEqual([
+        [...BALANCED_DECK],
+        [...LOW_COST_DECK],
+        [...HIGH_COST_DECK],
+      ])
+      for (const deck of decks) {
+        expect(deck.cards).toHaveLength(DECK_SIZE)
+        for (const cardId of deck.cards) {
+          expect(KNOWN_CARD_IDS).toContain(cardId)
+          expect(countCopies(deck.cards, cardId)).toBeLessThanOrEqual(MAX_COPIES)
+        }
       }
     })
 
@@ -126,22 +141,21 @@ describe('牌组存档', () => {
 
     it('预设可以改名，改完不会被播种覆盖回去', () => {
       loadDecks()
-      renameDeck('preset-starter', '我的牌组')
+      renameDeck('preset-balanced', '我的牌组')
       expect(loadDecks().decks[0]?.name).toBe('我的牌组')
     })
 
-    // 删掉唯一一套会自动补一套空的（见 deleteDeck），所以这里先建一套再删预设，
-    // 才测得到"预设删了就是删了、不会自己长回来"。
+    // 播的是三套，删掉一套还剩两套，不会触发"删到一套不剩就补一套空的"那条路
+    // （见 deleteDeck），所以直接删就测得到"预设删了就是删了、不会自己长回来"。
     it('预设可以删，删完不会自己长回来', () => {
       loadDecks()
-      createDeck()
-      deleteDeck('preset-starter')
-      expect(loadDecks().decks.map((deck) => deck.id)).not.toContain('preset-starter')
+      deleteDeck('preset-balanced')
+      expect(loadDecks().decks.map((deck) => deck.id)).not.toContain('preset-balanced')
     })
   })
 
   describe('坏档回落', () => {
-    const seeded = ['preset-starter']
+    const seeded = PRESET_IDS
 
     it('不是合法 JSON 时重新播种', () => {
       localStorage.setItem(DECKS_KEY, '不是 JSON')
@@ -206,28 +220,28 @@ describe('牌组存档', () => {
       loadDecks()
       const created = createDeck()?.decks.at(-1)
       const id = created?.id ?? ''
-      expect(setCurrentDeck('preset-starter').currentId).toBe('preset-starter')
+      expect(setCurrentDeck('preset-balanced').currentId).toBe('preset-balanced')
       expect(setCurrentDeck(id).currentId).toBe(id)
       expect(loadDecks().currentId).toBe(id)
     })
 
     it('setCurrentDeck 传不存在的 id 时不生效', () => {
       loadDecks()
-      expect(setCurrentDeck('不存在').currentId).toBe('preset-starter')
+      expect(setCurrentDeck('不存在').currentId).toBe('preset-balanced')
     })
   })
 
   describe('改名', () => {
     it('trim 后截断到 10 个字符', () => {
       loadDecks()
-      const data = renameDeck('preset-starter', '  这是一个特别特别长的牌组名字  ')
+      const data = renameDeck('preset-balanced', '  这是一个特别特别长的牌组名字  ')
       expect(data.decks[0]?.name).toBe('这是一个特别特别长的')
       expect(data.decks[0]?.name).toHaveLength(DECK_NAME_MAX)
     })
 
     it('只有空白的名字回落成原名', () => {
       loadDecks()
-      expect(renameDeck('preset-starter', '   ').decks[0]?.name).toBe('起始牌组')
+      expect(renameDeck('preset-balanced', '   ').decks[0]?.name).toBe('默认卡组')
     })
 
     it('id 不存在时什么都不改', () => {
@@ -267,8 +281,8 @@ describe('牌组存档', () => {
 
     it('已经有 12 套时不再新建，返回 null', () => {
       loadDecks()
-      // 一套预设 + 十一套新建正好顶到上限。
-      for (let i = 0; i < MAX_DECKS - 1; i += 1) {
+      // 三套预设 + 九套新建正好顶到上限。
+      for (let i = 0; i < MAX_DECKS - PRESET_IDS.length; i += 1) {
         expect(createDeck()).not.toBeNull()
       }
       expect(loadDecks().decks).toHaveLength(MAX_DECKS)
@@ -278,15 +292,15 @@ describe('牌组存档', () => {
 
     it('每套新建的牌组 id 都不重复', () => {
       loadDecks()
-      for (let i = 0; i < MAX_DECKS - 1; i += 1) createDeck()
+      for (let i = 0; i < MAX_DECKS - PRESET_IDS.length; i += 1) createDeck()
       const ids = loadDecks().decks.map((deck) => deck.id)
       expect(new Set(ids).size).toBe(ids.length)
     })
   })
 
   describe('删除牌组', () => {
-    /** 预设 + 两套新建，够测"删当前"和"删别人"两条路。返回这两套新建的 id。 */
-    function seedThreeDecks(): [string, string] {
+    /** 三套预设 + 两套新建，够测"删当前"和"删别人"两条路。返回这两套新建的 id。 */
+    function seedTwoMoreDecks(): [string, string] {
       loadDecks()
       const first = createDeck()?.decks.at(-1)?.id ?? ''
       const second = createDeck()?.decks.at(-1)?.id ?? ''
@@ -294,24 +308,25 @@ describe('牌组存档', () => {
     }
 
     it('删掉当前牌组后切到剩下的第一套', () => {
-      const [first, second] = seedThreeDecks()
+      const [first, second] = seedTwoMoreDecks()
       setCurrentDeck(second)
       const data = deleteDeck(second)
-      expect(data.decks.map((deck) => deck.id)).toEqual(['preset-starter', first])
-      expect(data.currentId).toBe('preset-starter')
+      expect(data.decks.map((deck) => deck.id)).toEqual([...PRESET_IDS, first])
+      expect(data.currentId).toBe('preset-balanced')
     })
 
     it('删掉的不是当前牌组时，当前牌组不变', () => {
-      const [, second] = seedThreeDecks()
-      setCurrentDeck('preset-starter')
-      expect(deleteDeck(second).currentId).toBe('preset-starter')
+      const [, second] = seedTwoMoreDecks()
+      setCurrentDeck('preset-balanced')
+      expect(deleteDeck(second).currentId).toBe('preset-balanced')
     })
 
     it('删到一套不剩时自动补一套空的「新牌组」并设为当前', () => {
-      const [first, second] = seedThreeDecks()
+      const [first, second] = seedTwoMoreDecks()
       deleteDeck(first)
       deleteDeck(second)
-      const data = deleteDeck('preset-starter')
+      for (const id of PRESET_IDS.slice(0, -1)) deleteDeck(id)
+      const data = deleteDeck(PRESET_IDS.at(-1) ?? '')
       expect(data.decks).toHaveLength(1)
       expect(data.decks[0]?.name).toBe('新牌组')
       expect(data.decks[0]?.cards).toEqual([])
@@ -376,7 +391,7 @@ describe('牌组存档', () => {
       loadDecks()
       const other = createDeck()?.decks.at(-1)?.id ?? ''
       updateDeckCards(other, [CARD_C])
-      updateDeckCards('preset-starter', [CARD_A])
+      updateDeckCards('preset-balanced', [CARD_A])
       const data = loadDecks()
       expect(data.decks[0]?.cards).toEqual([CARD_A])
       expect(data.decks.find((deck) => deck.id === other)?.cards).toEqual([CARD_C])
@@ -393,23 +408,23 @@ describe('牌组存档', () => {
       const { storage, breakIt } = createBreakableStorage()
       vi.stubGlobal('localStorage', storage)
       // 先正常读一次，把预设播下去，之后再让 storage 坏掉。
-      expect(loadDecks().decks).toHaveLength(1)
+      expect(loadDecks().decks).toHaveLength(PRESET_IDS.length)
       breakIt()
 
       const created = createDeck()
-      expect(created?.decks).toHaveLength(2)
+      expect(created?.decks).toHaveLength(PRESET_IDS.length + 1)
       const id = created?.currentId ?? ''
 
       // 新建的这套还在，改名落在它头上，而不是读回预设后什么都改不到。
       const renamed = renameDeck(id, '断档牌组')
-      expect(renamed.decks).toHaveLength(2)
+      expect(renamed.decks).toHaveLength(PRESET_IDS.length + 1)
       expect(renamed.decks.find((deck) => deck.id === id)?.name).toBe('断档牌组')
 
-      // 加卡写进新牌组自己，不会因为读回预设而落到 preset-starter 头上。
+      // 加卡写进新牌组自己，不会因为读回预设而落到 preset-balanced 头上。
       const withCards = updateDeckCards(id, [CARD_A, CARD_B])
       expect(withCards.currentId).toBe(id)
       expect(withCards.decks.find((deck) => deck.id === id)?.cards).toEqual([CARD_A, CARD_B])
-      expect(withCards.decks.find((deck) => deck.id === 'preset-starter')?.cards).toHaveLength(
+      expect(withCards.decks.find((deck) => deck.id === 'preset-balanced')?.cards).toHaveLength(
         DECK_SIZE,
       )
 
@@ -421,7 +436,7 @@ describe('牌组存档', () => {
       const { storage, breakIt } = createBreakableStorage()
       breakIt()
       vi.stubGlobal('localStorage', storage)
-      expect(loadDecks().decks.map((deck) => deck.id)).toEqual(['preset-starter'])
+      expect(loadDecks().decks.map((deck) => deck.id)).toEqual(PRESET_IDS)
     })
   })
 })

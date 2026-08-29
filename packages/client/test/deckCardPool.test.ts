@@ -48,7 +48,7 @@ describe('牌组页卡池', () => {
   })
 
   it('卡池 = 调得到模型的 16 张 AI + 已开放的 10 张技能牌', () => {
-    // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、示例牌组和抽卡全都按它走，
+    // 这一条把"卡池到底装了什么"钉死：牌组页的每一屏、预设牌组和抽卡全都按它走，
     // 名单一改（开放 / 收回某张技能牌、某张 AI 接上或掉了模型）就该在这里当场红。
     expect(CARD_POOL).toEqual([...PLAYABLE_AI_CARD_IDS, ...OPEN_SKILL_CARD_IDS])
     expect(AI_MODEL_CARD_IDS).toHaveLength(18)
@@ -88,11 +88,11 @@ describe('牌组页卡池', () => {
       .sort())
   })
 
-  it('接进引擎的技能牌各有一段自己的卡背文案，不会印成「还没实装」', () => {
-    // 卡背文案按 id 手写在 ui/cardText.ts 的表里，而"这张牌实装了没有"的唯一判据是
-    // 卡牌定义上还带不带 plannedEffect（见 core 的 types.ts）。两边一旦对不上：
-    // 实装了却漏写文案，玩家会读到"打出后没有任何实际效果"这句假话；
-    // 没实装却写了文案，则是反过来骗他这张牌能用。
+  it('接进引擎的技能牌卡背只印卡面文案，不会印成「还没实装」', () => {
+    // 卡背文案就是卡面文案（见 ui/cardText.ts），"这张牌实装了没有"的唯一判据是
+    // 卡牌定义上还带不带 plannedEffect（见 core 的 types.ts）。两者一旦对不上：
+    // 实装了却忘了删 plannedEffect，玩家会读到"打出后没有任何实际效果"这句假话；
+    // 没实装却先删了它，则是反过来骗他这张牌能用。
     for (const cardId of SKILL_DESIGN_CARD_IDS) {
       const card = getCard(cardId)
       if (card.kind !== 'skill') throw new Error(`${cardId} 不是技能牌`)

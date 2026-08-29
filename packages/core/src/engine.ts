@@ -36,7 +36,7 @@ export const STARTING_HAND_SIZE = 5
  * 第 2 轮起每轮开始双方各补几张。
  *
  * 一张时手牌只出不进，打到后面双方常常无牌可打、只能干等着答题；两张才够一轮出一两张的消耗。
- * 一局最多摸 5 + 4 轮 × 2 = 13 张，默认牌组 20 张（见 cards.ts 的 STARTER_DECK）管得住，
+ * 一局最多摸 5 + 4 轮 × 2 = 13 张，预设牌组各 20 张（见 cards.ts 的 PRESET_DECKS）管得住，
  * 不会中途抽空。改大到摸得空牌堆也不会出错（drawCards 抽不到就算了），只是画面上会一直显示 0。
  */
 export const ROUND_DRAW_SIZE = 2
@@ -478,16 +478,25 @@ function applySkillEffect(
     // 这个函数只在没被英雄技能抵消时才被调用，所以被抵消的那一下目标身上什么都不会留。
     case 'fixed-answer':
       target!.interference = 'fixed-answer'
+      markAffected(target!, 'fixed-answer')
       return
     case 'black-white-reversal':
       target!.interference = 'black-white-reversal'
+      markAffected(target!, 'black-white-reversal')
       return
-    case 'jade-purification-vase':
+    case 'jade-purification-vase': {
       // 解掉干扰之后这个 AI 又是"没被干扰过"的了，本轮还可能被对面再打一张。
+      // 被解掉的那张也要从 affectedBy 里撤掉，否则小卡会一直挂着「复读中」这种已经不存在的角标；
+      // 换上玉净瓶自己这一笔，玩家才看得出这个单位本轮被净化过（也就是还吃得下一张干扰）。
+      const cleansed = target!.interference!
       delete target!.interference
+      unmarkAffected(target!, cleansed)
+      markAffected(target!, 'jade-purification-vase')
       return
+    }
     case 'safe-pass':
       target!.safePassed = true
+      markAffected(target!, 'safe-pass')
       return
     case 'golden-bell-shield':
       player.shielded = true
@@ -542,6 +551,9 @@ function applySkillEffect(
           // 只换卡面身份：instanceId 不变，interference / safePassed 也跟着这个单位留下，
           // 因为它还是刚才那个单位，只是升了一级。
           ai.cardId = toCardId
+          // 换脸本身不在单位上留任何状态（levelShift 是英雄技能专用的，见 types.ts），
+          // 不补这一笔的话，本轮结束前谁都看不出这个单位是被哪张牌变成现在这副样子的。
+          markAffected(ai, 'rising-tide')
           events.push({
             type: 'AI_TRANSFORMED',
             instanceId: ai.instanceId,
@@ -556,6 +568,31 @@ function applySkillEffect(
       // 其余 14 张还是占位牌：打出即进弃牌堆，什么都不发生（名单见 skillCards.ts）。
       return
   }
+}
+
+/**
+ * 记一笔"这个单位本轮被这张技能牌打中过"，只给界面画角标和放大查看时列牌名用
+ *（字段口径见 types.ts 的 `AiInstance.affectedBy`）。
+ *
+ * 效果落在场上单位身上的技能牌都要调它一次，不然那张牌打出去战场上不留痕迹。
+ * 同一张牌不会重复记：干扰和保送本来就不允许打第二次，玉净瓶要有干扰可解，
+ * 「鸡犬升天」倒是一轮里能连打两张，但两次说的是同一件事（这个单位被升级过），
+ * 挂两枚一模一样的角标只是把小卡糊住。
+ */
+function markAffected(ai: AiInstance, cardId: CardId): void {
+  const list = ai.affectedBy ?? []
+  if (!list.includes(cardId)) list.push(cardId)
+  ai.affectedBy = list
+}
+
+/**
+ * 撤掉一笔（效果被别的牌移除了，眼下只有玉净瓶解干扰这一处）。
+ * 撤到空就把字段整个删掉，让"没被打过的单位不带这一项"这条始终成立。
+ */
+function unmarkAffected(ai: AiInstance, cardId: CardId): void {
+  const list = (ai.affectedBy ?? []).filter((id) => id !== cardId)
+  if (list.length === 0) delete ai.affectedBy
+  else ai.affectedBy = list
 }
 
 /**
@@ -659,8 +696,10 @@ function useHeroSkill(
   }
 
   // 换掉 cardId 就是这个技能的全部效果：费用、卡面、预生成的答题表现全部跟着新卡走。
-  // 身上那两个「本轮」标记（interference / safePassed）原样留着——被干扰、被保送和升降级
-  // 是三码事，同一个单位身上互不影响：升完仍按新卡查被干扰那一档的回答，也照样答错不罚下。
+  // 身上那几个「本轮」标记（affectedBy / interference / safePassed）原样留着——被干扰、
+  // 被保送和升降级是三码事，同一个单位身上互不影响：升完仍按新卡查被干扰那一档的回答，
+  // 也照样答错不罚下。英雄技能自己不往 affectedBy 里记（那份只记技能牌），
+  // 它留下的是永久的 levelShift 角标。
   // 降到链底可能降出 GPT-2 这种没跑过预生成的卡，那一档由 script.ts 兜底，不会缺格抛错。
   // 金钟罩同理管不着这里：它挡的是技能牌，而英雄技能不是技能牌（见 types.ts 的 shielded）。
   target.cardId = toCardId
@@ -832,7 +871,8 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
   next.firstPlayer = other(next.firstPlayer)
   next.activePlayer = next.firstPlayer
   next.phase = 'play'
-  // 技能牌留下的"本轮"效果全部在这里失效：核电站的减费、金钟罩、场上单位身上的干扰和保送。
+  // 技能牌留下的"本轮"效果全部在这里失效：核电站的减费、金钟罩、场上单位身上的干扰和保送，
+  // 连同小卡上那一列角标读的 affectedBy 一起清（那份是"本轮被哪几张牌打过"，见 types.ts）。
   // 清除点定在真的进下一轮这一步（而不是提交答题结果时），是因为结算界面还要照着这些标记
   // 演一遍"这个被干扰了 / 这个是被保送留下的"。玉净瓶卡面上「本轮作用于你的 Agent 的效果」
   // 那句口径也是靠这里成立的。
@@ -845,6 +885,7 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
   for (const player of next.players) {
     delete player.shielded
     for (const ai of player.board) {
+      delete ai.affectedBy
       delete ai.interference
       delete ai.safePassed
     }

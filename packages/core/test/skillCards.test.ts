@@ -85,10 +85,10 @@ describe('技能卡', () => {
     )
   })
 
-  it('玉净瓶的卡面文案是"移除作用于你的效果"这一版', () => {
+  it('玉净瓶的卡面文案是"移除己方 Agent 身上的效果"这一版', () => {
     // 它管的不只是干扰：将来的限制类效果也归它，所以文案刻意不点名某一种效果。
     const vase = SKILL_DESIGN_CARDS['jade-purification-vase'] as SkillCard
-    expect(vase.text).toBe('选择1个本轮作用于你的 Agent 效果，将其移除。')
+    expect(vase.text).toBe('移除己方1个 Agent 身上的效果，它本轮照常答题，之后还能再被干扰。')
   })
 
   it('费用都是正整数（照原画上那枚「N TOKEN」圆章转录）', () => {

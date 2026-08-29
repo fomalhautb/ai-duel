@@ -33,11 +33,28 @@
  *   右边由本页自己渲染的伴随层 .deck-zoom-side 摆一张同尺寸的背面大卡和一行操作。
  *   两张大卡都跟着指针倾斜（同 cardTilt.ts），落位后没有别的自发动效。
  *
- * 加牌不是"瞬间填进格子"：拖拽松手、点加号、放大层里点「加入牌组」三个入口都先量一份
- * Flip 起点存进 pendingInsertRef，等新格子挂载之后，再把那张迷你卡从起点飞进格子。
+ * 牌组里的顺序是玩家自己排的，所以"加在哪一格"有两套口径：拖进来的按松手时指针离哪一格
+ * 最近算（insertIndexAt），点「＋」或放大层里那颗按钮的按当前视野那一页的第一格算
+ * （pageInsertIndex，这样点完新牌一定在眼前）。牌组里的牌在面板里拖一下就是换位置，
+ * 拖出面板才是移除。
+ *
+ * 从卡池拖进来的时候，落点那一格是**一路空着**的（previewGap）：牌落在指针底下，飞行几乎
+ * 没有行程，不提前让出位置的话松手那一下看着就是凭空闪进去一张。牌组内部换位置没有这一手，
+ * 因为被拖的那一份自己占的格子已经空着，本身就是那个空位；也不能有——重排格子会让 React
+ * 把被拖的节点摘下来再插回去，浏览器当场释放 pointer capture，这次拖拽直接告吹。
+ *
+ * 牌组一变就补一段 Flip，不是"瞬间填进格子"：改牌组之前先量下整排格子的旧位置存进
+ * pendingFlipRef（加牌时把卡池那张牌一起量进去当起点），等 React 挂完新格子再从旧位置补过来，
+ * 于是让位 / 补位和那一份牌自己的飞行是同一段动画。
+ *
+ * 反过来，把一份牌送回卡池是同一套动作换个方向演（returnToPool + pendingPoolFlipRef）：
+ * 飞的是卡池里那张真牌，起点借牌组格子里那张迷你卡的位置。落在卡池哪一格也有两套口径——
+ * 拖回卡池的按松手时离哪一格最近算，点「送回」的那张卡池卡还在视野里就不动它、
+ * 已经滚出去了才挪到当前这一页的最后一格；不管哪一种，卡池都跟着重排（顺序会写回存档），
+ * 灰着的那两类始终排在最后、插不进去。
  * 加不进去（牌组满了 / 份数选满了 / 这张还没上线）时不是静默失败，而是摇头 + 在卡上方
  * 弹一句原因（见 refuseAdd）。三种原因由 blockReasonNow 一处判完，拖拽、「＋」、
- * 放大层那颗按钮说的是同一句话。
+ * 放大层那颗按钮说的是同一句话；灰着的那两类牌因此也拖不动——起拖那一下当场被掐掉，牌一动不动。
  *
  * 性能上有三处刻意的安排，改这一页时别顺手拆掉：
  * 1. 卡池卡和格子里的迷你卡各自是 React.memo 组件，传给它们的 props 全部引用稳定
@@ -66,7 +83,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { Flip } from 'gsap/Flip'
@@ -78,6 +95,7 @@ import {
 } from '@ai-duel/core'
 import type { CardId, HandCard } from '@ai-duel/core'
 import { BackButton } from '../ui/BackButton'
+import { MuteButton } from '../ui/MuteButton'
 import { AiCardBack } from '../ui/AiCardBack'
 import { CARD_ART_PLACEHOLDERS, cardArtFor } from '../ui/cardArt'
 import { midFor, thumbFor } from '../ui/cardArtThumb'
@@ -113,7 +131,7 @@ import {
   updateDeckCards,
 } from '../save/deckStore'
 import type { DecksData } from '../save/deckStore'
-import { loadSave } from '../save/save'
+import { loadSave, saveOwnedOrder } from '../save/save'
 import { FACTIONS, filterDeckCards } from './deckFactions'
 import type { DeckFaction } from './deckFactions'
 import './deck.css'
@@ -139,8 +157,28 @@ const ZOOM_TILT_DEG = 5
 /** 问号热区翻面的时长，和手牌那份（HandFan 的 handleHelpEnter）保持一致。 */
 const HELP_FLIP_DUR = 0.4
 
-/** 新加的那一份牌从起点飞进格子的时长。 */
+/** 新加的那一份牌从起点飞进格子的时长。挪位置（拖着牌组里的牌换顺序）走的也是这一档。 */
 const INSERT_DUR = 0.4
+
+/**
+ * 拖拽途中让位 / 收位那一下的时长。比落牌那一程（INSERT_DUR）快一档：
+ * 手还在拖，这一下只是"松手会落这儿"的提示，慢了会觉得界面跟不上手。
+ */
+const GAP_SHIFT_DUR = 0.22
+
+/**
+ * 从牌组送回卡池那一程的时长。和加入的飞行（INSERT_DUR）同一档：一来一回是同一段路，
+ * 回去比来时快或慢都会显得这两件事不是互逆的。
+ */
+const RETURN_FLIGHT_DUR = 0.4
+/**
+ * 送回的替身在飞行的最后这一段里淡掉（占全程的比例）。
+ *
+ * 落点正好压在卡池那张牌上时其实可以硬收——两张画的是同一张卡；
+ * 但落在卡池视野右下角那一档（那张牌根本不在视野里）不淡就是凭空消失，
+ * 两档共用一条淡出更简单，也看不出差别。
+ */
+const RETURN_FADE_PORTION = 0.35
 /**
  * 飞行跑完再多等这一会儿，才把卡从 fixed 切回文档流。
  * 正好卡在补间末帧切会看到一次跳动，这 0.06 秒是留给收尾的余量（同 liftCardForFlight）。
@@ -152,6 +190,16 @@ const DROP_BACK_DELAY = 0.06
  * 值和拖拽用的 DRAG_Z 一档，两者不会同时发生在同一张卡上。
  */
 const INSERT_FLIGHT_Z = 1000
+/**
+ * 送回卡池那一程的层级。
+ *
+ * 比加入那一档（INSERT_FLIGHT_Z）再高一级：这一程要飞过整个卡池，途中会从灰着的那几张
+ * 「即将上线 / 暂未接入」上空经过（它们正排在卡池末尾，也就是右下角那一带，
+ * 正好是这段飞行的落点），压不过去的话最后几帧会钻到卡背后面。
+ */
+const RETURN_FLIGHT_Z = 1200
+/** 送回落到卡池视野右下角那一档时，落点离卡池网格右下角留的余量（舞台内像素，同网格自己的内边距）。 */
+const POOL_CORNER_INSET = 22
 
 /** 放大查看的伴随层淡入淡出时长。比遮罩（0.25 / 0.3）稍快一点收，不抢卡的戏。 */
 const ZOOM_SIDE_FADE = 0.25
@@ -364,6 +412,47 @@ function poolFlipId(cardId: CardId): string {
 /** 牌组里那一份的 Flip 配对键。用 entry.key，所以删掉别的份不会让它换 id。 */
 function deckFlipId(entryKey: string): string {
   return `deck:${entryKey}`
+}
+
+/**
+ * 元素此刻的「没有 transform 时的那个框」，用舞台内坐标表示，外加它身上那截变换。
+ *
+ * 两个调用方都要这份换算：把牌切成 fixed（liftCardOut）、以及给送回动画摆一个替身
+ * （flyBackToPool）。两处都必须做**同样**的两步换算，写成一份才不会哪天只改一边。
+ *
+ * 为什么要扣掉变换：getBoundingClientRect 量到的是**变换之后**的视觉框，而这截 transform
+ * 在切成 fixed 之后不会消失（拖拽正是拿元素当前的 x / y 当位移基准接着用），
+ * 照抄进 left / top / width / height 就等于把它算了两遍。
+ * 换算回原始框之后，「新的 left/top/width/height + 留着的那截 transform」正好还是此刻的视觉位置。
+ *
+ * 两步的顺序不能反：rect 是视口坐标，先除掉舞台的 scale 落到舞台内坐标，
+ * 才和 GSAP 的 x / y、scaleX / scaleY 处在同一套单位里，然后才谈得上把它们扣掉。
+ */
+function stageBoxOf(element: HTMLElement) {
+  const x = Number(gsap.getProperty(element, 'x'))
+  const y = Number(gsap.getProperty(element, 'y'))
+  // 没写过 transform 的元素 GSAP 就返回 1，`|| 1` 只是兜住 0 / NaN 免得下面除出无穷大；
+  // 真兜住了也无非退化成"只扣位移不扣缩放"，不会写出坏值。
+  const scaleX = Number(gsap.getProperty(element, 'scaleX')) || 1
+  const scaleY = Number(gsap.getProperty(element, 'scaleY')) || 1
+  const rect = element.getBoundingClientRect()
+  const metrics = battleStageMetrics()
+  // 视觉中心，换到舞台内坐标。
+  const center = toStagePoint(rect.left + rect.width / 2, rect.top + rect.height / 2, metrics)
+  const width = rect.width / metrics.scale / scaleX
+  const height = rect.height / metrics.scale / scaleY
+  return {
+    // 被拖的这两种元素（.deck-pool-card / .deck-mini）都没改 transform-origin，缩放是绕盒子中心
+    // 往四周撑开的，所以按中心反推左上角：视觉中心减掉位移就是原中心，再退回半个原尺寸。
+    left: center.x - x - width / 2,
+    top: center.y - y - height / 2,
+    width,
+    height,
+    x,
+    y,
+    scale: scaleX,
+    rotation: Number(gsap.getProperty(element, 'rotation')),
+  }
 }
 
 /** 取存档里某一套牌组的卡表；id 指不到人时按空牌组算（loadDecks 保证不会发生）。 */
@@ -582,13 +671,155 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
    * 后面那批是灰着摆出来给人看的（选不进牌组，见 blockReasonNow），拼在末尾就是
    * 「排序永远在最后」那条要求；它们不在存档的已拥有列表里，所以要在这儿另接上。
    *
-   * 这一页不会解锁新卡（收藏只在对局结束后变，见 save/save.ts 的 recordWin），
-   * 所以中途不用重读，读一次还能保证卡池顺序稳定、网格不会莫名重排。
+   * 是 state 而不是常量：从牌组把牌送回来时可以指定它落在卡池的哪一格（见 movePoolCard），
+   * 那一下会改这个顺序。但只有那一条路改得动它——这一页不会解锁新卡（收藏只在对局结束后变，
+   * 见 save/save.ts 的 recordWin），所以中途不用重读存档，网格也不会莫名重排。
    */
-  const pool = useMemo<readonly CardId[]>(
-    () => [...loadSave().ownedCards, ...COMING_SOON_SKILL_CARD_IDS, ...UNAVAILABLE_AI_CARD_IDS],
-    [],
-  )
+  const [pool, setPool] = useState<readonly CardId[]>(() => [
+    ...loadSave().ownedCards,
+    ...COMING_SOON_SKILL_CARD_IDS,
+    ...UNAVAILABLE_AI_CARD_IDS,
+  ])
+  // 卡池的重排发生在拖拽 / 按钮的回调里，那些回调跨渲染活着，读 state 会读到过期的那份。
+  const poolRef = useRef(pool)
+  poolRef.current = pool
+
+  /**
+   * 卡池里第一张"选不了的牌"的位置，也就是可选卡那一段的长度。
+   *
+   * 灰着的那两类永远排在最后（见 DISPLAY_CARD_IDS），送回来的牌只能插到这个位置之前，
+   * 所有算落点的地方都要拿它封顶。
+   */
+  const blockedStart = useMemo(() => {
+    const first = pool.findIndex((cardId) => BLOCKED_CARD_LABELS.has(cardId))
+    return first < 0 ? pool.length : first
+  }, [pool])
+  const blockedStartRef = useRef(blockedStart)
+  blockedStartRef.current = blockedStart
+
+  /**
+   * 把卡池里的一张牌挪到第 to 格（送回牌时决定它落在哪儿）。
+   *
+   * to 是"挪走这张之后的下标"，口径同 moveEntry。灰卡那一段挪不进去，也不能被挪。
+   * 顺序当场写回存档：这是玩家自己摆的架子，刷新之后还该是这个样子。
+   */
+  const movePoolCard = (cardId: CardId, to: number) => {
+    const list = poolRef.current
+    const from = list.indexOf(cardId)
+    if (from < 0 || BLOCKED_CARD_LABELS.has(cardId)) return
+    const target = Math.min(Math.max(to, 0), blockedStartRef.current - 1)
+    if (target === from) return
+    const next = [...list]
+    next.splice(from, 1)
+    next.splice(target, 0, cardId)
+    poolRef.current = next
+    setPool(next)
+    saveOwnedOrder(next)
+  }
+
+  /**
+   * 卡池网格里现在摆着的那些格子，以及每格是哪张牌。
+   *
+   * 落点是照**屏幕上看得见的排列**算的，而卡池此刻多半正被页签或阵营筛着，
+   * 所以直接读 DOM，而不是拿完整的 pool 去猜第几格是谁。
+   */
+  const poolCells = (): { slot: HTMLElement; cardId: CardId }[] => {
+    const grid = gridRef.current
+    if (grid === null) return []
+    const cells: { slot: HTMLElement; cardId: CardId }[] = []
+    for (const card of grid.querySelectorAll<HTMLElement>('.deck-pool-card')) {
+      const slot = card.parentElement
+      const flipId = card.dataset.flipId
+      if (slot === null || flipId === undefined) continue
+      cells.push({ slot, cardId: flipId.slice('pool:'.length) as CardId })
+    }
+    return cells
+  }
+
+  /**
+   * 把"插在网格第 cell 格之前"换算成完整卡池里的插入下标。
+   *
+   * 中间这一步换算是必要的：网格上摆的只是筛过一遍的一部分牌，两边的下标对不上。
+   * 一律封在灰卡那一段之前（blockedStart）——选不了的牌永远排在最后。
+   */
+  const poolIndexOfCell = (cell: number): number => {
+    const cells = poolCells()
+    const end = blockedStartRef.current
+    const anchor = cells[cell]?.cardId
+    if (anchor === undefined) return end
+    return Math.min(poolRef.current.indexOf(anchor), end)
+  }
+
+  /**
+   * 指针停在这儿的话，送回来的牌该插进卡池的第几格。
+   *
+   * 口径同牌组那边的 insertIndexAt：找最近的一格，再按指针在这一格的左半边还是右半边，
+   * 决定插在它前面还是后面。
+   */
+  const poolInsertIndexAt = (clientX: number, clientY: number): number => {
+    const cells = poolCells()
+    let nearest = -1
+    let nearestDist = Infinity
+    let after = false
+    for (let index = 0; index < cells.length; index += 1) {
+      const cell = cells[index]
+      if (cell === undefined) continue
+      const rect = cell.slot.getBoundingClientRect()
+      const cx = rect.left + rect.width / 2
+      const cy = rect.top + rect.height / 2
+      const dist = Math.hypot(clientX - cx, clientY - cy)
+      if (dist >= nearestDist) continue
+      nearestDist = dist
+      nearest = index
+      after = clientX > cx
+    }
+    if (nearest < 0) return blockedStartRef.current
+    return poolIndexOfCell(after ? nearest + 1 : nearest)
+  }
+
+  /**
+   * 点「送回」时，那张卡池卡已经滚出视野的话，把它挪到哪一格。
+   *
+   * 取当前视野这一页的最后一格（口径同牌组那边的 pageInsertIndex，只是取的是末尾那一格，
+   * 因为原话是"撤到最右下角"）：落点一定看得见，玩家能看着牌回到卡池里的某个位置，
+   * 而不是飞向一个屏幕外的坐标。
+   *
+   * 返回的是"插在那一格之后"，这样这张牌最后正好占住那一格；插在它之前的话会差一位
+   *（挪走自己那一格会让后面整体前移）。
+   */
+  const poolPageLastIndex = (): number => {
+    const grid = gridRef.current
+    const cells = poolCells()
+    if (grid === null || cells.length === 0) return blockedStartRef.current
+    const page = grid.clientHeight
+    if (page <= 0) return blockedStartRef.current
+    const pageBottom = Math.round(grid.scrollTop / page) * page + page
+    const gridTop = grid.getBoundingClientRect().top
+    let last = -1
+    for (let index = 0; index < cells.length; index += 1) {
+      const cell = cells[index]
+      if (cell === undefined) continue
+      const rect = cell.slot.getBoundingClientRect()
+      // 格子底边换算到内容坐标（网格自己不是定位祖先，offsetTop 指的不是它）。
+      const bottom = rect.bottom - gridTop + grid.scrollTop
+      // 半像素的误差会让整行被跳过，留 1px 余量。
+      if (bottom > pageBottom + 1) break
+      last = index
+    }
+    if (last < 0) return blockedStartRef.current
+    return poolIndexOfCell(last + 1)
+  }
+
+  /** 这张卡池卡此刻在不在卡池的可视范围里。卡池只竖着滚，所以只看上下。 */
+  const poolCardVisible = (card: HTMLElement): boolean => {
+    const grid = gridRef.current
+    if (grid === null) return false
+    const rect = card.getBoundingClientRect()
+    const box = grid.getBoundingClientRect()
+    // 按卡的中心算：贴着边露出小半张也算看得见，用不着整张都在。
+    const center = rect.top + rect.height / 2
+    return center >= box.top && center <= box.bottom
+  }
 
   /**
    * 页签上的数字。按整个卡池实算，既不跟着当前页签变，也不跟着阵营筛选变：
@@ -726,13 +957,71 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   }, [deck])
 
   /**
-   * 刚加进牌组的那一份牌要从哪儿飞过来。
+   * 牌组即将变样，变完之后要从这份旧状态补一段 Flip。
    *
-   * 加牌是"发一个 key → React 挂出新格子"，而飞行只能等新格子真的在 DOM 里才播得起来，
-   * 所以起点量完先存这儿，由下面那个依赖 deck 的 useGSAP 接手。
-   * 三个入口（拖拽松手、点加号、放大层里点「加入牌组」）走的都是这一条路。
+   * 牌组一改就是"整排格子重排"：插在中间的一份会把后面所有牌各推一格，移走一份则让后面
+   * 全部往前补位。所以量的是**格子区里全部迷你卡**的旧位置，而不只是动了的那一张，
+   * 补间才能把"其它牌让出位置"这件事一起演出来（不这么做的话它们是瞬间跳过去的）。
+   *
+   * flyKey 是这次里"自己也要飞一段"的那份牌：加牌时是新发的 key（起点在卡池那张牌上，
+   * 所以量的时候要把它一起算进去，见 addCard），拖着换顺序时是被拖的那份（起点是松手位置）。
+   * 移走一份牌时没有谁要飞，是 null——它的送回动画由另一条路负责（见 flyBackToPool）。
+   *
+   * 存起来而不是当场播：改牌组是"发 key → React 挂/挪格子"，落点元素得等下一拍才就位，
+   * 所以由下面那个依赖 deck 的 useGSAP 接手。
    */
-  const pendingInsertRef = useRef<{ key: string; state: Flip.FlipState } | null>(null)
+  const pendingFlipRef = useRef<{
+    state: Flip.FlipState
+    flyKey: string | null
+    duration: number
+  } | null>(null)
+
+  /**
+   * 拖拽途中为落点让出来的那一格（0 = 让在最前，null = 现在没有落点）。
+   *
+   * 只有"从卡池拖一张进来"才用得上：那张牌还不在牌组里，不先空出一格的话，
+   * 松手前根本看不出它会插到哪儿，而落点又正好在指针底下，飞行几乎没有行程，
+   * 看着就是凭空闪进去（这一版之前正是这个毛病）。
+   * 牌组内部换位置不走这条路——被拖的那一份自己占着的格子已经是空的（牌被拎成了 fixed），
+   * 它就是那个空位，所以那边改成边拖边把顺序调过去（见 deckDrag 的 onDragMove）。
+   */
+  const [previewGap, setPreviewGap] = useState<number | null>(null)
+  // 拖拽回调跨渲染活着，读 state 会读到过期的那份。
+  const previewGapRef = useRef(previewGap)
+  previewGapRef.current = previewGap
+
+  /**
+   * 同上，只是这一份是卡池那边的：一张牌被送回卡池时，卡池也要补一段 Flip。
+   *
+   * flyId 那张卡池卡是从牌组格子飞过来的（起点由 returnToPool 借迷你卡量下），
+   * 其余的牌只是因为它插了队而往后让一格。
+   */
+  const pendingPoolFlipRef = useRef<{ state: Flip.FlipState; flyId: CardId } | null>(null)
+
+  /**
+   * 量下格子区里全部迷你卡此刻的位置，外加一个额外的起点元素（加牌时是卡池那张牌）。
+   *
+   * 必须在改牌组**之前**调，量到的才是"变化前"的那一帧。
+   */
+  const captureSlotsFlip = (flyKey: string | null, extra?: HTMLElement): Flip.FlipState => {
+    const minis = flipMinis(flyKey)
+    return Flip.getState(extra === undefined ? minis : [...minis, extra])
+  }
+
+  /**
+   * 格子区里该由这段 Flip 管位置的迷你卡。
+   *
+   * 被拎出文档流（position: fixed）的那些要排除掉：它们要么正贴在指针上被拖着，要么正飞在
+   * 上一程的半路上，位置各有各的主人。漏掉这一道的话，Flip 会把"位移归零"写到正被拖的那张
+   * 牌上，手还没松牌就先跳回格子里去了。
+   * flyKey 那一份是例外——它正是这一段要飞的那个。
+   */
+  const flipMinis = (flyKey: string | null): HTMLElement[] => {
+    const flyer = flyKey === null ? null : deckFlipId(flyKey)
+    return Array.from(slotsRef.current?.querySelectorAll<HTMLElement>('.deck-mini') ?? []).filter(
+      (mini) => mini.style.position !== 'fixed' || mini.dataset.flipId === flyer,
+    )
+  }
 
   /**
    * 加一份牌。
@@ -740,9 +1029,12 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
    * captureFrom 是这一份牌"从哪儿飞进来"的起点元素（拖着的那张卡池卡、或卡池里的原位卡）；
    * 不传就没有飞行，牌直接出现在格子里（眼下没有这样的调用方，留着是因为飞行是锦上添花，
    * 起点元素查不到时应该照样加得进去）。
+   *
+   * at 是插进牌组的第几个位置，不传就接在末尾。拖拽落点按离指针最近的格子算（insertIndexAt），
+   * 点击加入按当前视野那一页的第一格算（pageInsertIndex），两者都要能插进中间。
    */
   const addCard = useCallback(
-    (cardId: CardId, captureFrom?: HTMLElement) => {
+    (cardId: CardId, captureFrom?: HTMLElement, at?: number) => {
       const guide = tutorialRef.current
       // 教程期间只放行当前这一步点名的那张，连"再加一份已经加过的牌"也一起挡掉：
       // 不挡的话玩家连点两下就把牌组填满了，后面几步没牌可加。
@@ -753,6 +1045,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
       if (!canAddNow(cardId)) return
       nextKeyRef.current += 1
       const key = `pick-${nextKeyRef.current}`
+      const current = deckRef.current
+      const index = at === undefined ? current.length : Math.min(Math.max(at, 0), current.length)
       if (captureFrom !== undefined) {
         /*
          * Flip 靠 data-flip-id 把"起点元素"和"落点元素"认成同一张牌，而这两个元素本来
@@ -762,30 +1056,155 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
          */
         const original = captureFrom.dataset.flipId
         captureFrom.dataset.flipId = deckFlipId(key)
-        pendingInsertRef.current = { key, state: Flip.getState(captureFrom) }
+        pendingFlipRef.current = {
+          state: captureSlotsFlip(key, captureFrom),
+          flyKey: key,
+          duration: INSERT_DUR,
+        }
         if (original === undefined) delete captureFrom.dataset.flipId
         else captureFrom.dataset.flipId = original
+      } else {
+        // 没有起点也要量一份：插在中间时后面那些牌照样要演"让出一格"。
+        pendingFlipRef.current = { state: captureSlotsFlip(null), flyKey: null, duration: INSERT_DUR }
       }
-      commitDeck([...deckRef.current, { key, cardId }])
+      const next = [...current]
+      next.splice(index, 0, { key, cardId })
+      commitDeck(next)
       // 教学靠这一声推进到下一步，所以它排在真的落牌之后：加不进去的分支上面已经 return 了。
       guide?.onCardAdded(cardId)
     },
     [canAddNow, commitDeck],
   )
 
+  /**
+   * 从牌组里拿掉一份牌，它同时会回到卡池里的某一格。
+   *
+   * poolAt 指定回到卡池的第几格，只有"拖回卡池"那条路会传（＝离指针最近的那一格）；
+   * 点按钮的两条路不传，由 returnToPool 按默认规则决定。
+   */
   const removeEntry = useCallback(
-    (entryKey: string) => {
+    (entryKey: string, poolAt?: number) => {
       // 教程阶段牌组里的牌一张都不许动（规格 §15）。
       if (blockedByTutorial()) return
       const current = deckRef.current
-      const next = current.filter((entry) => entry.key !== entryKey)
+      const gone = current.find((entry) => entry.key === entryKey)
       // 这份牌已经不在了（同一拍里被移过一次）就什么都别做：
       // 否则白写一次存档，还会让整排格子跟着重渲染一遍。
-      if (next.length === current.length) return
-      commitDeck(next)
+      if (gone === undefined) return
+      // 两件事都得赶在改牌组之前做完：送回那一程要照着还在格子里的那张迷你卡量起点，
+      // Flip 也要量到"后面那些牌还没往前补位"的那一帧。
+      returnToPool(gone, poolAt)
+      pendingFlipRef.current = { state: captureSlotsFlip(null), flyKey: null, duration: INSERT_DUR }
+      commitDeck(current.filter((entry) => entry.key !== entryKey))
     },
     [blockedByTutorial, commitDeck],
   )
+
+  /** 把某一份牌挪到第 to 格之后的新顺序；已经在那儿了就返回 null。 */
+  const reordered = (entryKey: string, to: number): DeckEntry[] | null => {
+    const current = deckRef.current
+    const from = current.findIndex((entry) => entry.key === entryKey)
+    if (from < 0) return null
+    const target = Math.min(Math.max(to, 0), current.length - 1)
+    if (target === from) return null
+    const next = [...current]
+    const [moved] = next.splice(from, 1)
+    if (moved === undefined) return null
+    next.splice(target, 0, moved)
+    return next
+  }
+
+  /**
+   * 指针停在这儿的话，这张牌该插进牌组的第几格（0 = 排在最前，deck.length = 接在最后）。
+   *
+   * 量的是格子（.deck-slot）而不是牌：空格子也要算进来，不然把牌丢在末尾那片空格上时，
+   * 最近的仍然是最后一张牌，落点会往回跳一格。
+   * 找到最近的一格之后再按"指针在这一格的左半边还是右半边"决定插在它前面还是后面，
+   * 这样两列的网格里左右两个落点是分得开的。
+   */
+  const insertIndexAt = (clientX: number, clientY: number): number => {
+    const list = slotsRef.current
+    const length = deckRef.current.length
+    if (list === null) return length
+    const slots = Array.from(list.children) as HTMLElement[]
+    let nearest = -1
+    let nearestDist = Infinity
+    let after = false
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index]
+      if (slot === undefined) continue
+      const rect = slot.getBoundingClientRect()
+      const cx = rect.left + rect.width / 2
+      const cy = rect.top + rect.height / 2
+      const dist = Math.hypot(clientX - cx, clientY - cy)
+      if (dist >= nearestDist) continue
+      nearestDist = dist
+      nearest = index
+      after = clientX > cx
+    }
+    if (nearest < 0) return length
+    /*
+     * 已经让出一格空位时，量到的"第几格"是**带着那一格**的排法，要换算回牌组真正的下标，
+     * 否则落点会自己走：指针停在空位右半边算出来是它后面一格，空位挪过去之后指针又落在
+     * 新空位的左半边，于是来回跳。
+     * 指针就停在空位上时直接维持原样——那正是"松手就落这儿"。
+     */
+    const gap = previewGapRef.current
+    if (gap !== null && nearest === gap) return gap
+    const real = gap !== null && nearest > gap ? nearest - 1 : nearest
+    // 最近的是一格空位（后面已经没有牌了）＝ 排在现有的牌后面。
+    if (real >= length) return length
+    return after ? real + 1 : real
+  }
+
+  /**
+   * 拖拽途中把空位挪到某一格（null = 收起来）。
+   *
+   * 每挪一格都补一段 Flip，让让位的牌是滑过去的而不是瞬移。比落牌那一程快一档：
+   * 手还在拖，这一下只是提示，不该让人等它。
+   */
+  const showGapAt = (next: number | null) => {
+    if (next === previewGapRef.current) return
+    pendingFlipRef.current = { state: captureSlotsFlip(null), flyKey: null, duration: GAP_SHIFT_DUR }
+    previewGapRef.current = next
+    setPreviewGap(next)
+  }
+
+  /** 指针在不在某块区域里。拖拽回调只拿得到坐标，落点区自己的判定在 hook 内部，这里另算一次。 */
+  const pointerInside = (ref: RefObject<HTMLElement | null>, x: number, y: number): boolean => {
+    const el = ref.current
+    if (el === null) return false
+    const rect = el.getBoundingClientRect()
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+  }
+
+  /**
+   * 点击加入（「＋」、放大层里那颗按钮）时，这张牌该插进第几格。
+   *
+   * 取"当前视野里最完整的那一页"的第一格：格子区是一块滚动区，一屏正好是一页，
+   * 滚过一半时算下一页赢。这样点完之后新牌一定就在眼前，而不是接在末尾、落到看不见的地方。
+   * 牌不够铺满一屏（列表根本没得滚）时这就是第 0 格，新牌排在最前面。
+   */
+  const pageInsertIndex = (): number => {
+    const list = slotsRef.current
+    const length = deckRef.current.length
+    if (list === null) return length
+    const page = list.clientHeight
+    if (page <= 0) return length
+    // 这一页的顶边在内容坐标里的位置。
+    const pageTop = Math.round(list.scrollTop / page) * page
+    const listTop = list.getBoundingClientRect().top
+    const slots = Array.from(list.children) as HTMLElement[]
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index]
+      if (slot === undefined) continue
+      // 格子顶边换算到内容坐标（滚动区自己不是定位祖先，offsetTop 指的不是它）。
+      const top = slot.getBoundingClientRect().top - listTop + list.scrollTop
+      // 半像素的误差会让整行被跳过，留 1px 余量。
+      if (top >= pageTop - 1) return Math.min(index, length)
+    }
+    return length
+  }
 
   const cardOfEntry = (entryKey: string): HandCardData | undefined => {
     const entry = deckRef.current.find((item) => item.key === entryKey)
@@ -1040,7 +1459,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     if (zoomSide === null || zoomSide.side !== 'pool') return
     const cardId = zoomSide.sourceId
     if (!canAddNow(cardId)) return
-    addCard(cardId, findOrigin('pool', zoomSide.flipId) ?? undefined)
+    // 落位口径和「＋」一致：都是点击加入，见 pageInsertIndex。
+    addCard(cardId, findOrigin('pool', zoomSide.flipId) ?? undefined, pageInsertIndex())
     closeZoom()
   }
 
@@ -1105,36 +1525,16 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     /*
      * 卡身上未必是干净的：归位补间（0.28s）还没跑完就又被抓起来时留着一截位移，
      * 放大查看飞回原位的途中被抓起来时，Flip 还写着一大截位移 + 放大。
-     * getBoundingClientRect 量到的是**变换之后**的视觉框，而这截 transform 起拖后不会消失
-     * （useCardDrag 起拖时正是拿元素当前的 x / y 当位移基准接着用），照抄进
-     * left / top / width / height 就等于把它算两遍：卡会在起拖瞬间跳开一截，尺寸也按放大后的定死。
-     *
-     * 所以这里把视觉框换算回"元素没有 transform 时的那个框"再写上去，
+     * 所以写进 left / top / width / height 的是**扣掉那截变换之后**的框（换算见 stageBoxOf），
      * 于是「新的 left/top/width/height + 留着的那截 transform」正好还是此刻的视觉位置，切换看不出来。
      * 静止起拖时位移是 0、缩放是 1，算出来和直接用 rect 一模一样。
-     *
-     * 两步换算的顺序不能反：rect 是视口坐标，先除掉舞台的 scale 落到舞台内坐标，
-     * 才和 GSAP 的 x / y、scaleX / scaleY 处在同一套单位里，然后才谈得上把它们扣掉。
      */
-    const x = Number(gsap.getProperty(element, 'x'))
-    const y = Number(gsap.getProperty(element, 'y'))
-    // 没写过 transform 的元素 GSAP 就返回 1，`|| 1` 只是兜住 0 / NaN 免得下面除出无穷大；
-    // 真兜住了也无非退化成"只扣位移不扣缩放"，不会写出坏值。
-    const scaleX = Number(gsap.getProperty(element, 'scaleX')) || 1
-    const scaleY = Number(gsap.getProperty(element, 'scaleY')) || 1
-    const rect = element.getBoundingClientRect()
-    const metrics = battleStageMetrics()
-    // 视觉中心，换到舞台内坐标。
-    const center = toStagePoint(rect.left + rect.width / 2, rect.top + rect.height / 2, metrics)
-    const width = rect.width / metrics.scale / scaleX
-    const height = rect.height / metrics.scale / scaleY
-    // 被拖的这两种元素（.deck-pool-card / .deck-mini）都没改 transform-origin，缩放是绕盒子中心
-    // 往四周撑开的，所以按中心反推左上角：视觉中心减掉位移就是原中心，再退回半个原尺寸。
+    const box = stageBoxOf(element)
     element.style.position = 'fixed'
-    element.style.left = `${center.x - x - width / 2}px`
-    element.style.top = `${center.y - y - height / 2}px`
-    element.style.width = `${width}px`
-    element.style.height = `${height}px`
+    element.style.left = `${box.left}px`
+    element.style.top = `${box.top}px`
+    element.style.width = `${box.width}px`
+    element.style.height = `${box.height}px`
   }
 
   /** liftCardOut 的反操作：清掉内联定位，牌回到格子里。位置和 fixed 时完全重合，所以看不出切换。 */
@@ -1193,6 +1593,131 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   })
 
   /**
+   * 送回卡池：牌组里那份牌消失之前，先安排好它在卡池里落在哪一格，以及怎么飞过去。
+   *
+   * 三条移除的路（格子上那颗「送回」圆钮、把牌拖出面板、放大层里的「移出牌组」）都走这儿，
+   * 因为它们最后都汇进 removeEntry。
+   *
+   * poolAt 是调用方指定的落点（拖回卡池时＝离指针最近的那一格）；不传就按默认规则来：
+   * 卡池里那张牌还在视野里就不动它、牌直接飞回它身上；已经滚出视野了就把它挪到
+   * 当前这一页的最后一格（poolPageLastIndex），卡池跟着重排，于是落点永远看得见。
+   *
+   * 飞的是卡池里那张**真牌**，不是替身：起点借迷你卡此刻的位置（把它的 data-flip-id 临时
+   * 改成卡池那张的，Flip 才认得出是同一张），落点就是它自己的格子，重排的让位动画也一起演
+   *（见下面那个依赖 shown / deck 的 useGSAP）。
+   * 唯一的例外是这张牌被页签或阵营筛掉、网格上根本没有它：那时没有落点元素可飞，
+   * 退回替身那条路（flyGhostToPool），往卡池的右下角淡出。
+   */
+  const returnToPool = (entry: DeckEntry, poolAt?: number) => {
+    const mini = findOrigin('deck', deckFlipId(entry.key))
+    if (mini === null || prefersReducedMotion()) return
+    const poolCard = findOrigin('pool', poolFlipId(entry.cardId))
+    if (poolCard === null) {
+      flyGhostToPool(mini)
+      return
+    }
+    const at = poolAt ?? (poolCardVisible(poolCard) ? undefined : poolPageLastIndex())
+
+    /*
+     * 量旧位置。卡池那张牌要排除在外：它的起点不是自己现在待的格子，而是迷你卡此刻的位置，
+     * 所以由临时改名的迷你卡顶替它进这份状态——两个元素同时挂着 pool:xxx 的话 Flip 就分不清了。
+     * 改名和量都在同一拍的同步代码里，React 看不见中间那一下。
+     */
+    const others = Array.from(
+      gridRef.current?.querySelectorAll<HTMLElement>('.deck-pool-card') ?? [],
+    ).filter((card) => card !== poolCard)
+    const original = mini.dataset.flipId
+    mini.dataset.flipId = poolFlipId(entry.cardId)
+    pendingPoolFlipRef.current = {
+      state: Flip.getState([...others, mini]),
+      flyId: entry.cardId,
+    }
+    if (original === undefined) delete mini.dataset.flipId
+    else mini.dataset.flipId = original
+
+    if (at !== undefined) {
+      const from = poolRef.current.indexOf(entry.cardId)
+      // at 是"插在第几个之前"，而这张牌此刻还占着自己那一格，落点排在它后面时
+      // 要减掉它自己占的那一格，否则会往后多挪一位（同 moveEntry 那边的换算）。
+      movePoolCard(entry.cardId, from >= 0 && at > from ? at - 1 : at)
+    }
+  }
+
+  /**
+   * 送回卡池的退路：卡池网格上根本没有这张牌（被页签或阵营筛掉了）时，
+   * 克隆一个替身从格子飞向卡池可视区的右下角再淡掉。
+   *
+   * 那是"往卡池那边去了"的方向，而不是往一个屏幕外的坐标飞、半路就飞出画面。
+   * 替身走 fixed + RETURN_FLIGHT_Z：卡池是个 overflow 容器，不脱出去的话前半程会被裁掉；
+   * 层级要压过灰着的那几张选不了的牌（它们正排在右下角那一带，见 RETURN_FLIGHT_Z）。
+   */
+  const flyGhostToPool = contextSafe((mini: HTMLElement) => {
+    const host = scalerRef.current
+    const grid = gridRef.current
+    if (host === null || grid === null) return
+
+    const box = stageBoxOf(mini)
+    const metrics = battleStageMetrics()
+    const gridRect = grid.getBoundingClientRect()
+    // 卡池卡的尺寸随手量一张现成的；一张都没有（页签筛空了）就按迷你卡自己的大小飞。
+    const sample = grid.querySelector<HTMLElement>('.deck-pool-card')?.getBoundingClientRect()
+    const width = sample === undefined ? box.width : sample.width / metrics.scale
+    const height = sample === undefined ? box.height : sample.height / metrics.scale
+    const corner = toStagePoint(gridRect.right, gridRect.bottom, metrics)
+    const target = {
+      x: corner.x - POOL_CORNER_INSET - width / 2,
+      y: corner.y - POOL_CORNER_INSET - height / 2,
+      width,
+    }
+
+    const ghost = mini.cloneNode(true) as HTMLElement
+    // 替身只是一张画：不接指针、不进无障碍树，也不能顶着 data-flip-id
+    // 去和真正的牌抢 Flip 的配对（findOrigin 只在两个网格里查，够不到这儿，但别留这个坑）。
+    delete ghost.dataset.flipId
+    delete ghost.dataset.dragging
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.style.pointerEvents = 'none'
+    // 放大查看时格子里那张是藏起来的（HIDDEN_IN_PLACE），替身要露出来。
+    ghost.style.visibility = 'visible'
+    host.appendChild(ghost)
+
+    // 替身摆成和原件完全重合：原始框写进 left/top/width/height，那截变换原样抄过来
+    //（.deck-mini 是 inset: 0 撑开的，离开格子之后必须自己写死尺寸）。
+    gsap.set(ghost, {
+      position: 'fixed',
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      x: box.x,
+      y: box.y,
+      rotation: box.rotation,
+      scale: box.scale,
+      zIndex: RETURN_FLIGHT_Z,
+    })
+    gsap
+      .timeline({ onComplete: () => ghost.remove() })
+      .to(ghost, {
+        // 位移按"盒子中心 → 落点中心"算：缩放绕中心，中心对上了整张就对上了。
+        x: target.x - (box.left + box.width / 2),
+        y: target.y - (box.top + box.height / 2),
+        scale: target.width / box.width,
+        rotation: 0,
+        duration: RETURN_FLIGHT_DUR,
+        ease: 'power3.out',
+      })
+      .to(
+        ghost,
+        {
+          autoAlpha: 0,
+          duration: RETURN_FLIGHT_DUR * RETURN_FADE_PORTION,
+          ease: 'power2.in',
+        },
+        RETURN_FLIGHT_DUR * (1 - RETURN_FADE_PORTION),
+      )
+  })
+
+  /**
    * 卡池 → 牌组。落点是整个右面板。
    *
    * 加不进去的牌（牌组满了、份数选满了、或这张还没上线）不靠 canDrag 挡：canDrag 在
@@ -1231,12 +1756,25 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
       settleCard(drag.element, poolTiltsRef.current.get(drag.id))
       liftCardOut(drag.element)
     },
+    // 拖到面板里就先把落点那一格空出来：这张牌还不在牌组里，不空一格的话松手前看不出它会
+    // 插到哪儿，而落点又正好在指针底下、几乎没有飞行行程，看着就是凭空闪进去。
+    onDragMove: (drag) => {
+      showGapAt(pointerInside(sideRef, drag.x, drag.y) ? insertIndexAt(drag.x, drag.y) : null)
+    },
     onDrop: (drag) => {
+      // 落在早就让出来的那一格里（拖出面板又拖回来这种极端情况下空位可能还没建，现算一次）。
+      const at = previewGapRef.current ?? insertIndexAt(drag.x, drag.y)
+      // 收空位和加牌是同一批状态更新：下一拍那一格里坐的就是这张新牌，位置分毫不差，
+      // 于是这一段 Flip 只有它自己在飞，旁边的牌一动不动。
+      showGapAt(null)
       // 先量起点再改牌组：此刻卡还停在松手的位置，格子里那份新牌就是从这儿飞过去的。
-      addCard(drag.id, drag.element)
+      addCard(drag.id, drag.element, at)
       snapHome(drag.element)
     },
-    onCancel: (drag) => returnHome(drag.element, true),
+    onCancel: (drag) => {
+      showGapAt(null)
+      returnHome(drag.element, true)
+    },
     onTap: (id, drag) => {
       /*
        * 教程模式下点一张卡池卡就是"加入牌组"，不再是放大查看（规格 §12 写的正是
@@ -1271,21 +1809,24 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   attachPoolBind(poolDrag.bind)
 
   /**
-   * 牌组 → 拖出面板 = 移除。
+   * 牌组里的牌，松手的三种结局：
+   * - 还在面板里：挪到离指针最近的那一格（改牌组顺序）；
+   * - 落在左边卡池里：从牌组移除，并且回到卡池里离指针最近的那一格（卡池跟着重排）；
+   * - 落在这两块之外（顶栏、留边）：同样是移除，但落回卡池哪一格由默认规则定（见 returnToPool）。
    *
    * onDragStart 里要调 endDrag（教程期间不让拖），handle 又是本次 useCardDrag 的返回值，
    * 只能事后存进 ref 里绕开这个循环——同上面卡池那侧的 poolDragRef。
    *
-   * 靠 zones 的顺序做"面板外面才算数"：面板排在前面且 accepts: false，整页容器排在后面且接受，
-   * 于是"压在面板上松手 = 取消（回弹）"、"面板外松手 = 移除"。
+   * 靠 zones 的顺序分这三种结局：范围小的排在前面，指针同时落在好几块里时前者赢。
    * 面板那块用的是内层 .deck-side__inner 而不是 .deck-side 本身：外层是卡池那个 hook 的落点，
    * 两个 hook 都会往落点元素上打 data-drop-hot，共用一个节点的话 CSS 就分不出
-   * "拖进来要加入"和"拖着自己的牌在面板里晃"这两件完全相反的事。
+   * "拖进来要加入"和"拖着自己的牌在面板里换位置"这两件不一样的事。
    */
   const deckDragRef = useRef<CardDragHandle | null>(null)
   const deckDrag = useCardDrag({
     zones: [
-      { ref: sideInnerRef, accepts: false },
+      { ref: sideInnerRef, id: 'reorder' },
+      { ref: gridRef, id: 'pool' },
       { ref: pageRef, id: 'out' },
     ],
     contextSafe,
@@ -1304,8 +1845,42 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
       // 格子区自己滚（见 .deck-slots），拖出去的牌不切成 fixed 就会被裁在格子区里。
       liftCardOut(drag.element)
     },
-    // 落点成立 = 移除，这一份牌下一拍就从 DOM 上摘走了，不用再管它切回文档流。
-    onDrop: (drag) => removeEntry(drag.id),
+    onDrop: (drag, zone) => {
+      // 拖出面板 = 移除。这一份牌下一拍就从 DOM 上摘走了，不用再管它切回文档流
+      //（送回卡池那段动画由 removeEntry 接手，见 returnToPool）。
+      // 落在卡池里的还多给一句"回到哪一格"，落在别处的按默认规则来。
+      if (zone.id === 'pool') {
+        removeEntry(drag.id, poolInsertIndexAt(drag.x, drag.y))
+        return
+      }
+      if (zone.id === 'out') {
+        removeEntry(drag.id)
+        return
+      }
+      /*
+       * 还在面板里 = 换位置。
+       *
+       * 这边不像"从卡池拖进来"那样一路让着空位：被拖的这一份自己占的格子已经空着
+       * （牌被拎成了 fixed 贴在指针上），本身就是个看得见的空位；而真去边拖边重排的话，
+       * React 重排格子等于把被拖的那个节点摘下来再插回去，浏览器会当场释放 pointer capture，
+       * 这次拖拽直接被判成取消（实测过）。
+       *
+       * 所以顺序在松手这一下才定：重新铺一份数组是为了换个身份，好让那段 Flip 的 effect
+       * 跑起来——顺序没变过时（原地松手）它也得跑，不然牌会停在指针底下不回格子。
+       */
+      const at = insertIndexAt(drag.x, drag.y)
+      const from = deckRef.current.findIndex((item) => item.key === drag.id)
+      // insertIndexAt 给的是"插在第几个之前"，而这份牌此刻还占着自己那一格，
+      // 落点排在它后面时要减掉它自己占的那一格，否则会往后多挪一位。
+      const next = reordered(drag.id, from >= 0 && at > from ? at - 1 : at)
+      pendingFlipRef.current = {
+        state: captureSlotsFlip(drag.id),
+        flyKey: drag.id,
+        duration: INSERT_DUR,
+      }
+      commitDeck(next ?? [...deckRef.current])
+    },
+    // 拖拽告吹（松在页面外、被浏览器打断）：牌飞回自己那一格，牌组没动过。
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (entryKey) => {
       // 同卡池那边：教程期间不开放大查看，点一下只会得到一句"这一步别动牌组"。
@@ -1340,7 +1915,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     }
     // 指针正停在这张卡上，多半歪着；Flip 量的是外接矩形，得先摆正（理由见 settleCard）。
     settleCard(cardEl, poolTiltsRef.current.get(cardId))
-    addCard(cardId, cardEl)
+    // 点击加入落在当前视野那一页的第一格，飞过去之后新牌一定就在眼前（见 pageInsertIndex）。
+    addCard(cardId, cardEl, pageInsertIndex())
   })
 
   /** 问号热区的进出。卡池卡和迷你卡共用，翻面层由 flipHelp 自己从热区往上找。
@@ -1472,6 +2048,19 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
     [pool, kindFilter, factionFilter],
   )
 
+  /**
+   * 真正铺进格子的那一串：牌组本身，外加拖拽时为落点让出来的那一格（null 占位，见 previewGap）。
+   *
+   * 空位是"多插一个"而不是"占掉一张牌的位置"，所以尾巴上会挤掉一个空格子——牌组满着时
+   * 卡池那张牌根本拖不动（blockReasonNow 会当场掐掉），不会挤掉一张真牌。
+   */
+  const slotEntries = useMemo<(DeckEntry | null)[]>(() => {
+    if (previewGap === null) return deck
+    const list: (DeckEntry | null)[] = [...deck]
+    list.splice(Math.min(previewGap, deck.length), 0, null)
+    return list
+  }, [deck, previewGap])
+
   const shortfall = DECK_SIZE - deck.length
   const percent = Math.round((deck.length / DECK_SIZE) * 100)
 
@@ -1556,43 +2145,99 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   )
 
   /**
-   * 新加的那一份牌飞进格子。
+   * 牌组变样之后，把整排格子从旧位置补一段过来。
    *
-   * 起点是三个入口在改牌组之前量下的那一份（见 pendingInsertRef），落点是刚挂载出来的迷你卡。
+   * 旧位置是三个改牌组的地方在动手之前量下的那一份（见 pendingFlipRef）。这一段同时演两件事：
+   * - 让位 / 补位：插在中间的一份会把后面的牌各推一格，移走一份则让后面全部往前补位。
+   *   不补这一段的话它们是瞬间跳过去的，看着像整排牌闪了一下；
+   * - 飞行：flyKey 那一份自己还要从别处飞进格子（加牌是从卡池那张牌，换位置是从松手的位置）。
+   *
    * 播完就把状态清掉，所以严格模式下的二次执行只会空转一次。
    */
   useGSAP(
     () => {
-      const pending = pendingInsertRef.current
+      const pending = pendingFlipRef.current
       if (pending === null) return
-      pendingInsertRef.current = null
-      const mini = findOrigin('deck', deckFlipId(pending.key))
-      if (mini === null) return
-      // 格子区是 overflow 容器，飞行的前半程整个在面板外面，不切成 fixed 会被裁掉
-      //（理由同 liftCardForFlight）。
-      liftCardOut(mini)
-      // 同层的其它格子都没有 z-index，从它们上空经过时不抬一层就会被盖住。
-      gsap.set(mini, { zIndex: INSERT_FLIGHT_Z })
+      pendingFlipRef.current = null
+      const flyer = pending.flyKey === null ? null : findOrigin('deck', deckFlipId(pending.flyKey))
+      if (flyer !== null) {
+        // 拖着换位置的那一份，身上还留着上一段拖拽写下的 fixed 定位和位移，先清干净：
+        // 不清的话下面 liftCardOut 会拿"已经算过一次"的位置再算一遍。
+        // 刚加进来的那一份是全新的节点，这两下写在它身上是空转。
+        gsap.set(flyer, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
+        dropCardBack(flyer)
+        // 格子区是 overflow 容器，飞行的前半程整个在面板外面，不切成 fixed 会被裁掉
+        //（理由同 liftCardForFlight）。
+        liftCardOut(flyer)
+        // 同层的其它格子都没有 z-index，从它们上空经过时不抬一层就会被盖住。
+        gsap.set(flyer, { zIndex: INSERT_FLIGHT_Z })
+      }
+      // 取 targets 要排在 liftCardOut 之后：那一下会把飞的这张切成 fixed，
+      // 而 flipMinis 正是按"是不是 fixed"筛人的（flyKey 那一份例外）。
+      const targets = flipMinis(pending.flyKey)
+      if (targets.length === 0) return
       Flip.from(pending.state, {
-        targets: mini,
-        duration: INSERT_DUR,
+        targets,
+        duration: pending.duration,
         ease: 'power3.out',
         // 用 scale 而不是 width / height：卡面里的字跟着一起缩，才像同一张牌变小了。
         scale: true,
       })
+      if (flyer === null) return
       // 收尾走 delayedCall 而不是 Flip 的 onComplete，为的是能登记进 pendingDropRef：
       // 这一份牌还在飞的时候就可能被玩家抓起来拖，那时 liftCardOut 会先把这一发掐掉，
       // 否则它到点会把正拖着的牌清回格子里、还被格子区的 overflow 裁掉（同 liftCardForFlight）。
       pendingDropRef.current.set(
-        mini,
-        gsap.delayedCall(INSERT_DUR + DROP_BACK_DELAY, () => {
+        flyer,
+        gsap.delayedCall(pending.duration + DROP_BACK_DELAY, () => {
           // 逐个归零而不是 clearProps 抹整份 transform，理由同 snapHome。
-          gsap.set(mini, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
-          dropCardBack(mini)
+          gsap.set(flyer, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
+          dropCardBack(flyer)
         }),
       )
     },
     { dependencies: [deck], scope: pageRef },
+  )
+
+  /**
+   * 送回卡池那一程：那张卡池卡从牌组格子飞回自己的格子，被它挤开的牌同时让位。
+   *
+   * 和上面那段是一对，只是演的是卡池这一侧（旧位置由 returnToPool 量下，见 pendingPoolFlipRef）。
+   * 依赖里 shown 和 deck 都要有：卡池重排了看 shown，而"卡还在原地、只是牌飞回来"这一档
+   *（点送回、卡池那张就在视野里）卡池根本没变，只能靠 deck 那一下把这段带起来。
+   */
+  useGSAP(
+    () => {
+      const pending = pendingPoolFlipRef.current
+      if (pending === null) return
+      pendingPoolFlipRef.current = null
+      const targets = Array.from(
+        gridRef.current?.querySelectorAll<HTMLElement>('.deck-pool-card') ?? [],
+      )
+      const flyer = findOrigin('pool', poolFlipId(pending.flyId))
+      if (targets.length === 0 || flyer === null) return
+      // 卡池是 overflow 容器，飞行的前半程整个在网格外面，不切成 fixed 会被裁掉。
+      liftCardOut(flyer)
+      // 落点常在右下角那一带，正压着灰卡；不抬一层最后几帧会钻到它们后面。
+      gsap.set(flyer, { zIndex: RETURN_FLIGHT_Z })
+      Flip.from(pending.state, {
+        targets,
+        duration: RETURN_FLIGHT_DUR,
+        ease: 'power3.out',
+        // 用 scale 而不是 width / height：卡面里的字跟着一起放大，才像同一张牌变大了。
+        scale: true,
+      })
+      // 收尾走 delayedCall 而不是 Flip 的 onComplete，理由同上面那段：还在飞的时候
+      // 就可能被玩家抓起来拖，那时 liftCardOut 会先把这一发掐掉。
+      pendingDropRef.current.set(
+        flyer,
+        gsap.delayedCall(RETURN_FLIGHT_DUR + DROP_BACK_DELAY, () => {
+          gsap.set(flyer, { x: 0, y: 0, rotation: 0, scale: 1, clearProps: 'zIndex' })
+          dropCardBack(flyer)
+        }),
+      )
+    },
+    { dependencies: [shown, deck], scope: pageRef },
   )
 
   /**
@@ -1676,6 +2321,8 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
               <h1 className="deck-top__title">组建牌组</h1>
               <i className="deck-top__rule" aria-hidden="true" />
               <p className="deck-top__sub">挑选你的 AI 与技能，准备迎战</p>
+              {/* 这一行整体左对齐，静音钮靠 margin-left: auto 顶到右端（见 .deck-mute）。 */}
+              <MuteButton variant="plain" className="deck-mute" />
             </header>
 
             <main className="deck-body">
@@ -1925,8 +2572,12 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
                       <div className="deck-slots-wrap">
                         <ul className="deck-slots" ref={slotsRef}>
                           {Array.from({ length: DECK_SIZE }, (_, index) => {
-                            const entry = deck[index]
-                            if (entry === undefined) return <EmptyDeckSlot key={`empty-${index}`} />
+                            const entry = slotEntries[index]
+                            if (entry === undefined || entry === null) {
+                              return (
+                                <EmptyDeckSlot key={`empty-${index}`} gap={previewGap === index} />
+                              )
+                            }
                             const card = THUMB_CARD_BY_ID.get(entry.cardId)
                             if (card === undefined) return null
                             return (
@@ -1952,7 +2603,7 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
                               否则它说的操作一样都做不了。 */}
                           <p className="deck-side__hint">
                             {tutorial === undefined
-                              ? '问号看背面 · 点击放大 · 返回按钮或拖出移除'
+                              ? '问号看背面 · 点击放大 · 拖动换位 · 拖回卡池移除'
                               : '教学阶段：牌组里的牌暂时不能改动'}
                           </p>
                           {shortfall > 0 ? (
@@ -2390,9 +3041,9 @@ function CardBackFace({ card }: { card: HandCardData }) {
 /**
  * 放大查看时右边那张「星象边框」技能牌背面（写死 284×426，外面套缩放层用）。
  *
- * 和卡池 / 格子里翻面看到的那张（CardBackFace 的技能牌分支，走全局 .card-back）不是一份：
- * 那份要在 150×225 里挤下一整段说明，只能小字紧排；这里卡足够大，才撑得起这张带边框的
- * 底图和居中的名称 / 效果排版。
+ * 文案和卡池 / 格子里翻面看到的那张（CardBackFace 的技能牌分支，走全局 .card-back）是同一段，
+ * 只是排版两份：那份要在 150×225 里挤下整段说明，只能小字紧排；这里卡足够大，
+ * 才撑得起这张带边框的底图和居中的名称 / 效果排版。
  * 边框只是一张底图，名称和效果由卡牌数据覆盖在中央——新增技能或改文案都不用再烤一张新图。
  */
 function SkillCardBack({ card }: { card: HandCardData }) {
@@ -2424,9 +3075,10 @@ function SkillCardBack({ card }: { card: HandCardData }) {
 }
 
 /** 空格子。没有 props，memo 之后整页只会渲染这一份输出。 */
-const EmptyDeckSlot = memo(function EmptyDeckSlot() {
+const EmptyDeckSlot = memo(function EmptyDeckSlot({ gap = false }: { gap?: boolean }) {
   return (
-    <li className="deck-slot">
+    // gap = 这是拖拽时为落点让出来的那一格（见 previewGap），亮着告诉玩家松手会落在这儿。
+    <li className="deck-slot" data-gap={gap ? 'true' : undefined}>
       {/* 空格用纸面组件库那个「空卡槽」形态：虚线框 + 淡罗盘。 */}
       <PaperCardBack slot className="deck-slot__back" />
     </li>

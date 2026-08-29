@@ -40,30 +40,138 @@ export function getCard(cardId: CardId): HandCard {
  */
 export const DECK_SIZE = 20
 
-/**
- * 默认牌组：十六张能上场的 AI 各一张 + 其中最便宜的两张各再来一份 + 两张技能牌，
- * 正好凑满 DECK_SIZE 张。
+/*
+ * 下面三套预设牌组：新玩家一进来就有这三副能直接开局的牌，各是一种打法。
+ * 客户端把它们播成最初的三套牌组存档（见 client 的 deckStore）。
  *
- * 十八张 AI 里 GPT-2 和文心一言不在卡池里（OpenRouter 调不到，见 aiModels.ts），
- * 少掉的两格没有拿技能牌补：开放的那几张技能牌各自落在下面说的两条出牌链路之一，
- * 多带几张摸不到新东西，不如让 AI 保持 18 格。补的是全场最便宜的两张（各 2 点），
- * 开局前两轮 Token 少，手上多两张出得起的牌更实用。
- *
- * 技能牌挑的这两张各走一条出牌链路：「复读机」要选目标，「鸡犬升天」打出即完事，
- * 一副默认牌组就能把两条链路都摸到。
- * 总数由 collection 的测试守着，想再加牌就得挤掉一张。
+ * 三副的共同约束（由 collection 的测试守着）：各 20 张（DECK_SIZE）、同名卡最多 3 份
+ * （构筑页的 MAX_COPIES，预设不该出现玩家自己编不出来的牌组）、
+ * 只用 `INITIAL_COLLECTION` 里的卡（那也就是 CARD_POOL），
+ * 否则新玩家会拿到自己还没解锁、甚至还没开放的卡。
+ * 这几条不在这里 import collection.ts 现校验：牌组是常量，写错了应该在测试里当场红，
+ * 而不是等玩家开局才发现。
  *
  * 一局最多摸 5（起手）+ 8（第 2~5 轮各 2 张，见 engine.ts 的 ROUND_DRAW_SIZE）= 13 张，
- * 20 张管够，不会抽空。
+ * 20 张管够，三副都不会抽空。
  *
- * 只用 `INITIAL_COLLECTION` 里的卡（那也就是 CARD_POOL），否则新玩家会拿到自己还没解锁、
- * 甚至还没开放的卡。这条约束由 collection 的测试守着——这里不 import collection.ts 现校验，
- * 是因为那是运行期做不了的事：牌组是常量，写错了应该在测试里当场红，而不是等玩家开局。
+ * 技能牌只能从已开放的那 10 张里挑（见 skillCards.ts），所以三副的技能位重合不少；
+ * 真正把它们区分开的是 AI 牌的费用结构。
  */
-export const STARTER_DECK: CardId[] = [
-  ...PLAYABLE_AI_CARD_IDS,
+
+/**
+ * 默认牌组（平衡）：14 张 AI + 6 张技能，国产和国外 AI 各 7 张，费用 2~7 铺开。
+ *
+ * 定位是"什么都摸得到"的入门牌组：低费（2 点）4 张保证开局出得起，中费（3~4 点）8 张是主力，
+ * 高费只留 Claude Fable 5 一张当上限。技能位一张一种，把开放技能的几类都放进来——
+ * 干扰（复读机、黑白颠倒）、解干扰（玉净瓶）、保护（保送）、减费（核电站）、进化（鸡犬升天），
+ * 也顺带覆盖了两条出牌链路：要选目标的和打出即完事的。
+ *
+ * 唯独不放「国产替代」：它按字面清掉双方场上所有非国产 Agent，而这副牌一半是国外 AI，
+ * 打出去多半是先清自己。
+ */
+export const BALANCED_DECK: CardId[] = [
+  // 国外 7 张
   'gpt-3-5',
+  'gpt-3-5',
+  'gpt-4o',
+  'gpt-4o',
+  'claude-5-sonnet',
+  'gemini',
+  'claude-fable-5',
+  // 国产 7 张
   'doubao',
-  'fixed-answer',
+  'doubao',
+  'deepseek-r1',
+  'deepseek-r1',
+  'qwen',
+  'kimi-k2-6',
+  'glm-5',
+  // 技能 6 张
   'rising-tide',
+  'black-white-reversal',
+  'safe-pass',
+  'fixed-answer',
+  'jade-purification-vase',
+  'nuclear-power-station',
 ]
+
+/**
+ * 低费流：14 张 AI 全是 2~3 点的便宜牌，靠数量铺场，再用升级牌把它们变成贵牌。
+ *
+ * 这副的核心是「鸡犬升天」（带满 3 张）：它顺着 `AiCard.evolvesTo` 把双方场上可进化的
+ * Agent 各升一级，所以 AI 位优先塞进化链的链头——GPT-3.5、DeepSeek R1、Kimi K2.6 各 3 张，
+ * 一共 9 张能被它升级，等于用 2 点的价钱把 2~3 点的单位换成 4 点的。
+ * 注意它升的是**双方**的场，对面也铺着可进化单位时会白喂对面，这是这副牌自带的风险。
+ *
+ * 另外两种技能都在给铺场让路：「核电站」让本轮后续所有牌各减 1 费，一轮多铺一两个单位；
+ * 「模型蒸馏」花 2 点弃掉手里多余的便宜 AI 换回费用 +1 的 Token，把重复的手牌变成额度。
+ */
+export const LOW_COST_DECK: CardId[] = [
+  // 可进化的链头 9 张：全是「鸡犬升天」的升级目标
+  'gpt-3-5',
+  'gpt-3-5',
+  'gpt-3-5',
+  'deepseek-r1',
+  'deepseek-r1',
+  'deepseek-r1',
+  'kimi-k2-6',
+  'kimi-k2-6',
+  'kimi-k2-6',
+  // 其余便宜 AI 5 张
+  'doubao',
+  'doubao',
+  'doubao',
+  'qwen',
+  'minimax',
+  // 技能 6 张
+  'rising-tide',
+  'rising-tide',
+  'rising-tide',
+  'nuclear-power-station',
+  'nuclear-power-station',
+  'model-distillation',
+]
+
+/**
+ * 强卡流：12 张 AI 全是 4~7 点的高费牌，配 6 张保护牌，让打出来的贵单位活到结算。
+ *
+ * 贵单位一旦答错就被罚下，一轮的 Token 全打了水漂，所以保护位给得厚：
+ * 「保送」3 张（答错也留在场上）、「玉净瓶」2 张（解掉身上的干扰）、「金钟罩」1 张
+ *（本轮整个己方不受技能牌影响；它按字面全挡，连自己后面打出的技能牌也一起挡掉，所以只带 1 张）。
+ *
+ * 「模型蒸馏」2 张是这副牌唯一的起手解：第 1 轮上限只有 5 点（见 engine.ts 的
+ * INITIAL_TOKEN_MAX），而这里最便宜的 AI 也要 4 点。花 2 点弃掉手里一张 7 点的
+ * Claude Fable 5 能换回 8 点 Token，正好把前两轮的额度垫起来。
+ */
+export const HIGH_COST_DECK: CardId[] = [
+  // 高费 AI 12 张
+  'chatgpt-5-6-sol',
+  'chatgpt-5-6-sol',
+  'claude-fable-5',
+  'claude-fable-5',
+  'deepseek-v4',
+  'deepseek-v4',
+  'kimi-k3',
+  'kimi-k3',
+  'gpt-4o',
+  'gpt-4o',
+  'claude-5-sonnet',
+  'glm-5',
+  // 保护 6 张
+  'safe-pass',
+  'safe-pass',
+  'safe-pass',
+  'jade-purification-vase',
+  'jade-purification-vase',
+  'golden-bell-shield',
+  // 起手解 2 张
+  'model-distillation',
+  'model-distillation',
+]
+
+/**
+ * 三套预设，顺序就是牌组页里从上到下的顺序。
+ *
+ * 客户端播种时按这个顺序建牌组，第一套（默认牌组）会被设成当前牌组。
+ */
+export const PRESET_DECKS: readonly CardId[][] = [BALANCED_DECK, LOW_COST_DECK, HIGH_COST_DECK]

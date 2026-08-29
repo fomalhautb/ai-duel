@@ -170,6 +170,18 @@
   transition: color 0.18s ease;
 }
 
+/*
+ * 静音钮，和左上角的返回对角摆在右上角。尺寸用 cqi，同这一页其余元素。
+ * top 比返回按钮小一点，理由同 hero.css 里那条：一边是文字、一边是方块。
+ */
+.room__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
+  top: 5.4%;
+  right: 2.94cqi;
+  z-index: 2;
+}
+
 /* 返回键的箭头描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
 .room__back:hover,
 .room__tutorial:hover {
@@ -182,11 +194,14 @@
 }
 
 /* 教程那块排版自己写一份：它和返回按钮长得像，但图标是书本不是箭头，
-   而返回按钮的样式已经搬进公共组件（见上面那段注释），两边不再共用一条规则。 */
+   而返回按钮的样式已经搬进公共组件（见上面那段注释），两边不再共用一条规则。
+
+   left 从设计稿的 84.49cqi 往左挪了 4.4cqi：右上角那块地方现在归静音钮
+   （.room__mute，全站各页都把它摆在这个角上），不挪的话两者会挤在一起。 */
 .room__tutorial {
   position: absolute;
   top: 5.4%;
-  left: 84.49cqi;
+  left: 80.09cqi;
   display: flex;
   align-items: center;
   gap: 1.04cqi;
@@ -267,7 +282,7 @@
   margin: 0.61cqi 0 0 0;
   margin-right: -0.35em;
   color: var(--room-sub);
-  font-size: 1.55cqi;
+  font-size: calc(1.55cqi * var(--fs-mid-scale));
   /* 300 是引进来的最细一档，副标题要明显比标题轻。 */
   font-weight: 300;
   letter-spacing: 0.35em;
@@ -451,7 +466,7 @@
 .room__code-pending {
   margin-right: -0.2em;
   color: rgb(60 56 44 / 70%);
-  font-size: 1.6cqi;
+  font-size: calc(1.6cqi * var(--fs-mid-scale));
   letter-spacing: 0.2em;
   line-height: 1;
 }
@@ -637,7 +652,7 @@
   background: rgb(8 13 20 / 35%);
   /* styles.css 已经统一把表单控件的 font-family 收回来了，但字号还是浏览器自带的那一档，
      这里必须自己写死，否则输入框里的字和整页的尺度对不上。 */
-  font-size: 1.3cqi;
+  font-size: calc(1.3cqi * var(--fs-mid-scale));
   color: var(--room-title);
   letter-spacing: 0.15em;
 }
@@ -702,7 +717,7 @@
   /* 末字后面那格字距照例收掉。 */
   margin-right: -0.08em;
   color: var(--room-plaque-ink);
-  font-size: 1.5cqi;
+  font-size: calc(1.5cqi * var(--fs-mid-scale));
   font-weight: 600;
   letter-spacing: 0.08em;
   line-height: 1;

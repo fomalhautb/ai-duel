@@ -1,6 +1,6 @@
-<h1 align="center">出牌吧！AI！</h1>
+<h1 align="center">出牌吧，AI！</h1>
 
-<p align="center">这题你AI会吗</p>
+<p align="center">这题你AI会吗?</p>
 
 <p align="center">
   <a href="https://playyourcardai.online"><strong>playyourcardai.online</strong></a>
@@ -19,8 +19,6 @@
 牌分三种：**AI 牌**是一个个真实的 AI 模型，上场后每回合结束都要答一道题，
 答错就被罚下，答对留在场上继续滚分；**技能牌**打出即生效，然后进弃牌区；**英雄牌**在开局前选，每人一张。
 题目专挑人类一眼看穿、AI 却真会翻车的那种：偏见、幻觉、误判、过度自信、上下文遗忘。
-
-两台电脑各开一个浏览器，一方建房、一方输房间码，就能开打。
 
 ### 对局界面
 

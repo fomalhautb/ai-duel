@@ -16,6 +16,8 @@ import { PlaqueButton } from '../ui/PlaqueButton'
 import { DevPanel } from '../dev/DevPanel'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { FullscreenPrompt } from '../ui/FullscreenPrompt'
+import { LeaveMatchButton } from '../ui/LeaveMatchButton'
+import { MuteButton } from '../ui/MuteButton'
 import { BATTLE_ASSETS } from '../ui/backgroundPreload'
 import { useAssetsProgress } from '../ui/preloadAssets'
 import { recordWin } from '../save/save'
@@ -79,6 +81,16 @@ function Match({ driver, testMode }: { driver: MatchDriver; testMode: boolean })
       <MatchStage
         driver={driver}
         testMode={testMode}
+        topBarActions={
+          <>
+            <MuteButton variant="plain" className="battle-topbar__icon" />
+            {/* 结算之后就不挂离开钮了：那时候中央的结算面板上已经摆着「再来一局」和「回首页」
+                两个出口，顶栏上再多一个只会让人不知道该点哪个。静音钮留着，随时可以关声音。 */}
+            {view.status === 'finished' || view.status === 'aborted' ? null : (
+              <LeaveMatchButton onConfirm={() => leave('/')} />
+            )}
+          </>
+        }
         resultActions={
           <>
             <PlaqueButton type="button" onClick={() => leave('/room')}>

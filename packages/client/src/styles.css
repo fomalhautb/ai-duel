@@ -15,14 +15,11 @@
   background: #0d1117;
 
   /*
-   * 右上角静音钮的尺寸和边距（按钮本体见下面的 .mute-toggle）。
-   * 抽成变量是因为别的固定在同一个角上的东西要按它让位——目前是教程页的「跳过教学」
-   *（见 tutorial/tutorial.css），移动档还会把尺寸整档调大，让位的距离得跟着一起变。
+   * 静音钮的尺寸（按钮本体见下面的 .mute-toggle）。位置不在这儿——它由每个页面
+   * 在自己的版式里安排，见 ui/MuteButton.tsx。抽成变量是因为它在好几页里出现，
+   * 而各页摆放时要按这个尺寸留位。
    */
   --mute-size: 38px;
-  --mute-inset: 16px;
-  /* 想待在右上角、又不能压住静音钮的东西，右边至少留这么宽。 */
-  --corner-clear-right: calc(max(var(--mute-inset), env(safe-area-inset-right)) + var(--mute-size) + 12px);
 
   /* 卡面基准尺寸。改这两个值必须同步改 ui/fanMath.ts 里的 CARD_WIDTH / CARD_HEIGHT：
      那两个常量决定卡牌沉出视口的深度和 hover 放大的下限，
@@ -48,10 +45,12 @@
    * 整套小字一起放大，各档之间的相对关系不会走样（移动档见文件末尾的"移动端版式档"）。
    * 名字带 -plus 的是半档（11.5 / 12.5 / 13.5），原样式里确实用到了这些半档。
    *
-   * 只管 10～15px 这一段。再大的字（标题、比分、按钮）本来就看得清，
-   * 跟着放大反而会把定死的容器撑破。卡面和牌背那几条也刻意留着硬编码 px：
-   * 它们的排版钉死在 150×225 / 284×426 的卡尺寸里，字一大就溢出，
-   * 而卡要看清靠的是放大查看那条链路（--reveal-scale），不是把卡面上的字调大。
+   * 阶梯本身只管 10～15px 这一段。16px 往上的中号字（页眉副标题、顶栏的轮次标签、
+   * 匾额按钮的字…）走另一个开关 --fs-mid-scale，见下面那段。
+   *
+   * 卡面和牌背那几条则刻意留着硬编码 px、连挑都不挑：它们的排版钉死在
+   * 150×225 / 284×426 的卡尺寸里，字一大就溢出，而卡要看清靠的是放大查看那条链路
+   *（--reveal-scale），不是把卡面上的字调大。
    */
   --fs-scale: 1;
   --fs-xs: calc(10px * var(--fs-scale));
@@ -74,6 +73,19 @@
   --fs-cqi-md: calc(1.05cqi * var(--fs-scale));
   --fs-cqi-md-plus: calc(1.1cqi * var(--fs-scale));
   --fs-cqi-lg: calc(1.15cqi * var(--fs-scale));
+
+  /*
+   * 中号字（16～25px / 1.2～2cqi）的放大系数，另设一档、不跟 --fs-scale 走。
+   *
+   * 这一段的字多半钉在死高度的匾额、药丸、圆牌里，或者就压在一行显示级大标题下面，
+   * 照小字那 1.6 倍放会先撑破容器、再把它头上的标题比下去。1.35 是逐个对着看定的：
+   * 手机上这一档字落到屏幕上约 10～12px，读得出，容器也都还装得下。
+   *
+   * 用法不是阶梯而是就地写 calc(设计稿的数 * var(--fs-mid-scale))：
+   * 这一段设计稿上有十来个互不相同的数，列成 token 要加十几个变量，得不偿失。
+   * 只给一处处挑出来的地方用——挑的标准和取值理由见上面 --fs-scale 那段。
+   */
+  --fs-mid-scale: 1;
 
   /*
    * 手绘线条滤镜的引用。定义见 ui/HandDrawnFilterDefs.tsx，那边是滤镜本体，这里是"怎么引"。
@@ -581,6 +593,22 @@ html {
   height: var(--home-flourish-star-size, 1.5cqi);
   color: var(--home-flourish-star-color, currentcolor);
   filter: var(--rough-icon);
+}
+
+/*
+ * 首页的静音钮，摆在舞台右上角。
+ *
+ * 尺寸写成 cqi 而不是 px：整块舞台是 16:9 的容器查询容器（见 .home__stage），
+ * 页面上别的东西都按 cqi 排版，用 px 的话窗口一小它就相对地越来越大。
+ * 2.4cqi 在设计稿的 1672 宽上正好是 40px。
+ */
+.home__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
+  top: 4%;
+  right: 2.6cqi;
+  /* 抬到人物图层之上：那几张 .home__layer 是绝对定位的整屏图，默认会盖住这颗钮。 */
+  z-index: 3;
 }
 
 .home__cards {
@@ -1107,7 +1135,7 @@ html {
   height: 46px;
   padding: 0 12px;
   color: var(--battle-navy);
-  font-size: 18px;
+  font-size: calc(18px * var(--fs-mid-scale));
   letter-spacing: 0.22em;
   text-indent: 0.22em;
   /* 同 .battle__end-turn：底纹在纸色上要用 multiply，screen 会把纹理洗成全白。 */
@@ -1805,6 +1833,9 @@ body:has(.battle) {
      靠它让开侧栏、正对着战场居中，三处必须是同一个数。
      触屏上另有一档更窄的（见文件末尾"移动端版式档"）。 */
   --battle-side-w: 306px;
+  /* 顶栏那一行右端的控件（.battle-actions）按这一层定位。
+     它和 .battle-scaler 是同一个盒子（宽高都铺满），所以这条不会挪动别的绝对定位元素。 */
+  position: relative;
   display: grid;
   grid-template-rows: var(--battle-topbar-h) minmax(0, 1fr);
   height: 100%;
@@ -1888,7 +1919,9 @@ body:has(.battle) {
 
 .battle-topbar__round {
   color: #53525a;
-  font-size: 18px;
+  /* 只放大「第 … 轮」这个标签，旁边的轮次号和比分数字维持原样：
+     那两个数本来就够大，跟着放会顶破 --battle-topbar-h 定死的顶栏高度。 */
+  font-size: calc(18px * var(--fs-mid-scale));
   /* text-indent 抵掉最后一个字后面多出来的那格字距，这块才是真的居中。 */
   letter-spacing: 0.18em;
   text-indent: 0.18em;
@@ -1916,7 +1949,8 @@ body:has(.battle) {
 
 .battle-topbar__score {
   color: #53525a;
-  font-size: 17px;
+  /* 同 .battle-topbar__round：只放大「我方 / 对方」这两个标签，比分数字不动。 */
+  font-size: calc(17px * var(--fs-mid-scale));
   letter-spacing: 0.16em;
   text-indent: 0.16em;
 }
@@ -1937,6 +1971,82 @@ body:has(.battle) {
   color: var(--battle-ink-muted);
   font-size: 22px;
   letter-spacing: normal;
+}
+
+/* ---------- 顶栏那一行右端的控件（静音、离开、教程的跳过） ---------- */
+
+/*
+ * 盖在顶栏右端的一格。它是顶栏的兄弟节点而不是子节点，为什么这么摆见 ui/MatchStage.tsx
+ * 里的 BattleActions；高度取 --battle-topbar-h，正好和顶栏那一行重合。
+ *
+ * 这些控件跟着对局舞台一起等比缩放（都在 .battle-scaler 里面），
+ * 触屏上会跟着缩小——这是"画进版式里"换来的代价，尺寸因此比一般图标给得宽一点。
+ */
+.battle-actions {
+  position: absolute;
+  top: 0;
+  right: 26px;
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  height: var(--battle-topbar-h);
+  gap: 14px;
+}
+
+/* 顶栏这张纸上的图标统一按墨色画，比正文淡一档：它们是随时能用、但不该抢眼的控件。 */
+.battle-topbar__icon,
+.leave-match {
+  width: 34px;
+  height: 34px;
+  color: var(--battle-ink);
+}
+
+/*
+ * 「离开」图标：无边框的实心剪影，为什么是实心见 ui/LeaveMatchButton.tsx。
+ * 尺寸和淡入淡出照着旁边那颗静音钮来，两个摆在一起才像一对。
+ */
+.leave-match {
+  display: grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  opacity: 0.72;
+  cursor: pointer;
+  transform: scale(1);
+  transition: transform 180ms cubic-bezier(0.16, 1.45, 0.35, 1);
+}
+
+.leave-match:hover {
+  opacity: 1;
+}
+
+.leave-match:active {
+  transform: scale(0.92);
+  transition-duration: 70ms;
+}
+
+.leave-match:focus-visible {
+  outline: 2px solid #a56848;
+  outline-offset: 3px;
+}
+
+.leave-match__mark {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  stroke: none;
+  /* 和全站线条共用同一份手绘抖动。实心块被它揉出来的是毛边，正是要的效果
+     （细线稿在这个尺寸上会被揉糊，见组件文件头）。 */
+  filter: var(--rough-icon);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leave-match {
+    transition-duration: 1ms;
+  }
 }
 
 /* ---------- 可复用纸面雕花框 ---------- */
@@ -2193,7 +2303,7 @@ body:has(.battle) {
   width: 184px;
   height: 60px;
   padding: 0 14px;
-  font-size: 20px;
+  font-size: calc(20px * var(--fs-mid-scale));
   letter-spacing: 0.2em;
   text-indent: 0.2em;
 }
@@ -2765,7 +2875,9 @@ body:has(.battle) {
   font-weight: 600;
   /* 最长的「脑筋急转弯」是五个字：20px 字配 0.03em 字距约 103px，而匾内最里面那道框线
      围出来的可用宽度是 138px（见 PLAQUE_INNER），两边各留 17px 才不顶到线上。
-     换更长的类别名（ui/labels.ts）要回来重算这两个数。 */
+     换更长的类别名（ui/labels.ts）要回来重算这两个数。
+     这个数在手机上也不放大：可用宽度只剩 35px 余量，字一放大就顶到框线上。
+     手机要看清靠的是整块牌匾一起放大，见文件末尾"移动端版式档"里的 .battle__next-plaque。 */
   letter-spacing: 0.03em;
   text-indent: 0.03em;
   white-space: nowrap;
@@ -4340,12 +4452,15 @@ body:has(.battle) {
 }
 
 /*
- * 常驻角标那一列，从小卡左上角往下排：干扰（「复读中」/「已颠倒」）、「保送」、
- * 「已升级 / 已降级」。
+ * 常驻角标那一列，从小卡左上角往下排：本轮打在这个单位身上的技能牌各一枚
+ * （「复读中」/「已颠倒」/「已净化」/「保送」/「已进化」，见 MatchStage 的 SKILL_EFFECT_MARKS）、
+ * 主人的「金钟罩」、最后是「已升级 / 已降级」。
  *
- * 排成一列而不是各自绝对定位：这三类会同时挂在一张卡上（被干扰的单位照样能被保送、
+ * 排成一列而不是各自绝对定位：它们会同时挂在一张卡上（被干扰的单位照样能被保送、
  * 也照样能被英雄技能升降级），摞在同一个角上就糊成一团。
- * 一列最多三枚，三行加起来约 51px，小卡有 165px 高（--tile-h），压不到卡面下半截的名字和费用。
+ * 一列常见两三枚、最多五枚（保送 + 已净化 + 已进化 + 金钟罩 + 升降级，
+ * 得是先保送再罩金钟罩那种打法才凑得齐），五行加起来约 85px，
+ * 小卡有 165px 高（--tile-h），压不到卡面下半截的名字和费用。
  *
  * 整列不吃指针事件，免得挡住小卡自己的点击热区；和上场追光、目标描边一样放在
  * 裁剪层（overflow: hidden）外面，不跟着卡一起倾斜。
@@ -4362,9 +4477,9 @@ body:has(.battle) {
 }
 
 /*
- * 一枚角标。四种共用同一个药丸底，只换文字和描边的颜色，让"被干扰 / 被保送 /
+ * 一枚角标。几种共用同一个药丸底，只换文字和描边的颜色，让"被干扰 / 被保护 /
  * 变强了 / 变弱了"一眼分得开——每行字都只有两三个字，光靠读字要在小卡上眯眼看半天。
- * 默认这一档是干扰的琥珀色，其余三档各带一个修饰类（--safe / --up / --down）。
+ * 默认这一档是干扰的琥珀色，其余各带一个修饰类（--safe / --up / --down）。
  */
 .battle__tile-mark {
   padding: 2px 7px;
@@ -4381,6 +4496,8 @@ body:has(.battle) {
  * 升降级这两档是整个战场上仅有的冷色，专门留给它们：
  * 橙色（.battle__tile-target-ring）已经是"可以打这里"的专用色，金色则是上场追光和
  * 干扰那两枚在用，再拿暖色分这两枚就分不出来了。绿＝变强、灰蓝＝变弱是通用读法。
+ * 「鸡犬升天」的「已进化」也借绿色这一档：它干的正是升级这件事，
+ * 只是没有英雄技能那个跟着单位走的净次数（见 core 的 AiInstance.levelShift）。
  * 干扰那一档不写修饰类，它就是上面那份底色。
  */
 .battle__tile-mark--up {
@@ -4394,8 +4511,8 @@ body:has(.battle) {
 }
 
 /*
- * 「保送」那一枚换成青色：它和干扰是相反的两件事（一个是被人整、一个是被人保），
- * 同色的话摞在一起看着像同一类标记的两行字。
+ * 「保送」「已净化」「金钟罩」这几枚换成青色：它们和干扰是相反的两件事
+ * （一个是被人整、一个是被人保），同色的话摞在一起看着像同一类标记的几行字。
  */
 .battle__tile-mark--safe {
   border-color: rgb(140 214 255 / 60%);
@@ -4986,7 +5103,7 @@ body:has(.battle) {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 22px;
+  font-size: calc(22px * var(--fs-mid-scale));
   font-weight: 700;
 }
 
@@ -4998,8 +5115,9 @@ body:has(.battle) {
 .settle__topscore-mine {
   display: inline-grid;
   place-items: center;
-  min-width: 28px;
-  height: 28px;
+  /* 方块跟着字号一起长：数字放大而方块不动的话，两位数会顶到圆角上。 */
+  min-width: calc(28px * var(--fs-mid-scale));
+  height: calc(28px * var(--fs-mid-scale));
   border-radius: 4px;
   background: #2f6b46;
   color: var(--battle-paper);
@@ -5010,7 +5128,8 @@ body:has(.battle) {
 }
 
 .settle__topscore-foe {
-  min-width: 28px;
+  /* 和我方那个方块同宽，跟着字号一起长（理由见上一条）。 */
+  min-width: calc(28px * var(--fs-mid-scale));
   color: var(--c-life);
   text-align: center;
 }
@@ -5208,7 +5327,7 @@ body:has(.battle) {
 }
 
 .settle__squad-title {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs-mid-scale));
   font-weight: 600;
 }
 
@@ -5375,7 +5494,7 @@ body:has(.battle) {
   margin: 0;
   padding-right: 120px;
   color: var(--battle-ink);
-  font-size: 18px;
+  font-size: calc(18px * var(--fs-mid-scale));
 }
 
 .settle-card__answer {
@@ -6390,6 +6509,82 @@ body:has(.battle) {
   cursor: pointer;
 }
 
+/* ============================================================
+   离开战局的确认弹窗（LeaveMatchButton）
+   ------------------------------------------------------------
+   触发它的那颗「离开」图标在顶栏里，样式写在上面「顶栏右端的图标」一节。
+   ============================================================ */
+
+/*
+ * 纸面和排版整套照着全屏提示（.fs-prompt）和竖屏提示来，全站这类
+ *「盖住画面的一句话加两颗按钮」是同一副长相。
+ *
+ * 这一层由组件传送到 body 上（见 ui/LeaveMatchButton.tsx），所以 z-index 是全局的一档：
+ * 压过对局里所有浮层（最高是放大查看那档 1100~1101），排在全屏提示（8900）和
+ * 竖屏提示（9000）之下——那两层分别是「开局劝一句」和「现在没法玩」，同时成立时该先看它们。
+ */
+.leave-ask {
+  position: fixed;
+  z-index: 8100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* 刘海屏的耳朵照着让开，同上面几层。 */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background-color: rgb(12 16 26 / 82%);
+}
+
+.leave-ask__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(420px, 100%);
+  padding: 30px 30px 24px;
+  border: 1px solid var(--line-dark, #8a8270);
+  color: var(--ink, #2e2e38);
+  /* 一张纸：底色 + .grain 的两层纸纹，和全站其它纸面同一套（见 ui/paper/paper.css）。 */
+  background-color: var(--paper, #f0ecdf);
+  box-shadow: 0 18px 48px rgb(6 10 20 / 45%);
+  text-align: center;
+}
+
+.leave-ask__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* letter-spacing 在最后一个字后面也留一格，整体看着偏左，用同样的缩进补回来。 */
+  text-indent: 0.3em;
+}
+
+.leave-ask__text {
+  margin: 0;
+  color: var(--ink-2, #6b6a5f);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.leave-ask__actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+/* 两颗匾额并排，比默认那副窄一大截：420px 的纸面塞不下两个 224px。
+   高度按触屏的 44px 起步。 */
+.plaque-button.leave-ask__btn {
+  width: auto;
+  min-width: 120px;
+  height: 44px;
+  padding: 0 24px;
+  font-size: var(--fs-xl);
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+}
+
 /* ---------- 常驻全屏入口（FullscreenEntry） ---------- */
 
 /*
@@ -6619,41 +6814,30 @@ body:has(.battle) {
 }
 
 /* ============================================================
-   右上角静音按钮
+   静音按钮
    ------------------------------------------------------------
-   全站常驻的一颗墨色圆章，为什么固定在视口角上而不是画进版式里，见 ui/MuteButton.tsx。
-
-   长相和卡角那枚问号圆章（.card-help-mark）是同一副：夜色圆底 + 米色手绘线条。
-   配色不跟着页面走——全站页面底色深浅不一（首页是夜色，教程和卡组是浅纸），
-   而这颗钮是"页面之外的控件"，两种底上都得一眼看见，深底浅线是唯一两边都成立的选择。
+   它不再固定在视口角上，而是由每个页面在自己的版式里安排位置，
+   为什么这么改、两副长相各是什么，见 ui/MuteButton.tsx。
+   本节只管长相；位置一律写在各页自己那节里（.home__mute、.battle-topbar__icon 等）。
    ============================================================ */
 
 .mute-toggle {
-  position: fixed;
-  /* 刘海屏的耳朵和圆角照着让开，桌面上 env() 取 0，就是那 16px。 */
-  top: max(var(--mute-inset), env(safe-area-inset-top));
-  right: max(var(--mute-inset), env(safe-area-inset-right));
-  z-index: 8000;
   display: grid;
+  flex: none;
   place-items: center;
   width: var(--mute-size);
   height: var(--mute-size);
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgb(20 17 12 / 78%);
-  color: #f3ead6;
+  background: none;
+  color: inherit;
   cursor: pointer;
   /* 压一下就缩一点，和匾额按钮那套"按得下去"的反馈是一个意思，只是这里没有匾额可压。
-     只让 transform 参与过渡：图章上挂着手绘滤镜，颜色一旦参与过渡，
+     只让 transform 参与过渡：图标上挂着手绘滤镜，颜色一旦参与过渡，
      接下来十来帧里这条滤镜就要一帧不落地重跑（WebKit 上是逐像素 CPU 算）。 */
   transform: scale(1);
   transition: transform 180ms cubic-bezier(0.16, 1.45, 0.35, 1);
-}
-
-.mute-toggle:hover {
-  background: rgb(20 17 12 / 88%);
-  color: #fff6e2;
 }
 
 .mute-toggle:active {
@@ -6661,19 +6845,10 @@ body:has(.battle) {
   transition-duration: 70ms;
 }
 
-/* 焦点圈用 outline：圆章本身没有阴影，outline 跟着 border-radius 走，正好是外面一圈。 */
+/* 焦点圈用 outline：按钮本身没有阴影，outline 跟着 border-radius 走，正好是外面一圈。 */
 .mute-toggle:focus-visible {
   outline: 2px solid #a56848;
   outline-offset: 3px;
-}
-
-/* 静音时压淡一档：这颗钮平时不该抢眼，但"现在没声音"要一眼看得出来。 */
-.mute-toggle.is-muted {
-  color: rgb(243 234 214 / 58%);
-}
-
-.mute-toggle.is-muted:hover {
-  color: #fff6e2;
 }
 
 .mute-toggle__mark {
@@ -6685,7 +6860,73 @@ body:has(.battle) {
   stroke-linecap: round;
   stroke-linejoin: round;
   /* 和全站线条共用同一份手绘抖动（定义由 App 全局挂，见 ui/HandDrawnFilterDefs.tsx）。 */
-  filter: url('#ai-duel-rough-icon');
+  filter: var(--rough-icon);
+}
+
+/* ---------- seal：夜色圆章，给深色底的页面 ---------- */
+
+/*
+ * 长相和卡角那枚问号圆章（.card-help-mark）是同一副：夜色圆底 + 米色手绘线条。
+ * 深底浅线在首页那种夜空背景上是最稳的一种：背景本身明暗不匀，纯线条会被亮处吃掉。
+ */
+.mute-toggle--seal {
+  background: rgb(20 17 12 / 78%);
+  color: #f3ead6;
+}
+
+.mute-toggle--seal:hover {
+  background: rgb(20 17 12 / 88%);
+  color: #fff6e2;
+}
+
+/* 静音时压淡一档：这颗钮平时不该抢眼，但"现在没声音"要一眼看得出来。 */
+.mute-toggle--seal.is-muted {
+  color: rgb(243 234 214 / 58%);
+}
+
+.mute-toggle--seal.is-muted:hover {
+  color: #fff6e2;
+}
+
+/* ---------- plain：无边框实心，给纸面上的页面 ---------- */
+
+/*
+ * 不要圆底也不要外圈，喇叭改成实心：纸面页上它旁边就是同样无边框的实心图标
+ *（对局顶栏的「离开」），套个圆章进去会重得像块补丁。
+ * 颜色不写死，跟着宿主的 color 走（各页自己定，通常就是那一页的墨色）。
+ */
+.mute-toggle--plain .mute-toggle__ring {
+  display: none;
+}
+
+.mute-toggle--plain .mute-toggle__cone {
+  /* 喇叭本来就是一条闭合路径，填色即可，不用另画一套实心图形。
+     描边留着：只填色的话尖角会比旁边那两道声波细一圈。 */
+  fill: currentColor;
+}
+
+.mute-toggle--plain .mute-toggle__mark {
+  /* 没有圆底要让边距，图标可以铺满整颗按钮。 */
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.7;
+}
+
+.mute-toggle--plain {
+  opacity: 0.72;
+}
+
+.mute-toggle--plain:hover {
+  opacity: 1;
+}
+
+/* 纸面上没有圆底可压淡，静音状态改用一档更低的不透明度表示。 */
+.mute-toggle--plain.is-muted {
+  opacity: 0.45;
+}
+
+.mute-toggle--plain.is-muted:hover {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6704,15 +6945,27 @@ body:has(.battle) {
 
    为什么需要这一档：全站是 1672×941 的死版式再整体等比缩放（见 ui/useStageScale.ts），
    手机横屏下缩放系数只有 0.36～0.41。桌面上刚好的 12、13px 到了手机上是 5 个屏幕像素，
-   根本读不出来。所以这一档做的全是"把要读的东西放大"，排版结构一个字不改。
+   根本读不出来。所以这一档做的全是"把要读的东西放大"：主要是字号（--fs-scale 和
+   --fs-mid-scale 两个开关），字放大之后装不下的那几个盒子跟着放宽放高，
+   排版结构本身一个字不改。
 
    本块必须留在文件末尾：下面几条选择器和它们在上面的原始声明特异性相同，
    同分时靠后的赢，挪到前面去会被原值盖掉。
    ============================================================ */
 @media (pointer: coarse) {
   :root {
-    /* 小字号整档放大两成。阶梯的定义和取舍见文件开头 :root 里的 --fs-scale。 */
-    --fs-scale: 1.2;
+    /*
+     * 全站字号整档放大六成。阶梯的定义和取舍见文件开头 :root 里的 --fs-scale。
+     *
+     * 为什么是 1.6：手机横屏下舞台缩放约 0.42（见本节开头），乘回去
+     * 12px 的辅助字落到屏幕上是 8px、15px 的正文是 10px、19px 的按钮字是 12.7px，
+     * 刚够读。原来的 1.2 只到 6～8px，一眼看过去全是灰糊的一片。
+     * 再往上就顶到容器了：多数匾额、药丸、圆牌的高度是死值，1.6 已经是逐页对着看
+     * 确认没撑破的上限。真要更大只能改版式，不是改这一个数。
+     */
+    --fs-scale: 1.6;
+    /* 中号字放大三成半。为什么另设一档、为什么不是 1.6，见 :root 里 --fs-mid-scale 的说明。 */
+    --fs-mid-scale: 1.35;
   }
 
   /*
@@ -6766,14 +7019,91 @@ body:has(.battle) {
   }
 
   /*
-   * 静音钮放大一档。它不跟着舞台缩放（是 position: fixed），所以桌面上的 38px
-   * 在手机上仍是 38 个屏幕像素——不算太小，但离 44px 的触摸目标下限还差一点，
-   * 而它又恰好蹲在屏幕角上，按偏一点就点到浏览器的边缘手势去了。
+   * 静音和离开这两颗图标整档放大三成。
    *
-   * 改的是变量不是宽高：--corner-clear-right 是按它算的，给它让位的元素才会跟着一起挪。
+   * 它们现在画在各页的版式里，跟着舞台一起缩（缩放系数 0.36～0.41），
+   * 桌面上刚好的 34～40px 落到手机上只剩十几个屏幕像素，手指按不准。
+   * 放大三成之后大约是 17～20 个屏幕像素——仍然够不着 44px 的触摸目标下限，
+   * 这是"把控件画进版式里"换来的代价（原来它固定在视口上，各档屏幕同样大小）。
+   * 再往上加就要挤走顶栏的比分和页眉的副标题了。
+   *
+   * 只写这几处、不改 :root 的 --mute-size：各页都在自己那条规则里写死了尺寸
+   *（有的按 cqi、有的按 px），改根变量对它们一点作用都没有。
    */
-  :root {
+  .home__mute,
+  .info__mute,
+  .hero__mute,
+  .room__mute {
+    --mute-size: 3.1cqi;
+  }
+
+  .deck-mute,
+  .tutorial-page__mute,
+  .battle-topbar__icon {
     --mute-size: 44px;
+
+    width: 44px;
+    height: 44px;
+  }
+
+  .leave-match {
+    width: 44px;
+    height: 44px;
+  }
+
+  /*
+   * 「下一题」牌匾整块放大一半，而不是只把里面的字调大。
+   *
+   * 匾体是一张 168×118 的死画稿，题型那行字和最里面那道框线之间只剩三十来像素余量
+   *（见 .battle__next-plaque-title 那条注释），单独放大字必然顶到线上。整块缩放没有这个问题：
+   * 画稿是 SVG，放大不糊，匾里匾外的比例也原样保留。
+   * transform-origin 取右上角，牌匾还是从战场右上角那条边吊下来，位置一点不挪。
+   *
+   * 匾内那行眉批「下一题」单独按回 15px：外面已经整块放大一半，它再照旧吃移动档的
+   * --fs-md（12 × 1.6 = 19.2px）就是放了两遍，会长到和题型一样大，匾上两行字分不出主次。
+   * 15 : 20 和设计稿的 12 : 20 接近，经这一层 1.5 倍再经舞台缩放，落到手机屏幕上约 9px。
+   * 匾外那排关键词不按回去：它们是每轮真要读的信息，也不受匾体框线约束，
+   * 19.2px 经 1.5 倍之后落到屏幕上约 12px，正是想要的。
+   *
+   * 眉批得写成绝对值，不能在这一层把 --fs-scale 调小了事：--fs-md 那串 calc 是写在
+   * :root 上的，var(--fs-scale) 在**声明它的那个元素**上就代换完了，
+   * 后代再改 --fs-scale 对已经算好的 --fs-md 没有任何作用。
+   *
+   * 放大之后牌匾从 168 宽变成 252，左沿落在 x=1364，对手那排牌背最远只摊到 1229，
+   * 两者不会撞上（那排的宽度见 fanMath 的 OPPONENT_FAN 和 battleStage 的 battleFieldWidth）。
+   */
+  .battle__next-plaque {
+    transform: scale(1.5);
+    transform-origin: top right;
+  }
+
+  .battle__next-plaque-eyebrow {
+    font-size: 15px;
+  }
+
+  /*
+   * 右下角「结束出牌」和手牌上那颗「打出」跟着字一起放宽放高：
+   * 两颗都是 overflow: hidden 的匾额，字放大三成半而盒子不动的话，文案会被直接切掉。
+   *
+   * 放宽「结束出牌」等于把手牌扇形的右界往左推，而这一步是自动的：HandFan 的 fanAreaWidth
+   * 现量这颗按钮的矩形算可用宽度（见那边注释），没有写死 1456 的地方。
+   * 推完之后锚点中线到按钮左沿还剩 439，扇形按窄的一侧翻倍就是 878 可用；
+   * 五张牌按 GAP_PER_CARD 95 只摊 475 宽，还富余一大截。
+   *
+   * 「打出」只在触屏出现（桌面点一下就直接出牌），本来就该按手指的尺寸给。
+   * 54px 高经舞台缩放落到屏幕上约 22px，仍够不着 44px 触摸目标的下限——
+   * 它是贴着一张牌弹出来的，再高就盖住牌本身了，这里只能取到这个折中。
+   */
+  .battle__end-turn .plaque-button {
+    width: 212px;
+    height: 66px;
+  }
+
+  .hand-fan .hand-fan__play {
+    width: 164px;
+    height: 54px;
+    /* 负半个宽度就是居中，跟着宽度一起改（理由见这颗按钮本体那条规则）。 */
+    margin-left: -82px;
   }
 }
 

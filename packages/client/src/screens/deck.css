@@ -189,7 +189,14 @@
  */
 .deck-back {
   flex: none;
-  padding: 0;
+  /* 抬一层：hover 时箭头会往左挪出按钮的盒子，不抬的话它按文档顺序排在后面的
+     花饰、标题之后画，谁在它上面就把探出去的那截箭头盖掉。 */
+  position: relative;
+  z-index: 1;
+  /* 左边留出箭头 hover 时要挪的那 0.26em，再用等量负外边距把按钮拉回原位：
+     位置看起来没变，但箭头始终待在按钮自己的盒子里。 */
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
   border: 0;
   background: none;
   color: var(--ink-2);
@@ -1906,7 +1913,11 @@
    底下是压暗的遮罩，所以字要浅色，不能沿用顶栏那颗的墨色。 */
 .deck-zoom-side__back {
   flex: none;
-  padding: 0;
+  /* 同 .deck-back：抬一层，左侧再留出箭头 hover 的位移量。 */
+  position: relative;
+  z-index: 1;
+  padding: 0 0 0 0.26em;
+  margin-left: -0.26em;
   border: 0;
   background: none;
   color: rgb(239 233 216 / 78%);

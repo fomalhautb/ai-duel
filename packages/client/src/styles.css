@@ -5983,6 +5983,38 @@ body:has(.battle) {
   letter-spacing: 0.32em;
 }
 
+/*
+ * 素材加载进度条。窄、扁、贴着上面那行字，只是给"还要等多久"一个交代，
+ * 不抢 loader 的戏。宽度定死 220px 而不是按百分比：整屏就中间这一小块内容，
+ * 跟着视口伸缩的话在宽屏上会拉成横贯全屏的一条，比不画还难看。
+ */
+.page-loader__bar {
+  overflow: hidden;
+  width: 220px;
+  max-width: 60vw;
+  height: 3px;
+  border-radius: 999px;
+  /* 和填充同色，压到很低的透明度当轨道，省得再挑一个颜色。 */
+  background: rgb(221 202 183 / 18%);
+}
+
+.page-loader__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  /* 和 loader 卡面的线框同色（index.html 首屏那份也是这个色）。 */
+  background: #ddcab7;
+  /* 一张图到货就跳一格，直接改宽度会一顿一顿的；补一段过渡让它匀速滑过去。
+     只有变宽这一个方向（进度不回退，见 useAssetsProgress）。 */
+  transition: width 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-loader__bar-fill {
+    transition: none;
+  }
+}
+
 /* ---------- 加载动画演示页 ---------- */
 
 .loader-demo {
@@ -6078,6 +6110,111 @@ body:has(.battle) {
 .loader-demo__back:hover,
 .loader-demo__back:focus-visible {
   color: #e5e7eb;
+}
+
+/* ---------- 加载进度条测试页（/loading-bar） ---------- */
+
+/*
+ * 配色和间距跟着 .loader-demo 走：两页是一对（那边调 loader 动画，这边调它下面那条进度条），
+ * 标题、说明、按钮几个小件直接复用 .loader-demo__* 的 class，只有这一页特有的布局写在下面。
+ */
+.loading-bar-demo {
+  min-height: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 56px clamp(20px, 4vw, 64px) 72px;
+  background: #0d1117;
+}
+
+.loading-bar-demo__section {
+  margin-top: 48px;
+}
+
+/*
+ * 摆进度条的台子。深一号的底色是为了把它和页面背景分开——
+ * 真实加载页是整屏纯色底，这里要模拟的就是"条压在那块底上"的观感。
+ */
+.loading-bar-demo__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin: 16px 0;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  background: #11161d;
+}
+
+/* 一份预览就是"一行字 + 一条"，和真实加载页里那两件的间距（20px）保持一致。 */
+.loading-bar-demo__preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.loading-bar-demo__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 这一页的按钮成排摆，不能沿用 .loader-demo__back 那个"居中占一行"的外边距。 */
+.loading-bar-demo__button {
+  margin: 0;
+}
+
+.loading-bar-demo__count {
+  color: #4b5563;
+}
+
+.loading-bar-demo__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: #9ca3af;
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+
+/* 极端值那一排：每格最窄 220px，正好装得下 220px 的进度条本体。 */
+.loading-bar-demo__stops {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.loading-bar-demo__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 12px 16px;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  background: #11161d;
+}
+
+/* 整屏预览：真的 <LoadingScreen> 自己是 fixed 铺满的，这一层只负责接点击和压一行提示。 */
+.loading-bar-demo__overlay {
+  position: fixed;
+  inset: 0;
+  cursor: pointer;
+}
+
+.loading-bar-demo__overlay-hint {
+  position: fixed;
+  right: 0;
+  bottom: 24px;
+  left: 0;
+  z-index: 1;
+  margin: 0;
+  color: #4b5563;
+  font-size: var(--fs-base);
+  text-align: center;
 }
 
 /* ---------- 开发页导航（/dev） ---------- */

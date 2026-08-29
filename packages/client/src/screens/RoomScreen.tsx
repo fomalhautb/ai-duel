@@ -40,7 +40,7 @@ import { DeckScreen } from './DeckScreen'
 import { HeroScreen } from './HeroScreen'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { BackButton } from '../ui/BackButton'
-import { useAssetsReady } from '../ui/preloadAssets'
+import { useAssetsProgress } from '../ui/preloadAssets'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
 import './room.css'
 
@@ -53,7 +53,7 @@ const ROOM_CODE_PATTERN = /^\d{4}$/
  * 这一页要用到的全部图片：背景（和 /hero 共用）+ 全部 UI 切片。
  * 切片是 assets/slice-room-ui.py 从 assets/room-ui-sheet.png 切出来的，改素材要重跑那个脚本。
  *
- * 必须是模块级常量：useAssetsReady 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
+ * 必须是模块级常量：useAssetsProgress 拿它当 effect 依赖，每次渲染现拼一个新数组会让 effect 反复重跑。
  *
  * 导出是给 ui/backgroundPreload.ts 用的：后台预加载要照着同一份清单排队，
  * 两边各写一遍迟早会对不上。
@@ -123,7 +123,8 @@ function prefersReducedMotion() {
 export function RoomScreen() {
   const [, navigate] = useLocation()
   const session = useMatchSession()
-  const ready = useAssetsReady(ROOM_ASSETS)
+  const assets = useAssetsProgress(ROOM_ASSETS)
+  const ready = assets.ready
   const [room, setRoom] = useState<RoomHandle | null>(null)
   /*
    * 两种失败分开存，因为它们该显示在不同的地方：开房失败是左栏（房间码那半边）的事，
@@ -348,7 +349,7 @@ export function RoomScreen() {
     navigate('/match')
   }
 
-  if (!ready) return <LoadingScreen />
+  if (!ready) return <LoadingScreen progress={assets.progress} />
 
   if (phase === 'deck') {
     return (

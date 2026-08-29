@@ -129,16 +129,49 @@ function fontsReady(): Promise<void> {
   return document.fonts?.ready.then(() => undefined) ?? Promise.resolve()
 }
 
+/**
+ * 一批素材的加载进度。
+ *
+ * 按"张数"算而不是按字节：图是用 Image 拉的，浏览器不会告诉我们下了多少字节，
+ * 想按体积算就得另外维护一份"每张图多大"的清单，加图漏登记就会算错。
+ * 张数的代价是走得不匀（一张 600 KB 的原画和一张 20 KB 的图标各占一格），
+ * 但至少一定是真的、而且只会往前走。
+ */
+export interface PreloadProgress {
+  /** 已经有结果的张数（加载成功和失败的都算，跟闸门的口径一致）。 */
+  loaded: number
+  /** 这批清单一共几张。 */
+  total: number
+}
+
+export interface PreloadOptions {
+  /** 连着这么久一张图都没到就放行，默认 PRELOAD_STALL_MS。 */
+  stallMs?: number
+  /**
+   * 进度变化时回调。调用这一刻会先同步报一次当前进度（缓存里已有的那些直接算数），
+   * 之后每到一张图报一次。字体不计进 total：它没有"加载了几分之几"可言，
+   * 而且多半比图先好，硬算成一格只会让进度条在最后莫名其妙卡一下。
+   */
+  onProgress?: (progress: PreloadProgress) => void
+}
+
 /** 全部图片加载完（或卡住太久）就 resolve，永远不 reject。 */
-export function preloadAssets(
-  urls: readonly string[],
-  stallMs: number = PRELOAD_STALL_MS,
-): Promise<void> {
+export function preloadAssets(urls: readonly string[], options: PreloadOptions = {}): Promise<void> {
+  const { stallMs = PRELOAD_STALL_MS, onProgress } = options
+  const total = urls.length
+
   // 包一层箭头函数而不是直接 map(loadImage)：map 会把下标当第二个参数传进去，正好撞上 priority。
   // 只 map 一次并把结果留下来：下面还要逐个挂"到货了"的回调，重新 map 一遍会为同一个地址
   // 再造一个 Image，白发一轮请求。
   const each = urls.map((url) => loadImage(url))
   const everything = Promise.all([...each, fontsReady()]).then(() => undefined)
+
+  // 先报一次起点。缓存命中时这一次报的就是满格，进度条不会从 0 补跑一遍。
+  // 逐个记"这一格算过没有"而不是只留一个计数器：缓存命中的图 promise 也会回调，
+  // 不记的话它们会被数第二遍，loaded 直接超过 total。按下标记还能容忍清单里有重复地址。
+  const counted = urls.map((url) => settled.has(url))
+  let loaded = counted.filter(Boolean).length
+  onProgress?.({ loaded, total })
 
   return new Promise<void>((resolve) => {
     let timer = setTimeout(resolve, stallMs)
@@ -147,7 +180,18 @@ export function preloadAssets(
       clearTimeout(timer)
       timer = setTimeout(resolve, stallMs)
     }
-    for (const one of each) void one.then(restart)
+    each.forEach((one, index) => {
+      void one.then(() => {
+        // 数自己的计数器而不是回头数 settled：settled 是全站共用的，
+        // 后台预加载同时也在往里塞别的图，拿它当分子会把不属于这批的张数算进来。
+        if (!counted[index]) {
+          counted[index] = true
+          loaded += 1
+          onProgress?.({ loaded, total })
+        }
+        restart()
+      })
+    })
     void everything.then(() => {
       // 全到齐了就把计时撤掉，否则这颗定时器会一直挂到超时才自然消失。
       clearTimeout(timer)
@@ -192,25 +236,56 @@ export function preloadAssetsInBackground(
   return Promise.all(workers).then(() => undefined)
 }
 
+/** useAssetsProgress 的返回值。 */
+export interface AssetsState {
+  /** 这批图能用了没有（超时放行也算能用，缺的图会自己在后面补上）。 */
+  ready: boolean
+  /** 0~1 的加载进度，给进度条用。ready 之后一定是 1。 */
+  progress: number
+}
+
 /**
- * 把 preloadAssets 接进 React：返回"这批图能用了没有"。
+ * 把 preloadAssets 接进 React：返回"这批图能用了没有"和加载到哪儿了。
  *
  * urls 必须是模块级常量之类的稳定引用，每次渲染现拼一个新数组会让 effect 反复重跑。
  */
-export function useAssetsReady(urls: readonly string[]): boolean {
+export function useAssetsProgress(urls: readonly string[]): AssetsState {
   // 初值直接查缓存：回到首页时如果都加载过，第一帧就是就绪状态，不会闪一下 loader。
-  const [ready, setReady] = useState(() => urls.every((url) => settled.has(url)))
+  const [state, setState] = useState<AssetsState>(() => {
+    const loaded = urls.reduce((count, url) => (settled.has(url) ? count + 1 : count), 0)
+    const ready = loaded === urls.length
+    return { ready, progress: ratio(loaded, urls.length) }
+  })
 
   useEffect(() => {
-    if (ready) return
+    if (state.ready) return
     let cancelled = false
-    void preloadAssets(urls).then(() => {
-      if (!cancelled) setReady(true)
+    void preloadAssets(urls, {
+      onProgress: ({ loaded, total }) => {
+        if (cancelled) return
+        setState((prev) => {
+          const progress = ratio(loaded, total)
+          // 只许往前走。同一个地址可能同时被别处的加载也盯着，
+          // 而且进度条往回缩比走得不匀难看得多。
+          return progress <= prev.progress ? prev : { ready: prev.ready, progress }
+        })
+      },
+    }).then(() => {
+      // 超时放行时进度可能还没满，这里一并补成满格：闸门已经开了，
+      // 让玩家看着一条没走完的进度条切走反而像是出了错。
+      if (!cancelled) setState({ ready: true, progress: 1 })
     })
     return () => {
       cancelled = true
     }
-  }, [urls, ready])
+    // 依赖里只放 ready 不放 progress：进度每变一次都重跑 effect 的话，
+    // preloadAssets 会被反复调用（虽然有 inFlight 兜底不会重复发请求，但计时器会一路重建）。
+  }, [urls, state.ready])
 
-  return ready
+  return state
+}
+
+/** 空清单当作已经满了，免得除出 NaN 把进度条宽度写成 NaN%。 */
+function ratio(loaded: number, total: number): number {
+  return total === 0 ? 1 : loaded / total
 }

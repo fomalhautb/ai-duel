@@ -658,22 +658,28 @@
 }
 
 /*
- * 离屏的卡不渲染内部。卡池一屏几十张，每张里面都有一整份卡面（插画、文字层、
- * 羽化伪元素、高光层），滚动时全量重画很贵。
+ * 离屏的卡不渲染内部。每张卡里面都有一整份卡面（插画、铭牌的两个 SVG、费用圆章、
+ * 两层纸纹、高光层，一张卡三十来个节点），滚动时全量重画很贵。
+ *
+ * 两块滚动区都要写：左边卡池一屏四十来张、实测只看得见 8 张，
+ * 右边牌组格子二十张、只看得见 4 张（滚动高度是可视高度的六倍多）。
+ * 早先只写了卡池那一半，牌组那一栏漏了——两边是同一个卡面组件、同一块滚动区结构，
+ * 加卡种、改布局时记得一起改。
  *
  * 挂在 .card-face 上，而不是它上面任何一层（.deck-pool-slot / .deck-pool-card /
- * __tilt / __inner / __face / __scale）——
+ * .deck-mini / __tilt / __inner / __face / __scale）——
  * content-visibility: auto 会连带 paint 包含，而 paint 包含有两个副作用，外层一个都受不起：
  *   1. 把「内容」裁到自己的 padding 盒。卡面自带的投影（0 10px 24px）、hover 的光晕、
  *      选中的金边全画在盒子外面，挂在外层就会被整齐切掉一圈；
  *      放大查看飞回原位那一程也是整张卡在格子外面飞，同样会被裁没。
- *   2. 让自己变成 position: fixed 后代的包含块。卡池的牌起拖时正是靠切 fixed 逃出
- *      .deck-grid 的 overflow（见文件头和 liftCardOut），外层一裁这一手就直接失效。
+ *   2. 让自己变成 position: fixed 后代的包含块。两边的牌起拖时正是靠切 fixed 逃出
+ *      .deck-grid / .deck-slots 的 overflow（见文件头和 liftCardOut），外层一裁这一手就直接失效。
  * .card-face 自己本来就是 overflow: hidden，里面的东西一个都溢不出来，
  * 而且它已经带着 container-type: inline-size（layout + style 包含），
  * 再补一层 paint 包含不改变任何画面。
  */
-.deck-pool-card .card-face {
+.deck-pool-card .card-face,
+.deck-mini .card-face {
   content-visibility: auto;
   /* 被跳过时的尺寸兜底。卡面眼下是 width/height: 100%，尺寸不依赖内容，这一行其实不生效；
      写出来是防将来卡面改成按内容定尺寸时，离屏的格子突然塌成 0。 */
@@ -1224,7 +1230,7 @@
 }
 
 /*
- * 雕花框默认把装饰画在内容之上（.ornate-frame__line / __corner 是 z-index: 2，内容层是 1）。
+ * 雕花框默认把装饰画在内容之上（.ornate-frame__edge / __corner 是 z-index: 2，内容层是 1）。
  * 这一页要反过来：迷你卡被拖到面板边缘时得从雕花线上面经过，不然会被线切开。
  * 内容本身有 26/24px 内边距，静置时够不到 6px / 11px 处的框线，抬上来不改变静态画面。
  */

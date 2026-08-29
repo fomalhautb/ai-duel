@@ -206,12 +206,30 @@ export function playEvolveFx(tile: HTMLElement) {
  *
  * 收尾必须 clearProps 把 transform 整个抹掉，只把 x / y 归零是不够的：
  * 留着一个 translate(0, 0) 的 transform，上面两条副作用就会一直生效。
+ *
+ * 抖之前要临时打开 will-change: transform，理由是性能而不是观感。
+ * GSAP 是每帧往行内样式里写 transform 的，浏览器不会因此自动把这棵树提成合成层
+ *（那套自动提升只认 CSS 动画 / 过渡）。不提层的话这 0.3 秒里每一帧都要把整棵 .battle
+ * 重新栅格化一遍，而对局页同屏挂着的手绘滤镜（feTurbulence + feDisplacementMap，WebKit 在
+ * CPU 上逐像素算）里，光是雕花框那几条边加起来就有几万像素——每出一张牌就要重算十几遍。
+ * 提成合成层之后抖动只是移动一张已经画好的位图，一帧都不用重画。
+ *
+ * 结束后必须摘掉：will-change 挂着就意味着那张位图一直占着显存（1672×941 再乘设备像素比），
+ * 而抖动只在出牌那一下发生。
  */
 function shakeScreen(root: HTMLElement) {
   // 连着落两张牌时，旧的抖动要让位，不然两条补间抢同一个 transform 会把幅度叠出去。
+  // 上一轮要是被这样掐断，它的 onComplete 就不会跑、will-change 留在那儿；
+  // 下面紧接着又设一遍，最后由这一轮的 onComplete 统一摘掉，不会漏。
   gsap.killTweensOf(root)
+  root.style.willChange = 'transform'
   gsap
-    .timeline({ onComplete: () => gsap.set(root, { clearProps: 'transform' }) })
+    .timeline({
+      onComplete: () => {
+        gsap.set(root, { clearProps: 'transform' })
+        root.style.removeProperty('will-change')
+      },
+    })
     .to(root, { x: 3, y: -2, duration: SHAKE_STEP, ease: 'power1.inOut' })
     .to(root, { x: -2.5, y: 2, duration: SHAKE_STEP, ease: 'power1.inOut' })
     .to(root, { x: 2, y: 1.5, duration: SHAKE_STEP, ease: 'power1.inOut' })

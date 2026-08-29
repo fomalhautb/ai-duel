@@ -167,6 +167,20 @@ export interface UseCardDragOptions {
    * enabled 为 false 时不会调。
    */
   onTap?: (id: string, drag: CardDragInfo) => void
+  /**
+   * enabled 为 false 时按下了这张牌，给调用方一个做「拒绝反馈」的钩子。
+   *
+   * 被 enabled 挡掉的按下什么都不会发生：既没有拖拽也没有 onTap，玩家点了半天没动静，
+   * 分不清是"现在不能出"还是"界面卡了"。手牌就靠它做摇头加小字提示
+   *（见 HandFan 的 handleLockedPress）。
+   *
+   * 只认这一条闸，另外两条不给：按在 ignoreSelector 上压根不是"想出这张牌"；
+   * 被 canDrag 挡掉的那些同样静默，但那是调用方自己按牌况判的（手牌那边是"已经打出、
+   * 正在等受理"），它想反馈的话在 canDrag 里就能做，不必绕这个钩子。
+   *
+   * 只是通知，调不调都不改变这次按下被忽略这个结果。
+   */
+  onLockedPress?: (id: string) => void
 }
 
 /** 绑到卡牌根节点上的那几个事件。 */
@@ -354,14 +368,20 @@ export function useCardDrag(options: UseCardDragOptions): CardDragHandle {
     const opts = optionsRef.current
     // 只认鼠标主键：中键、右键、以及多指里的副指针都不该把牌抓起来。
     if (!event.isPrimary || event.button !== 0) return
-    if (opts.enabled === false) return
-    if (opts.canDrag !== undefined && !opts.canDrag(id)) return
+    // 这道闸要排在 enabled 前面：按在卡面上另有用途的小控件（手牌的问号热区）上不是
+    // "想出这张牌"，锁着的时候也就不该触发下面那记拒绝反馈。
+    // 挪到最前面不影响原来的行为——它和 enabled / canDrag 三条闸的结果都是同一个"直接返回"。
     if (
       opts.ignoreSelector !== undefined &&
       (event.target as HTMLElement).closest(opts.ignoreSelector) !== null
     ) {
       return
     }
+    if (opts.enabled === false) {
+      opts.onLockedPress?.(id)
+      return
+    }
+    if (opts.canDrag !== undefined && !opts.canDrag(id)) return
     // 挡掉浏览器默认的文字选中和图片拖拽，不然拖到一半会拖出一片蓝色选区。
     event.preventDefault()
     dragRef.current = {

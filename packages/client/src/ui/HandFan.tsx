@@ -21,9 +21,11 @@
  * 和卡组页共用；这里只保留扇形自己的部分：排布时把被拖的牌摘出去、抓起牌时收拾 hover 那一套、
  * 以及"没落进落点就补间回扇形"。
  *
- * 两个"关掉手牌"的开关不要混（详见 HandFanProps）：
+ * 三个和"关掉手牌"有关的开关不要混（详见 HandFanProps）：
  * disabled 只管出不了牌，玩家照样能 hover 把牌抬起来看；
- * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用。
+ * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
+ * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
+ *（灰墨态 + 点击摇头 + 小字提示）。
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
@@ -44,6 +46,7 @@ import {
   PLAYER_FAN,
   fanTransform,
 } from './fanMath'
+import { prefersReducedMotion } from './reducedMotion'
 import { DRAG_SCALE, useCardDrag } from './useCardDrag'
 import type { CardDragInfo, CardDropZone } from './useCardDrag'
 
@@ -86,6 +89,16 @@ export interface HandCardData {
  * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪。
  */
 export type CardPlayVia = 'drag' | 'tap'
+
+/**
+ * 手牌被锁住的原因，也就是"为什么现在出不了牌"。
+ *
+ * 只收那些会持续一整段时间、玩家会盯着看的等待（轮到对方、AI 在答题），
+ * 不收 disabled 里那些一闪而过的瞬态锁（等回包、牌正在飞、展示层演着）——
+ * 那些锁在自己回合里也会反复开关，跟着它们把整排手牌染灰再恢复就是在闪。
+ * 判据由父组件给（见 MatchStage 的 waitingForFoe / quizWait）。
+ */
+export type HandLockReason = 'foe-turn' | 'quiz'
 
 export interface HandFanProps {
   cards: HandCardData[]
@@ -142,6 +155,16 @@ export interface HandFanProps {
    * 它不参与"等回包"那套约定：父组件要等网络结果，仍然得按上面 onPlay 的说明打开 disabled。
    */
   frozen?: boolean
+  /**
+   * 现在出不了牌是因为"在等一段别人的流程"（轮到对方、AI 在答题），非空即进入灰墨态：
+   * 整排下沉褪色、光标收回箭头、点一下会摇头并弹一条小字提示。
+   *
+   * 传了 lockReason 就等于同时传了 disabled：组件内部把两者并起来用，不指望调用方
+   * 记得两个都给——否则漏给 disabled 就会得到一排画成灰墨态、却照样拖得动的牌。
+   * 之所以不干脆合成一个 prop：disabled 里那些一闪而过的瞬态锁不该染灰整排手牌，
+   * 两者的时间尺度不一样，理由见 HandLockReason。
+   */
+  lockReason?: HandLockReason | null
   /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
@@ -247,6 +270,16 @@ const CASTING_LIFT = 26
  */
 const CASTING_Z = 50
 
+/** 灰墨态下点一张牌时，小字提示浮在牌顶上方多少像素。 */
+const LOCK_TIP_GAP = 10
+/** 小字提示自己停留多久（毫秒）再淡出。够读完四个字，又不至于一直挂在屏幕上。 */
+const LOCK_TIP_HOLD_MS = 1100
+/** 每种锁对应的小字文案。 */
+const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
+  'foe-turn': '对方出牌中',
+  quiz: 'AI 答题中',
+}
+
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
 
@@ -320,11 +353,23 @@ export function HandFan({
   onPlay,
   disabled = false,
   frozen = false,
+  lockReason = null,
   castingId = null,
   onDragStateChange,
 }: HandFanProps) {
+  /**
+   * 组件内部真正用的"出不了牌"：lockReason 非空自带禁用，不指望调用方另外把 disabled 也打开。
+   *
+   * 组件里凡是读"现在能不能出牌"的地方一律用这一份，disabled 这个 prop 只在这里读一次。
+   * 光靠约定的话，哪天有人只给 lockReason 就会得到一排画成灰墨态、却照样拖得动的牌。
+   */
+  const effectiveDisabled = disabled || lockReason !== null
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
+  /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
+  const lockTipRef = useRef<HTMLDivElement>(null)
+  /** 小字提示的停留计时器。重复点牌要重置它，卸载时要清掉。 */
+  const lockTipTimerRef = useRef<number | null>(null)
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
   const hoverRef = useRef<string | null>(null)
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
@@ -340,10 +385,10 @@ export function HandFan({
   /** 每张牌的倾斜跟随，按 id 存着，抓起牌时要单独叫它归零。 */
   const tiltsRef = useRef(new Map<string, CardTiltHandle>())
   /**
-   * 最新的 disabled。松手那一帧的 rAF 回调只能读它：
-   * 闭包里的 disabled 是松手那一刻的旧值，而父组件恰恰是在 onPlay 里才把它打开的。
+   * 最新的 effectiveDisabled。松手那一帧的 rAF 回调只能读它：
+   * 闭包里的那份是松手那一刻的旧值，而父组件恰恰是在 onPlay 里才把 disabled 打开的。
    */
-  const disabledRef = useRef(disabled)
+  const disabledRef = useRef(effectiveDisabled)
   /**
    * 最新的 frozen。在渲染期间就写好，因为读它的地方等不到 effect：
    * applyLayout 被存进 layoutRef，而那份闭包只在 cards 变化时才重建（见下面 useGSAP 的依赖数组），
@@ -558,6 +603,7 @@ export function HandFan({
     return () => {
       window.removeEventListener('resize', onResize)
       if (leaveTimerRef.current !== null) clearTimeout(leaveTimerRef.current)
+      if (lockTipTimerRef.current !== null) clearTimeout(lockTipTimerRef.current)
     }
   }, [])
 
@@ -608,6 +654,93 @@ export function HandFan({
   const handleHelpLeave = contextSafe((id: string) => {
     const inner = innerOf(id)
     if (inner) flipTo(inner, 0, 0.4)
+  })
+
+  const clearLockTipTimer = () => {
+    if (lockTipTimerRef.current === null) return
+    clearTimeout(lockTipTimerRef.current)
+    lockTipTimerRef.current = null
+  }
+
+  /**
+   * 把小字提示挪到某张牌正上方，淡入停一会儿再淡出。
+   *
+   * 文案在这里现写而不是交给 JSX 跟着 lockReason 渲染：淡出还要跑 0.25s，
+   * 锁要是正好在这段时间里换了（对方回合 → 答题）或者解开了，React 会当场把字换掉甚至清空，
+   * 玩家眼睁睁看着一句自己没点出来过的话在那儿淡出。写死在触发那一刻，淡出的就是那句话。
+   *
+   * 位置用两个 getBoundingClientRect 相减而不是直接拿 slot 的 rect：灰墨态下根节点整排
+   * 下沉了 12px（CSS 的 transform），两个 rect 都是变换之后的视口坐标，相减才得到
+   * 提示相对根节点的偏移——直接用 slot 的视口坐标写进 left / top，提示会再往下掉 12px。
+   * 居中和"贴着牌顶往上长"交给 GSAP 的 xPercent / yPercent，不写 CSS 的 translate：
+   * GSAP 接管 transform 时会往内联样式里写 translate: none，把独立变换属性压死。
+   */
+  const showLockTip = contextSafe((slot: HTMLElement, reason: HandLockReason) => {
+    const tip = lockTipRef.current
+    const root = rootRef.current
+    if (tip === null || root === null) return
+    tip.textContent = LOCK_TIP_TEXT[reason]
+    const slotRect = slot.getBoundingClientRect()
+    const rootRect = root.getBoundingClientRect()
+    gsap.set(tip, {
+      left: slotRect.left + slotRect.width / 2 - rootRect.left,
+      top: slotRect.top - rootRect.top - LOCK_TIP_GAP,
+      xPercent: -50,
+      yPercent: -100,
+    })
+    gsap.fromTo(
+      tip,
+      { autoAlpha: 0, y: 8 },
+      { autoAlpha: 1, y: 0, duration: 0.18, ease: 'power2.out', overwrite: true },
+    )
+    // 连点同一张牌时重新计时，提示不会因为上一次的计时到点而在刚弹出来时就消失。
+    clearLockTipTimer()
+    lockTipTimerRef.current = window.setTimeout(() => {
+      lockTipTimerRef.current = null
+      gsap.to(tip, { autoAlpha: 0, duration: 0.25, overwrite: true })
+    }, LOCK_TIP_HOLD_MS)
+  })
+
+  /**
+   * 出不了牌的时候按了一下手牌（useCardDrag 那边被 enabled 挡掉的那记按下）。
+   *
+   * 反馈在组件内部做完，不上抛给父组件：父组件既不知道牌摆在哪，也没有理由为一次
+   * "什么都没发生"的点击重渲染整排手牌。
+   *
+   * 摇头做在 tilt 层的 z 轴 rotation 上：那一层现有的 quickTo 只写 rotationX / rotationY，
+   * z 轴空着；slot 层的扇形摆位和 hover 放大则完全不碰，摇完牌还停在原处。
+   * frozen 期间不摇（屏幕上正演着别的东西，再抖一下只是添乱），但小字提示照给——
+   * 只要 lockReason 非空，玩家就该知道现在在等什么。
+   */
+  const handleLockedPress = contextSafe((id: string) => {
+    const slot = slotsRef.current.get(id)
+    if (slot === undefined) return
+    const tilt = slot.querySelector<HTMLElement>('.hand-fan__tilt')
+    if (tilt !== null && !frozen && !prefersReducedMotion()) {
+      gsap.to(tilt, {
+        keyframes: [
+          { rotation: -3 },
+          { rotation: 2.4 },
+          { rotation: -1.6 },
+          { rotation: 0.8 },
+          { rotation: 0 },
+        ],
+        duration: 0.35,
+        ease: 'power2.out',
+      })
+    }
+    if (lockReason !== null) showLockTip(slot, lockReason)
+  })
+
+  /** 解锁那一下整排牌的回弹，从左到右挨个来。传进来的是每张牌的 tilt 层，顺序即扇形从左到右。 */
+  const playWake = contextSafe((tilts: HTMLElement[]) => {
+    gsap.to(tilts, {
+      keyframes: [
+        { y: -6, duration: 0.12, ease: 'power2.out' },
+        { y: 0, duration: 0.14, ease: 'power2.inOut' },
+      ],
+      stagger: 0.04,
+    })
   })
 
   /**
@@ -748,8 +881,8 @@ export function HandFan({
 
   const cardDrag = useCardDrag({
     zones: dropZones,
-    // frozen 是 disabled 的超集：冻结期间连拖带点一律不受理。
-    enabled: !disabled && !frozen,
+    // frozen 是 effectiveDisabled 的超集：冻结期间连拖带点一律不受理。
+    enabled: !effectiveDisabled && !frozen,
     // 拖拽建的补间要和布局补间归进同一个 useGSAP context，卸载时才会被一起 revert 掉。
     contextSafe,
     targetOf: dragTargetOf,
@@ -764,14 +897,16 @@ export function HandFan({
     // 落在别处（包括拖回手牌上方）、拖到一半被 disabled、被浏览器中断，都是取消，一律回扇形。
     onCancel: handleDragCancel,
     onTap: handleTap,
+    // 被上面那个 enabled 挡掉的按下：出不了牌也得让玩家看见"我收到了这一下"。
+    onLockedPress: handleLockedPress,
   })
 
   /**
-   * disabled 关掉时的异步确认收尾：父组件在 onPlay 里打开 disabled 去等回包，
-   * 这段时间牌停在落点上；disabled 关掉时牌要是还在手牌里，说明这次出牌没被受理，
+   * 禁用解除时的异步确认收尾：父组件在 onPlay 里打开 disabled 去等回包，
+   * 这段时间牌停在落点上；解除时牌要是还在手牌里，说明这次出牌没被受理，
    * 这时才把它送回扇形。
    *
-   * 落点区高亮同样得跟着 disabled 立刻变（disabled 期间松手一律按取消算，
+   * 落点区高亮同样得跟着立刻变（禁用期间松手一律按取消算，
    * 那就连"正在拖牌"的 ready 都不该亮，更不能亮成"松手就打出"的 hot），
    * 但那件事归 useCardDrag 自己的 effect 管，这里不用碰。
    *
@@ -779,8 +914,8 @@ export function HandFan({
    * 而 passive effect 不保证赶在下一帧的 rAF 之前跑完。
    */
   useLayoutEffect(() => {
-    disabledRef.current = disabled
-    if (disabled) return
+    disabledRef.current = effectiveDisabled
+    if (effectiveDisabled) return
     for (const id of playedRef.current) {
       // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
       // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
@@ -788,7 +923,7 @@ export function HandFan({
       playedRef.current.delete(id)
       returnToFan()
     }
-  }, [disabled])
+  }, [effectiveDisabled])
 
   /**
    * frozen 打开的那一刻，把已经抬起来的那张牌主动收回扇形。
@@ -833,15 +968,56 @@ export function HandFan({
     layoutRef.current('hover')
   }, [castingId])
 
+  /** 上一次的 lockReason，用来认出"锁解开了"这一个瞬间（React 不给上一次的 props）。 */
+  const prevLockReasonRef = useRef(lockReason)
+  /**
+   * 锁一变就收掉小字提示；从"锁着"变成"解开"时再让整排牌醒一下。
+   *
+   * 提示说的是"现在在等什么"，等的事情一换（对方回合 → 答题）它就过期了，
+   * 留在屏幕上会指向一件已经结束的事。
+   *
+   * 醒一下是从左到右挨个轻弹，只为把"能出牌了"这件事送进余光里——玩家这段时间多半在看战场，
+   * 手牌那排恢复彩色是个静态变化，不动一下很容易整轮都没注意到。
+   * 弹的是 tilt 层的 y：slot 层归扇形摆位和拖拽管，碰了就会和它们的补间打架。
+   *
+   * 但"锁清空"不等于"能出牌了"，所以还要再看一眼 effectiveDisabled 和 frozen，有一个真就不弹：
+   * 一是对局打完或中断（status 变 finished / aborted），那时 lockReason 跟着清空，
+   * 可 actionsLocked 仍然是真，这时候说"能出牌了"是句假话；
+   * 二是演出还没收尾（frozen），屏幕上正演着别的东西，再抖一排牌只是添乱
+   *（和 handleLockedPress 里不摇头是同一个道理）。
+   */
+  useEffect(() => {
+    const prev = prevLockReasonRef.current
+    prevLockReasonRef.current = lockReason
+    if (prev === lockReason) return
+    clearLockTipTimer()
+    const tip = lockTipRef.current
+    if (tip !== null) gsap.to(tip, { autoAlpha: 0, duration: 0.2, overwrite: true })
+    if (prev === null || lockReason !== null) return
+    if (effectiveDisabled || frozen) return
+    if (prefersReducedMotion()) return
+    const tilts = cards
+      .map((card) => slotsRef.current.get(card.id)?.querySelector<HTMLElement>('.hand-fan__tilt'))
+      .filter((tilt): tilt is HTMLElement => tilt !== null && tilt !== undefined)
+    if (tilts.length > 0) playWake(tilts)
+    // 依赖只列 lockReason：cards 在这里只当"现在有哪几张牌"的快照用，
+    // 抽一张牌就重播一次醒来是错的；effectiveDisabled / frozen 同理，要的正是
+    // "锁清空那一次渲染"时它们的值，之后它们自己再变不该补一次回弹。
+  }, [lockReason])
+
   return (
     // --hand-card-zoom 是 slot 盒子的放大倍数，CSS 那边全靠它算宽高和 zoom；
     // 值来自 HOVER_SCALE（按扇形几何算出来的），所以只能由 JS 传下去。
     // data-casting 只管一件样式：把整个扇形抬到全屏压暗层之上，正在施放的那张才亮得起来
     //（同排其余的靠上面那份 opacity 自己压暗）。不接指针那件事归 frozen 管，不写在 CSS 里。
+    // data-locked 是灰墨态的总开关（整排下沉、牌面褪色、光标收回箭头），全在 CSS 里做，
+    // 走的属性（根节点的 transform、卡面的 filter）GSAP 一个都不碰，不会和补间抢。
+    // 它和 data-casting 不会同时出现：选目标只发生在自己回合，那时 lockReason 必是 null。
     <div
       className="hand-fan"
       ref={rootRef}
       data-casting={castingId === null ? undefined : 'true'}
+      data-locked={lockReason === null ? undefined : lockReason}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}
     >
       {cards.map((card) => {
@@ -933,6 +1109,15 @@ export function HandFan({
           </div>
         )
       })}
+
+      {/*
+        点了一张出不了的牌时弹出来的小字提示。整排共用这一个节点、常驻 DOM：
+        每张牌各挂一个的话，同一句话会在 DOM 里躺五份，而同一时刻最多只看得见一条。
+        默认 visibility: hidden（GSAP 的 autoAlpha 会连它一起改），位置由 showLockTip 现算。
+        这里刻意渲染成空的：文案也归 showLockTip 在按下那一刻写进去（理由见那里）。
+        交给 React 跟着 lockReason 渲染的话，锁一变字就当场换掉或清空，而淡出还要再跑 0.25s。
+      */}
+      <div className="hand-fan__lock-tip" ref={lockTipRef} aria-hidden="true" />
     </div>
   )
 }

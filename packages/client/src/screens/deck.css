@@ -669,8 +669,15 @@
   pointer-events: none;
 }
 
-.deck-pool-card:hover .deck-pool-card__glow {
-  opacity: 1;
+/*
+ * 只给真有鼠标的设备。触屏上 :hover 会在点过之后一直粘着，
+ * 手指划过一排卡就留下一串亮着的金框，谁都不知道那是什么意思。
+ * 触屏认卡靠的是点开放大，不需要这层"指到哪儿"的提示。
+ */
+@media (hover: hover) {
+  .deck-pool-card:hover .deck-pool-card__glow {
+    opacity: 1;
+  }
 }
 
 /*
@@ -1793,8 +1800,11 @@
   pointer-events: none;
 }
 
-.deck-mini:hover .deck-mini__glow {
-  opacity: 1;
+/* 同 .deck-pool-card__glow：触屏上 :hover 会粘住，这层高亮只给鼠标。 */
+@media (hover: hover) {
+  .deck-mini:hover .deck-mini__glow {
+    opacity: 1;
+  }
 }
 
 /* ---------- 底部 ---------- */

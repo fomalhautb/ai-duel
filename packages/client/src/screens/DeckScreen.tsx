@@ -24,8 +24,9 @@
  *   （ui/flipCard.ts，由右上角的问号热区驱动），再里面是正反两个 face。
  *   两面身上的 data-flip-face 是 flipCard.ts 认人的契约。倾斜句柄按 id 存在
  *   poolTiltsRef / deckTiltsRef 里，卡增减时增量挂 / 摘（见下面那个 useGSAP）。
- *   **即将上线的牌没有背面这一层和那个问号**：它们翻过去只是一段还没生效的效果说明，
- *   问号留着只会让人白点（见 flippable）；
+ *   **只有技能牌有背面这一层和那个问号**：AI 牌翻过去没有新东西（想看它那张卡背走放大查看，
+ *   伴随层右边就摆着一张），即将上线的牌翻过去只是一段还没生效的效果说明，
+ *   两类的问号留着都只会让人白点（见 flippable）；
  * - 拖拽用 ui/useCardDrag，卡池和牌组各一个实例，手感参数全走 hook 默认值，和对局手牌一致；
  * - 放大查看用 ui/CardZoomOverlay，这一页只有它一条链路会动遮罩，所以用组件自带的那块
  *   （不传 veilRef），点遮罩和 ESC 都能关。正面大卡落在中央偏左（落位由 deck.css 覆盖），
@@ -1333,7 +1334,7 @@ function DeckStage({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   })
 
   /** 问号热区的进出。卡池卡和迷你卡共用，翻面层由 flipHelp 自己从热区往上找。
-      热区只长在能翻面的牌上（见 PoolCard 的 flippable），即将上线的牌到不了这里。 */
+      热区只长在能翻面的牌上（见 PoolCard 的 flippable），AI 牌和即将上线的牌都到不了这里。 */
   const handleHelpEnter = useStable((help: HTMLElement) => flipHelp(help, true))
   const handleHelpLeave = useStable((help: HTMLElement) => flipHelp(help, false))
   /**
@@ -2101,7 +2102,7 @@ interface PoolCardProps {
    * 加不加得进由调用方判，这里连 canAdd 都不看——按钮不是真禁用，理由见 addFromPool。
    */
   onAdd: (cardId: CardId, cardEl: HTMLElement) => void
-  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。选不了的卡不挂问号（见 flippable）。 */
+  /** 问号热区的进出，翻到背面 / 翻回正面。参数是热区自己。只有技能牌挂问号（见 flippable）。 */
   onHelpEnter: (help: HTMLElement) => void
   onHelpLeave: (help: HTMLElement) => void
   onHelpToggle: (help: HTMLElement) => void
@@ -2122,11 +2123,14 @@ const PoolCard = memo(function PoolCard({
   hidden,
 }: PoolCardProps) {
   /*
-   * 能不能翻面。选不了的牌（「即将上线」和「暂未接入」）不能翻，问号、热区和背面整层一起不渲染：
-   * 它们的背面只是一段还没生效的效果说明，问号留着只会让人一直去点，
-   * 热区还会把「点卡面 = 弹一句原因」那一下吃掉。
+   * 能不能翻面。不能翻的牌，问号、热区和背面整层一起不渲染，两类：
+   * - AI 牌：正面已经把要看的都印全了，翻过去没有新东西，问号只是白点一下
+   *   （对局手牌同一条口径，见 ui/HandFan.tsx 的 flippable）。想看那张卡背仍然有路：
+   *   点开放大，伴随层右边就摆着一张背面大卡。
+   * - 选不了的牌（「即将上线」和「暂未接入」）：背面只是一段还没生效的效果说明，
+   *   问号留着只会让人一直去点，热区还会把「点卡面 = 弹一句原因」那一下吃掉。
    */
-  const flippable = blockedLabel === null
+  const flippable = blockedLabel === null && card.kind !== 'ai'
   return (
     // 外层格子只管占位：里面那张牌拖起来时会切成 fixed 脱离文档流（见 liftCardOut），
     // 没有这个盒子的话邻牌会立刻塌陷补位。
@@ -2183,8 +2187,8 @@ const PoolCard = memo(function PoolCard({
             pointerleave 立刻翻回来、又被 hover 到，来回抖个没完（原委见 styles.css 的 .hand-fan__help）。
             靠 ignoreSelector 让「按在问号上」不等于抓牌（见两个 useCardDrag 的 ignoreSelector）。
 
-            选不了的牌整个不挂它：这类卡不翻面，热区留着就是一块盖在卡右上角、
-            按下去什么都不发生的死区，还会把「点卡面 = 弹一句原因」那一下吃掉。
+            翻不了的牌（AI 牌、选不了的牌）整个不挂它：热区留着就是一块盖在卡右上角、
+            按下去什么都不发生的死区，还会把「点卡面 = 放大 / 弹一句原因」那一下吃掉。
           */}
           {flippable ? (
             <button
@@ -2274,6 +2278,9 @@ const DeckSlotItem = memo(function DeckSlotItem({
   onHelpToggle,
   hidden,
 }: DeckSlotItemProps) {
+  // 同 PoolCard 的 flippable：AI 牌翻过去没有新东西，问号、热区和背面整层一起不渲染。
+  // 牌组里不会有选不了的牌，所以这边只判卡种。
+  const flippable = card.kind !== 'ai'
   return (
     <li className="deck-slot">
       <div
@@ -2291,35 +2298,41 @@ const DeckSlotItem = memo(function DeckSlotItem({
               <div className="deck-mini__card">
                 <HandCardFace card={card} />
               </div>
-              <CardHelpMark className="deck-mini__help-mark" />
+              {flippable ? <CardHelpMark className="deck-mini__help-mark" /> : null}
             </div>
-            <div className="deck-mini__face deck-mini__face--back" data-flip-face="back">
-              <div className="deck-mini__card">
-                <CardBackFace card={card} />
+            {/* 背面整层只给能翻面的牌渲染，理由同 PoolCard 的 flippable。 */}
+            {flippable ? (
+              <div className="deck-mini__face deck-mini__face--back" data-flip-face="back">
+                <div className="deck-mini__card">
+                  <CardBackFace card={card} />
+                </div>
+                <CardHelpMark className="deck-mini__help-mark" />
               </div>
-              <CardHelpMark className="deck-mini__help-mark" />
-            </div>
+            ) : null}
           </div>
-          {/* 同 PoolCard 里那颗：只管交互的透明热区，留在 __inner 外面不跟着翻面。 */}
-          <button
-            type="button"
-            className="deck-help deck-help--mini"
-            aria-label={`查看「${card.name}」的背面`}
-            /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
-               理由见 handleHelpToggle。 */
-            onPointerEnter={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpEnter(event.currentTarget)
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType !== 'mouse') return
-              onHelpLeave(event.currentTarget)
-            }}
-            onPointerUp={(event) => {
-              if (event.pointerType === 'mouse') return
-              onHelpToggle(event.currentTarget)
-            }}
-          />
+          {/* 同 PoolCard 里那颗：只管交互的透明热区，留在 __inner 外面不跟着翻面。
+              翻不了的牌整个不挂它：热区盖在卡右上角，留着会把「点卡面 = 放大查看」那一下吃掉。 */}
+          {flippable ? (
+            <button
+              type="button"
+              className="deck-help deck-help--mini"
+              aria-label={`查看「${card.name}」的背面`}
+              /* 移入翻过去、移出翻回来只给鼠标；触屏走 pointerup 点一次翻一次，
+                 理由见 handleHelpToggle。 */
+              onPointerEnter={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpEnter(event.currentTarget)
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== 'mouse') return
+                onHelpLeave(event.currentTarget)
+              }}
+              onPointerUp={(event) => {
+                if (event.pointerType === 'mouse') return
+                onHelpToggle(event.currentTarget)
+              }}
+            />
+          ) : null}
         </div>
         {/* 同 .deck-pool-card__glow：hover 只切 opacity。挂在外层而不是缩放层里，
             这样它按格子的实际尺寸铺满，不用跟着 --deck-mini-scale 反算。 */}

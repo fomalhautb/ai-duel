@@ -51,7 +51,6 @@ import { cardArtFor } from './cardArt'
 import { CardHelpMark } from './CardHelpMark'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
-import { AiCardBack } from './AiCardBack'
 import { CardFaceOverlay } from './CardFaceOverlay'
 import { PlaqueButton } from './PlaqueButton'
 import { attachCardTilt } from './cardTilt'
@@ -1621,6 +1620,12 @@ export function HandFan({
     >
       {cards.map((card) => {
         const dragBindings = cardDrag.bind(card.id)
+        /*
+         * 能不能翻面。AI 牌不能：正面已经把要看的都印全了，翻过去没有新东西，
+         * 问号只是白点一下（卡组页同一条口径，见 screens/DeckScreen.tsx 的 flippable）。
+         * 问号、热区和背面整层一起不渲染——热区留着还会盖在卡右上角吃掉指针。
+         */
+        const flippable = card.kind !== 'ai'
         return (
           <div
             key={card.id}
@@ -1661,6 +1666,7 @@ export function HandFan({
             两面身上的 data-flip-face 就是给 flipTo 认人用的契约，别删。
             问号拆成两半分挂在两层里：看得见的圆圈在 inner 里（跟着倾斜也跟着翻面），
             触发翻面的透明热区在 inner 外（只跟倾斜、绝不跟翻面）。原因见下面两处注释。
+            AI 牌这三样（两个圆圈 + 热区）和背面整层都不渲染，见上面的 flippable。
           */}
             <div className="hand-fan__tilt">
               <div className="hand-fan__inner">
@@ -1668,29 +1674,25 @@ export function HandFan({
                   <HandCardFace card={card} />
                   {/* 看得见的问号圆章之一。放在这里而不是 HandCardFace 里面：
                     那个组件被战场小卡复用，而小卡没有翻面这回事，不该跟着长出一个问号。 */}
-                  <CardHelpMark className="hand-fan__help-mark" />
+                  {flippable ? <CardHelpMark className="hand-fan__help-mark" /> : null}
                 </div>
-                <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                  <div className={cardBackClassName(card.kind)}>
-                    {card.kind === 'ai' ? (
-                      <AiCardBack card={card} />
-                    ) : (
-                      <>
-                        <span className="card-back__title">{card.name}</span>
-                        <p className="card-back__text">{card.backText}</p>
-                      </>
-                    )}
-                    {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
-                      这一层和正面共用 --glare-x / --glare-y，位置是对的：
-                      .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
-                      而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
-                    <div className="card-glare" />
-                    {/* 背面同一个角上的问号圆章：翻过去之后指针底下仍然压着一个问号，
-                      看起来就是"同一个问号跟着卡转到了背面"。
-                      排在高光层后面，免得被那层 soft-light 混得发灰。 */}
-                    <CardHelpMark className="hand-fan__help-mark" />
+                {flippable ? (
+                  <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
+                    <div className={cardBackClassName(card.kind)}>
+                      <span className="card-back__title">{card.name}</span>
+                      <p className="card-back__text">{card.backText}</p>
+                      {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
+                        这一层和正面共用 --glare-x / --glare-y，位置是对的：
+                        .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
+                        而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
+                      <div className="card-glare" />
+                      {/* 背面同一个角上的问号圆章：翻过去之后指针底下仍然压着一个问号，
+                        看起来就是"同一个问号跟着卡转到了背面"。
+                        排在高光层后面，免得被那层 soft-light 混得发灰。 */}
+                      <CardHelpMark className="hand-fan__help-mark" />
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
               {/*
               问号的触发热区：完全透明，只管交互（hover 翻面、拦住在它身上按下时抓起牌，
@@ -1703,26 +1705,31 @@ export function HandFan({
 
               与之配套，卡面那一整棵子树在 CSS 里是 pointer-events: none（见 .hand-fan__inner），
               翻面途中转动的卡面抢不走指针。别给卡面加指针事件，加了这条抖动就会回来。
+
+              翻不了的牌（AI 牌）整个不挂它：那一块是盖在卡右上角的透明按钮，
+              留着只会白吃掉指针，翻面还什么都不会发生。
             */}
-              <button
-                type="button"
-                className="hand-fan__help"
-                aria-label="查看卡牌详情"
-                /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
-                   理由见 handleHelpToggle。 */
-                onPointerEnter={(event) => {
-                  if (event.pointerType !== 'mouse') return
-                  handleHelpEnter(card.id)
-                }}
-                onPointerLeave={(event) => {
-                  if (event.pointerType !== 'mouse') return
-                  handleHelpLeave(card.id)
-                }}
-                onPointerUp={(event) => {
-                  if (event.pointerType === 'mouse') return
-                  handleHelpToggle(card.id)
-                }}
-              />
+              {flippable ? (
+                <button
+                  type="button"
+                  className="hand-fan__help"
+                  aria-label="查看卡牌详情"
+                  /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
+                     理由见 handleHelpToggle。 */
+                  onPointerEnter={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    handleHelpEnter(card.id)
+                  }}
+                  onPointerLeave={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    handleHelpLeave(card.id)
+                  }}
+                  onPointerUp={(event) => {
+                    if (event.pointerType === 'mouse') return
+                    handleHelpToggle(card.id)
+                  }}
+                />
+              ) : null}
             </div>
             {/*
               触屏轻点选中之后，浮在牌顶上方的「打出」。鼠标点一下就直接打出，

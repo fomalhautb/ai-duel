@@ -39,8 +39,8 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
- * 「这一张现在打不出去」是另一条线：传 tokens / aiPlayedThisRound 之后逐张判，只压暗那几张，
- * 见 HandFanProps.tokens 和 HandFanProps.aiPlayedThisRound。
+ * 「这一张现在打不出去」是另一条线：传 tokens 之后逐张判，只压暗那几张，
+ * 见 HandFanProps.tokens。
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -229,18 +229,6 @@ export interface HandFanProps {
    * 不传就按卡面原价判：对局之外的地方（图鉴、演示页）没有局面可问。
    */
   playCostOf?: (card: HandCardData) => number
-  /**
-   * 这一轮已经派出过新的 AI 牌了。
-   *
-   * 规则是每轮至多派一张新 AI（引擎那边会拒掉第二张），所以为 true 时手上**其余的 AI 牌**
-   * 一律画成打不出：和「Token 不够」同一套压暗，按一下弹「本轮已派出 AI 牌」。
-   * 技能牌完全不受影响，一轮想打几张打几张。
-   *
-   * 和 tokens 各判各的，两条可以同时成立（一张打不起的 AI，本轮又已经派过人）。
-   * 那时弹的是这一句，和引擎的校验顺序一致：这条闸和钱多钱少无关，
-   * 说成"Token 不够"会让玩家以为攒够钱就能再派一个。
-   */
-  aiPlayedThisRound?: boolean
   /**
    * 调用方额外锁上的几张牌：**牌的 id（对局里就是手牌实例 id）** → 点它时弹的那句提示。
    *
@@ -431,8 +419,6 @@ const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
 }
 /** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
 const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
-/** 本轮已经派过新 AI，手上其余 AI 牌被点时弹的小字。 */
-const AI_PLAYED_TIP_TEXT = '本轮已派出 AI 牌'
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
@@ -552,7 +538,6 @@ export function HandFan({
   disabled = false,
   tokens = null,
   playCostOf,
-  aiPlayedThisRound = false,
   extraBlocked = null,
   frozen = false,
   lockReason = null,
@@ -573,11 +558,10 @@ export function HandFan({
   /**
    * 这一刻打不出去的那几张牌：id → 点它时该弹的那句提示。
    *
-   * 两条判据合在一张表里（本轮已派过 AI、Token 不够），因为 canDrag 和渲染两条路
-   * 问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
+   * 判据只剩「Token 不够」一条（AI 牌和技能牌都不限张数），但仍然收进一张表里：
+   * canDrag 和渲染两条路问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
    * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
    *
-   * 顺序和引擎的校验一致：先看"本轮已派出 AI 牌"，再看费用（见 aiPlayedThisRound）。
    * 调用方给的 extraBlocked 排在最前面，理由见那个 prop 的说明。
    */
   const blocked = useMemo(() => {
@@ -586,8 +570,6 @@ export function HandFan({
       const extra = extraBlocked?.get(card.id)
       if (extra !== undefined) {
         tips.set(card.id, extra)
-      } else if (aiPlayedThisRound && card.kind === 'ai') {
-        tips.set(card.id, AI_PLAYED_TIP_TEXT)
       } else if (tokens !== null && card.tokenCost !== undefined) {
         // 没给 playCostOf 就按卡面印的原价判（图鉴、演示页这类没有减费概念的地方）。
         const cost = playCostOf === undefined ? card.tokenCost : playCostOf(card)
@@ -598,7 +580,7 @@ export function HandFan({
     // 刻意不把 playCostOf 列进依赖：它每次渲染都是个新函数，列了等于每次都重算一遍。
     // 它读的那份局面（剩余额度、核电站的减免）一变，tokens 必然跟着变
     // ——减免和金钟罩都是打出一张牌才会变的，而打牌就要扣 Token，靠 tokens 当变化沿够用。
-  }, [cards, tokens, aiPlayedThisRound, extraBlocked])
+  }, [cards, tokens, extraBlocked])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */

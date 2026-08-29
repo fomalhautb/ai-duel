@@ -46,7 +46,7 @@ export const ROUND_DRAW_SIZE = 2
  *
  * 5 点买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
  * 又买不起 ChatGPT 5.6 Sol 那种 7 点的顶配，开局就得做取舍。
- * 每轮至多派一张新 AI（见 aiPlayedThisRound），所以剩下的额度是留给技能牌的，
+ * 一轮里 AI 牌和技能牌都不限张数，Token 就是唯一的额度，
  * 而且省着花本身有意义——同对同错时比的就是本轮消耗（见 submitAnswers）。
  */
 export const INITIAL_TOKEN_MAX = 5
@@ -183,7 +183,6 @@ export function createGame(setup: GameSetup): ExecuteResult {
       tokens: tokenMax,
       tokenMax,
       spentThisRound: 0,
-      aiPlayedThisRound: false,
       hand: [],
       deck: setup.noShuffle === true ? deck : shuffle(deck, rng),
       board: [],
@@ -287,8 +286,8 @@ export function execute(state: GameState, command: Command): ExecuteResult {
 /**
  * 打出一张手牌。
  *
- * 两道闸：**每轮至多派出一张新 AI 牌**，以及每张牌按 effectivePlayCost 算出来的实际费用
- * 扣 Token、扣不起就整条拒绝（技能牌只受后一道限制，一轮想打几张打几张）。
+ * 只有一道闸：每张牌按 effectivePlayCost 算出来的实际费用扣 Token、扣不起就整条拒绝。
+ * AI 牌和技能牌都不限张数，一轮里 Token 够就能接着打。
  * 实际费用不一定等于卡面 tokenCost：核电站会给它减价，见 effectivePlayCost。
  * 另外只有卡面标了 `target` 的技能牌要指定目标。
  */
@@ -307,15 +306,6 @@ function playCard(
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
   const cost = effectivePlayCost(next, playerId, card)
-
-  // 每轮至多派出一张新 AI 牌。这道闸排在费用之前：它和 Token 剩多少无关，
-  // 玩家该看到的提示是"这一轮不能再派人了"，而不是"钱不够"。
-  // 调试指令走的是同一个 playCard，所以 DEBUG_PLAY_CARD 同样受这一条约束——
-  // 调试只豁免"轮到谁出牌"那一条，摆出来的局面仍然必须是引擎认可的合法局面
-  //（见 docs/architecture.md 3.6）。
-  if (card.kind === 'ai' && player.aiPlayedThisRound) {
-    return reject(state, '本轮已派出 AI 牌，每轮至多一张')
-  }
 
   // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
   // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
@@ -351,7 +341,6 @@ function playCard(
 
   const events: GameEvent[] = []
   if (card.kind === 'ai') {
-    player.aiPlayedThisRound = true
     // AI 牌进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
     // 罚下时才能原样塞回弃牌堆。
     const ai: AiInstance = {
@@ -628,7 +617,6 @@ function withRng<T>(state: GameState, use: (rng: RandomGenerator) => T): T {
  * 完全免费：不扣 tokens、不记 spentThisRound，也不结束出牌轮——发动完照样接着出牌或 END_PLAY。
  * 不记消耗这一点会影响胜负：同对同错时比的就是本轮 spentThisRound（见 submitAnswers），
  * 发动技能不会让自己在那条决胜线上吃亏。
- * 也不占 aiPlayedThisRound：换掉场上单位的卡面不等于又派了一张新 AI。
  * 每局只能发一次，用掉就置上 heroSkillUsed。
  */
 function useHeroSkill(
@@ -861,7 +849,6 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
     player.tokenMax += TOKEN_MAX_GROWTH
     player.tokens = player.tokenMax
     player.spentThisRound = 0
-    player.aiPlayedThisRound = false
     drawCards(player, ROUND_DRAW_SIZE, events)
   }
   announceRound(next, events)

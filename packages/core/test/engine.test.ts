@@ -133,7 +133,7 @@ function confirmBoth(state: GameState) {
 /**
  * 从出牌阶段一路推到下一轮的出牌阶段：
  * 双方结束出牌 → 场上所有 AI 全答对 → 双方确认结算。
- * 给"要摆一个跨轮局面"的用例用（每轮至多派一张新 AI，多个 AI 只能分几轮摆出来）。
+ * 给"要摆一个跨轮局面"的用例用。
  */
 function nextRound(state: GameState) {
   const quiz = toQuiz(state)
@@ -173,10 +173,6 @@ function give(state: GameState, player: PlayerId, cardId: CardId) {
  * 凭空造几张牌再替某方打出去，用来一次把场面摆好（走调试指令是为了绕开出牌轮次）。
  * 费用照常扣，所以摆大场面之前得先用 toRound 把额度攒够；
  * 打不起会当场抛错，免得局面没摆成还让后面的断言去猜哪里不对。
- *
- * 每摆完一张就把"本轮派过 AI 了"的标志抹掉：那道闸连调试指令都拦（见 engine 的 playCard），
- * 而这里要的多单位场面在正常对局里本来就是好几轮攒出来的。抹掉标志相当于把那几轮压成一行，
- * 别的规则（费用、目标校验）照旧生效。要测那道闸本身的用例不走这个函数。
  */
 function deploy(state: GameState, player: PlayerId, cardIds: CardId[]): GameState {
   let current = state
@@ -191,7 +187,6 @@ function deploy(state: GameState, player: PlayerId, cardIds: CardId[]): GameStat
     if (rejected) throw new Error(`摆场失败（${cardId}）：${rejected.reason}`)
     // execute 回的是一份新克隆，改它不会污染传进来的 state。
     current = result.state
-    current.players[player].aiPlayedThisRound = false
   }
   return current
 }
@@ -271,14 +266,13 @@ function matchFoeAi(state: GameState, cardId: CardId): GameState {
  * 摆一个「乙场上两个 AI、轮到甲出牌、甲满手复读机」的第 4 轮局面。
  *
  * 摆法绕了一点，是因为三件事必须同时成立：
- * - 每轮至多派一张新 AI，乙那两个只能分两轮上场；
  * - 「复读机」一张 4 点，而有的用例要在一轮里连打两张，得等额度攒到 8 点，也就是第 4 轮；
  * - 一路推到第 4 轮的过程中不能有人先到 WIN_TARGET 分把对局结束掉。所以每轮都让甲跟着乙
  *   打一张同费用的 AI：双方同对、消耗相同，判成 equal-tokens 各 +1，分数一直咬平
  *   （3:3 也不算分出胜负，见 engine 的 decided），对局才走得到第 4 轮。
  *
  * 甲的 AI 用调试指令凭空造（它牌组里全是复读机），乙的第二张也走调试指令：
- * 这两下都只免掉"轮到谁出牌"，费用和每轮一张 AI 的限制照旧生效。
+ * 这两下都只免掉"轮到谁出牌"，费用照旧生效。
  */
 function stageTwoFoeAis(start: GameState, foeAi: CardId): GameState {
   // 第 1 轮乙先手派一张，甲跟一张。
@@ -519,36 +513,28 @@ describe('出牌阶段', () => {
   })
 })
 
-describe('每轮至多一张新 AI 牌', () => {
-  const REJECTED = { type: 'COMMAND_REJECTED', reason: '本轮已派出 AI 牌，每轮至多一张' }
-
-  it('第二张 AI 牌被拒，技能牌不受影响', () => {
-    // GPT-2 只要 1 点，第 1 轮的 5 点绰绰有余——被拒的原因只能是这条新规则。
-    // 牌堆顶在数组末尾，所以技能牌摆在倒数第 5 张才会落进起手（见 GameSetup.noShuffle）。
-    const game = newGame({
-      deck0: [...deckOf('gpt-2', 7), 'one-sentence-answer', ...deckOf('gpt-2', 4)],
-      noShuffle: true,
-    })
+describe('一轮里派几张新 AI 都行', () => {
+  it('第二张 AI 牌照常打得出，两张一起进场', () => {
+    // GPT-2 只要 1 点，第 1 轮的 5 点连打两张还有富余：唯一能拦住第二张的只有费用。
+    const game = newGame({ deck0: deckOf('gpt-2'), noShuffle: true })
     const [first, second] = game.state.players[0].hand
     const played = execute(game.state, {
       type: 'PLAY_CARD',
       player: 0,
       instanceId: first!.instanceId,
     }).state
-    expect(played.players[0].aiPlayedThisRound).toBe(true)
 
-    const result = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId })
-    expect(result.events).toEqual([REJECTED])
-    expect(result.state).toBe(played)
-
-    // 手上那张技能牌照常打得出：这条闸只拦 AI 牌。
-    const skill = handCard(played, 0, 'one-sentence-answer')
-    const withSkill = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: skill.instanceId })
-    expect(withSkill.events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
+    const again = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId })
+    expect(again.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
+    expect(board(again.state, 0)).toHaveLength(2)
+    // 两张各扣各的费，本轮消耗是两张之和（同对同错时比的就是它）。
+    expect(again.state.players[0].tokens).toBe(INITIAL_TOKEN_MAX - 2)
+    expect(again.state.players[0].spentThisRound).toBe(2)
   })
 
-  it('这道闸排在费用之前：打不起的第二张 AI 报的也是"本轮已派出"', () => {
-    // 先用 4 点打掉 GPT-4o，只剩 1 点，再打一张同样 4 点的——两条规则都够拒它。
+  it('拦住第二张的只剩 Token：额度花光了才被拒', () => {
+    // ChatGPT 5.6 Sol 一张 7 点，第 1 轮只有 5 点，第一张就打不起；
+    // 换成 4 点的 GPT-4o，打完只剩 1 点，第二张被拒的理由是费用而不是张数。
     const game = newGame({ deck0: deckOf('gpt-4o'), noShuffle: true })
     const [first, second] = game.state.players[0].hand
     const played = execute(game.state, {
@@ -558,13 +544,12 @@ describe('每轮至多一张新 AI 牌', () => {
     }).state
     expect(played.players[0].tokens).toBe(INITIAL_TOKEN_MAX - 4)
 
-    // 玩家该看到的是"这一轮不能再派人了"，而不是"钱不够"——后者会让人以为攒够钱就行。
     expect(
       execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId }).events,
-    ).toEqual([REJECTED])
+    ).toEqual([{ type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 4 点，只剩 1 点' }])
   })
 
-  it('下一轮解锁，标志跟着 Token 一起清零', () => {
+  it('跨轮累积：上一轮那张留场，这一轮接着派', () => {
     const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
     const played = execute(game.state, {
       type: 'PLAY_CARD',
@@ -574,8 +559,6 @@ describe('每轮至多一张新 AI 牌', () => {
     const round2 = nextRound(played)
 
     expect(round2.round).toBe(2)
-    expect(round2.players.map((p) => p.aiPlayedThisRound)).toEqual([false, false])
-    // 上一轮那张还在场上，新的一张照样派得出（场上从此有两个 AI）。
     const again = execute(round2, {
       type: 'DEBUG_PLAY_CARD',
       player: 0,
@@ -583,41 +566,6 @@ describe('每轮至多一张新 AI 牌', () => {
     })
     expect(again.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
     expect(board(again.state, 0)).toHaveLength(2)
-  })
-
-  it('DEBUG_PLAY_CARD 同样受这一条约束（调试只豁免"轮到谁出牌"）', () => {
-    const game = newGame({ deck1: deckOf('gpt-2'), noShuffle: true })
-    const [first, second] = game.state.players[1].hand
-    const played = execute(game.state, {
-      type: 'DEBUG_PLAY_CARD',
-      player: 1,
-      instanceId: first!.instanceId,
-    }).state
-
-    const result = execute(played, {
-      type: 'DEBUG_PLAY_CARD',
-      player: 1,
-      instanceId: second!.instanceId,
-    })
-    expect(result.events).toEqual([REJECTED])
-    expect(result.state).toBe(played)
-  })
-
-  it('两位玩家各自算各自的：一方派过不挡另一方', () => {
-    const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
-    const mine = execute(game.state, {
-      type: 'PLAY_CARD',
-      player: 0,
-      instanceId: game.state.players[0].hand[0]!.instanceId,
-    }).state
-    expect(mine.players.map((p) => p.aiPlayedThisRound)).toEqual([true, false])
-
-    const theirs = execute(mine, {
-      type: 'DEBUG_PLAY_CARD',
-      player: 1,
-      instanceId: mine.players[1].hand[0]!.instanceId,
-    })
-    expect(theirs.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
   })
 })
 
@@ -1580,7 +1528,7 @@ describe('答题结算', () => {
   /**
    * 摆一个"甲两个 AI、乙一个 AI"的答题阶段局面，停在第 2 轮。
    *
-   * 每轮至多派一张新 AI，所以甲那两个只能分两轮上场，这个局面天然是跨轮的：
+   * 甲那两个分两轮上场，这个局面天然是跨轮的：
    * 第 1 轮甲派 GPT-3.5（2 点）、乙派 Claude 5 Sonnet（4 点），双方都答对，
    * 消耗少的甲拿下第 1 分（比分 1:0）；第 2 轮甲再派一张 GPT-3.5（2 点），乙不出牌（0 点）。
    * 所以进第 2 轮答题时：场上 2 对 1，本轮消耗 2 对 0，比分 1:0——下面的用例都从这个基准往下算。
@@ -1689,7 +1637,7 @@ describe('答题结算', () => {
   })
 
   it('「己方答对」是团队口径：有一个答对就算，另一个答错照样罚下', () => {
-    // 两个 AI 只能分两轮派（每轮至多一张新 AI）。
+    // 两个 AI 分两轮派，测的是跨轮留场的那一个也算进团队口径。
     const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
     const first = execute(game.state, {
       type: 'PLAY_CARD',
@@ -1974,8 +1922,7 @@ describe('回合计分', () => {
   /**
    * 摆一个算完分的局面：双方各按给定的卡摆场，全部答对。
    *
-   * 每轮至多派一张新 AI，调试指令也拦这一条，所以每个列表里最多只能有一张 AI 牌，
-   * 剩下的位置留给技能牌——正好用来测"技能牌也计入本轮消耗"。
+   * 列表里 AI 牌和技能牌都不限张数，正好用来测"技能牌也计入本轮消耗"。
    * 双方都不带英雄：默认英雄会抵消对方第一张技能牌，那样测的就不是消耗口径了。
    */
   function scoreWith(cards0: CardId[], cards1: CardId[]) {
@@ -2163,9 +2110,7 @@ describe('胜负', () => {
           // 要选目标的技能牌得照客户端那样挑一个对方还没被干扰的 AI。
           // 挑不到就跳过这张牌：硬打会被引擎拒掉，而这个用例要求整局一条 COMMAND_REJECTED 都没有。
           const definition = getCard(card.cardId)
-          // 本轮已经派过 AI 的话，剩下的 AI 牌一律跳过（每轮至多一张，客户端那边它们是压暗的）。
-          if (definition.kind === 'ai' && state.players[seat].aiPlayedThisRound) continue
-          // Token 不够的牌同样跳过，理由同上。客户端那边这些牌是画成灰的、根本拖不动。
+          // Token 不够的牌跳过：硬打会被拒。客户端那边这些牌是画成灰的、根本拖不动。
           if (definition.tokenCost > state.players[seat].tokens) continue
           const target =
             definition.kind === 'skill' && definition.target === 'foe-ai'

@@ -333,13 +333,6 @@ export interface PlayerState {
    */
   spentThisRound: number
   /**
-   * 本轮派出过新 AI 牌没有，每轮推进时清零。
-   *
-   * 规则是每轮至多派出一张新 AI 牌（技能牌不限张数），这个标志就是那道闸。
-   * 场上原有的 AI 继续留场答题，不受它影响。
-   */
-  aiPlayedThisRound: boolean
-  /**
    * 本轮的 Token 上限。开局 INITIAL_TOKEN_MAX，之后每答完一题涨 TOKEN_MAX_GROWTH。
    * 右侧栏那排四芒星画的就是它：亮着的是 tokens，灰的是这一轮已经花掉的。
    */
@@ -434,9 +427,9 @@ export type Command =
   /**
    * 打出一张手牌。
    *
-   * 两道闸：**每轮至多派出一张新 AI 牌**（第二张整条被拒，技能牌不受限），
-   * 以及每张按**实际费用**扣 Token、剩的不够就整条被拒——实际费用是卡面 tokenCost
+   * 只有一道闸：每张按**实际费用**扣 Token、剩的不够就整条被拒——实际费用是卡面 tokenCost
    * 减去核电站的减免，见 engine.ts 的 effectivePlayCost。
+   * AI 牌和技能牌都不限张数，一轮里 Token 够就能接着打。
    *
    * `targetInstanceId` 只有卡牌定义标了 `target` 的技能牌要填，指的是场上单位还是手牌实例
    * 由那一档 `target` 决定（见 `SkillCard.target`）。该填不填、或者填了个不合法的目标都会被拒；

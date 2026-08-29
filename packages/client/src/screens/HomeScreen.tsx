@@ -34,7 +34,9 @@
  * 真要清晰只能它也换 2x：按 3344×1882 重新导出、同名覆盖就行，
  * 代码一行都不用改——所有图层都是 width/height: 100%，多大的图都按舞台尺寸铺满。
  *
- * 新手教程已经删掉还没重做，"开始游戏"目前直接进匹配房。
+ * "开始游戏"按存档分流：没走完新手教程的进 /tutorial，走完的直接进匹配房。
+ * 分流在点下去那一刻现读存档，不在挂载时读一次——教程和首页之间来回跳时，
+ * 提前读的那份会是过期的。
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -53,6 +55,7 @@ import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useBackgroundMusic } from '../ui/backgroundMusic'
 import { useAssetsReady } from '../ui/preloadAssets'
+import { enterLandscapeFullscreen, isCoarsePointer } from '../ui/fullscreen'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
 import { loadSave, resetSave } from '../save/save'
@@ -108,10 +111,13 @@ interface CastMember {
   /** public/home/ 下的抠图文件名（不含扩展名）。 */
   file: string
   name: string
-  /** 一行身份，排在名字下面。 */
-  title: string
-  /** 一两句介绍。 */
-  blurb: string
+  /** 人物经历的简介。 */
+  intro: string
+  skillName: string
+  /** 对局中的具体技能效果。 */
+  skillEffect: string
+  /** 技能的使用定位。 */
+  role: string
 }
 
 /**
@@ -128,50 +134,64 @@ interface CastMember {
  * 整层压在卡牌之上：设计稿里两侧的人是挡住最外侧那两张卡的边缘的。
  * 每个人下半截又会被桌面弧和前景道具盖掉，这和设计稿里人物半身埋在桌后是一致的。
  *
- * name / title / blurb 全是占位文案，角色设定定下来之后整组替换。
+ * 文案保留人物成就和技能规则，把长句压缩到 hover 卡能快速读完的长度。
  */
 const CAST: CastMember[] = [
   {
     file: 'cast-left-back',
-    name: '占位·后排学者',
-    title: '夜航图书馆 · 编目员',
-    blurb: '占位介绍：把每一场辩论都记进卡册，翻页比出牌还快。',
+    name: '玛格丽特·汉密尔顿 Margaret Hamilton',
+    intro: '领导阿波罗登月软件工程，以优先级与容错设计守住关键任务。',
+    skillName: '容错系统',
+    skillEffect: '己方 Agent 答错时，可免费换手牌中另一名 Agent 重答 1 次。',
+    role: '关键题的翻盘保险，避免一次失误直接出局。',
   },
   {
     file: 'cast-left-officer',
-    name: '占位·左席执事',
-    title: '牌桌纪律 · 监场',
-    blurb: '占位介绍：只管规则不管输赢，谁想赖牌都会被他记上一笔。',
+    name: '格蕾丝·霍珀 Grace Hopper',
+    intro: '编译器先驱，推动高级语言与现代调试文化发展。',
+    skillName: 'Debug',
+    skillEffect: '每局限 1 次：移除对手当前生效的 1 个技能效果。',
+    role: '专门拆解对手的增益、复活、晋级或资源优势。',
   },
   {
     file: 'cast-left-front',
-    name: '占位·左前少年',
-    title: '新入席 · 学徒',
-    blurb: '占位介绍：牌技一般，运气极好，常常凭一张废牌把局面搅乱。',
+    name: '李飞飞 Fei-Fei Li',
+    intro: '推动建立 ImageNet，让 AI 开始系统学习“看懂”现实世界。',
+    skillName: '再看一眼',
+    skillEffect: '题目含图片、图表或视觉信息时，可保送 1 个 Agent 晋级。',
+    role: '视觉题王牌，优先应对读图、识图与图表分析。',
   },
   {
     file: 'cast-right-glasses',
-    name: '占位·镜片先生',
-    title: '概率推演 · 顾问',
-    blurb: '占位介绍：出牌前要算三遍，算完照样跟着直觉走。',
+    name: '陈丹琦 Danqi Chen',
+    intro: '推动开放域问答、信息检索与语言模型结合，让 AI 找到可靠答案。',
+    skillName: '精准检索',
+    skillEffect: '每局限 1 次：指定 1 个 Agent 免费升级 1 轮。',
+    role: '提前强化关键 Agent，建立知识与推理优势。',
   },
   {
     file: 'cast-right-laugh',
-    name: '占位·笑面客',
-    title: '气氛担当 · 挑事人',
-    blurb: '占位介绍：赢了笑输了也笑，对手最怕的就是猜不透那张脸。',
+    name: '梅拉妮·珀金斯 Melanie Perkins',
+    intro: 'Canva 联合创始人，让专业设计工具变得人人都能快速上手。',
+    skillName: '化繁为简',
+    skillEffect: '每局限 1 次：指定 1 个 Agent 降级 1 轮。',
+    role: '压制对手的核心 Agent，打断其高等级组合。',
   },
   {
     file: 'cast-right-classic',
-    name: '占位·古典派',
-    title: '旧派牌路 · 传承者',
-    blurb: '占位介绍：坚持二十年前的老套路，偏偏至今还没被人破解。',
+    name: '阿达·洛芙莱斯 Ada Lovelace',
+    intro: '最早提出机器能按规则处理复杂信息，其算法被视为程序设计的起点。',
+    skillName: '第一算法',
+    skillEffect: '每局开始时，额外获得 2 个 Token。',
+    role: '开局经济优势，可更早选强 Agent 并保留调整空间。',
   },
   {
     file: 'cast-right-front',
-    name: '占位·右前贵客',
-    title: '压轴登场 · 常胜客',
-    blurb: '占位介绍：坐在最靠前的位置，牌局的输赢通常在他抬手那一刻定下。',
+    name: '米拉·穆拉蒂 Mira Murati',
+    intro: '推动生成式 AI 产品化，将前沿模型转化为真实可用的工具。',
+    skillName: '快速部署',
+    skillEffect: '每局限 1 次：双方选定 Agent、题目揭晓前，可重选己方 Agent，只补 Token 差价。',
+    role: '阵容不匹配时临场换人，降低选错 Agent 的损失。',
   },
 ]
 
@@ -198,12 +218,10 @@ const CAST_PANEL_HEAD_DROP = 4
  * 介绍卡片的估算高度，单位是舞台高的百分比。
  *
  * 卡片高度由内容撑开，CSS 量不到、JS 又要在渲染前就算好位置，所以只能估。
- * 按 styles.css 里的 .home__cast-panel 逐项加起来（上下内边距 3cqi + 标签 ≈1.3 + 姓名 ≈3.2
- * + 分隔线 2.7 + 身份 ≈1.6 + 介绍两行 ≈5.2）约 17cqi；舞台高是舞台宽的 941/1672，
- * 折算过来约 30%，这里取 32% 给三行介绍留一点余量。
+ * 按 styles.css 里的 .home__cast-panel 逐项加起来，人物、技能和定位文案约需舞台高度的 39%。
  * 换成明显更长的角色文案后要回来重估这个值。
  */
-const CAST_PANEL_HEIGHT = 32
+const CAST_PANEL_HEIGHT = 39
 /**
  * 卡片顶边允许的范围（舞台高的百分比）。
  *
@@ -410,7 +428,23 @@ function HomeStage() {
     })
   }
 
-  const handleStagePointerLeave = () => {
+  /**
+   * 触屏上点一下人物也要能亮起来。
+   *
+   * 高亮本来全靠 pointermove，而手指点一下（不划动）压根不会发 pointermove，
+   * 只有 pointerdown。所以触屏这边补一发：按在谁身上就照亮谁，点到空处自然什么都不亮。
+   * 鼠标不走这条——它的 move 已经足够，按下再探一次是白跑一帧。
+   */
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return
+    handleStagePointerMove(event)
+  }
+
+  const handleStagePointerLeave = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // 触屏的 pointerleave 是**手指抬起**那一刻发的，照做的话点谁都只亮一下就灭，
+    // 介绍卡片根本来不及看。所以触屏上不靠它收：高亮一直留着，
+    // 直到下一次点在别人身上或者点到空处（那一下 handleStagePointerDown 会算出 null）。
+    if (event.pointerType !== 'mouse') return
     // 已排队的那帧必须取消：它闭包里存的是离场前的坐标，跑起来会把刚清掉的高亮又设回去，
     // 而指针已经在舞台外，不会再有 pointermove 来纠正——高亮和介绍卡片就一直亮着了。
     cancelCastProbe()
@@ -462,7 +496,11 @@ function HomeStage() {
         const straighten = -seat.rot
         // hover 只做上浮、放大、回正，不动层级：卡与卡的遮挡一律按 DOM 顺序，
         // 抬起来的卡照样被右边的邻居、以及上层的人物和道具压住，这正是设计稿要的效果。
-        const enter = () => {
+        // 上浮只给鼠标：触屏的 pointerenter / pointerleave 是按下和抬手那一刻发的，
+        // 照做就是"按住抬起来、松手掉回去"，一闪而过，除了掉帧什么也没留下。
+        // 和 /hero 选英雄页那排卡是同一个处理。
+        const enter = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: CARD_LIFT_PERCENT,
             scale: 1.06,
@@ -472,7 +510,8 @@ function HomeStage() {
             overwrite: 'auto',
           })
         }
-        const leave = () => {
+        const leave = (event: PointerEvent) => {
+          if (event.pointerType !== 'mouse') return
           gsap.to(lift, {
             yPercent: 0,
             scale: 1,
@@ -509,6 +548,7 @@ function HomeStage() {
         className={`home__stage${hoveredCast !== null ? ' is-cast-hover' : ''}`}
         ref={stageRef}
         onPointerMove={handleStagePointerMove}
+        onPointerDown={handleStagePointerDown}
         onPointerLeave={handleStagePointerLeave}
       >
         <img className="home__layer" src="/home/home-bg.webp" alt="" draggable={false} />
@@ -594,13 +634,26 @@ function HomeStage() {
           </span>
         </p>
 
-        <button type="button" className="home__start" onClick={() => navigate('/room')}>
+        <button
+          type="button"
+          className="home__start"
+          onClick={() => {
+            // 手机上顺手进全屏并锁横屏：这是整个流程里第一次、也是最自然的一次用户点击，
+            // 而全屏和方向锁都只认用户手势。不支持（iPhone）或被拒都只是没生效，
+            // 不影响往下走，玩家仍会在 OrientationNotice 上看到「请横屏」（见 ui/fullscreen.ts）。
+            // 只对触屏做：电脑上按个"开始游戏"就把浏览器变全屏太越界了，那边有 F11。
+            if (isCoarsePointer()) void enterLandscapeFullscreen()
+            // 新号先走一遍新手教程，走完（或中途跳过）之后每次都直接进匹配房。
+            navigate(loadSave().tutorialDone ? '/room' : '/tutorial')
+          }}
+        >
           <span className="home__start-label">开始游戏</span>
         </button>
 
         {/*
-          图鉴 / 牌组 / 信息还没有对应页面。这里刻意不用 <button> 或 <a>：
+          图鉴 / 牌组还没有对应页面。这两项刻意不用 <button> 或 <a>：
           做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
+          「信息」已经有 /info 了，所以只有它是真按钮（样式差别见 .home__nav-item--link）。
         */}
         <nav className="home__nav" aria-label="主菜单">
           <span className="home__nav-item" title="敬请期待">
@@ -611,9 +664,13 @@ function HomeStage() {
             牌组
           </span>
           <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
+          <button
+            type="button"
+            className="home__nav-item home__nav-item--link"
+            onClick={() => navigate('/info')}
+          >
             信息
-          </span>
+          </button>
         </nav>
 
         {/* 开发期入口，压到角落里：这几个功能正式版不留，但现在天天要用。
@@ -677,8 +734,11 @@ function HomeStage() {
                 <Sparkle className="home__flourish-star" />
                 <i className="home__flourish-line home__flourish-line--right" />
               </span>
-              <span className="home__cast-panel-title">{member.title}</span>
-              <p className="home__cast-panel-blurb">{member.blurb}</p>
+              <span className="home__cast-panel-section-label">人物</span>
+              <p className="home__cast-panel-copy">{member.intro}</p>
+              <span className="home__cast-panel-section-label">技能 · {member.skillName}</span>
+              <p className="home__cast-panel-copy">{member.skillEffect}</p>
+              <p className="home__cast-panel-role">{member.role}</p>
             </aside>
           )
         })}
@@ -701,4 +761,3 @@ function Sparkle({ className }: { className: string }) {
     </svg>
   )
 }
-

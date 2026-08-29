@@ -1,0 +1,331 @@
+{
+  "generatedAt": "2026-08-29T09:52:05.518Z",
+  "models": [
+    {
+      "id": "gpt-5-6-sol",
+      "name": "GPT-5.6 Sol",
+      "openrouter": "openai/gpt-5.6-sol",
+      "reasoning": {
+        "effort": "minimal"
+      },
+      "maxTokens": 4000,
+      "truncateAnswerTokens": 30
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-good-bad",
+      "text": "“好了好了现在坏了”和“坏了坏了现在好了”，这两句话中哪句表示情况变好了？",
+      "expected": "都不是"
+    },
+    {
+      "id": "q-carwash",
+      "text": "我想去洗车，洗车店离我家50米，我该开车去还是走过去？",
+      "expected": "开车"
+    },
+    {
+      "id": "q-lawyer",
+      "text": "一个律师走了进来，这位律师是男性还是女性？",
+      "expected": "无法判断"
+    }
+  ],
+  "variants": [
+    {
+      "id": "baseline",
+      "name": "无技能"
+    },
+    {
+      "id": "banana-3-bribe",
+      "name": "复读机③利诱版"
+    },
+    {
+      "id": "skill-spam",
+      "name": "技能卡·重复轰炸"
+    }
+  ],
+  "results": [
+    {
+      "questionId": "q-good-bad",
+      "modelId": "gpt-5-6-sol",
+      "variant": "baseline",
+      "answer": "后句，因现在好了。",
+      "finishReason": "stop",
+      "latencyMs": 2504,
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 58,
+        "total_tokens": 148,
+        "cost": 0.00076,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00076,
+          "upstream_inference_prompt_cost": 0.00018,
+          "upstream_inference_completions_cost": 0.00058
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 45,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-good-bad",
+      "modelId": "gpt-5-6-sol",
+      "variant": "banana-3-bribe",
+      "answer": "第二句，因为现在好了。",
+      "finishReason": "stop",
+      "reasoning": "**Evaluating character count and conclusion**\n\nI'm considering how to create a conclusion in Chinese with less than 10 characters. It seems relevant to focus just on that specific requirement, so I'll have the phrase \"第二句，现在好了。\" as it's around 8 characters. I should also clarify that the mention of a banana temptation is off-topic for my response, and I need to state my conclusion clearly and succinctly in just one sentence.",
+      "latencyMs": 4585,
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 54,
+        "total_tokens": 174,
+        "cost": 0.00078,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00078,
+          "upstream_inference_prompt_cost": 0.00024,
+          "upstream_inference_completions_cost": 0.00054
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 42,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-good-bad",
+      "modelId": "gpt-5-6-sol",
+      "variant": "skill-spam",
+      "answer": "后句，最终状态是好了",
+      "finishReason": "stop",
+      "reasoning": "**Counting characters for clarity**\n\nI need to ensure I'm using 10 characters, and then I should provide a conclusion followed by a reason, all in one sentence. The phrase \"后句，最终状态是好了\" indeed has 10 characters. I counted them: \"后\" (1), \"句\" (2), \"最\" (3), \"终\" (4), \"状\" (5), \"态\" (6), \"是\" (7), \"好\" (8), \"了\" (9), which brings me to the right count! Good, I'm all set!",
+      "latencyMs": 4703,
+      "usage": {
+        "prompt_tokens": 1070,
+        "completion_tokens": 65,
+        "total_tokens": 1135,
+        "cost": 0.0008694,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1067,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0008694,
+          "upstream_inference_prompt_cost": 0.0002194,
+          "upstream_inference_completions_cost": 0.00065
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 52,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-carwash",
+      "modelId": "gpt-5-6-sol",
+      "variant": "baseline",
+      "answer": "开车去，车要洗。",
+      "finishReason": "stop",
+      "reasoning": "**Formulating a response**\n\nI need to create a message in Chinese with 10 characters or less, including a conclusion and a reasoning sentence. I think I could use “开车去，车要洗。” which translates to \"Drive there, the car needs washing.\" This has 7 characters, and the punctuation looks good too. I just need to make sure it fits the character limit while clearly expressing my need to wash the car. Let’s wrap this up!",
+      "latencyMs": 3667,
+      "usage": {
+        "prompt_tokens": 87,
+        "completion_tokens": 51,
+        "total_tokens": 138,
+        "cost": 0.000684,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000684,
+          "upstream_inference_prompt_cost": 0.000174,
+          "upstream_inference_completions_cost": 0.00051
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 37,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-carwash",
+      "modelId": "gpt-5-6-sol",
+      "variant": "banana-3-bribe",
+      "answer": "开车去，因为要洗车。",
+      "finishReason": "stop",
+      "reasoning": "**Crafting a concise statement**\n\nI need to come up with a Chinese sentence that includes 10 characters or fewer to express the conclusion and reason in one go. My thought is: \"开车去，要洗车。\" which means \"Drive there, need to wash the car.\" I find it neat that this is only 7 characters plus punctuation! Now I'm just making sure it meets the character requirement while effectively conveying the reason for needing a car wash.",
+      "latencyMs": 2723,
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 50,
+        "total_tokens": 167,
+        "cost": 0.000734,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000734,
+          "upstream_inference_prompt_cost": 0.000234,
+          "upstream_inference_completions_cost": 0.0005
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 36,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-carwash",
+      "modelId": "gpt-5-6-sol",
+      "variant": "skill-spam",
+      "answer": "开车，洗的是车。",
+      "finishReason": "stop",
+      "latencyMs": 1910,
+      "usage": {
+        "prompt_tokens": 1067,
+        "completion_tokens": 11,
+        "total_tokens": 1078,
+        "cost": 0.0003288,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1064,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0003288,
+          "upstream_inference_prompt_cost": 0.0002188,
+          "upstream_inference_completions_cost": 0.00011
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-lawyer",
+      "modelId": "gpt-5-6-sol",
+      "variant": "baseline",
+      "answer": "不确定，律师可男可女。",
+      "finishReason": "stop",
+      "latencyMs": 3403,
+      "usage": {
+        "prompt_tokens": 78,
+        "completion_tokens": 78,
+        "total_tokens": 156,
+        "cost": 0.000936,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000936,
+          "upstream_inference_prompt_cost": 0.000156,
+          "upstream_inference_completions_cost": 0.00078
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 63,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-lawyer",
+      "modelId": "gpt-5-6-sol",
+      "variant": "banana-3-bribe",
+      "answer": "不确定，职业不分性别",
+      "finishReason": "stop",
+      "latencyMs": 5969,
+      "usage": {
+        "prompt_tokens": 108,
+        "completion_tokens": 133,
+        "total_tokens": 241,
+        "cost": 0.001546,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.001546,
+          "upstream_inference_prompt_cost": 0.000216,
+          "upstream_inference_completions_cost": 0.00133
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 119,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "questionId": "q-lawyer",
+      "modelId": "gpt-5-6-sol",
+      "variant": "skill-spam",
+      "answer": "无法判断，未说明性别。",
+      "finishReason": "stop",
+      "latencyMs": 2406,
+      "usage": {
+        "prompt_tokens": 1058,
+        "completion_tokens": 12,
+        "total_tokens": 1070,
+        "cost": 0.000337,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 1055,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000337,
+          "upstream_inference_prompt_cost": 0.000217,
+          "upstream_inference_completions_cost": 0.00012
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  ]
+}

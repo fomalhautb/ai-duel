@@ -7,11 +7,22 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CARD_POOL, INITIAL_COLLECTION } from '@ai-duel/core'
-import { loadSave, recordWin, resetSave, saveHero } from '../src/save/save'
+import { CARD_POOL, HEROES, INITIAL_COLLECTION } from '@ai-duel/core'
+import { loadSave, markTutorialDone, recordWin, resetSave, saveHero } from '../src/save/save'
 
 /** 和 save.ts 里的 SAVE_KEY 保持一致；改版本号时这里也要跟着改。 */
-const SAVE_KEY = 'ai-duel-save-v6'
+const SAVE_KEY = 'ai-duel-save-v7'
+/** 上一个版本的 key。存档不做迁移，旧档必须整份作废（见 save.ts 文件头）。 */
+const OLD_SAVE_KEY = 'ai-duel-save-v6'
+
+/**
+ * 随便挑一位技能还没实装的英雄，用来测"存档里存着她时要当作没选过"。
+ *
+ * 不写死是哪一位：这几位迟早会接进引擎、把 comingSoon 撤掉，写死的话那天这条测试
+ * 会变成"断言一位已实装的英雄读不回来"，方向正好反了。全部实装之后取不到人，
+ * 用到它的那条测试自己跳过（见下面的 skipIf）。
+ */
+const pendingHero = Object.values(HEROES).find((hero) => hero.comingSoon === true)
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -85,7 +96,12 @@ describe('本地存档', () => {
   it('重置存档回到初始收藏，localStorage 里的记录也被清掉', () => {
     recordWin()
     const reset = resetSave()
-    expect(reset).toEqual({ ownedCards: INITIAL_COLLECTION, wins: 0, savedHero: null })
+    expect(reset).toEqual({
+      ownedCards: INITIAL_COLLECTION,
+      wins: 0,
+      savedHero: null,
+      tutorialDone: false,
+    })
     expect(localStorage.getItem(SAVE_KEY)).toBeNull()
   })
 
@@ -99,6 +115,43 @@ describe('本地存档', () => {
     expect(save.wins).toBe(before.wins)
   })
 
+  // 首页「开始游戏」照它分流：新号必须先被送进新手教程。
+  it('新号的教程标记是 false', () => {
+    expect(loadSave().tutorialDone).toBe(false)
+  })
+
+  it('教程标记写入后能读回来，收藏、胜场和英雄都不受影响', () => {
+    saveHero('grace-hopper')
+    const before = loadSave()
+    markTutorialDone()
+    const save = loadSave()
+    expect(save.tutorialDone).toBe(true)
+    expect(save.savedHero).toBe('grace-hopper')
+    expect(save.ownedCards).toEqual(before.ownedCards)
+    expect(save.wins).toBe(before.wins)
+  })
+
+  // 存档写坏或缺字段时宁可多放一次教程，也别把新手直接丢进匹配房。
+  it('教程标记不是布尔值时按「没走过」算', () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({ ownedCards: [...INITIAL_COLLECTION], wins: 0, tutorialDone: '是' }),
+    )
+    expect(loadSave().tutorialDone).toBe(false)
+  })
+
+  // 不写迁移代码：换版本号就等于旧档整份作废，读到的是一份全新的存档。
+  it('上一版 key 里的存档读不到，回落成新号', () => {
+    localStorage.setItem(
+      OLD_SAVE_KEY,
+      JSON.stringify({ ownedCards: [...CARD_POOL], wins: 9, savedHero: 'grace-hopper' }),
+    )
+    const save = loadSave()
+    expect(save.wins).toBe(0)
+    expect(save.savedHero).toBeNull()
+    expect(save.tutorialDone).toBe(false)
+  })
+
   it('存档里的英雄不在英雄表里时读回 null', () => {
     localStorage.setItem(
       SAVE_KEY,
@@ -109,5 +162,45 @@ describe('本地存档', () => {
       }),
     )
     expect(loadSave().savedHero).toBeNull()
+  })
+
+  // 校验走 Object.hasOwn 而不是 `in`，所以原型链上那些名字也算"不在英雄表里"。
+  it('存档里的英雄是 Object 原型上的名字时读回 null', () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        ownedCards: [...INITIAL_COLLECTION],
+        wins: 0,
+        savedHero: 'toString',
+      }),
+    )
+    expect(loadSave().savedHero).toBeNull()
+  })
+
+  // 选英雄界面把 comingSoon 的几位置灰禁选了，存档里要是留着这么一位（老存档，
+  // 或者某位刚被标成未实装），下次进流程就会预填一位现在选不了的英雄。
+  it.skipIf(pendingHero === undefined)('存档里的英雄技能还没实装时读回 null', () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        ownedCards: [...INITIAL_COLLECTION],
+        wins: 0,
+        savedHero: pendingHero!.id,
+      }),
+    )
+    expect(loadSave().savedHero).toBeNull()
+  })
+
+  // 反过来的一半：已实装的英雄不能被上面那条规则误伤。
+  it('存档里的英雄技能已实装时照常读回来', () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        ownedCards: [...INITIAL_COLLECTION],
+        wins: 0,
+        savedHero: 'grace-hopper',
+      }),
+    )
+    expect(loadSave().savedHero).toBe('grace-hopper')
   })
 })

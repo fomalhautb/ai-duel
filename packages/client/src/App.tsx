@@ -12,13 +12,16 @@ import { useEffect } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
-import { TouchDeviceNotice } from './ui/TouchDeviceNotice'
+import { OrientationNotice } from './ui/OrientationNotice'
 import { HomeScreen } from './screens/HomeScreen'
+import { InfoScreen } from './screens/InfoScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { TutorialScreen } from './screens/TutorialScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
+import { GenerationScreen } from './screens/GenerationScreen'
 import { SettleTestScreen } from './screens/SettleTestScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
@@ -35,10 +38,12 @@ export function App() {
 
   return (
     <MatchSessionProvider>
-      {/* 触屏设备的一次性提示，盖在所有页面之上（自己判定要不要显示）。 */}
-      <TouchDeviceNotice />
+      {/* 竖屏时盖在所有页面之上的「请横屏」提示，自己判定要不要显示。 */}
+      <OrientationNotice />
       <Switch>
         <Route path="/" component={HomeScreen} />
+        {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}
+        <Route path="/info" component={InfoScreen} />
         {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
         <Route path="/hero" component={HeroRoute} />
         {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，
@@ -46,6 +51,9 @@ export function App() {
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
+        {/* 新手教程的教学对战。自己建 driver、自己收，不进 MatchSession，也不记胜场
+            （教学局是写死结局的剧本）。组牌 / 选英雄 / 完成页是后面接的另一段。 */}
+        <Route path="/tutorial" component={TutorialScreen} />
         {/* 开发页导航，集中收录调试入口。 */}
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}
@@ -67,6 +75,9 @@ export function App() {
             省得为了调结算版式真去打完一局。和上面的 /test 分工：这里调"整局打完"的底板，
             那里调"每一轮答完"的结算层。 */}
         <Route path="/result" component={ResultDemo} />
+        {/* 预生成答题结果对照页：把离线跑好的「模型 × 题目 × 技能」结果摊成一张表，
+            用来看哪张技能卡真的把模型带偏了。数据是构建期生成的静态 JSON，不联网。 */}
+        <Route path="/generation" component={GenerationScreen} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

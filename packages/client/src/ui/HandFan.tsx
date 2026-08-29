@@ -31,8 +31,8 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
- * 「这一张打不起」是另一条线：传 tokens 之后逐张按卡面费用判，只压暗那几张，
- * 见 HandFanProps.tokens。
+ * 「这一张现在打不出去」是另一条线：传 tokens / aiPlayedThisRound 之后逐张判，只压暗那几张，
+ * 见 HandFanProps.tokens 和 HandFanProps.aiPlayedThisRound。
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
@@ -201,6 +201,18 @@ export interface HandFanProps {
    */
   tokens?: number | null
   /**
+   * 这一轮已经派出过新的 AI 牌了。
+   *
+   * 规则是每轮至多派一张新 AI（引擎那边会拒掉第二张），所以为 true 时手上**其余的 AI 牌**
+   * 一律画成打不出：和「Token 不够」同一套压暗，按一下弹「本轮已派出 AI 牌」。
+   * 技能牌完全不受影响，一轮想打几张打几张。
+   *
+   * 和 tokens 各判各的，两条可以同时成立（一张打不起的 AI，本轮又已经派过人）。
+   * 那时弹的是这一句，和引擎的校验顺序一致：这条闸和钱多钱少无关，
+   * 说成"Token 不够"会让玩家以为攒够钱就能再派一个。
+   */
+  aiPlayedThisRound?: boolean
+  /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
    * 这张牌**留在扇形里**，只是抬高一点、单独亮着，同一时刻整排其余的牌一起压暗
@@ -365,6 +377,8 @@ const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
 }
 /** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
 const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
+/** 本轮已经派过新 AI，手上其余 AI 牌被点时弹的小字。 */
+const AI_PLAYED_TIP_TEXT = '本轮已派出 AI 牌'
 
 /** hover 引起的补间要更快，重排则用统一的慢一点的节奏。 */
 type LayoutMode = 'hover' | 'reflow'
@@ -475,6 +489,7 @@ export function HandFan({
   onPlay,
   disabled = false,
   tokens = null,
+  aiPlayedThisRound = false,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -492,19 +507,25 @@ export function HandFan({
    */
   const effectiveDisabled = disabled || lockReason !== null
   /**
-   * 这一轮买不起的那几张牌的 id。
+   * 这一刻打不出去的那几张牌：id → 点它时该弹的那句提示。
    *
-   * 用 Set 而不是每处现算：canDrag 和渲染两条路都要问同一个问题，
-   * 而 tokens 一变（每出一张牌都会变）整排都要重判一次。
+   * 两条判据合在一张表里（本轮已派过 AI、Token 不够），因为 canDrag 和渲染两条路
+   * 问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
+   * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
+   *
+   * 顺序和引擎的校验一致：先看"本轮已派出 AI 牌"，再看费用（见 aiPlayedThisRound）。
    */
-  const unaffordable = useMemo(() => {
-    const ids = new Set<string>()
-    if (tokens === null) return ids
+  const blocked = useMemo(() => {
+    const tips = new Map<string, string>()
     for (const card of cards) {
-      if (card.tokenCost !== undefined && card.tokenCost > tokens) ids.add(card.id)
+      if (aiPlayedThisRound && card.kind === 'ai') {
+        tips.set(card.id, AI_PLAYED_TIP_TEXT)
+      } else if (tokens !== null && card.tokenCost !== undefined && card.tokenCost > tokens) {
+        tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
+      }
     }
-    return ids
-  }, [cards, tokens])
+    return tips
+  }, [cards, tokens, aiPlayedThisRound])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -1222,12 +1243,13 @@ export function HandFan({
     // 问号热区上按下不算抓牌，它只管翻面。
     ignoreSelector: '.hand-fan__help',
     // 两道各自的闸：已经打出、正在等父组件受理的牌不能再抓（防重复出牌），
-    // 这一轮买不起的牌也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
+    // 这一刻打不出去的牌（见 blocked）也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
     // canDrag 挡掉的按下不会走 onLockedPress（见 UseCardDragOptions 那边的说明）。
     canDrag: (id) => {
       if (playedRef.current.has(id)) return false
-      if (unaffordable.has(id)) {
-        refusePlay(id, UNAFFORDABLE_TIP_TEXT)
+      const tip = blocked.get(id)
+      if (tip !== undefined) {
+        refusePlay(id, tip)
         return false
       }
       return true
@@ -1396,10 +1418,11 @@ export function HandFan({
             key={card.id}
             className="hand-fan__slot"
             data-flip-id={card.id}
-            /* 这一轮的 Token 买不起这张牌：只画成压暗 + 禁止光标，位置和层级一概不动
+            /* 这张牌现在打不出去（Token 不够，或者本轮已经派过 AI 了）：
+               只画成压暗 + 禁止光标，位置和层级一概不动
                （CSS 里只写 filter 和 cursor，都是 GSAP 碰不到的属性，见 [data-locked] 那段）。
                拖不动点不出那件事归上面 canDrag 管，不写在 CSS 里。 */
-            data-unaffordable={unaffordable.has(card.id) ? 'true' : undefined}
+            data-unplayable={blocked.has(card.id) ? 'true' : undefined}
             ref={(el) => {
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)

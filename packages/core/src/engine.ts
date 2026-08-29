@@ -22,6 +22,7 @@ import type {
   PlayerId,
   PlayerState,
   Question,
+  RoundVerdict,
 } from './types'
 
 /** 开局手牌数。黑客松阶段不做先后手补偿，双方一样。 */
@@ -39,18 +40,31 @@ export const ROUND_DRAW_SIZE = 2
 /**
  * 第 1 轮的 Token 上限。
  *
- * 4 点刚好买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
+ * 5 点买得起最便宜的两三张 AI 牌（费用区间是 1~7，见 aiModels.ts），
  * 又买不起 ChatGPT 5.6 Sol 那种 7 点的顶配，开局就得做取舍。
+ * 每轮至多派一张新 AI（见 aiPlayedThisRound），所以剩下的额度是留给技能牌的，
+ * 而且省着花本身有意义——同对同错时比的就是本轮消耗（见 submitAnswers）。
  */
-export const INITIAL_TOKEN_MAX = 4
+export const INITIAL_TOKEN_MAX = 5
 
 /**
  * 每答完一题，Token 上限涨这么多。
  *
  * 上限只涨不减，所以第 n 轮的上限恒为 INITIAL_TOKEN_MAX + (n - 1) × 这个数；
  * 右侧栏那排星星的格子数就是它算出来的，超过 8 格会自动折成两列。
+ * 涨得慢（每轮 1 点）是有意的：一局最短 3 轮就结束，涨太快的话最后一轮想买什么买什么，
+ * 「省 Token」这条决胜线就没有分量了。
  */
-export const TOKEN_MAX_GROWTH = 2
+export const TOKEN_MAX_GROWTH = 1
+
+/**
+ * 先拿到这么多分就赢。
+ *
+ * 但必须**独自**达到：双方同时到线（同对同错且消耗相同，各 +1）时不判胜负，继续加赛，
+ * 直到某一轮结束后一方分数单独领先（见 submitAnswers）。
+ * 题库出完仍未分出的兜底也在那里：总分高者胜，相同才是 'draw'。
+ */
+export const WIN_TARGET = 3
 
 /** 没指定英雄时用谁。留一个兜底是为了让「不关心英雄」的调用方（大多是测试）能少写一个字段。 */
 const DEFAULT_HERO: HeroId = 'grace-hopper'
@@ -73,11 +87,31 @@ export interface GameSetup {
   seed: number
   players: [PlayerSetup, PlayerSetup]
   /**
-   * 指定本局的题序，不填就把整个题库洗一遍。
-   * 留这个口子是给测试和调试用的：只塞一两道题，一两轮就能打到 GAME_OVER，
+   * 指定本局的题序，不填就把整个题库洗一遍（noShuffle 时按题库原序）。
+   * 留这个口子是给测试、调试和教程用的：只塞一两道题，一两轮就能打到 GAME_OVER，
    * 不必为了看结算界面把整局走完。传进来的顺序原样使用，不再洗。
    */
   questions?: Question[]
+  /**
+   * 指定第一轮先手，跳过抛硬币。之后每轮照常交换。
+   *
+   * 教程用：先后手是教学脚本的一部分（第 1 轮玩家先手学出牌、第 2 轮对手先手好让干扰技能
+   * 有目标），不能靠掷硬币碰运气。
+   * 填了就**不消耗那次随机数**（整个跳过，不是掷完丢掉），所以同一个 seed 下改先手，
+   * 后面洗出来的牌堆和题序一字不差——排剧本时定牌序和定先手互不牵连。
+   * 反过来，指定先手和不指定先手在同一个 seed 上洗出来的牌不一样，那是两种玩法，本就不必对齐。
+   * `GAME_STARTED` 事件照常带 firstPlayer，客户端的抛硬币过场不用为它改。
+   */
+  firstPlayer?: PlayerId
+  /**
+   * 双方牌组和题库都按传入顺序原样使用，不洗。
+   *
+   * 教程用：起手 5 张和每轮抽到的牌要完全由教学牌组的排列决定。
+   * **抽牌是从数组末尾取的**（牌堆顶在末尾，见 drawCards），所以排剧本时要把最先抽到的牌
+   * 放在牌组数组的**最后**——想让起手是 A、B、C、D、E，牌组就得写成 `[..., E, D, C, B, A]`。
+   * 题库相反，是从头往后按轮次取的（questions[round - 1]）。
+   */
+  noShuffle?: boolean
 }
 
 /**
@@ -100,11 +134,14 @@ export function createGame(setup: GameSetup): ExecuteResult {
       id,
       name: config.name,
       score: 0,
-      // 开局就是满的：第 1 轮双方各 4 点，之后每轮补满并涨 2（见 submitAnswers 那段）。
+      // 开局就是满的：第 1 轮双方各 INITIAL_TOKEN_MAX 点，
+      // 之后每轮补满并涨 TOKEN_MAX_GROWTH（见 submitAnswers 那段）。
       tokens: INITIAL_TOKEN_MAX,
       tokenMax: INITIAL_TOKEN_MAX,
+      spentThisRound: 0,
+      aiPlayedThisRound: false,
       hand: [],
-      deck: shuffle(deck, rng),
+      deck: setup.noShuffle === true ? deck : shuffle(deck, rng),
       board: [],
       discard: [],
       // 用 === undefined 而不是 ??：null 是"这一方明确不带英雄"，不能被默认值盖掉。
@@ -117,14 +154,23 @@ export function createGame(setup: GameSetup): ExecuteResult {
   // 抛硬币定第一轮先手，之后每轮交换，所以只掷这一次。
   // 放在洗牌之前是有意的：洗牌会按牌组长度推进 rng，先手要是排在后面，
   // 换一副牌组或换一份题库就会掷出另一个结果，"同一个 seed 谁先手"这件事就不好复盘了。
-  const firstPlayer: PlayerId = uniformInt(rng, 0, 1) === 0 ? 0 : 1
+  // setup 指定了先手就整个跳过这一掷（?? 的右边根本不求值），不消耗那次随机数。
+  // 于是同一个 seed 下改先手不会连带把牌堆和题序也洗成另一副，
+  // 教程排剧本时"先定牌序、再单独安排谁先手"这两件事才互不牵连。
+  // 代价是指定先手和不指定先手在同一个 seed 上洗出来的牌不一样——那是两种玩法，本就不必对齐。
+  const firstPlayer: PlayerId =
+    setup.firstPlayer ?? (uniformInt(rng, 0, 1) === 0 ? 0 : 1)
   // 先建好两个玩家再组装 state：makePlayer 会推进 seq，
   // 写在对象字面量里的话 seq 那一行会按书写顺序取到发牌前的旧值。
   const players: [PlayerState, PlayerState] = [
     makePlayer(0, setup.players[0]),
     makePlayer(1, setup.players[1]),
   ]
-  const questions = setup.questions ? setup.questions.slice() : shuffle(QUESTION_POOL, rng)
+  const questions = setup.questions
+    ? setup.questions.slice()
+    : setup.noShuffle === true
+      ? QUESTION_POOL.slice()
+      : shuffle(QUESTION_POOL, rng)
 
   const state: GameState = {
     round: 1,
@@ -185,7 +231,8 @@ export function execute(state: GameState, command: Command): ExecuteResult {
 /**
  * 打出一张手牌。
  *
- * 一轮内能打几张由剩余 Token 决定：每张牌按卡面 tokenCost 扣，扣不起就整条拒绝。
+ * 两道闸：**每轮至多派出一张新 AI 牌**，以及每张牌按卡面 tokenCost 扣 Token、扣不起就整条拒绝
+ *（技能牌只受后一道限制，一轮想打几张打几张）。
  * 另外只有卡面标了 `target` 的技能牌要指定目标。
  */
 function playCard(
@@ -201,6 +248,15 @@ function playCard(
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
+
+  // 每轮至多派出一张新 AI 牌。这道闸排在费用之前：它和 Token 剩多少无关，
+  // 玩家该看到的提示是"这一轮不能再派人了"，而不是"钱不够"。
+  // 调试指令走的是同一个 playCard，所以 DEBUG_PLAY_CARD 同样受这一条约束——
+  // 调试只豁免"轮到谁出牌"那一条，摆出来的局面仍然必须是引擎认可的合法局面
+  //（见 docs/architecture.md 3.6）。
+  if (card.kind === 'ai' && player.aiPlayedThisRound) {
+    return reject(state, '本轮已派出 AI 牌，每轮至多一张')
+  }
 
   // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
   // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
@@ -223,9 +279,13 @@ function playCard(
   player.hand.splice(handIndex, 1)
   // 扣费和抽走手牌绑在一起：上面所有会拒绝的分支都已经走完，到这里这张牌必定打得出去。
   player.tokens -= card.tokenCost
+  // 本轮消耗照记，技能牌待会儿被英雄技能抵消也不退——Token 是真花出去的，作废的只是效果。
+  // 同对同错时比的就是这个数（见 submitAnswers），所以这一笔的口径必须是"付出去了多少"。
+  player.spentThisRound += card.tokenCost
 
   const events: GameEvent[] = []
   if (card.kind === 'ai') {
+    player.aiPlayedThisRound = true
     // AI 牌进场后跨轮留在场上，答错才罚下，所以实例 id 沿用手牌那一份，
     // 罚下时才能原样塞回弃牌堆。
     const ai: AiInstance = {
@@ -318,11 +378,15 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   }
 
   const events: GameEvent[] = []
+  // 「己方本轮答对」= 己方场上至少一个 AI 答对。
+  // 初值 false 顺带覆盖了"场上一个 AI 都没有"的一方：它一条结果都没有，自然算没答对。
+  const correct: [boolean, boolean] = [false, false]
   for (const result of results) {
     // 上面刚校验过 results 和场上一一对应，所以这里必定找得到人。
     const owner = next.players.find((p) =>
       p.board.some((a) => a.instanceId === result.instanceId),
     )!
+    if (result.correct) correct[owner.id] = true
     const index = owner.board.findIndex((a) => a.instanceId === result.instanceId)
     const ai = owner.board[index]!
     events.push({
@@ -343,16 +407,38 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
     }
   }
 
-  // 计分：罚下之后各自数一遍还站着几个 AI，就是本轮拿多少分。
-  // 场上一个 AI 都没有也照样走完剩下的轮次，只是这轮拿 0 分。
-  const gains: [number, number] = [next.players[0].board.length, next.players[1].board.length]
+  // 计分：每轮就 1 分，按三档判（见 RoundVerdict）。
+  // 场上一个 AI 都没有的一方算没答对，但对局照常走下去。
+  const spent: [number, number] = [
+    next.players[0].spentThisRound,
+    next.players[1].spentThisRound,
+  ]
+  let gains: [number, number]
+  let verdict: RoundVerdict
+  if (correct[0] !== correct[1]) {
+    verdict = 'sole-correct'
+    gains = correct[0] ? [1, 0] : [0, 1]
+  } else if (spent[0] !== spent[1]) {
+    // 双方同对或同错，改比本轮为新牌花掉的 Token，严格少的一方拿这一分。
+    // 场上留着的老 AI 这一轮不重复付费，所以"什么都不打"是消耗 0 的合法打法。
+    verdict = 'fewer-tokens'
+    gains = spent[0] < spent[1] ? [1, 0] : [0, 1]
+  } else {
+    // 连消耗都一样：不设赢家，双方各拿 1 分（分差不变，所以才可能同时到线要加赛）。
+    verdict = 'equal-tokens'
+    gains = [1, 1]
+  }
   next.players[0].score += gains[0]
   next.players[1].score += gains[1]
   const scores: [number, number] = [next.players[0].score, next.players[1].score]
-  events.push({ type: 'ROUND_SCORED', gains, scores })
+  events.push({ type: 'ROUND_SCORED', gains, scores, correct, spent, verdict })
 
-  if (next.round >= next.totalRounds) {
+  // 收场有两条路：有人**单独**到 WIN_TARGET 分（题库还剩题也当场结束），
+  // 或者题库出完了保底判一次。双方同时到线且分数相同不算结束，继续加赛下一轮。
+  const decided = (scores[0] >= WIN_TARGET || scores[1] >= WIN_TARGET) && scores[0] !== scores[1]
+  if (decided || next.round >= next.totalRounds) {
     next.phase = 'finished'
+    // 'draw' 只可能来自"题库出完还同分"这一路：decided 那一路已经要求分数不相等。
     next.winner = scores[0] === scores[1] ? 'draw' : scores[0] > scores[1] ? 0 : 1
     events.push({ type: 'GAME_OVER', winner: next.winner })
     return { state: next, events }
@@ -364,9 +450,12 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
   next.phase = 'play'
   // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
   // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉。
+  // 本轮消耗和"派过 AI 了"两个标志一起清零，新一轮从头算。
   for (const player of next.players) {
     player.tokenMax += TOKEN_MAX_GROWTH
     player.tokens = player.tokenMax
+    player.spentThisRound = 0
+    player.aiPlayedThisRound = false
     drawCards(player, ROUND_DRAW_SIZE, events)
   }
   announceRound(next, events)
@@ -375,11 +464,15 @@ function submitAnswers(state: GameState, results: AnswerResult[]): ExecuteResult
 
 /** 宣告新一轮开始并让先手行动。开局和每轮换手都走这里，保证两处事件序一致。 */
 function announceRound(state: GameState, events: GameEvent[]): void {
+  const question = currentQuestion(state)
   events.push({
     type: 'ROUND_STARTED',
     round: state.round,
     firstPlayer: state.firstPlayer,
-    category: currentQuestion(state).category,
+    category: question.category,
+    // 关键词拷一份出来：事件会被 JSON 深拷贝、联机时还要原样转发，
+    // 直接引用题库那个数组的话，改事件等于改题库。
+    keywords: question.keywords.slice(),
   })
   events.push({ type: 'PLAY_TURN_STARTED', player: state.firstPlayer })
 }

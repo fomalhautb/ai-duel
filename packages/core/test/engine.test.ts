@@ -12,6 +12,7 @@ import {
   STARTER_DECK,
   STARTING_HAND_SIZE,
   TOKEN_MAX_GROWTH,
+  WIN_TARGET,
 } from '../src/index'
 import type {
   AnswerResult,
@@ -41,6 +42,10 @@ interface NewGameOptions {
   /** 不填就是默认英雄（格蕾丝·霍珀）；传 null 是这一方不带英雄。 */
   hero0?: HeroId | null
   hero1?: HeroId | null
+  /** 直接指定第一轮先手，不掷硬币（比挑种子好使，见 GameSetup.firstPlayer）。 */
+  firstPlayer?: PlayerId
+  /** 牌组和题库都按传入顺序原样使用，不洗（见 GameSetup.noShuffle）。 */
+  noShuffle?: boolean
 }
 
 /**
@@ -58,6 +63,9 @@ function newGame(options: NewGameOptions = {}) {
       { name: '乙', deck: [...(options.deck1 ?? STARTER_DECK)], ...heroOf(options.hero1) },
     ],
     questions: options.questions,
+    // 这两项都是可选覆盖，不传就一个字段都不出现（exactOptionalPropertyTypes 打开着）。
+    ...(options.firstPlayer === undefined ? {} : { firstPlayer: options.firstPlayer }),
+    ...(options.noShuffle === undefined ? {} : { noShuffle: options.noShuffle }),
   })
 }
 
@@ -109,6 +117,20 @@ function toQuiz(state: GameState) {
   ]).state
 }
 
+/**
+ * 从出牌阶段一路推到下一轮的出牌阶段：双方结束出牌 → 场上所有 AI 全答对 → 结算。
+ * 给"要摆一个跨轮局面"的用例用（每轮至多派一张新 AI，多个 AI 只能分几轮摆出来）。
+ */
+function nextRound(state: GameState) {
+  const quiz = toQuiz(state)
+  return execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+}
+
+/** 本轮的 ROUND_SCORED，用来一次断言完得分和判定依据。 */
+function scoredOf(events: GameEvent[]) {
+  return events.find((e) => e.type === 'ROUND_SCORED')
+}
+
 describe('开局', () => {
   it('抛硬币定先手、各发 5 张、宣告第 1 轮', () => {
     const { state, events } = newGame()
@@ -134,8 +156,17 @@ describe('开局', () => {
       round: 1,
       firstPlayer: 0,
       category: state.questions[0]!.category,
+      // 关键词和类别一样，出牌阶段就公开：玩家要靠它决定派谁上场。
+      keywords: state.questions[0]!.keywords,
     })
     expect(events.at(-1)).toEqual({ type: 'PLAY_TURN_STARTED', player: 0 })
+  })
+
+  it('ROUND_STARTED 带的关键词是题目自己那一份的拷贝，改事件改不到题库', () => {
+    const { state, events } = newGame()
+    const started = events.find((e) => e.type === 'ROUND_STARTED')!
+    expect(started.keywords).toEqual(state.questions[0]!.keywords)
+    expect(started.keywords).not.toBe(state.questions[0]!.keywords)
   })
 
   it('同一个种子洗出同一副牌堆、同一份题序、同一个先手', () => {
@@ -160,34 +191,117 @@ describe('开局', () => {
   })
 })
 
+describe('开局的两个覆盖项（教程要用）', () => {
+  it('指定先手就不掷硬币，GAME_STARTED 照常带 firstPlayer', () => {
+    for (const seat of [0, 1] as const) {
+      const { state, events } = newGame({ firstPlayer: seat })
+      expect(state.firstPlayer).toBe(seat)
+      expect(state.activePlayer).toBe(seat)
+      expect(events[0]).toEqual({ type: 'GAME_STARTED', firstPlayer: seat })
+    }
+  })
+
+  it('指定先手不消耗随机数：换个先手不会连带把牌堆和题序也洗成另一副', () => {
+    // 抛硬币是整个跳过的（不是掷完丢掉），所以这一掷不再推进 rng：
+    // 同一个种子下改先手，后面洗出来的牌堆和题序一字不差。
+    // 教程排剧本时才能"先定牌序，再单独安排谁先手"，两件事互不牵连。
+    const zero = newGame({ firstPlayer: 0 }).state
+    const one = newGame({ firstPlayer: 1 }).state
+    expect([zero.firstPlayer, one.firstPlayer]).toEqual([0, 1])
+    expect(one.questions.map((q) => q.id)).toEqual(zero.questions.map((q) => q.id))
+    for (const seat of [0, 1] as const) {
+      expect(one.players[seat].deck.map((c) => c.cardId)).toEqual(
+        zero.players[seat].deck.map((c) => c.cardId),
+      )
+    }
+  })
+
+  it('noShuffle 时牌组和题库都按传入顺序原样使用，抽牌从末尾取', () => {
+    // 牌堆顶在数组末尾，所以起手 5 张就是牌组倒过来的最后 5 张。
+    const deck: CardId[] = [
+      ...deckOf('gpt-2', 5),
+      'chatgpt-5-6-sol',
+      'claude-5-sonnet',
+      'deepseek-r1',
+      'gpt-3-5',
+      'gpt-4o',
+    ]
+    const { state } = newGame({ deck0: deck, deck1: deck, noShuffle: true })
+    expect(state.players[0].hand.map((c) => c.cardId)).toEqual([
+      'gpt-4o',
+      'gpt-3-5',
+      'deepseek-r1',
+      'claude-5-sonnet',
+      'chatgpt-5-6-sol',
+    ])
+    // 剩下的牌堆保持原序，末尾仍然是下一张要抽的。
+    expect(state.players[0].deck.map((c) => c.cardId)).toEqual(deckOf('gpt-2', 5))
+    // 题库按原序逐轮取，questions[0] 就是题库第一道。
+    expect(state.questions.map((q) => q.id)).toEqual(QUESTION_POOL.map((q) => q.id))
+  })
+
+  it('noShuffle 下换种子也是同一副牌：随机彻底不参与', () => {
+    const a = newGame({ noShuffle: true, firstPlayer: 0, seed: 1 }).state
+    const b = newGame({ noShuffle: true, firstPlayer: 0, seed: 12345 }).state
+    expect(a.players[0].hand.map((c) => c.cardId)).toEqual(b.players[0].hand.map((c) => c.cardId))
+    expect(a.questions.map((q) => q.id)).toEqual(b.questions.map((q) => q.id))
+  })
+})
+
 describe('出牌阶段', () => {
-  it('Token 够就想出几张出几张：AI 牌上场，技能牌进弃牌堆', () => {
-    // 两种牌都只要 1 点，第 1 轮的 4 点正好买得下起手 5 张里的 4 张。
-    const game = newGame({ deck0: [...deckOf('gpt-2', 6), ...deckOf('placeholder-skill', 6)] })
-    const affordable = game.state.players[0].hand.slice(0, INITIAL_TOKEN_MAX)
+  it('技能牌 Token 够就想打几张打几张，AI 牌上场、技能牌进弃牌堆', () => {
+    // 不洗牌，把起手固定成「1 张 AI + 4 张技能」：两种牌都只要 1 点，
+    // 第 1 轮的 5 点正好全买下（牌堆顶在数组末尾，见 GameSetup.noShuffle）。
+    const game = newGame({
+      noShuffle: true,
+      deck0: [...deckOf('gpt-2', 7), ...deckOf('placeholder-skill', 4), 'gpt-2'],
+    })
+    expect(game.state.players[0].hand.map((c) => c.cardId)).toEqual([
+      'gpt-2',
+      'placeholder-skill',
+      'placeholder-skill',
+      'placeholder-skill',
+      'placeholder-skill',
+    ])
     const result = run(
       game.state,
-      affordable.map((card) => ({ type: 'PLAY_CARD', player: 0, instanceId: card.instanceId })),
+      game.state.players[0].hand.map((card) => ({
+        type: 'PLAY_CARD',
+        player: 0,
+        instanceId: card.instanceId,
+      })),
     )
 
     const player = result.state.players[0]
-    expect(player.hand).toHaveLength(STARTING_HAND_SIZE - INITIAL_TOKEN_MAX)
-    expect(player.board.length + player.discard.length).toBe(INITIAL_TOKEN_MAX)
+    expect(player.hand).toHaveLength(0)
+    expect(player.tokens).toBe(0)
+    expect(player.spentThisRound).toBe(INITIAL_TOKEN_MAX)
+    expect(player.board.map((a) => a.cardId)).toEqual(['gpt-2'])
+    expect(player.board.every((a) => a.owner === 0)).toBe(true)
     // 出牌不推进阶段，出完还是自己在出。
     expect(result.state.activePlayer).toBe(0)
     expect(result.state.phase).toBe('play')
     expect(result.events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
 
-    const deployed = result.events.filter((e) => e.type === 'AI_DEPLOYED')
-    expect(deployed).toHaveLength(player.board.length)
-    expect(player.board.every((a) => a.owner === 0)).toBe(true)
+    expect(result.events.filter((e) => e.type === 'AI_DEPLOYED')).toHaveLength(1)
     const skills = result.events.filter((e) => e.type === 'SKILL_PLAYED')
-    expect(skills).toHaveLength(player.discard.length)
+    expect(skills).toHaveLength(4)
     expect(player.discard.every((c) => c.cardId === 'placeholder-skill')).toBe(true)
     // 每条事件都报出了那张牌自己的实例 id，客户端才能在手牌里把它揪出来播动画。
     expect(skills.map((e) => e.instanceId).sort()).toEqual(
       player.discard.map((c) => c.instanceId).sort(),
     )
+  })
+
+  it('起手就是 STARTING_HAND_SIZE 张，出一张少一张', () => {
+    const game = newGame({ deck0: deckOf('gpt-2') })
+    expect(game.state.players[0].hand).toHaveLength(STARTING_HAND_SIZE)
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: game.state.players[0].hand[0]!.instanceId,
+    })
+    expect(result.state.players[0].hand).toHaveLength(STARTING_HAND_SIZE - 1)
   })
 
   it('AI 牌上场后沿用手牌那一份实例 id', () => {
@@ -231,6 +345,108 @@ describe('出牌阶段', () => {
   })
 })
 
+describe('每轮至多一张新 AI 牌', () => {
+  const REJECTED = { type: 'COMMAND_REJECTED', reason: '本轮已派出 AI 牌，每轮至多一张' }
+
+  it('第二张 AI 牌被拒，技能牌不受影响', () => {
+    // GPT-2 只要 1 点，第 1 轮的 5 点绰绰有余——被拒的原因只能是这条新规则。
+    // 牌堆顶在数组末尾，所以技能牌摆在倒数第 5 张才会落进起手（见 GameSetup.noShuffle）。
+    const game = newGame({
+      deck0: [...deckOf('gpt-2', 7), 'placeholder-skill', ...deckOf('gpt-2', 4)],
+      noShuffle: true,
+    })
+    const [first, second] = game.state.players[0].hand
+    const played = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: first!.instanceId,
+    }).state
+    expect(played.players[0].aiPlayedThisRound).toBe(true)
+
+    const result = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId })
+    expect(result.events).toEqual([REJECTED])
+    expect(result.state).toBe(played)
+
+    // 手上那张技能牌照常打得出：这条闸只拦 AI 牌。
+    const skill = handCard(played, 0, 'placeholder-skill')
+    const withSkill = execute(played, { type: 'PLAY_CARD', player: 0, instanceId: skill.instanceId })
+    expect(withSkill.events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
+  })
+
+  it('这道闸排在费用之前：打不起的第二张 AI 报的也是"本轮已派出"', () => {
+    // 先用 4 点打掉 GPT-4o，只剩 1 点，再打一张同样 4 点的——两条规则都够拒它。
+    const game = newGame({ deck0: deckOf('gpt-4o'), noShuffle: true })
+    const [first, second] = game.state.players[0].hand
+    const played = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: first!.instanceId,
+    }).state
+    expect(played.players[0].tokens).toBe(INITIAL_TOKEN_MAX - 4)
+
+    // 玩家该看到的是"这一轮不能再派人了"，而不是"钱不够"——后者会让人以为攒够钱就行。
+    expect(
+      execute(played, { type: 'PLAY_CARD', player: 0, instanceId: second!.instanceId }).events,
+    ).toEqual([REJECTED])
+  })
+
+  it('下一轮解锁，标志跟着 Token 一起清零', () => {
+    const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
+    const played = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: game.state.players[0].hand[0]!.instanceId,
+    }).state
+    const round2 = nextRound(played)
+
+    expect(round2.round).toBe(2)
+    expect(round2.players.map((p) => p.aiPlayedThisRound)).toEqual([false, false])
+    // 上一轮那张还在场上，新的一张照样派得出（场上从此有两个 AI）。
+    const again = execute(round2, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 0,
+      instanceId: handCard(round2, 0, 'gpt-2').instanceId,
+    })
+    expect(again.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
+    expect(board(again.state, 0)).toHaveLength(2)
+  })
+
+  it('DEBUG_PLAY_CARD 同样受这一条约束（调试只豁免"轮到谁出牌"）', () => {
+    const game = newGame({ deck1: deckOf('gpt-2'), noShuffle: true })
+    const [first, second] = game.state.players[1].hand
+    const played = execute(game.state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: first!.instanceId,
+    }).state
+
+    const result = execute(played, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: second!.instanceId,
+    })
+    expect(result.events).toEqual([REJECTED])
+    expect(result.state).toBe(played)
+  })
+
+  it('两位玩家各自算各自的：一方派过不挡另一方', () => {
+    const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
+    const mine = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: game.state.players[0].hand[0]!.instanceId,
+    }).state
+    expect(mine.players.map((p) => p.aiPlayedThisRound)).toEqual([true, false])
+
+    const theirs = execute(mine, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: mine.players[1].hand[0]!.instanceId,
+    })
+    expect(theirs.events.map((e) => e.type)).toEqual(['AI_DEPLOYED'])
+  })
+})
+
 describe('要选目标的技能牌', () => {
   /**
    * 摆一个「甲满手必须回答、乙场上两个 AI」的出牌阶段局面。
@@ -241,21 +457,29 @@ describe('要选目标的技能牌', () => {
    * 抵消和目标撞在一起的情况单独有一节（见下面「英雄抵消 × 要选目标的技能牌」）。
    */
   function foeHasAis() {
+    // 每轮至多派一张新 AI，所以两个 AI 只能分两轮摆：
+    // 第 1 轮乙先手派一张（答对留场），第 2 轮换甲先手，再给乙补上第二张。
+    // 这样局面回到"轮到甲出牌、对面站着两个 AI"，正是客户端里选目标的那一刻。
     const game = newGame({
+      firstPlayer: 1,
       deck0: deckOf('skill-must-answer'),
-      // 乙用 1 点的 GPT-2 摆场：两个 AI 只花 2 点，第 1 轮的 4 点还剩得下一张
-      // 「必须回答」（2 点），下面那条"替对方打出"的用例才有额度可用。
+      // 乙用 1 点的 GPT-2 摆场，第 2 轮的 6 点额度基本没动，
+      // 下面那条"替对方打出"的用例才有钱再打一张「必须回答」（2 点）。
       deck1: deckOf('gpt-2'),
       hero0: null,
       hero1: null,
     })
-    const theirs = game.state.players[1].hand.slice(0, 2)
-    return run(
-      game.state,
-      theirs.map(
-        (card): Command => ({ type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId }),
-      ),
-    ).state
+    const first = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 1,
+      instanceId: handCard(game.state, 1, 'gpt-2').instanceId,
+    }).state
+    const round2 = nextRound(first)
+    return execute(round2, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: handCard(round2, 1, 'gpt-2').instanceId,
+    }).state
   }
 
   it('不带目标时被拒', () => {
@@ -412,18 +636,24 @@ describe('英雄抵消 × 要选目标的技能牌', () => {
    * 甲每打一张技能牌，乙的 Debug 就会抵消本局第一张。
    */
   function foeWithHero() {
+    // 摆法同上一节的 foeHasAis：两个 AI 分两轮上场（每轮至多一张新 AI）。
     const game = newGame({
+      firstPlayer: 1,
       deck0: deckOf('skill-must-answer'),
       deck1: deckOf('gpt-3-5'),
       hero0: null,
     })
-    const theirs = game.state.players[1].hand.slice(0, 2)
-    return run(
-      game.state,
-      theirs.map(
-        (card): Command => ({ type: 'DEBUG_PLAY_CARD', player: 1, instanceId: card.instanceId }),
-      ),
-    ).state
+    const first = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 1,
+      instanceId: handCard(game.state, 1, 'gpt-3-5').instanceId,
+    }).state
+    const round2 = nextRound(first)
+    return execute(round2, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: handCard(round2, 1, 'gpt-3-5').instanceId,
+    }).state
   }
 
   it('被抵消的干扰技能不留下 interfered 标记，那个 AI 之后还能被选中', () => {
@@ -499,7 +729,7 @@ describe('Token', () => {
   })
 
   it('剩余 Token 不够时被拒，状态原样返回', () => {
-    // ChatGPT 5.6 Sol 要 7 点，第 1 轮只有 4 点，怎么都打不出。
+    // ChatGPT 5.6 Sol 要 7 点，第 1 轮只有 5 点，怎么都打不出。
     const game = newGame({ deck0: deckOf('chatgpt-5-6-sol') })
     const card = handCard(game.state, 0, 'chatgpt-5-6-sol')
     const result = execute(game.state, {
@@ -509,7 +739,10 @@ describe('Token', () => {
     })
 
     expect(result.events).toEqual([
-      { type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 7 点，只剩 4 点' },
+      {
+        type: 'COMMAND_REJECTED',
+        reason: `Token 不够：这张牌要 7 点，只剩 ${INITIAL_TOKEN_MAX} 点`,
+      },
     ])
     expect(result.state).toBe(game.state)
   })
@@ -517,39 +750,29 @@ describe('Token', () => {
   it('费用不够的技能牌连目标都不用挑就被拒', () => {
     // 校验顺序：费用在选目标之前，不然玩家会挑完目标才被告知打不起。
     const game = newGame({ deck0: deckOf('skill-must-answer'), deck1: deckOf('gpt-2') })
-    const spent = run(game.state, [
-      // 先用 4 点买两张 GPT-2（各 1 点）＋ 一张「必须回答」（2 点），把额度花光。
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-2' },
-      { type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-2' },
-    ]).state
-    const gpts = spent.players[0].hand.filter((c) => c.cardId === 'gpt-2')
-    const drained = run(
-      spent,
-      gpts.map((c): Command => ({ type: 'PLAY_CARD', player: 0, instanceId: c.instanceId })),
-    ).state
-    expect(drained.players[0].tokens).toBe(2)
-
-    // 还剩 2 点，刚好够一张「必须回答」；先打掉一张把额度清零。
-    const skills = drained.players[0].hand.filter((c) => c.cardId === 'skill-must-answer')
-    const foeAi = run(drained, [
-      { type: 'DEBUG_PLAY_CARD', player: 1, instanceId: handCard(drained, 1, 'gpt-2').instanceId },
-    ]).state
-    const used = execute(foeAi, {
+    // 对面摆一个 AI，好让"目标合不合法"这一步真的有得选，测的才是校验顺序。
+    const foeAi = execute(game.state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: handCard(game.state, 1, 'gpt-2').instanceId,
+    }).state
+    // 甲先用 4 点买一张 GPT-4o，5 点额度只剩 1 点，买不起 2 点的「必须回答」。
+    const withAi = run(foeAi, [{ type: 'DEBUG_ADD_CARD', player: 0, cardId: 'gpt-4o' }]).state
+    const drained = execute(withAi, {
       type: 'PLAY_CARD',
       player: 0,
-      instanceId: skills[0]!.instanceId,
-      targetInstanceId: board(foeAi, 1)[0]!.instanceId,
+      instanceId: withAi.players[0].hand.at(-1)!.instanceId,
     }).state
-    expect(used.players[0].tokens).toBe(0)
+    expect(drained.players[0].tokens).toBe(1)
 
     // 这一张连目标都没给，但报的是费用不够——费用那道闸排在前面。
-    const result = execute(used, {
+    const result = execute(drained, {
       type: 'PLAY_CARD',
       player: 0,
-      instanceId: skills[1]!.instanceId,
+      instanceId: handCard(drained, 0, 'skill-must-answer').instanceId,
     })
     expect(result.events).toEqual([
-      { type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 2 点，只剩 0 点' },
+      { type: 'COMMAND_REJECTED', reason: 'Token 不够：这张牌要 2 点，只剩 1 点' },
     ])
   })
 
@@ -561,8 +784,7 @@ describe('Token', () => {
       player: 0,
       instanceId: handCard(game.state, 0, 'gpt-3-5').instanceId,
     }).state
-    const quiz = toQuiz(played)
-    const next = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const next = nextRound(played)
 
     expect(next.round).toBe(2)
     for (const player of next.players) {
@@ -571,7 +793,9 @@ describe('Token', () => {
     }
   })
 
-  it('上限逐轮线性增长，一局打完涨到 4 + 2 × (轮数 - 1)', () => {
+  it('上限逐轮线性增长：第 n 轮是 INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH × (n - 1)', () => {
+    // 双方都不出牌 = 消耗都是 0，每轮都是 equal-tokens 各 +1，
+    // 所以第 3 轮结束时双方 3:3 要加赛，一路打到题库出完才收场。
     let state = newGame().state
     const maxes: number[] = []
     while (state.phase !== 'finished') {
@@ -582,10 +806,65 @@ describe('Token', () => {
         state = execute(state, { type: 'SUBMIT_ANSWERS', results: answersFor(state) }).state
       }
     }
-    expect(maxes).toEqual(
-      maxes.map((_, index) => INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH * index),
-    )
+    expect(maxes).toEqual(maxes.map((_, index) => INITIAL_TOKEN_MAX + TOKEN_MAX_GROWTH * index))
     expect(maxes).toHaveLength(state.totalRounds)
+  })
+})
+
+describe('本轮 Token 消耗（spentThisRound）', () => {
+  it('AI 牌和技能牌都累加，每轮清零', () => {
+    // 起手固定成「GPT-3.5（2 点）+ 必须回答（2 点）+ 3 张 GPT-2」，对面摆个 AI 好挑目标。
+    const game = newGame({
+      noShuffle: true,
+      deck0: [...deckOf('gpt-2', 10), 'skill-must-answer', 'gpt-3-5'],
+      deck1: deckOf('gpt-2'),
+      // 乙不带英雄，免得 Debug 把那张技能牌抵消掉——抵消也计消耗是下一条用例的事。
+      hero1: null,
+    })
+    const foeAi = execute(game.state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 1,
+      instanceId: handCard(game.state, 1, 'gpt-2').instanceId,
+    }).state
+    expect(foeAi.players[0].spentThisRound).toBe(0)
+
+    const withAi = execute(foeAi, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: handCard(foeAi, 0, 'gpt-3-5').instanceId,
+    }).state
+    expect(withAi.players[0].spentThisRound).toBe(2)
+
+    const withSkill = execute(withAi, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: handCard(withAi, 0, 'skill-must-answer').instanceId,
+      targetInstanceId: board(withAi, 1)[0]!.instanceId,
+    }).state
+    expect(withSkill.players[0].spentThisRound).toBe(4)
+    // 两边各记各的：乙只打了那张 1 点的 GPT-2，不受甲花了多少影响。
+    expect(withSkill.players[1].spentThisRound).toBe(getCard('gpt-2').tokenCost)
+
+    // 下一轮从头算。
+    const round2 = nextRound(withSkill)
+    expect(round2.players.map((p) => p.spentThisRound)).toEqual([0, 0])
+  })
+
+  it('技能牌被英雄技能抵消也计入：Token 是真花出去的，作废的只是效果', () => {
+    // 乙带默认英雄格蕾丝·霍珀，会抵消甲本局第一张技能牌。
+    const game = newGame({ deck0: deckOf('placeholder-skill'), hero0: null })
+    const card = handCard(game.state, 0, 'placeholder-skill')
+    const result = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: card.instanceId,
+    })
+
+    expect(result.events.some((e) => e.type === 'SKILL_CANCELED')).toBe(true)
+    expect(result.state.players[0].spentThisRound).toBe(getCard('placeholder-skill').tokenCost)
+    expect(result.state.players[0].tokens).toBe(
+      INITIAL_TOKEN_MAX - getCard('placeholder-skill').tokenCost,
+    )
   })
 })
 
@@ -628,82 +907,196 @@ describe('结束出牌', () => {
 })
 
 describe('答题结算', () => {
-  /** 摆一个"甲两个 AI、乙一个 AI"的答题阶段局面。 */
-  function twoVsOne() {
-    const game = newGame({ deck0: deckOf('gpt-3-5'), deck1: deckOf('claude-5-sonnet') })
-    const mine = game.state.players[0].hand.slice(0, 2)
-    const theirs = game.state.players[1].hand[0]!
+  /**
+   * 摆一个答题阶段：双方各派一张 AI，然后都结束出牌。
+   *
+   * 用不洗牌的单卡牌组，本轮消耗就正好等于那张 AI 的费用，Token 决胜那几条好对账。
+   */
+  function duel(card0: CardId, card1: CardId) {
+    const game = newGame({ deck0: deckOf(card0), deck1: deckOf(card1), noShuffle: true })
     return run(game.state, [
-      { type: 'PLAY_CARD', player: 0, instanceId: mine[0]!.instanceId },
-      { type: 'PLAY_CARD', player: 0, instanceId: mine[1]!.instanceId },
+      { type: 'PLAY_CARD', player: 0, instanceId: game.state.players[0].hand[0]!.instanceId },
       { type: 'END_PLAY', player: 0 },
-      { type: 'PLAY_CARD', player: 1, instanceId: theirs.instanceId },
+      { type: 'PLAY_CARD', player: 1, instanceId: game.state.players[1].hand[0]!.instanceId },
       { type: 'END_PLAY', player: 1 },
     ]).state
   }
 
-  it('答错的罚下进弃牌堆，答对的留场，按存活数计分', () => {
-    const quiz = twoVsOne()
-    const [survivor, doomed] = board(quiz, 0)
+  it('答错的罚下进弃牌堆，答对的留场', () => {
+    const quiz = duel('gpt-3-5', 'gpt-3-5')
+    const mine = board(quiz, 0)[0]!
     const theirs = board(quiz, 1)[0]!
     const result = execute(quiz, {
       type: 'SUBMIT_ANSWERS',
-      results: answersFor(quiz, [doomed!.instanceId]),
+      results: answersFor(quiz, [theirs.instanceId]),
     })
 
-    expect(board(result.state, 0).map((a) => a.instanceId)).toEqual([survivor!.instanceId])
-    expect(result.state.players[0].discard.map((c) => c.instanceId)).toEqual([doomed!.instanceId])
-    expect(board(result.state, 1).map((a) => a.instanceId)).toEqual([theirs.instanceId])
-    expect(result.state.players.map((p) => p.score)).toEqual([1, 1])
+    expect(board(result.state, 0).map((a) => a.instanceId)).toEqual([mine.instanceId])
+    expect(board(result.state, 1)).toEqual([])
+    expect(result.state.players[1].discard.map((c) => c.instanceId)).toEqual([theirs.instanceId])
 
     // 事件序：逐个揭晓回答，答错的紧跟一条罚下，最后统一计分。
-    expect(result.events.slice(0, 5)).toEqual([
+    expect(result.events.slice(0, 4)).toEqual([
       {
         type: 'AI_ANSWERED',
-        instanceId: survivor!.instanceId,
+        instanceId: mine.instanceId,
         owner: 0,
         correct: true,
         answerText: '占位回答',
       },
-      {
-        type: 'AI_ANSWERED',
-        instanceId: doomed!.instanceId,
-        owner: 0,
-        correct: false,
-        answerText: '占位回答',
-      },
-      { type: 'AI_ELIMINATED', instanceId: doomed!.instanceId, owner: 0 },
       {
         type: 'AI_ANSWERED',
         instanceId: theirs.instanceId,
         owner: 1,
-        correct: true,
+        correct: false,
         answerText: '占位回答',
       },
-      { type: 'ROUND_SCORED', gains: [1, 1], scores: [1, 1] },
+      { type: 'AI_ELIMINATED', instanceId: theirs.instanceId, owner: 1 },
+      {
+        type: 'ROUND_SCORED',
+        gains: [1, 0],
+        scores: [1, 0],
+        correct: [true, false],
+        spent: [2, 2],
+        verdict: 'sole-correct',
+      },
     ])
   })
 
-  it('全对时按上场数量拉开分差，得分逐轮累加', () => {
-    const quiz = twoVsOne()
-    const first = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
-    expect(first.state.players.map((p) => p.score)).toEqual([2, 1])
-    expect(first.events.find((e) => e.type === 'ROUND_SCORED')).toEqual({
+  it('只有一方答对时那方 +1，消耗一样多也不改判', () => {
+    // 双方都花 2 点，但只有甲答对——sole-correct 排在比 Token 之前。
+    const quiz = duel('gpt-3-5', 'gpt-3-5')
+    const result = execute(quiz, {
+      type: 'SUBMIT_ANSWERS',
+      results: answersFor(quiz, [board(quiz, 1)[0]!.instanceId]),
+    })
+    expect(scoredOf(result.events)).toEqual({
       type: 'ROUND_SCORED',
-      gains: [2, 1],
-      scores: [2, 1],
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [true, false],
+      spent: [2, 2],
+      verdict: 'sole-correct',
+    })
+  })
+
+  it('「己方答对」是团队口径：有一个答对就算，另一个答错照样罚下', () => {
+    // 两个 AI 只能分两轮派（每轮至多一张新 AI）。
+    const game = newGame({ deck0: deckOf('gpt-2'), deck1: deckOf('gpt-2'), noShuffle: true })
+    const first = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: game.state.players[0].hand[0]!.instanceId,
+    }).state
+    const round2 = nextRound(first)
+    const both = execute(round2, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 0,
+      instanceId: handCard(round2, 0, 'gpt-2').instanceId,
+    }).state
+    expect(board(both, 0)).toHaveLength(2)
+
+    const quiz = toQuiz(both)
+    const doomed = board(quiz, 0)[1]!
+    const result = execute(quiz, {
+      type: 'SUBMIT_ANSWERS',
+      results: answersFor(quiz, [doomed.instanceId]),
     })
 
-    // 第 2 轮双方都不再出牌，场上还是上一轮留下的 AI，分数照样加。
-    const second = execute(toQuiz(first.state), {
-      type: 'SUBMIT_ANSWERS',
-      results: answersFor(first.state),
+    // 答错的那个照常罚下，但本轮判定看的是"至少一个答对"。
+    expect(board(result.state, 0)).toHaveLength(1)
+    expect(scoredOf(result.events)!.correct).toEqual([true, false])
+    expect(scoredOf(result.events)!.gains).toEqual([1, 0])
+  })
+
+  it('双方都答对时比本轮消耗，少的一方 +1', () => {
+    // 甲的 GPT-2 花 1 点，乙的 GPT-4o 花 4 点。
+    const quiz = duel('gpt-2', 'gpt-4o')
+    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+
+    expect(scoredOf(result.events)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [true, true],
+      spent: [1, 4],
+      verdict: 'fewer-tokens',
     })
-    expect(second.state.players.map((p) => p.score)).toEqual([4, 2])
+    // 都答对，谁都没被罚下。
+    expect([board(result.state, 0).length, board(result.state, 1).length]).toEqual([1, 1])
+  })
+
+  it('双方都答错时同样比本轮消耗，少的一方 +1', () => {
+    const quiz = duel('gpt-4o', 'gpt-2')
+    const result = execute(quiz, {
+      type: 'SUBMIT_ANSWERS',
+      results: answersFor(quiz, [board(quiz, 0)[0]!.instanceId, board(quiz, 1)[0]!.instanceId]),
+    })
+
+    expect(scoredOf(result.events)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [0, 1],
+      scores: [0, 1],
+      correct: [false, false],
+      spent: [4, 1],
+      verdict: 'fewer-tokens',
+    })
+    // 两个都答错、两个都被罚下，场面清空。
+    expect([board(result.state, 0).length, board(result.state, 1).length]).toEqual([0, 0])
+  })
+
+  it('结果相同且消耗也相同时双方各 +1', () => {
+    const quiz = duel('gpt-3-5', 'gpt-3-5')
+    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+    expect(scoredOf(result.events)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 1],
+      scores: [1, 1],
+      correct: [true, true],
+      spent: [2, 2],
+      verdict: 'equal-tokens',
+    })
+  })
+
+  it('场上没有 AI 的一方算没答对', () => {
+    // 甲派一张答对，乙一张都没派：乙一条 AI_ANSWERED 都没有，判定里仍然是"没答对"。
+    const game = newGame({ deck0: deckOf('gpt-2'), noShuffle: true })
+    const quiz = run(game.state, [
+      { type: 'PLAY_CARD', player: 0, instanceId: game.state.players[0].hand[0]!.instanceId },
+      { type: 'END_PLAY', player: 0 },
+      { type: 'END_PLAY', player: 1 },
+    ]).state
+    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+
+    expect(scoredOf(result.events)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 0],
+      scores: [1, 0],
+      correct: [true, false],
+      spent: [1, 0],
+      verdict: 'sole-correct',
+    })
+  })
+
+  it('双方场上都没有 AI 时提交空结果：同错同消耗，各 +1，对局继续', () => {
+    // 两边都没答对、都没花钱，按规则就是 equal-tokens 各 +1，而不是各 0 分。
+    const quiz = toQuiz(newGame().state)
+    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] })
+
+    expect(scoredOf(result.events)).toEqual({
+      type: 'ROUND_SCORED',
+      gains: [1, 1],
+      scores: [1, 1],
+      correct: [false, false],
+      spent: [0, 0],
+      verdict: 'equal-tokens',
+    })
+    expect(result.state.round).toBe(2)
+    expect(result.state.phase).toBe('play')
   })
 
   it('结算后交换先后手、各补 ROUND_DRAW_SIZE 张牌、宣告下一轮', () => {
-    const quiz = twoVsOne()
+    const quiz = duel('gpt-3-5', 'claude-5-sonnet')
     const handsBefore = quiz.players.map((p) => p.hand.length)
     const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
 
@@ -725,25 +1118,13 @@ describe('答题结算', () => {
       round: 2,
       firstPlayer: 1,
       category: result.state.questions[1]!.category,
+      keywords: result.state.questions[1]!.keywords,
     })
     expect(result.events.at(-1)).toEqual({ type: 'PLAY_TURN_STARTED', player: 1 })
   })
 
-  it('场上一个 AI 都没有时提交空结果，这轮拿 0 分但对局继续', () => {
-    const quiz = toQuiz(newGame().state)
-    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] })
-
-    expect(result.events.find((e) => e.type === 'ROUND_SCORED')).toEqual({
-      type: 'ROUND_SCORED',
-      gains: [0, 0],
-      scores: [0, 0],
-    })
-    expect(result.state.round).toBe(2)
-    expect(result.state.phase).toBe('play')
-  })
-
   it('结果与场上 AI 对不上时整条拒绝', () => {
-    const quiz = twoVsOne()
+    const quiz = duel('gpt-3-5', 'claude-5-sonnet')
     const full = answersFor(quiz)
     const reject = { type: 'COMMAND_REJECTED', reason: '答题结果与场上 AI 不符' }
 
@@ -762,7 +1143,7 @@ describe('答题结算', () => {
     expect(
       execute(quiz, {
         type: 'SUBMIT_ANSWERS',
-        results: [full[0]!, full[0]!, full[2]!],
+        results: [full[0]!, full[0]!],
       }).events,
     ).toEqual([reject])
     // 拒绝时状态原样返回
@@ -778,49 +1159,107 @@ describe('答题结算', () => {
 })
 
 describe('胜负', () => {
-  /** 只有一道题的一局：第一次结算就是最后一轮。 */
-  function oneRoundGame(aiCount0: number, aiCount1: number) {
+  /**
+   * 一局"甲一路碾压"的对局：甲开局派一张 AI 并一直答对，乙场上永远空着。
+   * 于是每轮都是 sole-correct，甲每轮 +1，第 3 轮结束就该收场。
+   */
+  function shutout(questions?: Question[]) {
     const game = newGame({
-      deck0: deckOf('gpt-3-5'),
-      deck1: deckOf('claude-5-sonnet'),
-      questions: [QUESTION_POOL[0]!],
+      deck0: deckOf('gpt-2'),
+      noShuffle: true,
+      ...(questions === undefined ? {} : { questions }),
     })
-    const play = (player: PlayerId, count: number): Command[] =>
-      game.state.players[player].hand
-        .slice(0, count)
-        .map((card) => ({ type: 'PLAY_CARD', player, instanceId: card.instanceId }))
-    return run(game.state, [
-      ...play(0, aiCount0),
-      { type: 'END_PLAY', player: 0 },
-      ...play(1, aiCount1),
-      { type: 'END_PLAY', player: 1 },
-    ]).state
+    let state = execute(game.state, {
+      type: 'PLAY_CARD',
+      player: 0,
+      instanceId: game.state.players[0].hand[0]!.instanceId,
+    }).state
+    const events: GameEvent[] = []
+    // 之后每轮双方都不再出牌：甲那张 AI 留在场上继续答对，乙一直是空场。
+    for (let step = 0; step < 20 && state.phase !== 'finished'; step++) {
+      const quiz = toQuiz(state)
+      const scored = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+      state = scored.state
+      events.push(...scored.events)
+    }
+    return { state, events }
   }
 
-  it('打满最后一轮后分高的一方获胜', () => {
-    const quiz = oneRoundGame(2, 1)
+  it('先到 WIN_TARGET 分就结束，题库还剩题也照样收场', () => {
+    const { state, events } = shutout()
+    expect(state.totalRounds).toBe(QUESTION_POOL.length)
+
+    expect(state.phase).toBe('finished')
+    expect(state.winner).toBe(0)
+    expect(state.players.map((p) => p.score)).toEqual([WIN_TARGET, 0])
+    // 三轮打完就收，题库里还剩两道没用上。
+    expect(state.round).toBe(WIN_TARGET)
+    expect(state.round).toBeLessThan(state.totalRounds)
+    expect(events.filter((e) => e.type === 'ROUND_SCORED')).toHaveLength(WIN_TARGET)
+    expect(events.at(-1)).toEqual({ type: 'GAME_OVER', winner: 0 })
+    // 打完了就不再宣告下一轮，也不补牌。
+    const tail = events.slice(events.findIndex((e) => e.type === 'GAME_OVER'))
+    expect(tail.some((e) => e.type === 'ROUND_STARTED')).toBe(false)
+  })
+
+  it('双方同时到 WIN_TARGET 分不算结束，继续加赛到有人单独领先', () => {
+    // 双方都不出牌 = 同错同消耗，每轮 equal-tokens 各 +1，三轮打完是 3:3。
+    // 甲用单卡牌组，加赛那一轮手上必定还有 GPT-2 可派。
+    let state = newGame({ deck0: deckOf('gpt-2'), noShuffle: true }).state
+    for (let round = 0; round < WIN_TARGET; round++) {
+      const quiz = toQuiz(state)
+      state = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] }).state
+    }
+    expect(state.players.map((p) => p.score)).toEqual([WIN_TARGET, WIN_TARGET])
+    expect(state.phase).toBe('play')
+    expect(state.winner).toBeNull()
+    expect(state.round).toBe(WIN_TARGET + 1)
+
+    // 加赛这一轮甲派一张 AI 并答对，乙仍然空场：4:3，这才分出胜负。
+    const played = execute(state, {
+      type: 'DEBUG_PLAY_CARD',
+      player: 0,
+      instanceId: handCard(state, 0, 'gpt-2').instanceId,
+    }).state
+    const quiz = toQuiz(played)
     const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
 
     expect(result.state.phase).toBe('finished')
     expect(result.state.winner).toBe(0)
-    expect(result.state.round).toBe(result.state.totalRounds)
-    expect(result.events.at(-1)).toEqual({ type: 'GAME_OVER', winner: 0 })
-    // 打完了就不再宣告下一轮，也不补牌。
-    expect(result.events.some((e) => e.type === 'ROUND_STARTED')).toBe(false)
-    expect(result.events.some((e) => e.type === 'CARD_DRAWN')).toBe(false)
+    expect(result.state.players.map((p) => p.score)).toEqual([WIN_TARGET + 1, WIN_TARGET])
   })
 
-  it('总分相同时判平局', () => {
-    const quiz = oneRoundGame(1, 1)
-    const result = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) })
+  it('题库出完还没人到线时保底判：总分高的一方获胜', () => {
+    // 只有两道题，甲连拿两分也到不了 3 分，靠"题出完了"这条兜底收场。
+    const { state } = shutout(QUESTION_POOL.slice(0, 2))
+    expect(state.phase).toBe('finished')
+    expect(state.round).toBe(state.totalRounds)
+    expect(state.players.map((p) => p.score)).toEqual([2, 0])
+    expect(state.winner).toBe(0)
+  })
 
-    expect(result.state.winner).toBe('draw')
-    expect(result.events.at(-1)).toEqual({ type: 'GAME_OVER', winner: 'draw' })
+  it('题库出完且总分相同时才是平局', () => {
+    // 双方一张牌都不打，每轮 equal-tokens 各 +1，一路打到题库出完仍然同分。
+    let state = newGame().state
+    const events: GameEvent[] = []
+    while (state.phase !== 'finished') {
+      const quiz = toQuiz(state)
+      const scored = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] })
+      state = scored.state
+      events.push(...scored.events)
+    }
+
+    expect(state.round).toBe(state.totalRounds)
+    expect(state.players.map((p) => p.score)).toEqual([
+      QUESTION_POOL.length,
+      QUESTION_POOL.length,
+    ])
+    expect(state.winner).toBe('draw')
+    expect(events.at(-1)).toEqual({ type: 'GAME_OVER', winner: 'draw' })
   })
 
   it('对局结束后一切指令都被拒', () => {
-    const quiz = oneRoundGame(1, 0)
-    const finished = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
+    const finished = shutout(QUESTION_POOL.slice(0, 1)).state
     expect(finished.phase).toBe('finished')
 
     const result = execute(finished, { type: 'DEBUG_SKIP_TO_QUIZ' })
@@ -839,6 +1278,8 @@ describe('胜负', () => {
           // 要选目标的技能牌得照客户端那样挑一个对方还没被干扰的 AI。
           // 挑不到就跳过这张牌：硬打会被引擎拒掉，而这个用例要求整局一条 COMMAND_REJECTED 都没有。
           const definition = getCard(card.cardId)
+          // 本轮已经派过 AI 的话，剩下的 AI 牌一律跳过（每轮至多一张，客户端那边它们是压暗的）。
+          if (definition.kind === 'ai' && state.players[seat].aiPlayedThisRound) continue
           // Token 不够的牌同样跳过，理由同上。客户端那边这些牌是画成灰的、根本拖不动。
           if (definition.tokenCost > state.players[seat].tokens) continue
           const target =
@@ -873,9 +1314,10 @@ describe('胜负', () => {
     }
 
     expect(state.phase).toBe('finished')
-    expect(state.round).toBe(state.totalRounds)
+    // 现在不一定打满题库：先到 WIN_TARGET 分就收场，所以只能断言没超。
+    expect(state.round).toBeLessThanOrEqual(state.totalRounds)
     expect(state.winner).not.toBeNull()
-    expect(events.filter((e) => e.type === 'ROUND_SCORED')).toHaveLength(state.totalRounds)
+    expect(events.filter((e) => e.type === 'ROUND_SCORED')).toHaveLength(state.round)
     expect(events.filter((e) => e.type === 'GAME_OVER')).toHaveLength(1)
     expect(events.some((e) => e.type === 'COMMAND_REJECTED')).toBe(false)
   })

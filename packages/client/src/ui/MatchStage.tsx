@@ -42,6 +42,7 @@ import type {
   PlayerState,
   Question,
   QuestionCategory,
+  RoundVerdict,
 } from '@ai-duel/core'
 import { useMatch, useMatchEvents } from '../match/useMatch'
 import type { MatchDriver, MatchView } from '../match/driver'
@@ -193,6 +194,22 @@ interface QuizAnswerRow {
 }
 
 /**
+ * 本轮结算的全部依据，整份来自 ROUND_SCORED，只是把座位号换算成了「我方 / 对方」。
+ *
+ * 三档判定（见 core 的 RoundVerdict）各配一句文案，所以这几项一个都不能省：
+ * 光有 gains 说不出"为什么是他得分"，而那恰恰是这一版规则最需要教给玩家的东西。
+ */
+interface QuizScore {
+  /** 本轮各得几分（0 或 1；双方同对同错且消耗相同时两边都是 1）。 */
+  gains: { mine: number; theirs: number }
+  /** 各方算不算答对（团队口径：己方至少一个 AI 答对；场上没 AI 视为没答对）。 */
+  correct: { mine: boolean; theirs: boolean }
+  /** 各方本轮为新打出的牌花掉的 Token。 */
+  spent: { mine: number; theirs: number }
+  verdict: RoundVerdict
+}
+
+/**
  * 答题全屏揭晓层的全部内容。
  *
  * 结果**只**存在这里，不去战场上找被罚下的那张小卡：事件是在 React 提交新快照之前送到的，
@@ -206,7 +223,7 @@ interface QuizReveal {
   /** AI_ANSWERED 逐条追加。 */
   rows: QuizAnswerRow[]
   /** ROUND_SCORED 到了才有；它一到就说明这一轮播完了，可以走收尾。 */
-  gains: { mine: number; theirs: number } | null
+  score: QuizScore | null
 }
 
 /**
@@ -900,7 +917,7 @@ function BattleField({
     //
     // quizUpRef 那一条挡的是"没看见过 QUESTION_REVEALED 的那一端"：联机客人在答题阶段
     // 中途接手时，match:start 直接给的是 quiz 期的快照，揭晓层从来没立起来过，
-    // 于是 ROUND_SCORED 那条 case 里 quizReveal 是 null、gains 填不进去，收尾时间线不会跑，
+    // 于是 ROUND_SCORED 那条 case 里 quizReveal 是 null、score 填不进去，收尾时间线不会跑，
     // 也就没人来放行——拦了的话只能干等兜底超时。没有遮罩要等就当场发牌。
     // 事件回调里读 ref 拿到的正是现值：quizUpRef 是上一批事件（QUESTION_REVEALED）置的，
     // 那之后 React 已经重渲染过了。
@@ -1004,7 +1021,7 @@ function BattleField({
             key: (current?.key ?? 0) + 1,
             question: event.question,
             rows: [],
-            gains: null,
+            score: null,
           }))
           break
         case 'AI_ANSWERED': {
@@ -1022,11 +1039,17 @@ function BattleField({
           break
         }
         case 'ROUND_SCORED': {
-          const gains = {
-            mine: event.gains[seatRef.current],
-            theirs: event.gains[other(seatRef.current)],
+          // 事件里所有成对的字段都按座位号排，这里一次性换算成「我方 / 对方」，
+          // 渲染那边就不用再拿座位号绕一圈了。
+          const mine = seatRef.current
+          const theirs = other(mine)
+          const score: QuizScore = {
+            gains: { mine: event.gains[mine], theirs: event.gains[theirs] },
+            correct: { mine: event.correct[mine], theirs: event.correct[theirs] },
+            spent: { mine: event.spent[mine], theirs: event.spent[theirs] },
+            verdict: event.verdict,
           }
-          setQuizReveal((current) => (current === null ? current : { ...current, gains }))
+          setQuizReveal((current) => (current === null ? current : { ...current, score }))
           break
         }
         default:
@@ -1259,7 +1282,7 @@ function BattleField({
    * 触发条件是"计分到了"而不是"有结果行了"：AI_ANSWERED×N 和 ROUND_SCORED 是同一批事件，
    * React 把这一批合成一次重渲染，所以这段跑起来时结果行已经全在 DOM 里了，一次排完就行。
    */
-  const quizScored = quizReveal !== null && quizReveal.gains !== null
+  const quizScored = quizReveal !== null && quizReveal.score !== null
   useGSAP(
     () => {
       const node = quizRevealRef.current
@@ -2265,7 +2288,9 @@ function BattleField({
   }, [])
 
   const finished = view.status === 'finished' || view.status === 'aborted'
-  const category = state.questions[state.round - 1]?.category
+  // 出牌阶段公开的两样情报：题目类别和关键词。题面全文要等 QUESTION_REVEALED 才揭晓。
+  const nextQuestion = state.questions[state.round - 1]
+  const category = nextQuestion?.category
 
   /**
    * 展示层当前要渲染的那张卡：强制展示优先（它不可打断），否则是正在放大查看的那张。
@@ -2331,7 +2356,14 @@ function BattleField({
         </aside>
 
         <main className={`battle__battlefield${testMode ? ' battle__battlefield--test' : ''}`}>
-          {testMode ? <FoeHand hand={foe.hand} tokens={foe.tokens} onPlay={playForFoe} /> : null}
+          {testMode ? (
+            <FoeHand
+              hand={foe.hand}
+              tokens={foe.tokens}
+              aiPlayedThisRound={foe.aiPlayedThisRound}
+              onPlay={playForFoe}
+            />
+          ) : null}
 
           {/* data-picking 只管一件事：拖着干扰技能时把「松手 放到场上」那颗提示药丸收起来
               ——这张牌不是往场上放的，得松手在某张小卡身上。落点区的边框高亮照常亮着。
@@ -2426,7 +2458,9 @@ function BattleField({
               终局后整块匾不渲染：state.round 停在最后一轮，照常画的话会一直挂着
               最后一题的类别，看着像还有一题要考。
             */}
-            {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
+            {finished || category === undefined ? null : (
+              <NextQuestionPlaque category={category} keywords={nextQuestion?.keywords ?? []} />
+            )}
             <TokenTrack tokens={me.tokens} max={me.tokenMax} />
             {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
                 三句都是四五个字，匾额宽度是 min(224px, 100%) 且 overflow: hidden，
@@ -2508,6 +2542,9 @@ function BattleField({
         // 这一轮的额度买不起的牌单独压暗、拖不动，免得拖到一半才被引擎回一句 Token 不够。
         // 轮到对方时这几张同样是打不起的，压暗叠在灰墨态上不冲突（两边写的属性不一样）。
         tokens={me.tokens}
+        // 本轮已经派过新 AI：手上其余 AI 牌一起压暗（每轮至多一张，引擎那边会拒第二张）。
+        // 技能牌不受影响，还是想打几张打几张。
+        aiPlayedThisRound={me.aiPlayedThisRound}
         frozen={handFrozen}
         lockReason={handLockReason}
         // 选目标态下这张牌留在扇形里抬起来亮着，整排其余的压暗（不接指针那件事归 frozen，
@@ -2690,7 +2727,7 @@ function QuizRevealLayer({
   reveal: QuizReveal
   rootRef: RefObject<HTMLDivElement | null>
 }) {
-  const { question, rows, gains } = reveal
+  const { question, rows, score } = reveal
   return (
     <div className="quiz-reveal" ref={rootRef}>
       <div className="quiz-reveal__panel">
@@ -2711,7 +2748,7 @@ function QuizRevealLayer({
             {rows.length === 0 ? (
               // 双方场上一个 AI 都没有时也要有句交代，否则揭晓层看着像卡住了。
               // 顶着 __row 的类名是为了跟着同一段 stagger 淡入。
-              gains === null ? null : (
+              score === null ? null : (
                 <p className="quiz-reveal__row quiz-reveal__row--none">场上没有 AI 作答</p>
               )
             ) : (
@@ -2730,14 +2767,36 @@ function QuizRevealLayer({
           </div>
         </div>
 
-        {gains === null ? null : (
-          <p className="quiz-reveal__score">
-            本轮 你 +{gains.mine} / 对方 +{gains.theirs}
-          </p>
+        {score === null ? null : (
+          <div className="quiz-reveal__score">
+            <p className="quiz-reveal__score-line">
+              本轮 你 +{score.gains.mine} / 对方 +{score.gains.theirs}
+            </p>
+            {/* 判定理由单独一行小字：新规则里"为什么是他得分"比"得了几分"更需要讲清楚。 */}
+            <p className="quiz-reveal__verdict">{verdictTextOf(score)}</p>
+          </div>
         )}
       </div>
     </div>
   )
+}
+
+/**
+ * 结算那行小字：这一分是怎么来的。
+ *
+ * 三档判定各一句，控制在一句话内（见 core 的 RoundVerdict）。
+ * 比 Token 那两档要把双方的本轮消耗摆出来——玩家得看见数字才明白"省 Token"是真能赢分的。
+ */
+function verdictTextOf(score: QuizScore): string {
+  const spent = `你 ${score.spent.mine} · 对方 ${score.spent.theirs}`
+  switch (score.verdict) {
+    case 'sole-correct':
+      return score.correct.mine ? '只有你答对，这一分归你' : '只有对方答对，这一分归对方'
+    case 'fewer-tokens':
+      return `${score.correct.mine ? '双方都答对' : '双方都答错'}：${spent}，更省 Token 的一方得分`
+    case 'equal-tokens':
+      return `${score.correct.mine ? '双方都答对' : '双方都答错'}，Token 消耗也相同（${spent}），各得 1 分`
+  }
 }
 
 /**
@@ -2826,7 +2885,11 @@ function turnHintOf(view: MatchView, state: GameState, mySeat: PlayerId): string
   return state.activePlayer === mySeat ? '你出牌' : '对方出牌'
 }
 
-/** 结算层的大标题。平局是正经结果之一（总分相同），不是异常。 */
+/**
+ * 结算层的大标题。
+ * 平局是正经结果之一，不是异常——只是现在只可能出自"题库出完了双方还同分"这一种保底情况
+ *（先到 3 分那条路要求分数不相等，双方同时到分会继续加赛，见 core 的 WIN_TARGET）。
+ */
 function resultTitleOf(view: MatchView, state: GameState, mySeat: PlayerId): string {
   if (view.status === 'aborted') return view.abortReason ?? '对局中断'
   if (state.winner === 'draw') return '平局'
@@ -2881,25 +2944,36 @@ const TOKEN_STAR_PATH =
 /**
  * Token 上限到几点为止还排成一列。
  *
- * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列，
- * 正好对上"上限每轮 +2"的节奏：第 3 轮 8 点是一列的最后一轮，第 4 轮 10 点起变两列。
+ * 侧栏收窄到 207px 之后一列最多也就放得下 8 颗看得清的星星；再多就折成两列。
+ * 上限从 5 起、每轮 +1（见 core 的 INITIAL_TOKEN_MAX / TOKEN_MAX_GROWTH），
+ * 所以第 4 轮 8 点是一列的最后一轮，第 5 轮 9 点起变两列。
  *
- * 两列是目前的上限。题库现在 5 道题（也就是一局 5 轮），最后一轮上限 12 点、折成 6 行，
- * 侧栏还很宽裕；题库要是扩到十几道，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
+ * 两列是目前的上限。正常一局三五轮就分出胜负（先到 3 分），题库 5 道题也就是加赛到头
+ * 最多 5 轮、上限 9 点、折成 5 行，侧栏还很宽裕；
+ * 题库要是扩到十几道、加赛真打到那么久，行数会顶穿侧栏，那时得再加一列或者把星星缩小。
  */
 const TOKEN_SINGLE_COLUMN_MAX = 8
 
 /**
  * 右侧栏顶上那块「下一题」牌匾。
  *
- * 只报类别不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
+ * 只报类别和关键词，不报题面：题目全文要到答题阶段才揭晓，这里说的是"下一题考什么方向"。
+ * 关键词是出牌阶段唯一的具体情报（见 core 的 Question.keywords），
+ * 「根据关键词决定派谁上场」这条核心玩法全靠它，所以它挂在匾外面而不是塞进匾里
+ * ——匾体是固定的 168×118 画稿，塞两三个词进去必然撑破框线。
  *
  * 整块匾是画出来的而不是一张切图：类别名有三个字也有五个字（见 ui/labels.ts），
  * 位图就得为每种长度各出一张，而且换一版题库分类就要重新导出。
  * 框线走 SVG 才好套手绘滤镜——直接给 div 加 border 再 filter，里面的字会跟着抖歪
  *（PlaqueButton 和回合牌匾同理，见各自的 __frame）。
  */
-function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
+function NextQuestionPlaque({
+  category,
+  keywords,
+}: {
+  category: QuestionCategory
+  keywords: string[]
+}) {
   return (
     <div className="battle__next-plaque">
       {/* 两根挂绳，让匾看着是吊在侧栏顶上的。一个容器加两个伪元素，比两个空 span 省 DOM。 */}
@@ -2929,6 +3003,16 @@ function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
         <span className="battle__next-plaque-eyebrow">下一题</span>
         <span className="battle__next-plaque-title">{QUESTION_CATEGORY_LABELS[category]}</span>
       </div>
+      {/* 关键词挂在匾体下面，一枚一个小标签。题库万一没配关键词就整块不渲染，不留空行。 */}
+      {keywords.length === 0 ? null : (
+        <ul className="battle__next-keywords">
+          {keywords.map((keyword) => (
+            <li key={keyword} className="battle__next-keyword">
+              {keyword}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -2939,8 +3023,8 @@ function NextQuestionPlaque({ category }: { category: QuestionCategory }) {
  * 星星**从下往上**烧：最底下那颗是第 1 点，越往上编号越大，花钱是从顶上往下灭的，
  * 像一格格烧下去的蜡烛。数字那行照旧压在星星底下，当这一块的落款。
  *
- * 上限 8 点以内排成一列，超过折成两列——上限每轮 +2（见 core 的 TOKEN_MAX_GROWTH），
- * 一局打到后面有十几点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
+ * 上限 8 点以内排成一列，超过折成两列——上限每轮 +1（见 core 的 TOKEN_MAX_GROWTH），
+ * 加赛打到后面会超过 8 点，一列排下去会顶穿侧栏。两列时左列先烧满再轮到右列。
  */
 function TokenTrack({ tokens, max }: { tokens: number; max: number }) {
   const rows = max > TOKEN_SINGLE_COLUMN_MAX ? Math.ceil(max / 2) : max
@@ -3215,11 +3299,14 @@ function BoardTile({
 function FoeHand({
   hand,
   tokens,
+  aiPlayedThisRound,
   onPlay,
 }: {
   hand: readonly CardInstance[]
   /** 对方这一轮还剩多少 Token。买不起的牌压暗，免得点了半天只收到一句"Token 不够"。 */
   tokens: number
+  /** 对方这一轮派过新 AI 没有。派过之后其余 AI 牌同样压暗（每轮至多一张）。 */
+  aiPlayedThisRound: boolean
   onPlay: (instance: CardInstance) => void
 }) {
   return (
@@ -3232,7 +3319,7 @@ function FoeHand({
           // 强制展示是一次跨容器的 FLIP，这张牌打出去时就是从这个位置起飞的（见 startReveal）。
           data-flip-id={instance.instanceId}
           // 只是压暗，不拦点击：测试房本来就是拿来试各种被拒场景的。
-          data-unaffordable={getCard(instance.cardId).tokenCost > tokens ? 'true' : undefined}
+          data-unplayable={foeCardBlocked(instance, tokens, aiPlayedThisRound) ? 'true' : undefined}
           title="点一下替对方打出这张牌"
           onPointerDown={() => onPlay(instance)}
         >
@@ -3243,6 +3330,20 @@ function FoeHand({
       ))}
     </div>
   )
+}
+
+/**
+ * 测试房里那张对方手牌现在打不打得出去（判据和 HandFan 的 blocked 一致）。
+ * 只用来压暗，点击照旧放行——测试房本来就要能试出被拒的场景。
+ */
+function foeCardBlocked(
+  instance: CardInstance,
+  tokens: number,
+  aiPlayedThisRound: boolean,
+): boolean {
+  const card = getCard(instance.cardId)
+  if (aiPlayedThisRound && card.kind === 'ai') return true
+  return card.tokenCost > tokens
 }
 
 /** 从手牌实例拼出卡面数据。id 用实例 id：Flip 和事件定位都靠它对号。 */

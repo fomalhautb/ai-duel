@@ -942,22 +942,24 @@ body,
 }
 
 /*
- * 这一轮的 Token 买不起的那张牌（data-unaffordable 由 HandFan 逐张打上）。
+ * 这一刻打不出去的那几张牌（data-unplayable 由 HandFan 逐张打上）：
+ * Token 买不起的，以及本轮已经派过 AI 之后手上其余的 AI 牌。两种情况画法一样，
+ * 差别只在点上去弹哪句提示（见 HandFan 的 blocked）。
  *
  * 和整排灰墨态是两条线，可以同时成立（自己回合里整排是亮的，只有最贵的那张打不起），
  * 所以这里只挑 [data-locked] 没写过的属性：褪色打在 .card-face 上、位移一概不碰。
  * hover 抬起来时**不**恢复本色，这一点和灰墨态相反：那边是"轮不到你，但你能看"，
  * 这边是"看清楚了也打不出"，抬起来还压着灰才说得通。
  */
-.hand-fan__slot[data-unaffordable] .card-face {
+.hand-fan__slot[data-unplayable] .card-face {
   filter: grayscale(0.6) brightness(0.72) contrast(0.95);
   transition: filter 0.3s ease;
 }
 
-/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不起的那张让路——它还抓在手上。
-   （实际走不到：费用只在自己出牌时才会变，而那一刻手上没有正在拖的牌。留着是为了
-   和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
-.hand-fan__slot[data-unaffordable]:not([data-dragging]) {
+/* 光标和"点了也没用"对齐。:not 给拖到一半才变得打不出的那张让路——它还抓在手上。
+   （实际走不到：费用和"派过 AI 没有"都只在自己出牌时才会变，而那一刻手上没有正在拖的牌。
+   留着是为了和上面 [data-locked] 那条保持同一种写法，改动时不必两处分别推敲。） */
+.hand-fan__slot[data-unplayable]:not([data-dragging]) {
   cursor: not-allowed;
 }
 
@@ -994,7 +996,7 @@ body,
      摇头和解锁回弹那两段 GSAP 动画由 HandFan 自己让路（见那边的 prefersReducedMotion）。 */
   .hand-fan,
   .hand-fan__face,
-  .hand-fan__slot[data-unaffordable] .card-face {
+  .hand-fan__slot[data-unplayable] .card-face {
     transition-duration: 1ms;
   }
 }
@@ -2245,6 +2247,36 @@ body:has(.battle) {
 }
 
 /*
+ * 匾体下面那排关键词标签。
+ *
+ * 摆在匾外面而不是匾里：匾体是固定的 168×118 画稿，两三个词塞进去必然顶破框线
+ *（见 MatchStage 的 NextQuestionPlaque）。侧栏只有 207px 宽，所以允许换行，
+ * 一行放不下就自然折成两行。
+ */
+.battle__next-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一枚关键词：浅色纸面小药丸，比类别名低一档，别和匾上那行大字抢视线。 */
+.battle__next-keyword {
+  padding: 2px 8px;
+  border: 1px solid rgb(37 49 73 / 22%);
+  border-radius: 999px;
+  background: rgb(255 252 244 / 55%);
+  color: var(--battle-navy);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/*
  * ---------- 右侧栏：Token 星星 ----------
  *
  * 一颗四芒星＝一点 Token，发着黄光的是还剩的，灰的是这一轮已经花掉的。
@@ -2387,9 +2419,9 @@ body:has(.battle) {
   transform: translateY(-5px);
 }
 
-/* 测试房：对方这一轮的 Token 买不起的牌。只压暗不拦点击——测试房本来就是拿来试
-   各种被拒场景的，点下去照样会收到引擎那句「Token 不够」。 */
-.battle__foe-card[data-unaffordable] {
+/* 测试房：对方现在打不出去的牌（Token 买不起，或者本轮已经派过 AI）。
+   只压暗不拦点击——测试房本来就是拿来试各种被拒场景的，点下去照样会收到引擎的拒绝提示。 */
+.battle__foe-card[data-unplayable] {
   filter: grayscale(0.6) brightness(0.72);
 }
 
@@ -4171,14 +4203,32 @@ body:has(.battle) {
   color: var(--battle-ink-muted, #6d6b61);
 }
 
-/* 本轮计分，收尾那一下。 */
+/* 本轮计分，收尾那一下。比分和判定理由一起淡入放大（GSAP 补的就是这个容器）。 */
 .quiz-reveal__score {
-  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.quiz-reveal__score-line {
+  margin: 0;
   color: var(--battle-navy, #253149);
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-indent: 0.14em;
+}
+
+/*
+ * 「为什么是他得分」那行小字。刻意比比分小一档、颜色也压下去：
+ * 它是解释，不该和比分抢视线，但每一轮都要在，玩家才会慢慢记住这套判定。
+ */
+.quiz-reveal__verdict {
+  margin: 0;
+  color: var(--battle-ink-muted, #6d6b61);
+  font-size: 15px;
+  letter-spacing: 0.06em;
 }
 
 /*

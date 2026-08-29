@@ -26,6 +26,13 @@ export interface Question {
   category: QuestionCategory
   text: string
   /**
+   * 从题面提炼的几个关键词，出牌阶段就公开（题面本身要等双方出完牌才揭晓）。
+   *
+   * 它是出牌阶段唯一的情报：玩家只能靠这几个词猜这道题考什么方向、该派哪张 AI 上场。
+   * 所以词要指向题目的**考点**（「数三角形」「性别判断」），不要泄题也不要写成同义复述。
+   */
+  keywords: string[]
+  /**
    * 正确答案，答题阶段直接摊给玩家看。
    * 本项目不防作弊（见 docs/architecture.md 4.1），所以整份题库连答案一起放在
    * GameState 里发给双方，不做"只在结算时下发"这种服务器权威式的遮挡。
@@ -159,10 +166,24 @@ export interface AnswerResult {
  */
 export type GamePhase = 'play' | 'quiz' | 'finished'
 
+/**
+ * 本轮那 1 分是怎么分出来的。三档按判定顺序排，客户端照它选结算文案。
+ *
+ * - `'sole-correct'`：只有一方答对，那一方 +1。
+ * - `'fewer-tokens'`：双方同对或同错，本轮 Token 消耗**严格**较少的一方 +1。
+ * - `'equal-tokens'`：双方同对或同错，消耗也一样，各 +1（这一档会把两边分数一起推高，
+ *   所以才会有"双方同时到 3 分"这种要加赛的局面）。
+ */
+export type RoundVerdict = 'sole-correct' | 'fewer-tokens' | 'equal-tokens'
+
 export interface PlayerState {
   id: PlayerId
   name: string
-  /** 累计得分，每轮结算时加上「己方场上存活 AI 数」。 */
+  /**
+   * 累计得分。每轮 1 分制：只有一方答对就那方 +1，双方同对或同错就比本轮 Token 消耗，
+   * 少的一方 +1、相同则各 +1（判定见 engine 的 submitAnswers）。先到 WIN_TARGET 分且
+   * 双方分数不相等即获胜，所以它最高可能停在 3 分以上（加赛时双方一起涨）。
+   */
   score: number
   /**
    * 本轮还剩多少 Token。出牌时按卡面 tokenCost 扣，扣光了就打不出更贵的牌。
@@ -171,6 +192,24 @@ export interface PlayerState {
    * 所以"这一轮的额度尽量用掉"本身就是一条策略。
    */
   tokens: number
+  /**
+   * 本轮已经花掉的 Token，每轮推进时清零。
+   *
+   * 单独记一份而不是拿 `tokenMax - tokens` 现算：那个差值在**每轮**都对得上，
+   * 但它表达的是"额度剩多少"，而计分要的是"这一轮为新打出的牌付了多少"。
+   * 两者眼下数值相同，写成独立字段是为了钉住语义——将来只要出现一条
+   * 「回复 Token」或「本轮额度临时 +N」的效果，那个差值立刻就不是消耗了。
+   *
+   * 技能牌被英雄技能抵消也照样计入：Token 是真花出去的，作废的只是效果。
+   */
+  spentThisRound: number
+  /**
+   * 本轮派出过新 AI 牌没有，每轮推进时清零。
+   *
+   * 规则是每轮至多派出一张新 AI 牌（技能牌不限张数），这个标志就是那道闸。
+   * 场上原有的 AI 继续留场答题，不受它影响。
+   */
+  aiPlayedThisRound: boolean
   /**
    * 本轮的 Token 上限。开局 INITIAL_TOKEN_MAX，之后每答完一题涨 TOKEN_MAX_GROWTH。
    * 右侧栏那排四芒星画的就是它：亮着的是 tokens，灰的是这一轮已经花掉的。
@@ -213,7 +252,10 @@ export interface GameState {
   /** 本局的题目序列（开局洗好），questions[round - 1] 是本轮的题。 */
   questions: Question[]
   players: [PlayerState, PlayerState]
-  /** 分数相同时是 'draw'，没打完是 null。 */
+  /**
+   * 谁赢了。没打完是 null；'draw' 只可能出现在"题库出完了双方还同分"这一种保底情况下
+   * （先到 WIN_TARGET 分那条路要求分数不相等，同时到分会继续加赛）。
+   */
   winner: PlayerId | 'draw' | null
   /**
    * 下一个卡牌实例序号，开局发完双方牌组后接着往下走。
@@ -280,6 +322,8 @@ export type GameEvent =
       firstPlayer: PlayerId
       /** 本轮题目的类别；题目全文要等到 QUESTION_REVEALED 才展示。 */
       category: QuestionCategory
+      /** 本轮题目的关键词，和类别一样属于出牌阶段就公开的情报（见 Question.keywords）。 */
+      keywords: string[]
     }
   /** 轮到某方出牌，客户端打出牌横幅。 */
   | { type: 'PLAY_TURN_STARTED'; player: PlayerId }
@@ -334,8 +378,27 @@ export type GameEvent =
     }
   /** 答错被罚下，从场上移进弃牌堆。 */
   | { type: 'AI_ELIMINATED'; instanceId: InstanceId; owner: PlayerId }
-  /** 本轮计分：gains/scores 按座位号排，[0] 是 0 号玩家。 */
-  | { type: 'ROUND_SCORED'; gains: [number, number]; scores: [number, number] }
+  /**
+   * 本轮计分。所有成对的字段一律按座位号排，[0] 是 0 号玩家。
+   *
+   * 除了得分本身还带上判定的全部依据（谁答对了、各花了多少 Token、按哪条规则分的），
+   * 客户端的结算演出和教程的提示语都直接读它，不要自己回头再算一遍——
+   * `correct` 是"己方**至少一个** AI 答对"的团队口径，光看 AI_ANSWERED 那几条推不出来
+   * （场上没有 AI 的一方一条事件都没有，却也算没答对）。
+   */
+  | {
+      type: 'ROUND_SCORED'
+      /** 本轮各得几分：0 或 1，双方同对同错且消耗相同时是 [1, 1]。 */
+      gains: [number, number]
+      /** 加完这一轮之后的累计总分。 */
+      scores: [number, number]
+      /** 本轮各方算不算答对（己方场上至少一个 AI 答对；场上没 AI 视为没答对）。 */
+      correct: [boolean, boolean]
+      /** 本轮各方为新打出的牌花掉的 Token（见 PlayerState.spentThisRound）。 */
+      spent: [number, number]
+      /** 这一分是按哪条规则分出来的。 */
+      verdict: RoundVerdict
+    }
   | { type: 'GAME_OVER'; winner: PlayerId | 'draw' }
   /**
    * 非法指令。状态保持不变，只回这一条事件。

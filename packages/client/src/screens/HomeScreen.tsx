@@ -51,6 +51,7 @@ import type { CardTiltHandle } from '../ui/cardTilt'
 import { cardArtFor } from '../ui/cardArt'
 import { toHandCardData } from '../ui/handCardData'
 import { LoadingScreen } from '../ui/LoadingScreen'
+import { useBackgroundMusic } from '../ui/backgroundMusic'
 import { useAssetsReady } from '../ui/preloadAssets'
 import { createTestMatchDriver } from '../match/testMatch'
 import { useMatchSession } from '../match/MatchSession'
@@ -272,6 +273,7 @@ const HOME_ASSETS = Array.from(
  * 那些 effect 会在没有 DOM 的第一帧就跑掉，之后不会再补跑。
  */
 export function HomeScreen() {
+  useBackgroundMusic('beginning')
   const ready = useAssetsReady(HOME_ASSETS)
   return ready ? <HomeStage /> : <LoadingScreen />
 }

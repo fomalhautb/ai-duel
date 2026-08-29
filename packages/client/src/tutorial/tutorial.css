@@ -320,10 +320,27 @@
   z-index: auto;
 }
 
-/* 顶栏里那颗比悬在角上时再矮一档，跟旁边 34px 的图标平齐。 */
+/* 顶栏里那颗比悬在角上时再矮一档：它是一块文字匾额，和旁边 51px 的图标等高会显得很重。 */
 .plaque-button.tutorial-skip__plaque.tutorial-skip--inbar {
   height: 30px;
   padding: 0 14px;
+}
+
+/*
+ * 教程的对局顶栏右端不是"静音 + 离开"，而是"静音 + 跳过教程"这块匾额，整簇更宽。
+ * 回合结算层的轮次和比分按这个变量让位（见 styles.css 的 .settle__meta），
+ * 不改的话答题那一屏上会被匾额压住。
+ * 26px 右边距 + 51px 静音 + 14px 间隙 + 匾额（四个字 14px 加左右各 14px 内边距，约 91px）。
+ */
+.battle:has(.tutorial-skip--inbar) {
+  --battle-actions-w: 185px;
+}
+
+/* 移动端档字号整体放大（--fs-scale 1.6），匾额跟着变宽到约 129px。 */
+@media (pointer: coarse) {
+  .battle:has(.tutorial-skip--inbar) {
+    --battle-actions-w: 220px;
+  }
 }
 
 /* 确认条里的两颗比外面那颗再小一档：它们是这一小块里的次级操作。 */

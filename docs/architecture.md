@@ -8,7 +8,8 @@
 - **不做服务器权威**：服务端不跑规则、不存对局状态，改客户端就能作弊。
 - **不做防作弊**：同上，双方看得见彼此的手牌也无所谓（见 4.3）。
 - **不做匹配系统**：只有"建房 / 输房间码进房"，没有排队、没有段位、没有大厅。
-- **不做账号**：存档只有浏览器 localStorage（卡牌收藏 + 胜场），换个浏览器就是新号。
+- **不做账号**：存档只有浏览器 localStorage（卡牌收藏、胜场、牌组、英雄、教程标记），
+  换个浏览器就是新号。
 - **不存对局**：刷新页面 = 这局没了，只有收藏和胜场留得下来。
 - **不做向后兼容**：协议、卡牌数据、状态结构随时可以推倒重来，不留迁移层。
 - **不做移动端/主机/触屏适配**：目标就是两台电脑的浏览器，鼠标操作，桌面分辨率。
@@ -379,7 +380,7 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 /         主网站：介绍 + 「开始游戏」
 /room     匹配房：自己的 4 位房间码 + 输入对方房间码
 /match    对局界面（联机对局和 dev 测试房共用）
-/tutorial 新手教程的教学对战：同一套对局界面 + 一层引导（见 5.3）
+/tutorial 新手教程：教学对战 → 组牌教学 → 选英雄教学 → 完成页，整条流程一条路由（见 5.3）
 /dev      开发页导航：把下面这几个开发页连同测试对局列在一处
 /design   设计参考页：纸面视觉元素的样板间（开发用）
 /deck     组建牌组 demo：假卡池 + 选卡手势（圆圈加减、卡池 ↔ 牌组拖拽、点开放大查看）
@@ -394,7 +395,11 @@ React 只负责"有哪些元素、它们在什么状态"，**位置和动画一�
 像 `/loader` 这种就是真实加载场景在用的那一套（`index.html` 的首屏 loader 和
 首页等图时的整屏加载页 `ui/LoadingScreen.tsx` 都是同一副样子），短路径方便随手打开对着调。
 
-首页的**「开始游戏」**直接进匹配房，没有分流——教程入口还没接上去（见 5.3）。
+首页的**「开始游戏」**按存档分流：`tutorialDone` 为 false 就进 `/tutorial`，否则进 `/room`。
+分流在点下去那一刻现读存档，不在挂载时读一次——教程和首页之间来回跳时，提前读的那份会过期。
+**重玩教程的入口在匹配房**（左上角「新手教程」），它不看 `tutorialDone`，随时进得去；
+教程全程右上角还有一颗不显眼的「跳过教程」，确认一次之后写标记 + 进匹配房。
+也就是说 `tutorialDone` 只管"要不要自动把玩家送进教程"这一件事，不挡任何手动入口。
 
 首页那张画是十几张整幅切图叠出来的，加起来约 2.5MB。这些图**全部**加载完之前首页不上场，
 中途只显示加载动画，免得玩家看着夜空、人物、桌子、道具一层层往上冒。
@@ -465,11 +470,22 @@ dispose()
 driver 在构造函数里就把开局事件发出来了，而 React 要等 effect 里才订阅得上，
 不攒着的话发牌动画必然丢。
 
-### 5.3 教程（教学对战已做完，组牌 / 选英雄 / 完成页还没做）
+### 5.3 教程（已实现）
 
 流程和文案在 `docs/出牌吧AI_新手教学对战规格_V1.1.md`：一局脚本控制的三轮教学对战，
 打完再教组牌和选英雄。方向是**强制玩家按固定流程走一遍操作**，
 而不是配一个 AI 对手跟他真打一局——只有每一步都锁死，引导才知道下一句该说什么。
+
+整条流程是 `TutorialScreen` 里的一个 phase 状态：
+`教学对战 → 过渡提示 → 组牌教学 → 选英雄教学 → 完成页`，全在 `/tutorial` 一条路由内换画面
+（同 `RoomScreen` 内嵌选卡组 / 选英雄，理由也一样：换路由就要重建状态，
+而"打完这局的比分"要一路带到完成页）。后三屏**不新写页面**，
+而是给现成的 `DeckScreen` / `HeroScreen` 各加一个可选的 `tutorial` prop：
+那个 prop 只做减法（放行哪张卡 / 哪位英雄、其余操作挡下并喊一声），
+不传的两条老入口（`/deck`、`/hero` 和匹配流程）行为一字不变。
+组牌教学预填 17 张、留三张让玩家亲手点（两张 AI 牌 + 一张技能牌），
+拼好的牌组按固定 id 真写进 `deckStore` 并设为当前牌组，教程结束就能直接开局；
+选英雄只放行格蕾丝·霍珀（另外六位技能还没实装），确认后走 `saveHero` 落盘。
 
 **教学对战跑真引擎，不做演出用的假引擎**：教程规则就是正式规则，引擎是纯函数 + 确定性，
 教学局天然可预测。为它准备的口子在 core 里（见 3.4 末尾那张表）：
@@ -486,6 +502,9 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 | `match/tutorialDriver.ts` | 包一层 `localDriver`：焊死 `GameSetup`、按脚本替对手出牌，外加事件旁路和对手闸门 |
 | `tutorial/steps.ts` | 纯数据的步骤表（规格 §17 的状态清单），每步带高亮锚点、放行范围、提示、完成条件 |
 | `tutorial/TutorialController.ts` + `TutorialOverlay.tsx` | 跑步骤表 / 压暗挖洞 + 一句话提示 |
+| `tutorial/deckSteps.ts` + `TutorialDeckStage.tsx` | 组牌教学：17 张预填、三步引导、把限制交给 `DeckScreen` |
+| `tutorial/heroSteps.ts` + `TutorialHeroStage.tsx` | 选英雄教学：两步引导，确认后 `saveHero` |
+| `tutorial/TutorialOutro.tsx` + `TutorialSkip.tsx` | 过渡提示页 / 完成页，以及全程右上角的「跳过教程」 |
 
 两条约定值得单记：
 
@@ -495,6 +514,13 @@ driver 在构造函数里就把开局事件发出来了，而 React 要等 effec
 - **对手脚本要能被教程挡住**（`setFoeHold`）。第 2 轮对手先手，它的出牌演出是全屏过场
   （1100），不挡的话会盖在还没讲完的引导提示（1000）上。步骤表里只有明确要它动手的
   那几步才放行。
+
+引导层三屏共用一份（`TutorialOverlay`），坐标口径靠 `ui/battleStage.ts` 自动切换：
+对战页和组牌页各有一个 `stage-scaler` 缩放层，量到的是舞台内坐标；
+选英雄页没有缩放层（排版是 cqi），那几个函数自动退回视口口径。
+唯一要小心的是它挂在哪——`position: fixed` 的包含块是最近的那个带 transform 或布局包含的祖先，
+所以组牌页挂在 `.deck-scaler` 里、选英雄页必须挂在 `.hero__stage` **外面**
+（它带 `container-type: inline-size`，放进去坐标就从视口变成了舞台）。
 
 引导层压暗、挖洞、提示气泡都放在 `z-index: 1000`：压过对局常规 UI（≤90），
 但被全屏过场（1100）盖住——所以每一句提示都挂在某段演出的收尾信号上
@@ -952,25 +978,31 @@ Chrome 对带 3D 旋转的元素走贴图路径：先按**布局尺寸**把整�
 `src/save/save.ts` 是唯一碰持久化的地方，存在 localStorage 里：
 
 ```
-key   ai-duel-save-v5
-value { "ownedCards": ["..."], "wins": 3 }
+key   ai-duel-save-v7
+value { "ownedCards": ["..."], "wins": 3, "savedHero": "grace-hopper", "tutorialDone": true }
 ```
 
-对外只有三个函数：
+对外只有五个函数：
 
 - `loadSave()` 读存档，任何一处读不通都回落到初始收藏；基础收藏始终开放，和额外解锁合并，不清空胜场。
 - `recordWin()` 记一场胜利：胜场 +1，顺手用 `drawNewCard` 抽一张新卡再写回。
+- `saveHero(hero)` 记下这次确认的英雄，下次进选英雄那一步时预填。
+- `markTutorialDone()` 记下新手教程走完了（走到完成页、或中途点了「跳过教程」都会调）。
 - `resetSave()` 清档回到新号。演示和调试用的，首页角落的 dev 区有入口。
+
+牌组不在这份存档里：玩家能存多套、还要能改名删除，那份数据自己一个 key，见 `save/deckStore.ts`。
 
 几处约定：
 
 - key 带版本号，结构要改就换下一个版本号：旧数据读不到自动当新号，不写迁移代码，
   老存档整份作废重来。v2 → v3 就是这么删掉 `tutorialDone` 的——教程下线，字段直接消失。
   v3 → v4 则是卡池整个换了一批（模型卡/提示卡 → AI 牌/技能牌），旧存档里的卡 id 一个都不剩。
-  v4 → v5 是这次的术语统一：卡 id 从 `agent-*` 改成 `ai-*`（`ai-gpt` / `ai-claude` /
+  v4 → v5 是术语统一：卡 id 从 `agent-*` 改成 `ai-*`（`ai-gpt` / `ai-claude` /
   `ai-gemini` / `ai-deepseek`），存档里存的正是这批 id，所以老存档同样整份作废。
+  v5 → v6 加了 `savedHero`（匹配后确认的英雄，下次进流程时预填）。
+  v6 → v7 加了 `tutorialDone`（新手教程走完没有，首页「开始游戏」照它分流）。
   存的卡 id 全部来自当前卡池（AI 牌 + 技能牌两类）；英雄牌不进牌组也不进收藏，
-  存档里没有英雄这一项。
+  所以英雄只以 `savedHero` 这一个"选择结果"的形式存在。
 - 读写全部包在 `try/catch` 里：隐私模式、禁用站点数据、配额占满时
   `localStorage` 本身就会抛异常，这时回落到初始收藏，游戏照常能玩，只是进度存不下来。
 - 存档里残留的、已经从卡池里删掉的卡 id 会在读取时被丢弃，否则渲染时 `getCard` 会抛错。
@@ -1011,14 +1043,21 @@ packages/client/
     castHitTest.ts            首页人物抠图的逐像素 alpha 命中检测（人物图层不收指针事件，
                               hover 只能在舞台级采样判定）；坐标全归一化，素材换多大都不用改，
                               但 alpha 缓冲会跟着源图分辨率一起涨（换 2x 素材时见该文件头）
-    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口
+    RoomScreen.tsx            匹配房：自动建房拿码 + 输码进房，外加 dev 测试房入口和重玩教程入口；
+                              匹配之后的选卡组 / 选英雄也是这个组件的两个 phase
     MatchScreen.tsx           对局界面：从 MatchSession 取 driver 和 testMode，赢了记一次胜场
+    HeroScreen.tsx            选择英雄：七张人物卡 + 技能详情；可选的 tutorial prop 把
+                              技能待实装的六位锁掉（新手教程在用）
+    hero.css                  只给选英雄页用的样式
+    TutorialScreen.tsx        新手教程整条流程：一个 phase 状态串起教学对战 → 过渡 → 组牌 →
+                              选英雄 → 完成页（见 5.3），driver 自己建自己收、不记胜场
     DesignScreen.tsx          /design 设计参考页：纸面元件的样板间，兼组件库的回归测试
     design.css                只给设计参考页用的样式
-    DeckScreen.tsx            /deck 组建牌组 demo：圆圈加减、卡池 ↔ 牌组拖拽、点开放大查看；
-                              牌组只在内存里，刷新就清空，真卡池落地后重做
+    DeckScreen.tsx            组建牌组：圆圈加减、卡池 ↔ 牌组拖拽、点开放大查看；卡池是存档里的真卡，
+                              每加减一张就写 save/deckStore.ts。三条入口共用这一份
+                              （/deck、匹配流程、新手教程的组牌一步——最后一条多传一个 tutorial prop）
     deck.css                  只给组建牌组页用的样式
-    deckDemoCards.ts          组建牌组页的假卡池（30 张，和 core 的真卡无关）
+    deckDemoCards.ts          早期的假卡池（30 张，和 core 的真卡无关），现在只有 /card 图鉴还引着
   src/match/                  对局驱动层
     driver.ts                 MatchDriver 接口 + 订阅/快照的共用实现
     localDriver.ts            本地热座，也被 dev 测试房复用
@@ -1028,6 +1067,19 @@ packages/client/
     testMatch.ts              dev 测试房：拿本地 driver 起一局，双方都用起始牌组
     useMatch.ts               把 driver 接进 React（useSyncExternalStore）
     MatchSession.tsx          持有当前对局的 driver + testMode，跨得过路由切换
+  src/tutorial/               新手教程（见 5.3），三段引导共用一层引导层
+    content.ts                教学数据：3 道题、双方 20 张牌组、英雄、对手脚本、预设答题结果
+    steps.ts                  教学对战的步骤表（纯数据 + 纯函数的信号判定）
+    TutorialController.ts     跑那张步骤表：喂进引擎事件 / 舞台演出信号 / 计时，吐出限制和提示
+    TutorialOverlay.tsx       压暗挖洞 + 一句话提示气泡，三段教学共用（坐标口径见 ui/battleStage.ts）
+    deckSteps.ts              组牌教学的数据与放行规则：17 张预填、三张待加的牌、五步引导
+    TutorialDeckStage.tsx     跑组牌引导：预填写进 deckStore，把限制交给 DeckScreen
+    heroSteps.ts              选英雄教学的两步文案与锚点
+    TutorialHeroStage.tsx     跑选英雄引导：只放行霍珀，确认后 saveHero
+    TutorialBlockTip.tsx      "这一步不许点这个"的一句话提示（被锁住的操作必须有反馈）
+    TutorialOutro.tsx         过渡提示页和教程完成页（完成页顺手写 tutorialDone）
+    TutorialSkip.tsx          全程右上角的「跳过教程」，点一下先变成确认条
+    tutorial.css              以上几块的样式
   src/net/
     protocol.ts               房主 ↔ 客人的消息格式
     socket.ts                 联机通道封装（原生 WebSocket：建房、进房、转发）
@@ -1072,9 +1124,12 @@ packages/client/
                               右栏是这张卡的正反面、全部数值和原始 JSON；英雄牌只有这里看得到，
                               对局里还进不去
     LoaderDemo.tsx            加载动画演示（/loader）：各档 size / speed / color 摆开对比
-  src/save/save.ts            localStorage 存档（收藏 + 胜场）
+  src/save/save.ts            localStorage 存档（收藏 + 胜场 + 英雄 + 教程标记）
+  src/save/deckStore.ts       牌组存档（多套牌组、当前是哪套），自己一个 key
   src/styles.css
-  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、清档
+  test/save.test.ts           存档读写：坏数据和卡池对不上时的回落、胜利抽卡、教程标记、清档
+  test/deckStore.test.ts      牌组存档：卡表规整、改名、增删牌组、当前牌组永远指得到人
+  test/tutorialDeck.test.ts   组牌教学的数据与放行规则：预填 17 张、三张待加的牌、每步只放行一张
   test/castHitTest.test.ts    首页人物命中检测的纯函数：包围盒换算、前后遮挡、羽化边缘不算命中
 packages/server/
   src/index.ts                Worker 入口 + Room Durable Object（转发器全部逻辑）
@@ -1085,6 +1140,9 @@ packages/server/
 
 依赖方向：`screens → match / ui / dev / save`，`match → net / core`，
 `ui` 谁也不依赖（只认自己的 props），`server` 不依赖 `core`。
+`tutorial` 是唯一双向的一处：`TutorialScreen` 引 `tutorial/`，而 `tutorial/` 里那两个
+Stage 又反过来引 `screens/DeckScreen`、`screens/HeroScreen`——教程复用的就是那两页本身
+（见 5.3），另起两份只会让教程里验过的界面不等于正式流程里的界面。
 
 ## 7. 常用命令
 
@@ -1116,7 +1174,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 
 已经就位：
 
-- 三个正式界面加三个开发页、路由；首页「开始游戏」直接进匹配房，不分流，
+- 三个正式界面加三个开发页、路由；首页「开始游戏」按存档分流（没走完教程的先进 `/tutorial`），
   首页本身是照设计稿做的分层场景。
 - 纸纹组件库（`src/ui/paper`）和 `/design` 样板间；卡面接上占位插画，`/card` 图鉴页一眼对照。
 - **答题制的对局流程整条打通了**：抛硬币定先手 → 双方轮流出牌（每轮至多一张新 AI 牌，
@@ -1147,7 +1205,9 @@ Vite 的 dev server 自带这个回退，开发时不用管。
   本轮花掉多少另记一份 `spentThisRound`，它是同结果时的决胜依据（见 3.4）。
   手牌里现在打不出去的那几张会压暗、拖不动，点一下弹理由——
   「Token 不够」，或者本轮已经派过 AI 之后其余 AI 牌上的「本轮已派出 AI 牌」。
-- 存档 v5（收藏 + 胜场）。
+- 存档 v7（收藏 + 胜场 + 上次确认的英雄 + 教程走完没有）；牌组另一个 key（`ai-duel-decks-v2`）。
+- **新手教程整条流程做完了**（见 5.3）：三轮教学对战 → 过渡提示 → 组牌教学 → 选英雄教学 → 完成页，
+  入口分流、匹配房里的重玩入口和全程的「跳过教程」都接好了。
 - 联机协议、WebSocket 封装、房主/客人两个 driver，转发器有端到端冒烟测试守着。
 
 **还没做的**，按建议顺序：
@@ -1169,9 +1229,7 @@ Vite 的 dev server 自带这个回退，开发时不用管。
 5. **卡组选择**（client）——现在联机双方都写死用 `STARTER_DECK`。
 6. **联机端到端实测**——协议和转发器都有测试，房主/客人 driver 也接好了，
    但答题制这一版没有在两台真机上跑过完整一局。
-7. **新手教程**（见 5.3）——流程和文案已经定稿（`docs/出牌吧AI_新手教学对战规格_V1.1.md`），
-   引擎侧的口子（`firstPlayer` / `noShuffle` / 题目关键词 / `ROUND_SCORED` 带判定依据）
-   也都就位了，剩下的是那套教学状态机和界面引导层。
+7. ~~**新手教程**~~——已经做完，挪到上面那份清单里了（见 5.3）。
 8. **打磨**——音效、结算画面。对手倒扇形手牌、强制展示层和上场特效都已经接进对局界面
    （见 5.8），剩下的是配音效和把结算做得像样。
 

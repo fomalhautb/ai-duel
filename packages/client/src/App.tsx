@@ -19,6 +19,7 @@ import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
+import { GenerationScreen } from './screens/GenerationScreen'
 import { CardGallery } from './dev/CardGallery'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
@@ -59,6 +60,9 @@ export function App() {
         {/* 结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
             省得为了调结算版式真去打完一局。 */}
         <Route path="/result" component={ResultDemo} />
+        {/* 预生成答题结果对照页：把离线跑好的「模型 × 题目 × 技能」结果摊成一张表，
+            用来看哪张技能卡真的把模型带偏了。数据是构建期生成的静态 JSON，不联网。 */}
+        <Route path="/generation" component={GenerationScreen} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>

@@ -4007,6 +4007,20 @@ body:has(.battle) {
   height: var(--card-h);
 }
 
+/*
+ * AI 牌共用的 2:3 背面图与当前卡框同一比例，可以完整显示米白外边和中央纹样。
+ * 圆角和阴影直接挂在图片上，避免米白边在深色详情区旁露出直角。
+ */
+.gallery__card-back-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 32%);
+  user-select: none;
+}
+
 .gallery__face-name {
   margin-top: 8px;
   color: var(--gallery-ink-muted);

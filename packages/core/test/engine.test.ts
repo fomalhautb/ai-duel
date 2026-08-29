@@ -652,7 +652,12 @@ describe('要选目标的技能牌', () => {
       targetInstanceId: target.instanceId,
     })
 
-    expect(board(result.state, 1)[0]).toEqual({ ...target, interference: 'fixed-answer' })
+    expect(board(result.state, 1)[0]).toEqual({
+      ...target,
+      interference: 'fixed-answer',
+      // 展示用的那一份也要跟着写上，小卡才挂得出角标（见 types.ts 的 affectedBy）。
+      affectedBy: ['fixed-answer'],
+    })
     // 只标中选的那一个，同排另一个不受影响。
     expect(board(result.state, 1)[1]!.interference).toBeUndefined()
     // 技能牌自己照常进弃牌堆。
@@ -878,6 +883,14 @@ describe('玉净瓶', () => {
     ).toBe('目标必须是你自己场上的 AI')
   })
 
+  it('展示用的那一份跟着换：撤掉复读机，记上玉净瓶自己', () => {
+    // 不撤的话小卡会一直挂着「复读中」，而这个单位其实已经干净了（见 types.ts 的 affectedBy）。
+    const state = interferedMine()
+    const mine = board(state, 0)[0]!
+    const result = playSkill(state, 0, 'jade-purification-vase', mine.instanceId)
+    expect(board(result.state, 0)[0]!.affectedBy).toEqual(['jade-purification-vase'])
+  })
+
   it('摘干净之后本轮还能再被干扰一次', () => {
     // 干扰的判据是"身上现在有没有"，不是"这一轮被打过没有"，所以摘掉就等于回到没被打过。
     const state = interferedMine()
@@ -956,16 +969,19 @@ describe('保送', () => {
     })
   })
 
-  it('进下一轮时保送标记清掉', () => {
+  it('进下一轮时保送标记清掉，展示用的那一份也一起清', () => {
     const state = deploy(skillGame(4), 0, ['gpt-2'])
     const mine = board(state, 0)[0]!
     const passed = playSkill(state, 0, 'safe-pass', mine.instanceId).state
+    expect(board(passed, 0)[0]!.affectedBy).toEqual(['safe-pass'])
     const quiz = execute(passed, { type: 'DEBUG_SKIP_TO_QUIZ' }).state
     const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: answersFor(quiz) }).state
     const next = confirmBoth(settle).state
 
     expect(next.round).toBe(5)
     expect(board(next, 0)[0]!.safePassed).toBeUndefined()
+    // 角标只活本轮：新一轮开始时这个单位身上不该还留着上一轮那几张牌。
+    expect(board(next, 0)[0]!.affectedBy).toBeUndefined()
   })
 })
 
@@ -1294,6 +1310,8 @@ describe('鸡犬升天', () => {
       cardId: 'gpt-3-5',
       owner: 0,
       interference: 'fixed-answer',
+      // 换脸自己也记一笔：本轮谁把它变成 GPT-3.5 的，只剩这一处看得出来。
+      affectedBy: ['fixed-answer', 'rising-tide'],
     })
   })
 
@@ -2674,6 +2692,8 @@ describe('英雄技能：升降级（陈丹琦 / 梅拉妮·珀金斯）', () =>
       cardId: 'gpt-3-5',
       owner: 0,
       interference: 'fixed-answer',
+      // 英雄技能不记进 affectedBy（那份只记技能牌），它留下的是 levelShift。
+      affectedBy: ['fixed-answer'],
       levelShift: 1,
     })
   })

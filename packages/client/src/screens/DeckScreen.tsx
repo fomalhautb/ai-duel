@@ -6,8 +6,14 @@
  * 所以界面上没有"未保存"这个状态，也没有保存按钮。
  *
  * 受控组件：不导航，「确认牌组」把当前牌组的卡 id 交给 props.onConfirm，返回走 props.onBack。
- * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步）。
- * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它。
+ * 于是同一个组件既能当大厅里的独立页（/deck），也能嵌进匹配后的流程（RoomScreen 的选卡组一步），
+ * 还能当新手教程的组牌一步（/tutorial，多传一个 tutorial prop）。
+ * 没有 initialDeck 这种 prop——预填天生来自 deckStore 里的当前牌组，这一页自己读写它，
+ * 教程的 17 张预填也是同一条路：进这一页之前先把那套牌组写进 deckStore 并设为当前。
+ *
+ * 教程模式（DeckScreenTutorial）只做减法：除了引导指定的那张卡和「确认牌组」，
+ * 其余操作（移除、加别的卡、改名、切换/新建/删除牌组、切页签、放大查看）一律挡下并喊一声，
+ * 由教程去显示一句提示。不传这个 prop 的两条入口行为一字不变。
  *
  * 三块复用件：
  * - 卡面用对局那套 HandCardFace（150×225），牌组里的迷你卡是同一份排版整体缩小（--deck-mini-scale）；
@@ -34,7 +40,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { CARD_POOL, getCard } from '@ai-duel/core'
@@ -238,6 +244,26 @@ function useBindCache() {
   return { attach, bindOf, retain }
 }
 
+/**
+ * 新手教程挂上来的限制（规格 §15 末段：组牌阶段只能点引导指定的卡和按钮）。
+ *
+ * 这一层刻意只有"放行哪张卡 / 确认能不能点 / 被挡了喊一声"三件事：
+ * 步骤怎么走、提示说什么全在 tutorial/ 那边，这一页对教程本身一无所知。
+ * 不传这个 prop 时整页就是原来的自由编辑页（/deck 和匹配流程都走那条）。
+ */
+export interface DeckScreenTutorial {
+  /** 这一步唯一放得进牌组的卡；null = 现在一张都不许加。 */
+  allowedCardId: CardId | null
+  /** 「确认牌组」能不能点。 */
+  allowConfirm: boolean
+  /** 被锁住的操作统一说这句话。 */
+  blockTip: string
+  /** 玩家点了锁住的东西，由教程去把提示显示出来（锁必须有话说，不能没反应）。 */
+  onBlocked: (tip: string) => void
+  /** 放行的那张卡真进牌组了，教程据此推进到下一步。 */
+  onCardAdded: (cardId: CardId) => void
+}
+
 export interface DeckScreenProps {
   /**
    * 满 DECK_SIZE 张点确认时回调，参数是牌组的卡 id，顺序即玩家的选牌顺序。
@@ -246,9 +272,19 @@ export interface DeckScreenProps {
   onConfirm: (deck: CardId[]) => void
   /** 不传就不渲染返回按钮：匹配之后的流程不允许退回大厅。 */
   onBack?: () => void
+  /** 新手教程模式。不传 = 自由编辑，也就是这一页原本的样子。 */
+  tutorial?: DeckScreenTutorial
+  /**
+   * 盖在整页之上的额外一层，现在只有教程的引导层。
+   *
+   * 必须由这里挂进 `.deck-scaler` 里面：那一层有 transform，
+   * 既是层叠上下文（挂在外面的浮层压不住页内元素），
+   * 也是引导层 `position: fixed` 的包含块（挂在外面坐标就对不上舞台）。
+   */
+  overlay?: ReactNode
 }
 
-export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
+export function DeckScreen({ onConfirm, onBack, tutorial, overlay }: DeckScreenProps) {
   const [kindTab, setKindTab] = useState(0)
   const [zoomed, setZoomed] = useState<ZoomState | null>(null)
   /** 发号器，只保证 key 不重复，数值本身没有含义。 */
@@ -265,6 +301,25 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   // 缩放系数由 JS 量 .deck-page 的宽算出来写进 --deck-scale，不在 CSS 里算
   //（纯 CSS 那套在 Safari 上会让整页塌掉，原因见 ui/useStageScale.ts）。
   const scalerRef = useStageScale<HTMLDivElement>('--deck-scale')
+
+  /**
+   * 教程限制的镜像。拖拽和管理条的回调跨渲染活着，直接闭包捕获 prop 会读到过期的那份；
+   * 而把 tutorial 写进 addCard / removeEntry 的依赖，又会让它们每次渲染都换身份，
+   * 底下两个 React.memo 卡片组件就再也命不中（见 PoolCard 的说明）。
+   */
+  const tutorialRef = useRef(tutorial)
+  tutorialRef.current = tutorial
+
+  /**
+   * 教程期间挡下一次操作：喊一声由教程去显示提示，返回 true 表示"这一步到此为止"。
+   * 不在教程模式时恒返回 false，调用点照常往下走。
+   */
+  const blockedByTutorial = useCallback((): boolean => {
+    const guide = tutorialRef.current
+    if (guide === undefined) return false
+    guide.onBlocked(guide.blockTip)
+    return true
+  }, [])
 
   // 这一页没有挂载动画，useGSAP 在这儿只是为了拿 contextSafe：
   // 拖拽 hook 和归位补间建的 tween 都归这个 context 管，离开页面时一起 revert。
@@ -403,15 +458,25 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const addCard = useCallback(
     (cardId: CardId) => {
+      const guide = tutorialRef.current
+      // 教程期间只放行当前这一步点名的那张，连"再加一份已经加过的牌"也一起挡掉：
+      // 不挡的话玩家连点两下就把牌组填满了，后面几步没牌可加。
+      if (guide !== undefined && guide.allowedCardId !== cardId) {
+        guide.onBlocked(guide.blockTip)
+        return
+      }
       if (!canAddNow(cardId)) return
       nextKeyRef.current += 1
       commitDeck([...deckRef.current, { key: `pick-${nextKeyRef.current}`, cardId }])
+      guide?.onCardAdded(cardId)
     },
     [canAddNow, commitDeck],
   )
 
   const removeEntry = useCallback(
     (entryKey: string) => {
+      // 教程阶段牌组里的牌一张都不许动（规格 §15）。
+      if (blockedByTutorial()) return
       const current = deckRef.current
       const next = current.filter((entry) => entry.key !== entryKey)
       // 这份牌已经不在了（同一拍里被移过一次）就什么都别做：
@@ -419,7 +484,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
       if (next.length === current.length) return
       commitDeck(next)
     },
-    [commitDeck],
+    [blockedByTutorial, commitDeck],
   )
 
   const cardOfEntry = (entryKey: string): HandCardData | undefined => {
@@ -652,6 +717,13 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     // 圆圈按钮另有用途（加入 / 移除），按在它上面不算抓牌。
     ignoreSelector: '.deck-circle',
     onDragStart: (drag) => {
+      // 教程期间只有放行的那张拖得动；别的牌当场掐掉这次拖拽，并说明原因。
+      const guide = tutorialRef.current
+      if (guide !== undefined && guide.allowedCardId !== drag.id) {
+        guide.onBlocked(guide.blockTip)
+        poolDragRef.current?.endDrag()
+        return
+      }
       if (!canAddNow(drag.id)) {
         poolDragRef.current?.endDrag()
         return
@@ -666,6 +738,15 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     },
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (id) => {
+      /*
+       * 教程模式下点一张卡池卡就是"加入牌组"，不再是放大查看（规格 §12 写的正是
+       * "玩家点击指定 AI 牌后，卡牌进入牌组"）。放大查看这一步整段关掉：
+       * 它会铺一层遮罩把引导层压住，而这一段教学也没有需要细看卡面的地方。
+       */
+      if (tutorialRef.current !== undefined) {
+        addCard(id)
+        return
+      }
       const card = CARD_BY_ID.get(id)
       if (card !== undefined) openZoom(card, 'pool', poolFlipId(id))
     },
@@ -677,12 +758,16 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
   /**
    * 牌组 → 拖出面板 = 移除。
    *
+   * onDragStart 里要调 endDrag（教程期间不让拖），handle 又是本次 useCardDrag 的返回值，
+   * 只能事后存进 ref 里绕开这个循环——同上面卡池那侧的 poolDragRef。
+   *
    * 靠 zones 的顺序做"面板外面才算数"：面板排在前面且 accepts: false，整页容器排在后面且接受，
    * 于是"压在面板上松手 = 取消（回弹）"、"面板外松手 = 移除"。
    * 面板那块用的是内层 .deck-side__inner 而不是 .deck-side 本身：外层是卡池那个 hook 的落点，
    * 两个 hook 都会往落点元素上打 data-drop-hot，共用一个节点的话 CSS 就分不出
    * "拖进来要加入"和"拖着自己的牌在面板里晃"这两件完全相反的事。
    */
+  const deckDragRef = useRef<CardDragHandle | null>(null)
   const deckDrag = useCardDrag({
     zones: [
       { ref: sideInnerRef, accepts: false },
@@ -691,15 +776,25 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
     contextSafe,
     ignoreSelector: '.deck-circle',
     // 格子区自己滚（见 .deck-slots），拖出去的牌不切成 fixed 就会被裁在格子区里。
-    onDragStart: (drag) => liftCardOut(drag.element),
+    onDragStart: (drag) => {
+      // 教程期间牌组里的牌一张都不许动，拖也不行：当场掐掉，别让牌跟着指针跑一段再弹回去。
+      if (blockedByTutorial()) {
+        deckDragRef.current?.endDrag()
+        return
+      }
+      liftCardOut(drag.element)
+    },
     // 落点成立 = 移除，这一份牌下一拍就从 DOM 上摘走了，不用再管它切回文档流。
     onDrop: (drag) => removeEntry(drag.id),
     onCancel: (drag) => returnHome(drag.element, true),
     onTap: (entryKey) => {
+      // 同卡池那边：教程期间不开放大查看，点一下只会得到一句"这一步别动牌组"。
+      if (blockedByTutorial()) return
       const card = cardOfEntry(entryKey)
       if (card !== undefined) openZoom(card, 'deck', deckFlipId(entryKey))
     },
   })
+  deckDragRef.current = deckDrag
   attachDeckBind(deckDrag.bind)
 
   // ---------- 牌组管理条 ----------
@@ -750,6 +845,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const createNewDeck = () => {
     closePopovers()
+    if (blockedByTutorial()) return
     const next = createDeck()
     // 已经 12 套。按钮此时本来就是禁用的，这里只是不让 null 往下走。
     if (next === null) return
@@ -766,6 +862,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
 
   const startRename = () => {
     closePopovers()
+    if (blockedByTutorial()) return
     renameAbortRef.current = false
     setNameDraft(currentName)
     setRenaming(true)
@@ -845,7 +942,12 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         aria-selected={index === kindTab}
                         className="deck-kind"
                         data-active={index === kindTab}
-                        onClick={() => setKindTab(index)}
+                        // 教程期间不许切页签：一切就可能把当前要点的那张卡筛掉，
+                        // 引导圈会指向一个已经不在页面上的元素。
+                        onClick={() => {
+                          if (blockedByTutorial()) return
+                          setKindTab(index)
+                        }}
                       >
                         {tab.label} {kindCounts[tab.id]}
                       </button>
@@ -879,10 +981,14 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                   })}
                 </div>
 
+                {/* 教程模式下点一张卡就是加入牌组、也不开放大查看，这行字必须跟着改口，
+                    否则它说的操作和实际行为对不上。 */}
                 <p className="deck-pool__hint">
-                  {deckFull
-                    ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
-                    : '点击放大 · 圆圈或拖拽加入'}
+                  {tutorial !== undefined
+                    ? '点击高亮的卡牌，把它加入牌组'
+                    : deckFull
+                      ? `牌组已满 ${DECK_SIZE} 张 · 点击放大，先移除才能再加`
+                      : '点击放大 · 圆圈或拖拽加入'}
                 </p>
               </section>
 
@@ -929,6 +1035,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                               className="deck-manage__btn"
                               aria-expanded={menuOpen}
                               onClick={() => {
+                                if (blockedByTutorial()) return
                                 setDeleting(false)
                                 setMenuOpen((open) => !open)
                               }}
@@ -942,6 +1049,7 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                               type="button"
                               className="deck-manage__btn"
                               onClick={() => {
+                                if (blockedByTutorial()) return
                                 setMenuOpen(false)
                                 setDeleting((open) => !open)
                               }}
@@ -1012,7 +1120,9 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         ) : null}
                       </div>
 
-                      <div className="deck-tally">
+                      {/* data-tutorial-anchor 是新手教程的语义锚点（见 tutorial/deckSteps.ts）：
+                          组牌教学第一句话高亮的就是这块「已选 N / 20」。 */}
+                      <div className="deck-tally" data-tutorial-anchor="deckCounter">
                         <p className="deck-tally__count">
                           已选 <b>{deck.length}</b>
                           <span className="deck-tally__total">/ {DECK_SIZE}</span>
@@ -1058,17 +1168,23 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
                         <div className="deck-side__notes">
                           {/* 文案照实写：这一页是"点一下放大"，移除走圆圈或者把牌拖出面板，
                               没有悬停放大这回事。 */}
-                          <p className="deck-side__hint">点击放大 · 圆圈或拖出移除</p>
+                          <p className="deck-side__hint">
+                            {tutorial === undefined
+                              ? '点击放大 · 圆圈或拖出移除'
+                              : '教学阶段：牌组里的牌暂时不能改动'}
+                          </p>
                           {shortfall > 0 ? (
                             <p className="deck-shortfall">还需选择 {shortfall} 张</p>
                           ) : (
                             <p className="deck-done">牌组已满 · 可以出发</p>
                           )}
                         </div>
-                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。 */}
+                        {/* 存档是实时写的，这里不用"保存"，只负责满 DECK_SIZE 张之后把牌组交出去。
+                            教程模式下还要等引导走到最后一步才解锁（规格 §12：加满 20 张，按钮才亮）。 */}
                         <PlaqueButton
                           className="deck-confirm"
-                          disabled={shortfall > 0}
+                          data-tutorial-anchor="deckConfirm"
+                          disabled={shortfall > 0 || (tutorial !== undefined && !tutorial.allowConfirm)}
                           onClick={() => onConfirm(deck.map((entry) => entry.cardId))}
                         >
                           确认牌组
@@ -1098,6 +1214,11 @@ export function DeckScreen({ onConfirm, onBack }: DeckScreenProps) {
               closeOnEscape
             />
           </div>
+
+          {/* 额外浮层的插槽，现在只有教程的引导层。挂在 .paper-page__inner 外面、
+              仍然在 .deck-scaler 里面：前者是 z-index: 1 的层叠上下文（放进去就压不住页内元素），
+              后者带着 transform（放出去引导层的 fixed 坐标就不再以舞台为准）。 */}
+          {overlay}
         </div>
       </div>
     </div>

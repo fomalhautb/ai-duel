@@ -23,6 +23,7 @@
  */
 
 import gsap from 'gsap'
+import { battleStageMetrics } from './battleStage'
 
 /** 震屏里每一小段位移的时长。五段拼成一次抖动，末段翻倍收尾，全程约 0.3 秒。 */
 const SHAKE_STEP = 0.05
@@ -53,10 +54,13 @@ export function playSummonFx(tile: HTMLElement) {
   if (fxLayer !== null) {
     // 烟尘以"卡牌底边中点"为落点：卡是砸下来的，灰是从脚下扑起来的。
     // 坐标要换算成相对特效层的，因为烟尘是 absolute 挂在特效层里的。
+    // 两个 rect 是缩放之后的屏幕像素，而写回去的 left / top 是舞台内像素，所以还要除一次 scale
+    //（对局界面整体缩放的口径见 ui/battleStage.ts）。
+    const { scale } = battleStageMetrics()
     const layerRect = fxLayer.getBoundingClientRect()
     const rect = tile.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2 - layerRect.left
-    const cy = rect.bottom - layerRect.top
+    const cx = (rect.left + rect.width / 2 - layerRect.left) / scale
+    const cy = (rect.bottom - layerRect.top) / scale
     spawnSmoke(fxLayer, cx, cy)
   }
 

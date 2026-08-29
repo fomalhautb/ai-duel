@@ -24,6 +24,7 @@
 import { useEffect, useRef } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
+import { battleStageWidth } from './battleStage'
 import { CardBackHidden } from './CardBackHidden'
 import type { HandCardData } from './HandFan'
 import { LAYOUT_DUR, OPPONENT_FAN, fanTransform } from './fanMath'
@@ -86,10 +87,11 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
   const applyLayout = (mode: LayoutMode) => {
-    // 锚点 .opponent-fan 是 fixed + width: 100%，宽度就是初始包含块的宽（不含滚动条），别混用 innerWidth。
-    // 这排牌可以按整个视口宽摊开：它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
+    // 锚点 .opponent-fan 是 fixed + width: 100%。对局页里 .battle-scaler 带着 transform，
+    // fixed 的包含块因此是舞台那 1672×941 的盒子，这排牌就按整个舞台宽摊开：
+    // 它贴在顶栏那条，左右侧栏够不到，不像玩家手牌那样要让着中栏
     //（玩家那边量的是战场中栏，见 HandFan 的 fanAreaWidth）。
-    const viewportWidth = document.documentElement.clientWidth
+    const stageWidth = battleStageWidth()
     const count = cards.length
 
     if (mode === 'reflow') {
@@ -104,7 +106,7 @@ export function OpponentFan({ cards, onReveal, disabled = false }: OpponentFanPr
       const slot = slotsRef.current.get(card.id)
       if (!slot) return
 
-      const base = fanTransform(index, count, viewportWidth, OPPONENT_FAN)
+      const base = fanTransform(index, count, stageWidth, OPPONENT_FAN)
       // 牌心间距跟着卡面一起收紧。缩放是以每张牌自己的底边中点为原点做的，只缩卡面不动 x，
       // 相邻两张之间就会平白多出空隙，一排牌从"叠在手里"散成"排在架子上"；乘上同一个系数，
       // 重叠比例才和缩放前一样。只有 x 乘：rotation 和 y（sink + 下垂）保持原样，

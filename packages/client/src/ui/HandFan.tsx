@@ -47,6 +47,12 @@ import {
   fanTransform,
 } from './fanMath'
 import { prefersReducedMotion } from './reducedMotion'
+import {
+  battleStageHeight,
+  battleStageMetrics,
+  battleStageWidth,
+  toStagePoint,
+} from './battleStage'
 import { DRAG_SCALE, useCardDrag } from './useCardDrag'
 import type { CardDragInfo, CardDropZone } from './useCardDrag'
 
@@ -298,26 +304,26 @@ type LayoutMode = 'hover' | 'reflow'
 /**
  * 扇形可以铺开多宽。
  *
- * 不能拿视口宽了事：对局界面两侧是不透明的侧栏，而且 z-index 30 压在手牌（20）之上，
+ * 不能拿舞台宽了事：对局界面两侧是不透明的侧栏，而且 z-index 30 压在手牌（20）之上，
  * 手牌一多，扇形两端就整片钻到侧栏底下去了。所以量的是中间那栏（.battle__battlefield）。
- * 这栏并不严格居中（左右侧栏的 clamp 宽度不一样，差十来个像素），而扇形是以视口中线
- * 为对称轴摊开的，所以取"中线到左右两边距离里较小的那个"再翻倍——按窄的那侧算，
- * 宽的那侧自然也放得下。
+ * 这栏并不严格居中（左右侧栏宽度差十来个像素），而扇形是以舞台中线为对称轴摊开的，
+ * 所以取"中线到左右两边距离里较小的那个"再翻倍——按窄的那侧算，宽的那侧自然也放得下。
  *
- * 量不到这个元素（比如手牌被搬到别的页面上用）就退回视口宽：
- * 口径是 documentElement.clientWidth，和锚点 .hand-fan（fixed + width: 100%）
- * 以及 dragTargetOf 一致，别混用 innerWidth。
+ * 返回值是舞台内坐标（和 fanMath 的那套像素同一口径），所以量到的视口矩形要除以 scale
+ * 换算回来，见 ui/battleStage.ts。量不到中栏（比如手牌被搬到别的页面上用）就退回舞台宽，
+ * 那种情况下 battleStage 会给出"没有舞台"的口径，也就是视口宽。
  */
 function fanAreaWidth(): number {
-  const viewportWidth = document.documentElement.clientWidth
+  const stageWidth = battleStageWidth()
   const field = document.querySelector('.battle__battlefield')
-  if (field === null) return viewportWidth
+  if (field === null) return stageWidth
 
   const rect = field.getBoundingClientRect()
-  if (rect.width === 0) return viewportWidth
+  if (rect.width === 0) return stageWidth
 
-  const center = viewportWidth / 2
-  return Math.min(center - rect.left, rect.right - center) * 2
+  const metrics = battleStageMetrics()
+  const center = metrics.left + (stageWidth * metrics.scale) / 2
+  return (Math.min(center - rect.left, rect.right - center) * 2) / metrics.scale
 }
 
 function neighborPushes(hoverIndex: number, count: number, areaWidth: number): number[] {
@@ -672,6 +678,7 @@ export function HandFan({
    * 位置用两个 getBoundingClientRect 相减而不是直接拿 slot 的 rect：灰墨态下根节点整排
    * 下沉了 12px（CSS 的 transform），两个 rect 都是变换之后的视口坐标，相减才得到
    * 提示相对根节点的偏移——直接用 slot 的视口坐标写进 left / top，提示会再往下掉 12px。
+   * 相减的结果还要除以舞台缩放：两个 rect 是屏幕像素，而 left / top 写的是舞台内像素。
    * 居中和"贴着牌顶往上长"交给 GSAP 的 xPercent / yPercent，不写 CSS 的 translate：
    * GSAP 接管 transform 时会往内联样式里写 translate: none，把独立变换属性压死。
    */
@@ -682,9 +689,10 @@ export function HandFan({
     tip.textContent = LOCK_TIP_TEXT[reason]
     const slotRect = slot.getBoundingClientRect()
     const rootRect = root.getBoundingClientRect()
+    const { scale } = battleStageMetrics()
     gsap.set(tip, {
-      left: slotRect.left + slotRect.width / 2 - rootRect.left,
-      top: slotRect.top - rootRect.top - LOCK_TIP_GAP,
+      left: (slotRect.left + slotRect.width / 2 - rootRect.left) / scale,
+      top: (slotRect.top - rootRect.top) / scale - LOCK_TIP_GAP,
       xPercent: -50,
       yPercent: -100,
     })
@@ -752,17 +760,16 @@ export function HandFan({
    * 这里的 DRAG_SCALE 和 CARD_HEIGHT 都是**显示尺寸**那套口径（拖着的牌看起来有 1.1 × 225 高），
    * 和 slot 盒子实际有多大无关——盒子被放大、scale 被 slotScale 折算，两下正好抵消。
    *
-   * 尺寸取 documentElement 的 clientWidth / clientHeight 而不是 innerWidth / innerHeight：
-   * .hand-fan 是 fixed + width: 100%，浏览器解析它的 left / bottom 用的是初始包含块
-   * （不含滚动条），clientX / clientY 的原点也是这个矩形的左上角；
-   * innerWidth / innerHeight 含滚动条，只在没有滚动条时才和它们相等。
-   * 混用的后果是页面一出现竖直滚动条，牌就恒定偏在光标左侧约滚动条宽的一半。
+   * 坐标系要先从视口换算到舞台：.hand-fan 是 fixed，而对局页的 .battle-scaler 带着
+   * transform，fixed 的包含块因此是舞台那 1672×941 的盒子，slot 的 x / y 也是舞台内像素；
+   * 指针给的 clientX / clientY 却是缩放之后的屏幕像素。不换算的话窗口一旦不是设计尺寸，
+   * 牌就会离光标越来越远（换算口径见 ui/battleStage.ts）。
    */
   const dragTargetOf = (clientX: number, clientY: number) => {
-    const root = document.documentElement
+    const point = toStagePoint(clientX, clientY)
     return {
-      x: clientX - root.clientWidth / 2,
-      y: clientY - root.clientHeight + (DRAG_SCALE * CARD_HEIGHT) / 2,
+      x: point.x - battleStageWidth() / 2,
+      y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2,
     }
   }
 

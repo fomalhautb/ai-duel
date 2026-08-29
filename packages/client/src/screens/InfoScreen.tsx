@@ -23,7 +23,6 @@
 
 import { useLocation } from 'wouter'
 import { BackButton } from '../ui/BackButton'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { LoadingScreen } from '../ui/LoadingScreen'
 import { useAssetsReady } from '../ui/preloadAssets'
 import './info.css'
@@ -54,9 +53,6 @@ function InfoStage() {
 
   return (
     <div className="info">
-      {/* BackButton 的手绘滤镜要用，每页各渲染一次，否则 Chrome 上整颗按钮不画。 */}
-      <HandDrawnFilterDefs />
-
       <div className="info__stage">
         <img className="info__bg" src={BACKGROUND} alt="" draggable={false} />
 

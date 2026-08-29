@@ -136,7 +136,7 @@ export type PaperIconProps = {
 /**
  * 引用 PaperIconDefs 里的一个图标。
  *
- * 用之前必须保证页面上已经渲染了 <PaperIconDefs /> 和 <HandDrawnFilterDefs />，
+ * 用之前必须保证页面上已经渲染了 <PaperIconDefs />（手绘滤镜由 App 全局挂，不用管），
  * 否则 <use> 找不到 symbol（图标整个不显示）、filter 找不到定义（在 Chrome 上
  * 会把元素当成滤镜失败直接不画）。
  */

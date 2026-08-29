@@ -58,7 +58,6 @@ import { BattleTopBar } from './BattleTopBar'
 import { CardBackHidden } from './CardBackHidden'
 import { HandCardFace, HandFan } from './HandFan'
 import type { CardPlayVia, HandCardData, HandLockReason } from './HandFan'
-import { HandDrawnFilterDefs } from './HandDrawnFilterDefs'
 import { MatchResult } from './MatchResult'
 import type { MatchStageCue, MatchStageTutorial } from './matchStageTutorial'
 import { OpponentFan } from './OpponentFan'
@@ -367,7 +366,6 @@ export function MatchStage({
     return (
       <BattleFrame>
         <div className="battle battle--waiting">
-          <HandDrawnFilterDefs />
           <BattleTopBar />
           <div className="battle__waiting">
             <p className="battle__waiting-text">
@@ -2617,7 +2615,6 @@ function BattleField({
 
   return (
     <div className="battle">
-      <HandDrawnFilterDefs />
       <BattleTopBar status={{ round: state.round, myScore: me.score, foeScore: foe.score }} />
 
       <div className="battle__layout">

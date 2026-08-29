@@ -14,6 +14,16 @@
   color: #e5e7eb;
   background: #0d1117;
 
+  /*
+   * 右上角静音钮的尺寸和边距（按钮本体见下面的 .mute-toggle）。
+   * 抽成变量是因为别的固定在同一个角上的东西要按它让位——目前是教程页的「跳过教学」
+   *（见 tutorial/tutorial.css），移动档还会把尺寸整档调大，让位的距离得跟着一起变。
+   */
+  --mute-size: 38px;
+  --mute-inset: 16px;
+  /* 想待在右上角、又不能压住静音钮的东西，右边至少留这么宽。 */
+  --corner-clear-right: calc(max(var(--mute-inset), env(safe-area-inset-right)) + var(--mute-size) + 12px);
+
   /* 卡面基准尺寸。改这两个值必须同步改 ui/fanMath.ts 里的 CARD_WIDTH / CARD_HEIGHT：
      那两个常量决定卡牌沉出视口的深度和 hover 放大的下限，
      和这里对不上号，hover 防抖动的几何前提就不成立了（卡会开始抖）。 */
@@ -6481,6 +6491,82 @@ body:has(.battle) {
 }
 
 /* ============================================================
+   右上角静音按钮
+   ------------------------------------------------------------
+   全站常驻的一颗墨色圆章，为什么固定在视口角上而不是画进版式里，见 ui/MuteButton.tsx。
+
+   长相和卡角那枚问号圆章（.card-help-mark）是同一副：夜色圆底 + 米色手绘线条。
+   配色不跟着页面走——全站页面底色深浅不一（首页是夜色，教程和卡组是浅纸），
+   而这颗钮是"页面之外的控件"，两种底上都得一眼看见，深底浅线是唯一两边都成立的选择。
+   ============================================================ */
+
+.mute-toggle {
+  position: fixed;
+  /* 刘海屏的耳朵和圆角照着让开，桌面上 env() 取 0，就是那 16px。 */
+  top: max(var(--mute-inset), env(safe-area-inset-top));
+  right: max(var(--mute-inset), env(safe-area-inset-right));
+  z-index: 8000;
+  display: grid;
+  place-items: center;
+  width: var(--mute-size);
+  height: var(--mute-size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(20 17 12 / 78%);
+  color: #f3ead6;
+  cursor: pointer;
+  /* 压一下就缩一点，和匾额按钮那套"按得下去"的反馈是一个意思，只是这里没有匾额可压。
+     只让 transform 参与过渡：图章上挂着手绘滤镜，颜色一旦参与过渡，
+     接下来十来帧里这条滤镜就要一帧不落地重跑（WebKit 上是逐像素 CPU 算）。 */
+  transform: scale(1);
+  transition: transform 180ms cubic-bezier(0.16, 1.45, 0.35, 1);
+}
+
+.mute-toggle:hover {
+  background: rgb(20 17 12 / 88%);
+  color: #fff6e2;
+}
+
+.mute-toggle:active {
+  transform: scale(0.92);
+  transition-duration: 70ms;
+}
+
+/* 焦点圈用 outline：圆章本身没有阴影，outline 跟着 border-radius 走，正好是外面一圈。 */
+.mute-toggle:focus-visible {
+  outline: 2px solid #a56848;
+  outline-offset: 3px;
+}
+
+/* 静音时压淡一档：这颗钮平时不该抢眼，但"现在没声音"要一眼看得出来。 */
+.mute-toggle.is-muted {
+  color: rgb(243 234 214 / 58%);
+}
+
+.mute-toggle.is-muted:hover {
+  color: #fff6e2;
+}
+
+.mute-toggle__mark {
+  width: 78%;
+  height: 78%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* 和全站线条共用同一份手绘抖动（定义由 App 全局挂，见 ui/HandDrawnFilterDefs.tsx）。 */
+  filter: url('#ai-duel-rough-icon');
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mute-toggle {
+    transition-duration: 1ms;
+  }
+}
+
+/* ============================================================
    移动端版式档
    ------------------------------------------------------------
    触屏设备（手机、平板）专用的一档排版。判据是 pointer: coarse，
@@ -6549,5 +6635,16 @@ body:has(.battle) {
    */
   .battle__result-panel {
     width: 1150px;
+  }
+
+  /*
+   * 静音钮放大一档。它不跟着舞台缩放（是 position: fixed），所以桌面上的 38px
+   * 在手机上仍是 38 个屏幕像素——不算太小，但离 44px 的触摸目标下限还差一点，
+   * 而它又恰好蹲在屏幕角上，按偏一点就点到浏览器的边缘手势去了。
+   *
+   * 改的是变量不是宽高：--corner-clear-right 是按它算的，给它让位的元素才会跟着一起挪。
+   */
+  :root {
+    --mute-size: 44px;
   }
 }

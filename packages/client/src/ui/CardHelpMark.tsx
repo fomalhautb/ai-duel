@@ -9,7 +9,8 @@
  * 图形用内联 SVG 而不是「?」这个字符：整套界面的线条都挂着手绘抖动滤镜
  * （见 ui/HandDrawnFilterDefs.tsx），字符画出来的是字体轮廓，位移滤镜作用在它上面会糊成一团。
  * 同理，外圈也不用 CSS 的 border——border 抖不起来，和圆章里的问号对不上。
- * **使用方所在的页面必须渲染过 <HandDrawnFilterDefs />**，否则 Chrome 上整枚章都不画。
+ * 滤镜定义由 App 全局挂一份（见 ui/HandDrawnFilterDefs.tsx），使用方不用管；找不到定义时
+ * Chrome 上整枚章都不画。
  *
  * 位置、尺寸和显隐由调用方的类名给（各页的角落留白不一样，显隐还分 CSS hover 和 GSAP 两种驱动），
  * 这里只出公共的那层视觉：夜色圆底 + 米色线条，和卡角上另一颗圆钮（.deck-circle）同一副长相。

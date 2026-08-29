@@ -7,7 +7,7 @@
  * 用浅色是为了在深蓝战场上看得清（配色理由见 styles.css 的 .card-back-hidden）。
  *
  * 徽记走 SVG 而不是背景图，是为了跟顶栏、雕花框一样吃 #ai-duel-rough-icon 那道手绘抖动滤镜，
- * 线条才和整页的水墨纸面对得上（滤镜定义由页面里的 HandDrawnFilterDefs 渲染一次）。
+ * 线条才和整页的水墨纸面对得上（滤镜定义由 App 全局挂一份，见 ui/HandDrawnFilterDefs.tsx）。
  */
 export function CardBackHidden() {
   return (

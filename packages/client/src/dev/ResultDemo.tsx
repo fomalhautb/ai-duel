@@ -10,7 +10,6 @@
 
 import { useState } from 'react'
 import { useLocation } from 'wouter'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { MatchResult } from '../ui/MatchResult'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import { useStageScale } from '../ui/useStageScale'
@@ -49,8 +48,6 @@ export function ResultDemo() {
 
   return (
     <div className="result-demo">
-      {/* PlaqueButton 的文字要用页面上公共的手绘滤镜，对局界面里由 MatchStage 挂，这里得自己补一份。 */}
-      <HandDrawnFilterDefs />
       <div className="battle-frame">
         <div className="battle-stage">
           <div className="battle-scaler stage-scaler" ref={scalerRef}>

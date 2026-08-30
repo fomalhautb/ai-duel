@@ -1046,8 +1046,9 @@ html {
  * 地方，pointerleave 立刻把牌翻回正面，翻回来又被 hover 到，来回抖个没完。
  * 所以热区留在 .hand-fan__tilt 里（只跟倾斜），位置和尺寸都不动，指针始终停在触发区内。
  *
- * 默认藏起来，只有卡牌被放大时才和那两个圆圈一起淡入（GSAP 的 autoAlpha）。
+ * 默认藏起来，只有卡牌被放大时才淡入（GSAP 的 autoAlpha，见 HandFan 的 helpHotspotsOf）。
  * autoAlpha 到 0 会把 visibility 也关掉，于是没放大的牌上这块热区不吃指针事件。
+ * 看得见的那枚圆章是常驻的，不跟着这块热区走（理由见下面 .hand-fan__help-mark）。
  *
  * 不用把它沿 Z 轴抬起来跟卡面抢命中：整棵卡面已经 pointer-events: none
  * （见 .hand-fan__inner），翻面途中卡面扫到热区前面也抢不走指针。
@@ -1070,7 +1071,7 @@ html {
 /*
  * 触屏上把这块热区放大到 32px 见方（所在的 .hand-fan__tilt 有 zoom: 1.9，
  * 实际落到屏幕上还要再乘一次舞台缩放）。22px 是照鼠标指针的精度定的，
- * 指尖按不准；看得见的那个问号圆圈不动，热区变大是看不出来的。
+ * 指尖按不准；看得见的那枚问号圆章不动，热区变大是看不出来的。
  * 再大就要开始抢卡面了——玩家从卡的右上角起手拖牌是常事。
  */
 @media (pointer: coarse) {
@@ -1084,8 +1085,15 @@ html {
 
 /*
  * 看得见的那个问号圆章：纯展示，交互全归上面那块透明热区。长相是公共的
- * .card-help-mark（见 ui/CardHelpMark.tsx），这里只补落位、尺寸和显隐。
+ * .card-help-mark（见 ui/CardHelpMark.tsx），这里只补落位和尺寸。
  * 正反两面各放一个，都在 .hand-fan__inner 里面，所以倾斜和翻面都会带着它一起转。
+ *
+ * 常驻显示，不跟着热区一起淡入淡出：问号是「这张牌能翻面」唯一的提示，只在指到牌上才冒出来
+ * 的话，没上手过的玩家根本不知道有背面可看。热区仍然只在牌被放大时才吃指针事件——
+ * 于是没放大的牌上问号是「看得见、点不动」的，这是有意的：那些牌本来也不该被翻。
+ * 尺寸 22px 和卡组页的两处（.deck-pool-card__help-mark / .deck-mini__help-mark）对齐，
+ * 三处都在同一块 1672×941 舞台上按同一套像素排，写同一个数才是同一大小。
+ * 注意这一层在 .hand-fan__tilt 的 zoom 里面，牌被放大时这枚章会跟着一起放大。
  *
  * z-index（在 .card-help-mark 上）是为了盖在卡面内容之上：它和卡面（.card-face / .card-back
  * 里的东西）是兄弟或同层节点，不抬一下会被卡面的背景压住。所在的 .hand-fan__face 本身
@@ -1101,8 +1109,6 @@ html {
   right: 8px;
   width: 22px;
   height: 22px;
-  opacity: 0;
-  visibility: hidden;
 }
 
 /*

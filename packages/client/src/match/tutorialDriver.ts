@@ -206,6 +206,9 @@ export function createTutorialDriver(options: TutorialDriverOptions = {}): Tutor
     subscribe: fanout.subscribe,
     getSnapshot: fanout.getSnapshot,
     subscribeEvents: fanout.subscribeEvents,
+    // 喊话这条不用扇出两份（教程控制器不听喊话），直接透传 inner 的即可。
+    subscribeUrge: inner.subscribeUrge,
+    urge: inner.urge,
 
     onEvents(listener) {
       bypassListener = listener

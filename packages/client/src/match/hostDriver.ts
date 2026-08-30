@@ -72,6 +72,10 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
   autopilot.observe(opening.state)
 
   room.onRelay((message) => {
+    if (message.type === 'match:urge') {
+      core.emitUrge(message.id)
+      return
+    }
     if (message.type !== 'match:command') return
     // 客人只会发自己的指令；就算它伪造成房主的座位，execute 也只是照常判断轮次，
     // 不做额外校验是刻意的——这局不防作弊（架构文档 4.1）。
@@ -108,6 +112,16 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
     getSnapshot: core.getSnapshot,
     subscribeEvents: core.subscribeEvents,
     send: apply,
+    subscribeUrge: core.subscribeUrge,
+
+    // 本地先响，再发给对面：喊话和局面无关，不用等房主那套"执行完再广播"的流程，
+    // 自己这一下当场出声，对面慢一个来回也没关系。
+    urge(id) {
+      if (disposed) return
+      core.emitUrge(id)
+      room.relay({ type: 'match:urge', id })
+    },
+
     dispose() {
       disposed = true
       // 定时器要和连接一起清：界面卸载之后它还会往一局已经没人看的对局里发指令。

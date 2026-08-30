@@ -1060,14 +1060,18 @@ describe('金钟罩', () => {
     expect(result.events.filter((e) => e.type === 'AI_REMOVED').map((e) => e.owner)).toEqual([1])
   })
 
-  it('被罩的一方照吃核电站的减费：减的是出牌费用，不是场上单位', () => {
-    const state = playSkill(skillGame(), 1, 'nuclear-power-station').state
+  it('罩着照样吃自己核电站的减费：减的是出牌费用，不是场上单位', () => {
+    const state = playSkill(skillGame(), 0, 'nuclear-power-station').state
     const shielded = playSkill(state, 0, 'golden-bell-shield').state
-    expect(shielded.costReduction).toBe(1)
-    expect(effectivePlayCost(shielded, getCard('gpt-4o'))).toBe(getCard('gpt-4o').tokenCost - 1)
-    // 金钟罩自己那一张也是按减价付的。
+    expect(shielded.players[0].costReduction).toBe(1)
+    expect(effectivePlayCost(shielded.players[0], getCard('gpt-4o'))).toBe(
+      getCard('gpt-4o').tokenCost - 1,
+    )
+    // 核电站自己那一张按原价付，之后的金钟罩才吃到减价。
     expect(shielded.players[0].tokens).toBe(
-      SKILL_TEST_TOKENS - (getCard('golden-bell-shield').tokenCost - 1),
+      SKILL_TEST_TOKENS -
+        getCard('nuclear-power-station').tokenCost -
+        (getCard('golden-bell-shield').tokenCost - 1),
     )
   })
 
@@ -1090,33 +1094,44 @@ describe('金钟罩', () => {
 })
 
 describe('核电站', () => {
-  it('打出后双方后续的牌都便宜 1 点', () => {
+  it('只让打出方后续的牌便宜 1 点，对手照原价付', () => {
     const state = playSkill(skillGame(), 0, 'nuclear-power-station').state
-    expect(state.costReduction).toBe(1)
-    // 减免是全局一份，双方共用，也包括打出方自己后面的牌。
-    expect(effectivePlayCost(state, getCard('gpt-4o'))).toBe(3)
+    expect(state.players[0].costReduction).toBe(1)
+    expect(state.players[1].costReduction).toBe(0)
+    expect(effectivePlayCost(state.players[0], getCard('gpt-4o'))).toBe(3)
+    expect(effectivePlayCost(state.players[1], getCard('gpt-4o'))).toBe(4)
 
-    const played = deploy(state, 1, ['gpt-4o'])
-    expect(played.players[1].tokens).toBe(SKILL_TEST_TOKENS - 3)
-    // 记账的两处用的是同一个实际费用，结算时的"本轮消耗"也跟着便宜。
-    expect(played.players[1].spentThisRound).toBe(3)
+    // 打出方自己后面的牌按减价扣；记账的两处用的是同一个实际费用，
+    // 所以结算时的"本轮消耗"也跟着便宜。
+    const mine = deploy(state, 0, ['gpt-4o'])
+    expect(mine.players[0].tokens).toBe(
+      SKILL_TEST_TOKENS - getCard('nuclear-power-station').tokenCost - 3,
+    )
+    expect(mine.players[0].spentThisRound).toBe(
+      getCard('nuclear-power-station').tokenCost + 3,
+    )
+
+    // 对手一点便宜都占不到。
+    const foe = deploy(state, 1, ['gpt-4o'])
+    expect(foe.players[1].tokens).toBe(SKILL_TEST_TOKENS - 4)
+    expect(foe.players[1].spentThisRound).toBe(4)
   })
 
   it('可以叠加：打两张就减 2', () => {
     const first = playSkill(skillGame(), 0, 'nuclear-power-station').state
     const second = playSkill(first, 0, 'nuclear-power-station').state
 
-    expect(second.costReduction).toBe(2)
-    expect(effectivePlayCost(second, getCard('gpt-4o'))).toBe(2)
+    expect(second.players[0].costReduction).toBe(2)
+    expect(effectivePlayCost(second.players[0], getCard('gpt-4o'))).toBe(2)
     // 第二张自己也吃了第一张的减免：3 点的牌先花 3 再花 2。
     expect(second.players[0].tokens).toBe(SKILL_TEST_TOKENS - 3 - 2)
   })
 
   it('再怎么减也不会低于 1 点', () => {
     const state = playSkill(playSkill(skillGame(), 0, 'nuclear-power-station').state, 0, 'nuclear-power-station').state
-    expect(state.costReduction).toBe(2)
+    expect(state.players[0].costReduction).toBe(2)
     // GPT-2 卡面就 1 点，减 2 也还是 1，不会变成 0 或负数。
-    expect(effectivePlayCost(state, getCard('gpt-2'))).toBe(1)
+    expect(effectivePlayCost(state.players[0], getCard('gpt-2'))).toBe(1)
     const played = deploy(state, 0, ['gpt-2'])
     expect(played.players[0].tokens).toBe(state.players[0].tokens - 1)
   })
@@ -1127,8 +1142,8 @@ describe('核电站', () => {
     const settle = execute(quiz, { type: 'SUBMIT_ANSWERS', results: [] }).state
     const next = confirmBoth(settle).state
 
-    expect(next.costReduction).toBe(0)
-    expect(effectivePlayCost(next, getCard('gpt-4o'))).toBe(4)
+    expect(next.players[0].costReduction).toBe(0)
+    expect(effectivePlayCost(next.players[0], getCard('gpt-4o'))).toBe(4)
   })
 })
 

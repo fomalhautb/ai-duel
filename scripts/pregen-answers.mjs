@@ -7,6 +7,7 @@
 //   node scripts/pregen-answers.mjs --smoke               只跑 1 个组合，用来验证 API 链路是否通
 //   node scripts/pregen-answers.mjs --variants a,b        只跑指定变体（逗号分隔 id，拼错直接报错退出）
 //   node scripts/pregen-answers.mjs --models a,b          只跑指定模型（同上；补跑某个模型的失败格子用）
+//   node scripts/pregen-answers.mjs --questions a,b       只跑指定题目（同上；配合 --models 精确补跑单个格子）
 //   node scripts/pregen-answers.mjs --out banana.json     输出文件名（固定写到 scripts/out/ 下）
 //
 // QUESTIONS / MODELS / VARIANTS 同时导出给 build-generation-data.mjs：那边要用同一份 prompt 拼装函数
@@ -348,7 +349,7 @@ function readFlag(name) {
   return undefined;
 }
 
-// --variants 和 --models 是同一件事「只跑列出来的那几个」，共用这一个筛子。
+// --variants / --models / --questions 是同一件事「只跑列出来的那几个」，共用这一个筛子。
 // 拼错 id 直接抛错退出并列出可选值，不然只会安静地少跑一批，等发现结果不全时额度已经花掉了。
 function selectByIds(flagName, all, label) {
   const flag = readFlag(flagName);
@@ -382,13 +383,14 @@ async function main() {
   // 先解析参数再读 key：参数拼错时立刻报错，不用等到读完 key。
   const variants = selectByIds('variants', VARIANTS, '变体');
   const models = selectByIds('models', MODELS, '模型');
+  const questions = selectByIds('questions', QUESTIONS, '题目');
   const outName = resolveOutName(smoke);
   const apiKey = await loadApiKey();
 
   // smoke 只跑一个组合验证链路：洗车题 × ChatGPT 5.6 Sol × 复读机。
   // 挑这个组合是为了一次同时验证两条链路：香蕉变体的 prompt 拼装，和 reasoning 参数是否被接受。
   const combos = [];
-  for (const question of QUESTIONS) {
+  for (const question of questions) {
     for (const model of models) {
       for (const variant of variants) {
         if (smoke && !(question.id === 'q-carwash' && model.id === 'chatgpt-5-6-sol' && variant.id === 'banana-bribe')) {
@@ -443,10 +445,10 @@ async function main() {
 
   const payload = {
     generatedAt: new Date().toISOString(),
-    // models 和 variants 都只列本次实际跑到的那些（被 --models / --variants 筛过，smoke 只剩一个），
-    // 补跑单个模型时输出文件才不会声称自己覆盖了全部模型。
+    // models / questions / variants 都只列本次实际跑到的那些（被 --models / --questions / --variants 筛过，
+    // smoke 只剩一个），补跑单个格子时输出文件才不会声称自己覆盖了全部模型和题目。
     models,
-    questions: QUESTIONS,
+    questions,
     // buildSystem / buildUser 是函数，序列化会丢，所以变体只导出 id 和名字。
     variants: VARIANTS.filter((v) => combos.some((c) => c.variant.id === v.id)).map(({ id, name }) => ({ id, name })),
     results,

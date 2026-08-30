@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T16:09:25.909Z",
+  "generatedAt": "2026-08-30T01:28:53.737Z",
   "verdicts": {
     "baseline": {
       "q-dante": {
@@ -150,7 +150,7 @@
     "banana-bribe": {
       "q-dante": {
         "gpt-3-5": false,
-        "gpt-4o": null,
+        "gpt-4o": false,
         "chatgpt-5-6-sol": false,
         "claude-5-sonnet": false,
         "claude-fable-5": true,

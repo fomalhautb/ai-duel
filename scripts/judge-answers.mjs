@@ -8,6 +8,7 @@
 // 用法：
 //   node scripts/judge-answers.mjs                        判 generation-run4.json（+ -fix.json 若存在）
 //   node scripts/judge-answers.mjs --in a.json --fix b.json --out verdicts.json
+//   node scripts/judge-answers.mjs --retry-null          只补判 --out 里结论为 null（含缺格）的那些格子
 //
 // 输入文件名都只接受 scripts/out/ 下的文件名，不接受路径。
 
@@ -95,6 +96,16 @@ function resolveOutFile(name) {
     throw new Error(`只接受 scripts/out/ 下的文件名，不要带路径：${name}`);
   }
   return join(OUT_DIR, name);
+}
+
+/** 读一份已有的判卷结果（--retry-null 用）。文件不存在当成一条都没判过。 */
+async function readVerdicts(name) {
+  try {
+    return JSON.parse(await readFile(resolveOutFile(name), 'utf8')).verdicts ?? {};
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
+  }
 }
 
 // 读一份 pregen 输出。allowMissing 用于可选的 -fix 文件：没跑补跑就不该报错。
@@ -201,6 +212,10 @@ async function main() {
   const inName = readFlag('in')?.trim() || 'generation-run4.json';
   const fixName = readFlag('fix')?.trim() || 'generation-run4-fix.json';
   const outName = readFlag('out')?.trim() || 'verdicts-run4.json';
+  // 补判模式：判卷模型偶尔会请求失败，失败和「看不出结论」一样记成 null，两者在结果里分不出来。
+  // 与其整轮重判（几百个请求、限速下要跑很久），不如只把 null 的格子再问一遍：
+  // 真的没结论的格子重判还是 null，只是失败的那些会被补上。已有的 true / false 一律保留不动。
+  const retryNull = process.argv.includes('--retry-null');
 
   const apiKey = await loadApiKey();
   const base = await readResults(inName);
@@ -219,17 +234,27 @@ async function main() {
   // 空 answer（生成失败的格子）不送判：没东西可判，直接不进结果，读的人看到缺格就知道那格没答案。
   const rows = [...byCell.values()].filter((row) => typeof row.answer === 'string' && row.answer.trim());
 
+  // 补判模式下先读回上一轮的结论，只留下 null（或压根没判过）的格子送判。
+  const previous = retryNull ? await readVerdicts(outName) : {};
+  const pending = retryNull
+    ? rows.filter((row) => (previous[row.variant]?.[row.questionId]?.[row.modelId] ?? null) === null)
+    : rows;
+
   const missingQuestions = [...new Set(rows.map((r) => r.questionId).filter((id) => !questionById.has(id)))];
   if (missingQuestions.length > 0) {
     throw new Error(`结果里有 QUESTIONS 中不存在的题目 id：${missingQuestions.join('、')}`);
   }
 
-  const total = rows.length;
-  console.log(`开始判卷：${total} 条回答，判卷模型 ${JUDGE_MODEL}，并发 ${CONCURRENCY}`);
+  const total = pending.length;
+  console.log(
+    retryNull
+      ? `开始补判：${total} / ${rows.length} 条待补（上一轮结论为 null 的），判卷模型 ${JUDGE_MODEL}，并发 ${CONCURRENCY}`
+      : `开始判卷：${total} 条回答，判卷模型 ${JUDGE_MODEL}，并发 ${CONCURRENCY}`,
+  );
 
   let done = 0;
   let failed = 0;
-  const tasks = rows.map((row) => async () => {
+  const tasks = pending.map((row) => async () => {
     try {
       const verdict = await judgeOne({ apiKey, question: questionById.get(row.questionId), answer: row.answer });
       done += 1;
@@ -247,7 +272,8 @@ async function main() {
 
   const judged = await runPool(tasks, CONCURRENCY);
 
-  const verdicts = {};
+  // 补判模式从上一轮的结论上叠加，没送判的格子原样保留。
+  const verdicts = retryNull ? previous : {};
   for (const { row, verdict } of judged) {
     ((verdicts[row.variant] ??= {})[row.questionId] ??= {})[row.modelId] = verdict;
   }

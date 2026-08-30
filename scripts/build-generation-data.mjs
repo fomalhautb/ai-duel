@@ -26,12 +26,16 @@ const TARGET = join(SCRIPT_DIR, '..', 'packages', 'client', 'src', 'screens', 'g
 //
 // run4 是正式那一轮：8 题 × 16 个可上场模型 × 3 档技能。-fix.json 是补跑用的，
 // 整轮没翻车时可以不存在，读不到就跳过。out/ 下更早的文件是实验期的存档，不再引用。
+//
+// 384 格里只有「黑白颠倒 × 但丁题 × Claude Fable 5」始终是空的：Anthropic 侧对这条 prompt 直接返回
+// content_filter 拒答（native_finish_reason=refusal），补跑过三轮、每轮内部重试三次，九次全被拒。
+// 换句话说这不是偶发失败，重跑不会有结果，那一格在页面上显示「拒答」并计为答错（见 isRefusal）。
 const SOURCES = ['generation-run4.json', 'generation-run4-fix.json'];
 
 // 判卷结果：由 scripts/judge-answers.mjs 用 LLM 自动判出来，不再是这里手写的表。
 // 三级 key：variantId → questionId → modelId，值是 true / false / null，
-// null 表示结论看不出来（被截没了或本身模棱两可），页面显示「待判定」灰徽章。
-// 表里查不到的组合也按 null 处理。
+// null 表示结论看不出来（被截没了或答非所问）。表里查不到的组合也按 null 处理。
+// 页面上只有「答对 / 没答对」两种结果，所以 null 在下面一律并进「没答对」，只是带上原因标签。
 const VERDICTS_FILE = 'verdicts-run4.json';
 
 // 页面上那个下拉框的三档，按这里的顺序显示。variant 指向真正跑出这批答案的变体 id，
@@ -64,6 +68,18 @@ async function readVerdicts() {
 }
 
 const cellKey = (variant, questionId, modelId) => `${variant}|${questionId}|${modelId}`;
+
+/**
+ * 这条失败记录是不是「模型拒答」。
+ *
+ * pregen 把整个上游响应塞进 error 字符串里，所以只能按响应里的 finish_reason 认：
+ * 拒答走 content_filter / native_finish_reason=refusal，额度被思维链吃光是 length，
+ * 网络断则连响应都没有（error 是 "fetch failed"）。只认前一种。
+ */
+function isRefusal(error) {
+  if (typeof error !== 'string') return false;
+  return /"finish_reason"\s*:\s*"content_filter"|"native_finish_reason"\s*:\s*"refusal"/.test(error);
+}
 
 /**
  * 按 SOURCES 的顺序把各文件的结果并成一张「格子 → 结果」的表，后读到的覆盖先读到的。
@@ -102,12 +118,27 @@ async function main() {
       const row = {};
       for (const model of MODELS) {
         const hit = results.get(cellKey(skill.variant, question.id, model.id));
-        // 请求失败的条目 answer 是空串，和压根没跑过一样没东西可展示，一并当「未生成」省略。
-        if (!hit?.answer) continue;
+        if (!hit?.answer) {
+          // 被内容审核拦下来的格子单独标出来：这不是脚本没跑成，是模型自己不肯答，
+          // 重跑多少次都一样，所以直接记成答错，页面显示「拒答」而不是「未生成」。
+          // 其余空答案（超时、网络断、思维链把额度吃光）都是没跑成，和压根没跑过一样省略。
+          if (isRefusal(hit?.error)) {
+            row[model.id] = { answer: '', flaw: 'refused', correct: false };
+          }
+          continue;
+        }
+        // 判卷表按变体 id 存（不是页面上的 skillId），查不到的组合按「判卷没给出结论」处理。
+        const verdict = verdicts[skill.variant]?.[question.id]?.[model.id] ?? null;
+        // 判卷给不出结论 = 没答对 = 判错。这一页只认「答对」和「没答对」两种结果，不留「待判定」：
+        // 对局里玩家看到的就是这段答案，它没说到点子上就是没答对，没有第三种下场。
+        // 没答对的原因再分两类，页面上好一眼看出该改哪儿：
+        // - verbose「啰嗦」：铺垫太长，30 token 用完还没说到结论（答案被事后截断）。
+        // - offtopic「跑题」：话说完了但答非所问，典型是被复读机技能带偏、整段只答「香蕉」。
+        const flaw = verdict !== null ? undefined : hit.truncated === true ? 'verbose' : 'offtopic';
         row[model.id] = {
           answer: hit.answer,
-          // 判卷表按变体 id 存（不是页面上的 skillId），查不到的组合当「待判定」。
-          correct: verdicts[skill.variant]?.[question.id]?.[model.id] ?? null,
+          ...(flaw ? { flaw } : {}),
+          correct: verdict === true,
         };
       }
       cells[question.id] = row;
@@ -127,9 +158,20 @@ async function main() {
   await writeFile(TARGET, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 
   for (const skill of skills) {
-    const count = Object.values(skill.cells).reduce((sum, row) => sum + Object.keys(row).length, 0);
+    const all = Object.values(skill.cells).flatMap((row) => Object.values(row));
     const full = QUESTIONS.length * MODELS.length;
-    console.log(`${skill.name}（${skill.variant}）：${count} / ${full} 条结果`);
+    // 按 flaw 分类报一下：拒答 / 啰嗦 / 跑题 都算答错，但成因不同，分开数才知道该去改什么。
+    const flaws = { refused: '拒答', verbose: '啰嗦', offtopic: '跑题' };
+    const notes = Object.entries(flaws)
+      .map(([key, label]) => {
+        const n = all.filter((cell) => cell.flaw === key).length;
+        return n ? `${label} ${n} 条` : '';
+      })
+      .filter(Boolean);
+    console.log(
+      `${skill.name}（${skill.variant}）：${all.length} / ${full} 条结果，答对 ${all.filter((c) => c.correct).length} 条` +
+        `${notes.length ? `（其中${notes.join('、')}）` : ''}`,
+    );
   }
   console.log(`已写入 ${TARGET}`);
 }

@@ -6,8 +6,8 @@
  * 以及哪道题对哪个模型太简单——这两件事都得把答案原文摆在一起看才判断得出来。
  *
  * 数据来自 generationResults.json，由 scripts/build-generation-data.mjs 合并生成，
- * 手改没有意义（下次跑脚本就被覆盖）。correct 来自 scripts/judge-answers.mjs 的 LLM 自动判卷
- * 结果（verdicts-run4.json），不是这一页算的。
+ * 手改没有意义（下次跑脚本就被覆盖）。对错来自 scripts/judge-answers.mjs 的 LLM 自动判卷
+ * 结果（verdicts-run4.json），不是这一页算的；判卷看不出结论的一律算没答对，合并脚本会带上原因标签。
  *
  * 和 /dev 下那几页一样是纯开发页：只求信息全、找得快，不做美化。
  */
@@ -35,10 +35,24 @@ interface PromptPair {
   user: string
 }
 
+/** 没答对的原因，只在没答对时才有；答对的格子不带这个字段。 */
+type Flaw = 'refused' | 'verbose' | 'offtopic'
+
 interface Cell {
   answer: string
-  /** null 表示判卷没给出明确结论（或没覆盖这个组合），页面显示「待判定」而不是当成失败。 */
-  correct: boolean | null
+  /**
+   * 只有答对 / 没答对两种，没有「待判定」：判卷模型看不出结论的一律算没答对
+   *（见 scripts/build-generation-data.mjs），原因记在 flaw 里。
+   */
+  correct: boolean
+  /**
+   * 没答对的原因，用来在表里区分三种翻车方式：
+   * - refused「拒答」：被内容审核拦下，一个字都没输出，所以这种格子的 answer 是空的。
+   * - verbose「啰嗦」：铺垫太长，30 token 用完还没说到结论。
+   * - offtopic「跑题」：话说完了但答非所问，典型是被复读机技能带偏只答「香蕉」。
+   * 判卷判定明确答错（结论说了，但说错了）的格子不带 flaw，显示成普通的「失败」。
+   */
+  flaw?: Flaw
 }
 
 interface SkillInfo {
@@ -175,7 +189,14 @@ function QuestionHead({ skill, question, index }: { skill: SkillInfo; question: 
   )
 }
 
-/** 一个格子：有数据就是答案加判定徽章，没有就整格橙色标成「未生成」。 */
+/** 徽章文案，按没答对的原因分。答对和「说了结论但说错了」不在这张表里。 */
+const FLAW_LABEL: Record<Flaw, string> = {
+  refused: '拒答',
+  verbose: '啰嗦',
+  offtopic: '跑题',
+}
+
+/** 一个格子：答案配一个判定徽章；未生成、以及三种没答对的原因各自整格标色。 */
 function AnswerCell({ cell }: { cell: Cell | undefined }) {
   if (!cell) {
     return (
@@ -185,11 +206,24 @@ function AnswerCell({ cell }: { cell: Cell | undefined }) {
     )
   }
 
-  const tone = cell.correct === true ? 'ok' : cell.correct === false ? 'bad' : 'pending'
-  const label = cell.correct === true ? '正确' : cell.correct === false ? '失败' : '待判定'
+  // 拒答单独走一支：这种格子没有 answer，得自己写一句话说明，不然整格只剩一个徽章。
+  if (cell.flaw === 'refused') {
+    return (
+      <td className="generation__cell generation__cell--refused">
+        <span className="generation__badge generation__badge--refused">拒答</span>
+        <p className="generation__answer">
+          <span className="generation__answer-label">结果：</span>
+          模型被内容审核拦下，没有输出，计为答错。
+        </p>
+      </td>
+    )
+  }
+
+  const tone = cell.flaw ?? (cell.correct ? 'ok' : 'bad')
+  const label = cell.flaw ? FLAW_LABEL[cell.flaw] : cell.correct ? '正确' : '失败'
 
   return (
-    <td className="generation__cell">
+    <td className={`generation__cell${cell.flaw ? ` generation__cell--${cell.flaw}` : ''}`}>
       <span className={`generation__badge generation__badge--${tone}`}>{label}</span>
       {/* 答案最长有十几行，截到 3 行；title 留一份全文，不展开也读得到。 */}
       <p className="generation__answer" title={cell.answer}>
@@ -200,12 +234,12 @@ function AnswerCell({ cell }: { cell: Cell | undefined }) {
   )
 }
 
-/** 取一格数据；这个组合没跑过（或跑失败被合并脚本省掉了）就是 undefined。 */
+/** 取一格数据；这个组合没跑过（或跑失败被合并脚本省掉了，拒答除外）就是 undefined。 */
 function cellOf(skill: SkillInfo, questionId: string, modelId: string): Cell | undefined {
   return skill.cells[questionId]?.[modelId]
 }
 
-/** 只数判定为正确的格子：待判定（null）和未生成都不算。 */
+/** 只数答对的格子：三种没答对的和未生成都不算。 */
 function countCorrect(cells: (Cell | undefined)[]): number {
   return cells.filter((cell) => cell?.correct === true).length
 }

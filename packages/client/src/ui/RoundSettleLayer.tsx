@@ -68,8 +68,21 @@ const TYPE_REASONING_CHAR_SEC = 0.02
 const TYPE_REASONING_MAX = 1.2
 /** 「作答中」转圈淡出的时长（秒），淡完才开始打字。 */
 const LOADER_FADE = 0.2
-/** 相邻两张结果卡开始作答的间隔（秒）。 */
-const CARD_STAGGER = 0.45
+/**
+ * 第一张卡开始作答之前，所有卡一起多转这么久（秒）。
+ *
+ * 标准答案擦完就立刻出结果显得"AI 根本没想"，这一拍是特意留给转圈动画的。
+ * 加在所有卡的起跑线上，所以只是整体后移，不影响卡与卡之间的间隔。
+ */
+const LOADER_EXTRA_HOLD = 1
+/**
+ * 相邻两张结果卡开始作答的间隔（秒），每张卡在这个区间里随机取一个。
+ *
+ * 取随机而不是固定值，是为了让几个 AI 看起来各想各的、快慢不一，
+ * 而不是踩着同一个节拍整齐地报答案。区间拉得比较开，快慢差别才看得出来。
+ */
+const CARD_STAGGER_MIN = 0.35
+const CARD_STAGGER_MAX = 1.6
 /** 判定章盖下来的时长（秒）。 */
 const STAMP_DUR = 0.28
 /** 相邻两张卡盖章的间隔（秒）。 */
@@ -478,10 +491,17 @@ export function RoundSettleLayer({
 
       // ② 逐卡作答。按文档顺序取，也就是从上到下：对方那块 squad 排在前面，先演对方再演我方。
       const cards = all(root, '.settle-card')
-      const answersStart = at
+      // 起跑线整体后移一拍，让转圈多转一会儿；随后每张卡再按各自的随机间隔依次开口。
+      const answersStart = at + gap(LOADER_EXTRA_HOLD)
       let answersEnd = at
+      let cardStart = answersStart
       cards.forEach((card, index) => {
-        let cursor = answersStart + index * gap(CARD_STAGGER)
+        if (index > 0) {
+          cardStart += gap(
+            CARD_STAGGER_MIN + Math.random() * (CARD_STAGGER_MAX - CARD_STAGGER_MIN),
+          )
+        }
+        let cursor = cardStart
         const loader = all(card, '.settle-card__loader')
         if (loader.length > 0) {
           tl.to(loader, { autoAlpha: 0, duration: dur(LOADER_FADE), overwrite: 'auto' }, cursor)

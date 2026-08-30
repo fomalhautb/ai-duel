@@ -22,8 +22,10 @@ const URGE_EFFECTS = [
 
 /** 点击音效要求 200% 音量；HTMLAudioElement.volume 上限是 1，所以用 Web Audio 做 2 倍增益。 */
 const BUTTON_CLICK_GAIN = 2
-/** 首页问候和「催一催」四段人声统一放大一倍。 */
-const VOICE_GAIN = 2
+/** 首页问候维持原音量的两倍。 */
+const HOME_INTRO_GAIN = 2
+/** 「催一催」四段人声放大到原音量的三倍。 */
+const URGE_VOICE_GAIN = 3
 const HOME_INTRO_DELAY_MS = 3620
 
 const audioData = new Map<string, Promise<ArrayBuffer>>()
@@ -163,7 +165,7 @@ export function useHomeIntroSound(): void {
       if (timer !== null) window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         timer = null
-        void playSoundEffect('homeIntro', { gain: VOICE_GAIN, channel: 'voice' })
+        void playSoundEffect('homeIntro', { gain: HOME_INTRO_GAIN, channel: 'voice' })
       }, HOME_INTRO_DELAY_MS)
     }
 
@@ -184,5 +186,5 @@ export function playSkillTargetingSound(): void {
 /** 每次只随机抽一段；连点时用新一句替掉没播完的上一句，避免四个人声叠播。 */
 export function playRandomUrgeSound(): void {
   const effect = URGE_EFFECTS[Math.floor(Math.random() * URGE_EFFECTS.length)]!
-  void playSoundEffect(effect, { gain: VOICE_GAIN, channel: 'voice' })
+  void playSoundEffect(effect, { gain: URGE_VOICE_GAIN, channel: 'voice' })
 }

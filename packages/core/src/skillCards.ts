@@ -137,7 +137,7 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'golden-bell-shield',
     name: '金钟罩',
-    // 按卡面字面全挡：连对己方有利的效果、连自己后面打出的技能牌也一起挡在外面
+    // 挡的是落在场上单位身上的技能牌效果，连对己方有利的、连自己后面打的也一起挡
     // （完整口径见 types.ts 的 `PlayerState.shielded`）。无目标，打出即生效。
     tokenCost: 3,
     text: '本轮你和己方 Agent 不受任何技能牌影响，己方的玉净瓶、保送也一样打不进来。',

@@ -18,10 +18,14 @@
   --gen-ink-dim: #6b7280;
   --gen-ok: #3fb950;
   --gen-bad: #f85149;
-  /* 待判定：判卷没给出明确结论，既不是对也不是错，用中性灰和另外两种拉开。 */
-  --gen-pending: #8b949e;
   /* 未生成：橙色是「这里缺东西，去补跑」的提醒，比失败的红更该被一眼看见。 */
   --gen-missing: #d29922;
+  /* 拒答：算答错的一种，所以取和失败同一系的红，但压暗一档，好和「答错了」区分开。 */
+  --gen-refused: #a13f3a;
+  /* 啰嗦：也算答错，但成因不同（话没说完），用紫色和红系分开，一眼能数出有几格是被截没的。 */
+  --gen-verbose: #8957e5;
+  /* 跑题：同样算答错，用青色再占一格色相——三种翻车方式颜色都不同，扫一眼就能分堆。 */
+  --gen-offtopic: #2f7f8c;
 
   min-height: 100%;
   padding: 40px clamp(16px, 3vw, 48px) 72px;
@@ -241,6 +245,21 @@
   background: rgb(210 153 34 / 16%);
 }
 
+/* 拒答的格子整格暗红：和未生成的橙色分开，免得把「模型不肯答」当成「还没跑」又去补跑。 */
+.generation__cell--refused {
+  background: rgb(161 63 58 / 20%);
+}
+
+/* 啰嗦的格子整格淡紫：格子里有半句话，光看文字不容易发现它是被截断的，靠底色提醒。 */
+.generation__cell--verbose {
+  background: rgb(137 87 229 / 16%);
+}
+
+/* 跑题的格子整格淡青：答案本身读起来很完整（「香蕉」），不标底色容易被当成正常回答扫过去。 */
+.generation__cell--offtopic {
+  background: rgb(47 127 140 / 16%);
+}
+
 .generation__badge {
   display: inline-block;
   padding: 1px 8px;
@@ -259,14 +278,24 @@
   background: var(--gen-bad);
 }
 
-.generation__badge--pending {
-  color: var(--gen-bg);
-  background: var(--gen-pending);
-}
-
 .generation__badge--missing {
   color: var(--gen-bg);
   background: var(--gen-missing);
+}
+
+.generation__badge--refused {
+  color: var(--gen-bg);
+  background: var(--gen-refused);
+}
+
+.generation__badge--verbose {
+  color: var(--gen-bg);
+  background: var(--gen-verbose);
+}
+
+.generation__badge--offtopic {
+  color: var(--gen-bg);
+  background: var(--gen-offtopic);
 }
 
 /*

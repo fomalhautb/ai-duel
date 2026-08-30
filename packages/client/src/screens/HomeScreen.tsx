@@ -666,22 +666,30 @@ function HomeStage() {
         </button>
 
         {/*
-          图鉴 / 牌组还没有对应页面。这两项刻意不用 <button> 或 <a>：
-          做成能按的样子却什么都不发生，比直接写"敬请期待"更让人困惑。
-          「信息」已经有 /info 了，所以只有它是真按钮（样式差别见 .home__nav-item--link）。
+          三项都是真按钮：英雄 / 牌组进的是 /hero、/deck 这两条独立入口，
+          和匹配页那两块横幅通向的是同一个选英雄 / 选牌组界面，只是那边为了保住房间连接
+          就地切阶段、不换路由（见 RoomScreen）。从首页进来没有房间要守，直接跳路由即可。
         */}
         <nav className="home__nav" aria-label="主菜单">
-          <span className="home__nav-item" title="敬请期待">
-            图鉴
-          </span>
-          <Sparkle className="home__nav-dot" />
-          <span className="home__nav-item" title="敬请期待">
-            牌组
-          </span>
+          <button
+            type="button"
+            className="home__nav-item"
+            onClick={() => navigate('/hero')}
+          >
+            英雄
+          </button>
           <Sparkle className="home__nav-dot" />
           <button
             type="button"
-            className="home__nav-item home__nav-item--link"
+            className="home__nav-item"
+            onClick={() => navigate('/deck')}
+          >
+            牌组
+          </button>
+          <Sparkle className="home__nav-dot" />
+          <button
+            type="button"
+            className="home__nav-item"
             onClick={() => navigate('/info')}
           >
             信息
@@ -736,7 +744,7 @@ function HomeStage() {
           aria-hidden 是有意的：整块内容只有 hover 得到的人看得见，读屏和键盘用户本来就到不了，
           留在无障碍树里只会变成一段没有上下文、还会随指针来回出现的游离文字。
           TODO：角色文案从占位换成真设定之后，这些信息就不能只挂在 hover 上了，
-          得另给一个可聚焦、触屏也点得到的入口（比如"图鉴"页），那时再把这里接进无障碍树。
+          得另给一个可聚焦、触屏也点得到的入口（比如导航里的"英雄"页），那时再把这里接进无障碍树。
         */}
         {CAST.map((member, index) => {
           const panelStyle = castPanelStyles[index]

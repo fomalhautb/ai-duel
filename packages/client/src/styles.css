@@ -775,14 +775,20 @@ html {
   line-height: 1;
 }
 
-/* 三个入口都还没有页面，所以只有"能读"没有"能按"：光标保持默认，别做出可点的样子。 */
+/* 三项都是 <button>，得把浏览器自带的边框、底色和小一号的字全收回来，才和标题那套字排成同一排。
+   font 用简写一次性覆盖 font-size / font-weight / line-height 那一整组——
+   .home__nav 上给的 2cqi 字号是继承来的，只改 font-family 补不回来。 */
 .home__nav-item {
   margin-right: -0.24em;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
   /* 上下留白不是为了排版（flex 居中，撑高了三项一起居中，位置不动），是给滤镜留计算区域：
      区域按盒子外扩 20% 算，紧贴文字的话 hover 那圈 1.2cqi 的光晕会被直接切掉一条硬边。 */
   padding: 0.6em 0;
   letter-spacing: 0.24em;
-  cursor: default;
+  cursor: pointer;
   filter: var(--rough-frame);
   transition:
     color 0.16s ease,
@@ -793,18 +799,6 @@ html {
   color: var(--home-ink-lit);
   text-shadow: 0 0 1.2cqi rgb(232 198 159 / 45%);
 }
-/* 真能点的那一项（现在只有「信息」）。它是 <button>，得把浏览器自带的边框、底色和
-   小一号的字全收回来，才和旁边两个 <span> 排在同一条基线上、看起来是同一排字。
-   font 用简写一次性覆盖 font-size / font-weight / line-height 那一整组——
-   .home__nav 上给的 2cqi 字号是继承来的，只改 font-family 补不回来。 */
-.home__nav-item--link {
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
 .home__nav-dot {
   width: 1.1cqi;
   height: 1.1cqi;

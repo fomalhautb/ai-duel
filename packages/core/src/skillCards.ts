@@ -175,10 +175,11 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     tokenCost: 2,
     name: '模型蒸馏',
     // 全卡池唯一一张选手牌的：targetInstanceId 指的是自己手牌里那张 AI 牌的实例。
-    // 换来的 Token 按被弃那张的**印刷费用** +1 算，可以把 tokens 顶到 tokenMax 之上
-    // （下一轮补满时被覆盖）。
+    // 换来的 Token 就是被弃那张的**印刷费用**，可以把 tokens 顶到 tokenMax 之上
+    // （下一轮补满时被覆盖）。加上这张牌自己要花的 2 点，弃 3 费以下的 AI 是亏的，
+    // 它换的是"把打不出去的手牌变成这一轮能用的额度"，不是净赚。
     target: 'own-hand-ai',
-    text: '弃1张手牌里的 Agent，换回它的费用+1 点 Token，可超本轮上限，下一轮补满时就没了。',
+    text: '弃1张手牌里的 Agent，换回它的费用等量 Token，可超本轮上限，下一轮补满时就没了。',
   },
   'open-source-reproduction': {
     kind: 'skill',

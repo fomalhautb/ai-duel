@@ -1125,7 +1125,7 @@ describe('核电站', () => {
 })
 
 describe('模型蒸馏', () => {
-  it('弃掉手牌里那张 AI，换来它印刷费用 +1 的 Token', () => {
+  it('弃掉手牌里那张 AI，换来和它印刷费用等量的 Token', () => {
     const state = skillGame()
     const fodder = give(state, 0, 'chatgpt-5-6-sol')
     const result = playSkill(fodder.state, 0, 'model-distillation', fodder.instanceId)
@@ -1133,12 +1133,11 @@ describe('模型蒸馏', () => {
     const player = result.state.players[0]
     expect(player.hand.some((c) => c.instanceId === fodder.instanceId)).toBe(false)
     expect(player.discard.some((c) => c.instanceId === fodder.instanceId)).toBe(true)
-    // SKILL_TEST_TOKENS - 2（这张技能牌）+ 5 + 1。换来的按印刷费用算，不吃核电站的减费。
+    // SKILL_TEST_TOKENS - 2（这张技能牌）+ 5。换来的按印刷费用算，不吃核电站的减费。
     expect(player.tokens).toBe(
       SKILL_TEST_TOKENS -
         getCard('model-distillation').tokenCost +
-        getCard('chatgpt-5-6-sol').tokenCost +
-        1,
+        getCard('chatgpt-5-6-sol').tokenCost,
     )
     // 打向手牌的牌不带 targetInstanceId：客户端拿它去战场上找格子会扑空。
     expect(result.events).toEqual([

@@ -220,7 +220,7 @@ ROUND_STARTED → PLAY_TURN_STARTED → AI_DEPLOYED → SKILL_PLAYED → SKILL_C
 这个函数是 core 导出的：客户端的"打不起就变灰"必须和引擎的扣费校验用同一个数，
 各算一遍就会出现"看着能打、点下去说 Token 不够"。
 `tokens -=` 和 `spentThisRound +=` 记的也都是这个实际费用。
-唯一一处按原价算的是「模型蒸馏」换来的 Token（被弃那张的印刷费用 +1）：
+唯一一处按原价算的是「模型蒸馏」换来的 Token（就是被弃那张的印刷费用）：
 核电站减的是"打出去要花多少"，不该连带把回收价也压下去。
 它换来的 Token 允许顶破 `tokenMax`，多出来的部分在下一轮补满时被覆盖。
 

@@ -512,7 +512,7 @@ function applySkillEffect(
       // 用印刷费用而不是 effectivePlayCost：核电站减的是"打出去要花多少"，
       // 不该连带把回收价也压下去。
       // 换来的 Token 可能顶破 tokenMax，这是有意允许的——多出来的部分在下一轮补满时被覆盖。
-      player.tokens += getCard(removed.cardId).tokenCost + 1
+      player.tokens += getCard(removed.cardId).tokenCost
       events.push({ type: 'CARD_REMOVED', player: playerId, instanceId: removed.instanceId })
       return
     }

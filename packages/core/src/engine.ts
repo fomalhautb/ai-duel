@@ -92,7 +92,10 @@ const DEFAULT_HERO: HeroId = 'grace-hopper'
 const RNG_SEED_MAX = 0x7fffffff
 
 /**
- * 一张牌对这位玩家的**实际费用**：卡面费用减去本轮的核电站减免，最低 1 点。
+ * 一张牌对这位玩家的**实际费用**：卡面费用减去这一方本轮的核电站减免，最低 1 点。
+ *
+ * 减免是各记各的：只有打出核电站的那一方后续的牌便宜，对手照卡面原价付，
+ * 所以这里必须传具体是谁在打，不能只看整局的状态。
  *
  * 客户端的"打不起就变灰"和引擎的扣费校验必须用同一个数，所以这个函数导出给 client 用——
  * 两边各算一遍的话，玩家会遇到"看着能打，点下去说 Token 不够"。
@@ -100,8 +103,8 @@ const RNG_SEED_MAX = 0x7fffffff
  * 金钟罩管不着这里：罩子挡的是落在场上单位身上的效果，而减费改的是"这张牌打出去要花多少"
  * （完整口径见 types.ts 的 `PlayerState.shielded`）。
  */
-export function effectivePlayCost(state: GameState, card: HandCard): number {
-  return Math.max(1, card.tokenCost - state.costReduction)
+export function effectivePlayCost(player: PlayerState, card: HandCard): number {
+  return Math.max(1, card.tokenCost - player.costReduction)
 }
 
 export interface PlayerSetup {
@@ -182,6 +185,7 @@ export function createGame(setup: GameSetup): ExecuteResult {
       tokens: tokenMax,
       tokenMax,
       spentThisRound: 0,
+      costReduction: 0,
       hand: [],
       deck: setup.noShuffle === true ? deck : shuffle(deck, rng),
       board: [],
@@ -222,7 +226,6 @@ export function createGame(setup: GameSetup): ExecuteResult {
     players,
     winner: null,
     settleConfirmed: [false, false],
-    costReduction: 0,
     // 这颗种子必须排在洗牌、洗题序**之后**取：rng 是就地推进的，往前插一次取值
     // 会把后面所有随机的结果整体挪位，"哪个 seed 谁先手、牌堆什么顺序"这些既有对应关系
     // 全部作废（测试里那两个先手种子就是查出来的现成答案）。
@@ -287,7 +290,7 @@ export function execute(state: GameState, command: Command): ExecuteResult {
  *
  * 只有一道闸：每张牌按 effectivePlayCost 算出来的实际费用扣 Token、扣不起就整条拒绝。
  * AI 牌和技能牌都不限张数，一轮里 Token 够就能接着打。
- * 实际费用不一定等于卡面 tokenCost：核电站会给它减价，见 effectivePlayCost。
+ * 实际费用不一定等于卡面 tokenCost：自己打过的核电站会给它减价，见 effectivePlayCost。
  * 另外只有卡面标了 `target` 的技能牌要指定目标。
  */
 function playCard(
@@ -304,7 +307,7 @@ function playCard(
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
-  const cost = effectivePlayCost(next, card)
+  const cost = effectivePlayCost(player, card)
 
   // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
   // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
@@ -500,14 +503,15 @@ function applySkillEffect(
       player.shielded = true
       return
     case 'nuclear-power-station':
-      state.costReduction += 1
+      // 只加在打出方自己身上：这张牌减的是他后续出牌的费用，对手不受影响。
+      player.costReduction += 1
       return
     case 'model-distillation': {
       // 手牌数组在打出这张技能牌时已经变短了，所以要按 id 重新定位那张 AI 牌。
       const index = player.hand.findIndex((c) => c.instanceId === handTarget!.instanceId)
       const removed = player.hand.splice(index, 1)[0]!
       player.discard.push(removed)
-      // 用印刷费用而不是 effectivePlayCost：核电站减的是"打出去要花多少"，
+      // 用印刷费用而不是 effectivePlayCost：核电站减的是自己"打出去要花多少"，
       // 不该连带把回收价也压下去。
       // 换来的 Token 可能顶破 tokenMax，这是有意允许的——多出来的部分在下一轮补满时被覆盖。
       player.tokens += getCard(removed.cardId).tokenCost
@@ -874,7 +878,6 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
   // 清除点定在真的进下一轮这一步（而不是提交答题结果时），是因为结算界面还要照着这些标记
   // 演一遍"这个被干扰了 / 这个是被保送留下的"。玉净瓶卡面上「本轮作用于你的 Agent 的效果」
   // 那句口径也是靠这里成立的。
-  next.costReduction = 0
   // 第 2 轮起每轮开始双方各补牌，起手那 5 张之外的牌都是这么来的（张数见 ROUND_DRAW_SIZE）。
   // Token 同时补满并抬高上限：省下来的不跨轮累积，直接被新的满额盖掉
   //（模型蒸馏顶破上限的那部分也是在这里被覆盖的）。
@@ -882,6 +885,7 @@ function confirmRound(state: GameState, playerId: PlayerId): ExecuteResult {
   // 消耗那一份的读者是结算界面，所以一直留到真的离开结算这一刻才失效。
   for (const player of next.players) {
     delete player.shielded
+    player.costReduction = 0
     for (const ai of player.board) {
       delete ai.affectedBy
       delete ai.interference

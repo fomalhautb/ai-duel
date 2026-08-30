@@ -31,7 +31,7 @@ import type { CardId, SkillCard } from './types'
  * 这里的 tokenCost（见 client 的 ui/CardCostBadge.tsx 和 ui/skillCardFace.ts）。
  * 原画上印的那个数因此只是底图，玉净瓶、金钟罩、核电站、内存紧缺、模型蒸馏这 5 张
  * 底下印的都已经是旧价，玩家看到的是盖上去的新价。
- * 核电站的减费只影响"打出去实际扣多少"，不改这里的印刷数字。
+ * 核电站的减费只影响自己"打出去实际扣多少"，不改这里的印刷数字。
  */
 export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
   'context-flood': {
@@ -193,10 +193,11 @@ export const SKILL_DESIGN_CARDS: Record<CardId, SkillCard> = {
     kind: 'skill',
     id: 'nuclear-power-station',
     name: '核电站',
-    // 减的是双方的费用，也包括打出方自己后面的牌，可叠加（打两张就 -2）。
-    // 计数记在 `GameState.costReduction`，进下一轮清零。
+    // 只减打出方自己后续打出的牌，对手照卡面原价付，可叠加（打两张就 -2）。
+    // 减免在出牌那一刻生效，卡面印的费用圆章不变；计数记在 `PlayerState.costReduction`，
+    // 进下一轮清零。
     tokenCost: 3,
-    text: '本轮双方后续每张牌减1费，最低1，可叠加，下一轮清零。',
+    text: '本轮我方后续每张牌减1费，最低1，可叠加，下一轮清零。',
   },
   'far-ahead': {
     kind: 'skill',

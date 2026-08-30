@@ -2165,12 +2165,12 @@ function BattleField({
   /**
    * 这张手牌现在实际要扣多少 Token，交给 HandFan 判"打不起就变灰"。
    *
-   * 卡面印的永远是原价（`tokenCost`），核电站开着时真正扣的是打折价，两者可能差好几点。
+   * 卡面印的永远是原价（`tokenCost`），自己打过核电站时真正扣的是打折价，两者可能差好几点。
    * 所以这里问的是引擎那个函数（core 的 `effectivePlayCost`）而不是自己减一遍：
    * 最低封底 1 点这类边界只写在那一处，客户端另算一份迟早会和引擎的扣费对不上。
    */
   const myPlayCostOf = (card: HandCardData): number =>
-    effectivePlayCost(state, getCard(card.definitionId ?? card.id))
+    effectivePlayCost(me, getCard(card.definitionId ?? card.id))
 
   // ---------- 发牌 ----------
 
@@ -2720,11 +2720,11 @@ function BattleField({
 
           {/*
             「核电站」的减费提示，常驻挂到本轮结束（进下一轮 costReduction 清零，它自己就没了）。
-            减费是双方共享的一份全局计数，谁都吃得到（金钟罩也挡不住，见 core 的
+            只读我方那一份：减费各记各的，对手打的核电站不影响我这边的费用（见 core 的
             effectivePlayCost）。手牌变灰的判据也是同一个函数，两边永远说的是同一件事。
           */}
-          {state.costReduction > 0 ? (
-            <div className="battle__cost-cut">核电站生效：本轮出牌费用 -{state.costReduction}</div>
+          {me.costReduction > 0 ? (
+            <div className="battle__cost-cut">核电站生效：本轮出牌费用 -{me.costReduction}</div>
           ) : null}
 
           {/* data-picking 只管一件事：拖着要选目标的技能牌时把「松手 放到场上」那颗提示药丸收起来
@@ -2948,7 +2948,7 @@ function BattleField({
         disabled={actionsLocked}
         // 这一轮的额度买不起的牌单独压暗、拖不动，免得拖到一半才被引擎回一句 Token 不够。
         // 轮到对方时这几张同样是打不起的，压暗叠在灰墨态上不冲突（两边写的属性不一样）。
-        // 判据必须是实际费用而不是卡面印的数字：核电站开着的时候卡面写 4 点的牌只扣 3 点，
+        // 判据必须是实际费用而不是卡面印的数字：自己开着核电站的时候卡面写 4 点的牌只扣 3 点，
         // 按卡面判会把打得起的牌画成灰的（见下面的 myPlayCostOf）。
         tokens={me.tokens}
         playCostOf={myPlayCostOf}

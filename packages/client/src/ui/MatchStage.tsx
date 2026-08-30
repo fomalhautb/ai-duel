@@ -62,7 +62,9 @@ import type { MatchStageCue, MatchStageTutorial } from './matchStageTutorial'
 import { OpponentFan } from './OpponentFan'
 import { OrnateFrame } from './OrnateFrame'
 import { PlaqueButton } from './PlaqueButton'
-import { playRandomUrgeSound, playSkillTargetingSound } from './soundEffects'
+import { playSkillTargetingSound, playUrgeSound } from './soundEffects'
+import { pickRandomUrgeId, urgeLineOf } from './urgeLines'
+import type { UrgeLine } from './urgeLines'
 import { cardBackText } from './cardText'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
@@ -443,6 +445,43 @@ export function BattleFrame({ children }: { children: ReactNode }) {
 function BattleActions({ children }: { children?: ReactNode }) {
   if (children === undefined) return null
   return <div className="battle-actions">{children}</div>
+}
+
+/** 气泡挂多久。够读完最长那句（「快点啊，我等的花都谢了」），又不至于赖在屏幕上。 */
+const URGE_BUBBLE_MS = 3200
+
+/**
+ * 「催一催」的喊话：一句话同时变成录音和右下角的气泡。
+ *
+ * 本端点的和对面发来的走同一条订阅（driver.urge 自己也会回调回来），所以两台电脑上
+ * 弹的是同一句、放的是同一段录音，不用在按钮那边另写一份"自己这一下"的分支。
+ *
+ * nonce 是"第几次喊"，只用来重启计时和重播气泡动画：连点同一句时 line 不变，
+ * 光靠它当依赖的话气泡会停在半路不动，计时也不会重置。
+ */
+function useUrgeShout(driver: MatchDriver): { line: UrgeLine; nonce: number } | null {
+  const [shout, setShout] = useState<{ line: UrgeLine; nonce: number } | null>(null)
+
+  useEffect(() => {
+    let count = 0
+    return driver.subscribeUrge((id) => {
+      const line = urgeLineOf(id)
+      // 对面发来的 id 理论上不会错（两端同一份代码），认不出就当没收到，别弹个空气泡。
+      if (line === null) return
+      playUrgeSound(id)
+      count += 1
+      setShout({ line, nonce: count })
+    })
+  }, [driver])
+
+  const nonce = shout?.nonce
+  useEffect(() => {
+    if (nonce === undefined) return
+    const timer = window.setTimeout(() => setShout(null), URGE_BUBBLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [nonce])
+
+  return shout
 }
 
 function BattleField({
@@ -2063,6 +2102,7 @@ function BattleField({
    * 所以这里再判一次 phase 之后，!myPlayTurn 就等价于 activePlayer !== mySeat。
    */
   const waitingForFoe = view.status === 'playing' && state.phase === 'play' && !myPlayTurn
+  const urgeShout = useUrgeShout(driver)
   /**
    * 答题和随后的回合结算：这两段双方都出不了牌，手牌一律灰着。
    * 结算（settle）也算进来，是因为它同样是"等着，什么都点不了"的一段。
@@ -2804,11 +2844,33 @@ function BattleField({
         */}
         {finished || category === undefined ? null : <NextQuestionPlaque category={category} />}
         <TokenTrack tokens={me.tokens} max={me.tokenMax} />
-        <div className="battle__urge">
-          <PlaqueButton disabled={finished} onClick={playRandomUrgeSound}>
-            催一催
-          </PlaqueButton>
-        </div>
+        {/*
+          「催一催」只在等对方出牌那段时间挂出来：别的时候要么该自己动手、要么两边都在等答题，
+          催谁都不成立。整块条件渲染而不是照回合牌匾那样用 data-on 常驻：那是一块不吃指针的
+          装饰，这里是颗真按钮，留在 DOM 里就还能被 Tab 走到、还会挨到全局那颗点击音。
+
+          喊出去的这一句同时发给对面（见 driver.urge），两台电脑一起放录音、一起弹下面那个气泡。
+          随机数只在这里摇一次：两端各摇各的就会一个人听「快点啊」、另一个人听「抓紧吧」。
+        */}
+        {waitingForFoe ? (
+          <div className="battle__urge">
+            <PlaqueButton onClick={() => driver.urge(pickRandomUrgeId())}>催一催</PlaqueButton>
+          </div>
+        ) : null}
+
+        {/*
+          喊话气泡：显示录音里念的那句话，给没开声音或没听清的人当字幕。
+
+          位置卡在右下角一小块空地里（右缘让开 Token 细条、上边压着「催一催」，
+          定位算法见 styles.css 的 .battle__urge-bubble），刻意不遮任何按钮；
+          再加一层 pointer-events: none 兜底，免得它罩住底下的手牌。
+          key 用 nonce：连点同一句时元素会重建，弹出动画才会重放。
+        */}
+        {urgeShout === null ? null : (
+          <div className="battle__urge-bubble" key={urgeShout.nonce} role="status">
+            {urgeShout.line.text}
+          </div>
+        )}
         {/* 在等别人的时候按钮换个说法：它照旧是灰的，但"结束出牌"在这时读起来像是还能点。
             三句都是四五个字，按钮宽度写死 184px 且 overflow: hidden，换文案撑不破框。 */}
         <div className="battle__end-turn">

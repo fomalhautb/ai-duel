@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { subscribeBackgroundMusicReplay } from './backgroundMusic'
+import { urgeLineOf } from './urgeLines'
 
 export const SOUND_EFFECT_SOURCE = {
   homeIntro: '/music/question-ai.m4a',
@@ -12,13 +13,6 @@ export const SOUND_EFFECT_SOURCE = {
 } as const
 
 type SoundEffect = keyof typeof SOUND_EFFECT_SOURCE
-
-const URGE_EFFECTS = [
-  'urgeCanYouDoIt',
-  'urgeHurryUp',
-  'urgeComeOn',
-  'urgeQuestionAi',
-] as const satisfies readonly SoundEffect[]
 
 /** 点击音效要求 200% 音量；HTMLAudioElement.volume 上限是 1，所以用 Web Audio 做 2 倍增益。 */
 const BUTTON_CLICK_GAIN = 2
@@ -181,8 +175,14 @@ export function playSkillTargetingSound(): void {
   void playSoundEffect('skillTargeting', { channel: 'skill' })
 }
 
-/** 每次只随机抽一段；连点时用新一句替掉没播完的上一句，避免四个人声叠播。 */
-export function playRandomUrgeSound(): void {
-  const effect = URGE_EFFECTS[Math.floor(Math.random() * URGE_EFFECTS.length)]!
-  void playSoundEffect(effect, { gain: VOICE_GAIN, channel: 'voice' })
+/**
+ * 放一句「催一催」。抽哪一句由调用方决定（见 pickRandomUrgeId）——
+ * 这一句要同步给对面，随机数只能摇一次，不能两端各摇各的。
+ *
+ * 走 'voice' 声道：连点时用新一句替掉没播完的上一句，避免几段人声叠播。
+ */
+export function playUrgeSound(id: string): void {
+  const line = urgeLineOf(id)
+  if (line === null) return
+  void playSoundEffect(line.effect, { gain: VOICE_GAIN, channel: 'voice' })
 }

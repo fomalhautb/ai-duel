@@ -51,6 +51,9 @@ export function createGuestDriver({ room }: GuestDriverOptions): MatchDriver {
         })
         core.emitEvents(message.events)
         break
+      case 'match:urge':
+        core.emitUrge(message.id)
+        break
       case 'match:command':
         // 客人不该收到指令，收到就是哪里接错线了，忽略即可。
         break
@@ -74,6 +77,14 @@ export function createGuestDriver({ room }: GuestDriverOptions): MatchDriver {
     subscribe: core.subscribe,
     getSnapshot: core.getSnapshot,
     subscribeEvents: core.subscribeEvents,
+    subscribeUrge: core.subscribeUrge,
+
+    /** 走普通通道，理由见 protocol 里 match:urge 那段：丢了就丢了，不值得重发。 */
+    urge(id) {
+      if (disposed) return
+      core.emitUrge(id)
+      room.relay({ type: 'match:urge', id })
+    },
 
     send(command: Command) {
       if (disposed) return

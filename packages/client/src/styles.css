@@ -2365,6 +2365,9 @@ body:has(.battle) {
 /*
  * 「催一催」夹在 Token 细条和结束按钮之间。沿用八角手绘匾额的结构，
  * 只把底色换成低饱和陶橙：它是轻量互动，不该比结束回合那颗主操作更抢眼。
+ *
+ * 只在等对方出牌时渲染（见 MatchStage），所以是"凭空出现"的——淡入一下，
+ * 免得等待一开始右下角突然多出一块。
  */
 .battle__urge {
   position: absolute;
@@ -2413,6 +2416,91 @@ body:has(.battle) {
   --plaque-line: rgb(225 214 199 / 32%);
   color: #d8cec2;
   filter: saturate(0.35);
+}
+
+@keyframes battle-urge-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.battle__urge {
+  animation: battle-urge-in 0.28s ease-out;
+}
+
+/*
+ * 喊话气泡：右下角一块只有 176×?? 的空地，四条边都是量出来的，别随手挪。
+ *
+ * 舞台是写死的 1672×941，这一层（.battle__layout）的高是 941 − 72（顶栏）= 869。
+ * 右下角这一带已经被三样东西占满：
+ * - Token 细条：right 0 起、宽 44，竖直方向从底边往上 199.5px 才结束；
+ * - 「催一催」：right 32、bottom 108，高 48，上沿在底边往上 156px；
+ * - 手牌扇形：最外侧那张牌右端只到 x = 1440，也就是离右缘 232px。
+ * 于是留给气泡的就是"离右缘 56～232、离底边 164 往上"这一块：
+ * right 56 让开细条（44 + 12 的间距），bottom 164 压在「催一催」上面 8px，
+ * max-width 176 让左边沿正好停在 x = 1440，不压到手牌。
+ * 高度不限——往上长只会盖到战场底纹，而且这一层不吃指针事件。
+ */
+.battle__urge-bubble {
+  position: absolute;
+  right: 56px;
+  bottom: 164px;
+  z-index: 30;
+  max-width: 176px;
+  padding: 10px 14px 11px;
+  border: 1px solid var(--battle-line-dark);
+  border-radius: 14px;
+  background-color: var(--battle-paper);
+  background-image:
+    radial-gradient(ellipse at 50% 30%, rgb(255 255 255 / 30%), rgb(129 111 75 / 10%) 100%),
+    var(--battle-grain);
+  background-blend-mode: normal, multiply;
+  box-shadow: 0 6px 16px rgb(14 20 35 / 26%);
+  color: var(--battle-ink);
+  /* 中号字那一档：手机上整块画面被缩到四成，17px 硬写在屏幕上只剩 7px（见 --fs-mid-scale）。
+     字变大只会让气泡往上长，右下角那块空地的三条边都不受影响。 */
+  font-size: calc(17px * var(--fs-mid-scale));
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  /* 只是块字幕，不该拦住底下的手牌和战场。 */
+  pointer-events: none;
+  animation: battle-urge-bubble-in 0.24s cubic-bezier(0.34, 1.32, 0.64, 1);
+}
+
+/* 气泡的小尾巴，从右下角指向「催一催」。两层三角：外面深一档当描边，里面填纸色。 */
+.battle__urge-bubble::before,
+.battle__urge-bubble::after {
+  content: '';
+  position: absolute;
+  right: 22px;
+  border-style: solid;
+  border-color: transparent;
+}
+
+.battle__urge-bubble::before {
+  bottom: -10px;
+  border-width: 10px 9px 0;
+  border-top-color: var(--battle-line-dark);
+}
+
+.battle__urge-bubble::after {
+  bottom: -8px;
+  border-width: 9px 8px 0;
+  border-top-color: var(--battle-paper);
+}
+
+@keyframes battle-urge-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.battle__urge, .battle__urge-bubble) {
+    animation-duration: 1ms;
+  }
 }
 
 /*

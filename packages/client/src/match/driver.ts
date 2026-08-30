@@ -7,6 +7,7 @@
  */
 
 import type { Command, GameEvent, GameState, PlayerId } from '@ai-duel/core'
+import type { UrgeId } from '../ui/urgeLines'
 
 export type MatchStatus =
   /** 还没拿到局面：联机客人在等房主发开局数据。 */
@@ -58,6 +59,15 @@ export interface MatchDriver {
    */
   subscribeEvents(listener: (events: GameEvent[]) => void): () => void
   send(command: Command): void
+  /**
+   * 「催一催」：本端喊一句，同步给对面，两边一起放录音、弹气泡。
+   *
+   * 不走 send：它不是指令，引擎不认识它，也不该进局面。
+   * 单机玩法（热座、教程、测试房）没有对面，只在本地回放。
+   */
+  urge(id: UrgeId): void
+  /** 订阅喊话（本端和对面的都会到）。可以有多个订阅者，也没有补发缓冲——见 createDriverCore。 */
+  subscribeUrge(listener: (id: UrgeId) => void): () => void
   /** 界面卸载时调用：断连接、清定时器。 */
   dispose(): void
 }
@@ -70,6 +80,9 @@ export interface DriverCore {
   /** 改视图并通知订阅者。每次都换新对象，所以只在真的有变化时调用。 */
   patch(changes: Partial<MatchView>): void
   emitEvents(events: GameEvent[]): void
+  subscribeUrge(listener: (id: UrgeId) => void): () => void
+  /** 把一句喊话播给本端的订阅者。发不发给对面由各个 driver 自己决定。 */
+  emitUrge(id: UrgeId): void
 }
 
 /**
@@ -85,6 +98,12 @@ export function createDriverCore(initial: Omit<MatchView, 'link'>): DriverCore {
   const listeners = new Set<() => void>()
   let eventListener: ((events: GameEvent[]) => void) | null = null
   let buffered: GameEvent[] = []
+  /*
+   * 喊话和上面的事件流两条规矩正好相反，因为它们要的东西不一样：
+   * 允许多个订阅者（界面之外将来还想加别的反馈就直接挂上去，不用抢那一个位置），
+   * 而且没人听的时候直接丢掉——催促是当下的一句话，攒到界面挂上来再补播就成了迟到的鬼叫。
+   */
+  const urgeListeners = new Set<(id: UrgeId) => void>()
 
   return {
     subscribe(listener) {
@@ -113,6 +132,13 @@ export function createDriverCore(initial: Omit<MatchView, 'link'>): DriverCore {
       if (events.length === 0) return
       if (eventListener) eventListener(events)
       else buffered = [...buffered, ...events]
+    },
+    subscribeUrge(listener) {
+      urgeListeners.add(listener)
+      return () => urgeListeners.delete(listener)
+    },
+    emitUrge(id) {
+      for (const listener of urgeListeners) listener(id)
     },
   }
 }

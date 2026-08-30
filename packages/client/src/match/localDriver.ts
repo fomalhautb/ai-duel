@@ -83,6 +83,10 @@ export function createLocalDriver({
     getSnapshot: core.getSnapshot,
     subscribeEvents: core.subscribeEvents,
     send: apply,
+    subscribeUrge: core.subscribeUrge,
+
+    // 热座是一台电脑上两个人轮流点，"对面"就在旁边坐着，本地放一遍就够了。
+    urge: core.emitUrge,
 
     dispose() {
       disposed = true

@@ -921,7 +921,9 @@
   letter-spacing: 0.1em;
   line-height: 1;
   white-space: nowrap;
-  transform: translate(-50%, -50%);
+  /* scale(2)：这块牌子按屏幕像素排，原来的 12px 字在卡面上太小，整块放大一倍。
+     缩放放在 translate 之后，才是"以自身中心放大"，不会把它推离卡面正中。 */
+  transform: translate(-50%, -50%) scale(2);
   pointer-events: none;
 }
 

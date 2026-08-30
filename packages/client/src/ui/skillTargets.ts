@@ -48,7 +48,7 @@ export function boardTargetsOf(
 
 /**
  * 「模型蒸馏」能弃掉的那些手牌：自己手上的 AI 牌，技能牌不算
- * （换来的 Token 按被弃那张 AI 的印刷费用 +1 算，弃技能牌无从计价）。
+ * （换来的 Token 就是被弃那张 AI 的印刷费用，弃技能牌无从计价）。
  */
 export function handTargetsOf(hand: readonly CardInstance[]): CardInstance[] {
   return hand.filter((instance) => getCard(instance.cardId).kind === 'ai')

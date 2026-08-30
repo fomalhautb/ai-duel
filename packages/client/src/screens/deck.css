@@ -730,22 +730,19 @@
  * 摆在 __face 里、缩放层**外面**：它要按屏幕像素算，跟着 --deck-pool-scale 一起放大就太大了。
  * z-index（在 .card-help-mark 上）是为了盖在卡面之上：所在的 __face 不是 preserve-3d，
  * 这里按普通 2D 层叠算。
- * 二十几张卡上常驻二十几个问号太吵，只在指到某张卡时淡入。
  *
- * 显隐是纯 CSS（opacity + transition）。要改成 GSAP 的 autoAlpha 驱动的话，
- * 必须先把下面那条 :hover 规则删掉，否则两边抢同一个属性。
+ * 常驻显示。以前只在指到某张卡时才淡入，结果是"这张牌能翻面"这件事全靠玩家瞎摸——
+ * 卡池里满屏的牌，没人会去每张上面扫一遍。二十几个问号确实吵，但比藏起来强。
+ * 只管交互的热区（.deck-help）仍然是 hover 才现身，理由见那边。
+ *
+ * 22px 和对局手牌那枚（styles.css 的 .hand-fan__help-mark）写同一个数：两页共用一块
+ * 1672×941 舞台、按同一套像素排，同数值就是屏幕上同大小。
  */
 .deck-pool-card__help-mark {
   top: 7px;
   right: 7px;
-  width: 26px;
-  height: 26px;
-  opacity: 0;
-  transition: opacity 0.16s ease;
-}
-
-.deck-pool-card:hover .deck-pool-card__help-mark {
-  opacity: 1;
+  width: 22px;
+  height: 22px;
 }
 
 /*
@@ -1067,9 +1064,10 @@
 }
 
 /*
- * 问号的显隐挂在 .deck-pool-card:hover / .deck-slot:hover 上，触屏永远等不到，
+ * 问号热区的显隐挂在 .deck-pool-card:hover / .deck-slot:hover 上，触屏永远等不到，
  * 于是"翻到背面看效果"这件事在手机上整个消失。粗指针下常驻显示。
- * 热区再放大一圈（26 → 34、迷你卡 20 → 26），圆圈本身不动——热区是全透明的，变大看不出来。
+ * （看得见的那枚圆章两种指针下都是常驻的，不用在这儿再摆一条。）
+ * 热区再放大一圈（26 → 34、迷你卡 20 → 26），圆章本身不动——热区是全透明的，变大看不出来。
  * 再大就要开始抢卡面了：从卡的右上角起手拖牌是常事。
  *
  * 两颗圆钮不在这里另摆一套：它们本来就是 52px、也已经常驻显示（见上面两条）。
@@ -1079,11 +1077,6 @@
   .deck-slot .deck-help {
     opacity: 1;
     visibility: visible;
-  }
-
-  .deck-pool-card__help-mark,
-  .deck-mini__help-mark {
-    opacity: 1;
   }
 
   /* 这两条要多带一级父类：热区的基准尺寸（.deck-help / .deck-help--mini）写在本文件更靠后，
@@ -1807,18 +1800,13 @@
   transform-origin: top left;
 }
 
-/* 迷你卡上的问号圆章。同 .deck-pool-card__help-mark，只是小一号、贴得更靠边。 */
+/* 迷你卡上的问号圆章。同 .deck-pool-card__help-mark（也是常驻、同样 22px），
+   只是贴得更靠边——格子本来就只有一百来像素宽。 */
 .deck-mini__help-mark {
   top: 4px;
   right: 4px;
-  width: 20px;
-  height: 20px;
-  opacity: 0;
-  transition: opacity 0.16s ease;
-}
-
-.deck-slot:hover .deck-mini__help-mark {
-  opacity: 1;
+  width: 22px;
+  height: 22px;
 }
 
 /*

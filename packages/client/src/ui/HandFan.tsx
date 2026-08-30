@@ -700,15 +700,15 @@ export function HandFan({
   const innerOf = (id: string) =>
     slotsRef.current.get(id)?.querySelector<HTMLElement>('.hand-fan__inner') ?? null
   /**
-   * 问号的全部零件：一个透明热区（.hand-fan__help，只管交互）
-   * 加正反两面各一个的问号圆章（.hand-fan__help-mark，只管样子）。
-   * 它们必须一起淡入淡出，否则会出现"看得见问号但点不动"或者反过来的错位。
+   * 问号那块只管交互的透明热区（.hand-fan__help）。看得见的圆章（.hand-fan__help-mark）
+   * 是常驻的，不在这里面：问号要当"这张牌能翻面"的常驻提示，只有热区跟着放大与否开关，
+   * 所以没放大的牌上问号是看得见、点不动的（理由写在 styles.css 的 .hand-fan__help-mark）。
    * 拿不到槽位（牌刚被打出去）时返回空数组，调用方都先判了长度。
    */
-  const helpPartsOf = (id: string): HTMLElement[] => {
+  const helpHotspotsOf = (id: string): HTMLElement[] => {
     const slot = slotsRef.current.get(id)
     if (!slot) return []
-    return Array.from(slot.querySelectorAll<HTMLElement>('.hand-fan__help, .hand-fan__help-mark'))
+    return Array.from(slot.querySelectorAll<HTMLElement>('.hand-fan__help'))
   }
 
   /**
@@ -905,11 +905,11 @@ export function HandFan({
       const tween = gsap.to(slot, vars)
       if (dealing) dealTweensRef.current.set(card.id, tween)
 
-      const helpParts = helpPartsOf(card.id)
+      const helpHotspots = helpHotspotsOf(card.id)
       // autoAlpha 到 0 会顺手把 visibility 关掉，那个透明热区跟着就不再吃指针事件——
       // 没被放大的手牌上，指针扫过右上角不会莫名其妙触发翻面。
-      if (helpParts.length > 0) {
-        gsap.to(helpParts, { autoAlpha: isHovered ? 1 : 0, duration: 0.2, overwrite: 'auto' })
+      if (helpHotspots.length > 0) {
+        gsap.to(helpHotspots, { autoAlpha: isHovered ? 1 : 0, duration: 0.2, overwrite: 'auto' })
       }
 
       const inner = innerOf(card.id)
@@ -1313,10 +1313,12 @@ export function HandFan({
     // 归零能压住跟随，靠的是 cardTilt 在 settle 里先把跟随补间停掉（原因见那里）。
     tiltsRef.current.get(drag.id)?.reset()
 
-    // 问号淡出：拖着的牌不需要它。热区和正反两面的圆圈必须一起淡（见 helpPartsOf），
-    // autoAlpha 到 0 顺手关掉 visibility，热区也就不吃指针事件了。
-    const helpParts = helpPartsOf(drag.id)
-    if (helpParts.length > 0) gsap.to(helpParts, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
+    // 热区关掉：拖着的牌不需要翻面。autoAlpha 到 0 顺手关掉 visibility，热区也就不吃指针事件了。
+    // 看得见的那枚圆章仍然留着——它是常驻的，跟着牌一起被拖走（见 helpHotspotsOf）。
+    const helpHotspots = helpHotspotsOf(drag.id)
+    if (helpHotspots.length > 0) {
+      gsap.to(helpHotspots, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
+    }
     // 从背面直接拖出去的话，落点上飞出来的小卡画的是正面，会闪一下，所以先转回正面。
     // 必须走 flipTo（ui/flipCard.ts）：正反两面谁可见是它按角度切 opacity 决定的，
     // 裸补一个 rotationY 只会把卡转回来、opacity 还停在"显示背面"，画面就一直是背面。

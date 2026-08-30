@@ -549,9 +549,11 @@ function applySkillEffect(
           // 只换卡面身份：instanceId 不变，interference / safePassed 也跟着这个单位留下，
           // 因为它还是刚才那个单位，只是升了一级。
           ai.cardId = toCardId
-          // 换脸本身不在单位上留任何状态（levelShift 是英雄技能专用的，见 types.ts），
-          // 不补这一笔的话，本轮结束前谁都看不出这个单位是被哪张牌变成现在这副样子的。
+          // 两笔标记各管一段时间：affectedBy 是本轮的（放大查看时说清"这轮它被哪张牌打过"），
+          // evolvedTimes 跟着单位走不按轮清——卡面身份换了是永久的，
+          // 隔几轮回头看战场也得看得出哪几个是被带飞上来的（口径见 types.ts）。
           markAffected(ai, 'rising-tide')
+          ai.evolvedTimes = (ai.evolvedTimes ?? 0) + 1
           events.push({
             type: 'AI_TRANSFORMED',
             instanceId: ai.instanceId,

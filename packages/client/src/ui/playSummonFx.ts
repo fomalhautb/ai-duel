@@ -48,6 +48,18 @@ const REMOVAL_DUR = 0.45
 /** 进化时卡先大这么多再弹回原尺寸，全程这么长。幅度只有 16%：小卡本来就只有 110×165。 */
 const EVOLVE_POP_SCALE = 1.16
 const EVOLVE_POP_DUR = 0.42
+/** 进化时那圈绿光从亮到灭的时长，和上面的弹跳同时起，稍微长一点好让人看清是"这一格"在升。 */
+const EVOLVE_GLOW_DUR = 0.7
+/** 「↑ 升级」浮字往上飘多少像素、飘多久。飘到卡的上沿之外，不挡卡面上的名字。 */
+const EVOLVE_LABEL_RISE = 34
+const EVOLVE_LABEL_DUR = 0.9
+/**
+ * 同一批进化之间错开多久。
+ *
+ * 「鸡犬升天」常常一口气升好几个单位，全部同时闪就成了一次整屏的亮，
+ * 分不清到底升了几个；错开一点点，玩家能一格一格数过来。
+ */
+export const EVOLVE_STAGGER = 0.16
 
 /**
  * 播一次上场特效。
@@ -170,10 +182,14 @@ export function playRemovalFx(tile: HTMLElement) {
 }
 
 /**
- * 播一次"进化"（「鸡犬升天」）：边缘追光扫一圈，卡从大一号弹回原尺寸。
+ * 播一次"进化"（「鸡犬升天」）：边缘追光扫一圈、罩一层绿光、卡从大一号弹回原尺寸，
+ * 再从卡上飘出一行「↑ 升级」。
  *
- * 和上场特效共用那圈金色追光，但不震屏不扬尘：进化是同一个单位换了身份，
- * 不是一张新卡砸到场上，动静要比落场小一档。
+ * 比上场特效轻（不震屏不扬尘：进化是同一个单位换了身份，不是新卡砸到场上），
+ * 但比只弹一下重得多——这张牌一次能升一片单位，光靠"弹一下 + 换张图"玩家根本数不清
+ * 到底哪几个升了。绿光和浮字都是专给它用的颜色和字，和金色的上场、命中分得开。
+ *
+ * `delay` 给同一批的多个单位错开用（见 EVOLVE_STAGGER）。
  *
  * 调用时机是**新快照提交之后**（见 MatchStage 的 evolveQueueRef）：卡面这时已经是进化后的
  * 那一张，弹的才是新样子；在事件回调里当场演的话，闪的是即将被换掉的旧卡面。
@@ -181,16 +197,69 @@ export function playRemovalFx(tile: HTMLElement) {
  * 弹的是 tile 自己的 scale，不碰倾斜层——那一层归 cardTilt 每帧改写（架构 5.7），
  * 写上去会被当场覆盖。收尾 clearProps 把 transform 整个抹掉，理由同 playSkillHitFx。
  */
-export function playEvolveFx(tile: HTMLElement) {
+export function playEvolveFx(tile: HTMLElement, delay = 0) {
   const edge = tile.querySelector<HTMLElement>('.battle__tile-edge')
-  if (edge !== null) runEdgeLight(edge)
+
+  // 绿光和浮字都是一次性道具：现建、演完就从 DOM 里拿掉，免得一局下来在每张卡上攒一堆。
+  // 挂在 tile 上而不是特效层里，这样它们跟着这一格走（战场重排、卡跟着窗口缩放都不用管）。
+  const glow = document.createElement('div')
+  glow.className = 'battle__tile-evolve-glow'
+  glow.setAttribute('aria-hidden', 'true')
+  const label = document.createElement('span')
+  label.className = 'battle__tile-evolve-label'
+  label.setAttribute('aria-hidden', 'true')
+  label.textContent = '↑ 升级'
+  tile.append(glow, label)
 
   gsap
-    .timeline({ onComplete: () => gsap.set(tile, { clearProps: 'transform' }) })
+    .timeline({
+      delay,
+      onComplete: () => {
+        gsap.set(tile, { clearProps: 'transform' })
+        glow.remove()
+        label.remove()
+      },
+    })
+    // 追光排进时间线而不是当场就跑：整段要能被 delay 一起推后，不然错开的只有弹跳。
+    .add(() => {
+      if (edge !== null) runEdgeLight(edge)
+    }, 0)
     .fromTo(
       tile,
       { scale: EVOLVE_POP_SCALE },
       { scale: 1, duration: EVOLVE_POP_DUR, ease: 'back.out(2)', overwrite: 'auto' },
+      0,
+    )
+    .fromTo(
+      glow,
+      { autoAlpha: 0 },
+      { autoAlpha: 1, duration: EVOLVE_GLOW_DUR * 0.25, ease: 'power2.out' },
+      0,
+    )
+    .to(glow, { autoAlpha: 0, duration: EVOLVE_GLOW_DUR * 0.75, ease: 'power2.in' })
+    .fromTo(
+      label,
+      { autoAlpha: 0, xPercent: -50, y: 0, scale: 0.7 },
+      {
+        autoAlpha: 1,
+        xPercent: -50,
+        y: -EVOLVE_LABEL_RISE * 0.45,
+        scale: 1,
+        duration: 0.28,
+        ease: 'back.out(2)',
+      },
+      0.05,
+    )
+    .to(
+      label,
+      {
+        autoAlpha: 0,
+        xPercent: -50,
+        y: -EVOLVE_LABEL_RISE,
+        duration: EVOLVE_LABEL_DUR - 0.28,
+        ease: 'power1.in',
+      },
+      0.33,
     )
 }
 

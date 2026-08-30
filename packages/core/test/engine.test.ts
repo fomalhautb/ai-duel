@@ -1324,14 +1324,23 @@ describe('鸡犬升天', () => {
       interference: 'fixed-answer',
       // 换脸自己也记一笔：本轮谁把它变成 GPT-3.5 的，只剩这一处看得出来。
       affectedBy: ['fixed-answer', 'rising-tide'],
+      // 跨轮留着的那一笔，界面靠它常挂「已进化」角标。
+      evolvedTimes: 1,
     })
   })
 
-  it('连打两张就顺着链子升两级', () => {
+  it('连打两张就顺着链子升两级，进化次数也记两次', () => {
     const state = deploy(skillGame(), 0, ['gpt-2'])
     const once = playSkill(state, 1, 'rising-tide').state
     const twice = playSkill(once, 1, 'rising-tide').state
     expect(board(twice, 0).map((a) => a.cardId)).toEqual(['gpt-4o'])
+    expect(board(twice, 0)[0]?.evolvedTimes).toBe(2)
+  })
+
+  it('升不动的单位不记进化次数', () => {
+    const state = deploy(skillGame(), 0, ['chatgpt-5-6-sol'])
+    const after = playSkill(state, 1, 'rising-tide').state
+    expect(board(after, 0)[0]?.evolvedTimes).toBeUndefined()
   })
 })
 

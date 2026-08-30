@@ -73,7 +73,13 @@ import { flipTo, setFlipAngle, syncFlipFaces } from './flipCard'
 import { heroArtSrc } from './heroArt'
 import { heroCardData } from './heroCard'
 import { QUESTION_CATEGORY_LABELS } from './labels'
-import { playEvolveFx, playRemovalFx, playSkillHitFx, playSummonFx } from './playSummonFx'
+import {
+  EVOLVE_STAGGER,
+  playEvolveFx,
+  playRemovalFx,
+  playSkillHitFx,
+  playSummonFx,
+} from './playSummonFx'
 import { RoundSettleLayer } from './RoundSettleLayer'
 import type { RoundSettle, SettleAiResult, SettleScore } from './RoundSettleLayer'
 import { boardTargetsOf, handTargetsOf } from './skillTargets'
@@ -1102,6 +1108,16 @@ function BattleField({
     ) {
       holdRoundDeal()
     }
+    /**
+     * 这一批里「鸡犬升天」升了哪些单位，循环跑完拿它拼一条横幅。
+     *
+     * 攒起来一起报而不是每个单位报一条：一张牌一口气升一片，一格一条横幅要排队播到下一轮。
+     * `risingTidePlayed` 单独记一笔是为了报"一个都没升"那种情况——
+     * 那时引擎一条 AI_TRANSFORMED 都不发，画面上什么都不动，
+     * 玩家会以为牌打丢了（这张牌的效果本来就可能落空：场上全是链尾单位）。
+     */
+    const evolved: { owner: PlayerId; fromCardId: CardId; toCardId: CardId }[] = []
+    let risingTidePlayed = false
     for (const event of events) {
       switch (event.type) {
         case 'GAME_STARTED':
@@ -1137,6 +1153,8 @@ function BattleField({
           break
         }
         case 'SKILL_PLAYED':
+          // 记一笔"这一批里有人打了鸡犬升天"，循环跑完才知道它到底升了几个（见循环外那条横幅）。
+          if (event.cardId === 'rising-tide') risingTidePlayed = true
           // 技能牌不上场，不亮出来的话画面上根本看不出有人打过牌，所以双方都要亮一次，
           // 只是亮法不同：我方那张刚从自己手里飞走，知道打的是什么，中央淡入一下就够；
           // 对方那张要从他手牌里飞到中央翻正，否则画面上什么都没发生过。
@@ -1162,6 +1180,8 @@ function BattleField({
           }
           break
         case 'SKILL_CANCELED': {
+          // 被抵消就不再报"一个都没升"了：没升是因为效果整个作废，抵消那一层已经说清楚了。
+          if (event.cardId === 'rising-tide') risingTidePlayed = false
           // 措辞按"谁打出的那张牌被抵消了"来分：player 是出牌方，by 是发动英雄技能的一方。
           const hero = getHero(event.heroId)
           const whose = event.player === seatRef.current ? '你' : '对方'
@@ -1285,6 +1305,11 @@ function BattleField({
           // 「鸡犬升天」的进化：还是同一个单位，卡面身份换了一张。换图这件事 React 跟着快照
           // 自己就做了，这里攒着 id 是为了在提交之后补一段"变身"的演出（见下面消费它的那段）。
           evolveQueueRef.current.push(event.instanceId)
+          evolved.push({
+            owner: event.owner,
+            fromCardId: event.fromCardId,
+            toCardId: event.toCardId,
+          })
           break
         default:
           // AI_ELIMINATED 不单独播：结算层里那张卡的红叉和压暗样式已经说明了，
@@ -1294,6 +1319,27 @@ function BattleField({
           // GAME_OVER 由终局结算层接管；
           // COMMAND_REJECTED 走 view.lastRejection 那条提示。
           break
+      }
+    }
+
+    // 「鸡犬升天」的总结横幅，排在所有事件之后：小卡上那一圈绿光只说得清"这一格升了"，
+    // 说不清"这一下一共升了几个、双方各几个"，而这张牌最容易让人以为没生效的正是这一点。
+    if (risingTidePlayed) {
+      const mine = evolved.filter((one) => one.owner === seatRef.current).length
+      const theirs = evolved.length - mine
+      if (evolved.length === 0) {
+        showBanner('鸡犬升天！场上没有可进化的 Agent')
+      } else if (evolved.length === 1) {
+        // 只升了一个就直接报是谁变成了谁：比"1 个 Agent 进化"具体，同英雄技能那条横幅。
+        const only = evolved[0]!
+        showBanner(
+          `鸡犬升天！${getCard(only.fromCardId).name} → ${getCard(only.toCardId).name}`,
+        )
+      } else {
+        const parts: string[] = []
+        if (mine > 0) parts.push(`我方 ${mine} 个`)
+        if (theirs > 0) parts.push(`对方 ${theirs} 个`)
+        showBanner(`鸡犬升天！${parts.join('、')} Agent 进化`)
       }
     }
   })
@@ -2254,11 +2300,16 @@ function BattleField({
       const evolves = evolveQueueRef.current
       if (evolves.length > 0) {
         evolveQueueRef.current = []
+        // 一批里的每一格错开一点点起（见 EVOLVE_STAGGER）：一张牌能一口气升好几个单位，
+        // 同时闪就成了一次整屏的亮，数不清到底升了几个。
+        let index = 0
         for (const id of evolves) {
           const tile = boardRef.current?.querySelector<HTMLElement>(
             `[data-ai-id="${CSS.escape(id)}"]`,
           )
-          if (tile != null) playEvolveFx(tile)
+          if (tile == null) continue
+          playEvolveFx(tile, index * EVOLVE_STAGGER)
+          index += 1
         }
       }
 

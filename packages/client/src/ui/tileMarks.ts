@@ -30,15 +30,25 @@ export interface TileMark {
  * （复读机必错、黑白颠倒把判定翻面），玩家要据此决定救哪一个。
  *
  * modifier 只是配色那一档：默认（干扰的琥珀色）留空，其余各带一个。
- * 玉净瓶和保送同属"这是好事"的青色，鸡犬升天借升级那档的绿色。
+ * 玉净瓶和保送同属"这是好事"的青色。
+ *
+ * 「鸡犬升天」故意不在这份表里：它的角标改成跟着单位走的常驻标记（读 `evolvedTimes`，
+ * 见下面 tileMarksOf），本轮标记再挂一枚只会在同一张卡上出现两个一样的东西。
  */
 export const SKILL_EFFECT_MARKS: Record<CardId, { text: string; modifier: string }> = {
   'fixed-answer': { text: '复读中', modifier: '' },
   'black-white-reversal': { text: '已颠倒', modifier: '' },
   'jade-purification-vase': { text: '已净化', modifier: 'battle__tile-mark--safe' },
   'safe-pass': { text: '保送', modifier: 'battle__tile-mark--safe' },
-  'rising-tide': { text: '已进化', modifier: 'battle__tile-mark--up' },
 }
+
+/**
+ * 挂常驻角标、所以不再进本轮那一批的技能牌。
+ *
+ * 只有「鸡犬升天」一张：它的痕迹记在 `AiInstance.evolvedTimes` 上，一直挂到单位下场，
+ * 本轮那一批照常跳过它（不跳过会落到通用的「被影响」上，等于同一件事说两遍）。
+ */
+const PERSISTENT_MARK_CARDS = new Set<CardId>(['rising-tide'])
 
 /** 拼出一枚角标完整的 class。配色那一档留空就只有底样式。 */
 function markOf(text: string, modifier: string): TileMark {
@@ -52,7 +62,8 @@ function markOf(text: string, modifier: string): TileMark {
  * 这个单位现在该挂哪几枚常驻角标，按从上到下的顺序排。
  *
  * 先排本轮打在它身上的技能牌（按命中先后，进下一轮会自己消失），接着是主人的金钟罩，
- * 最后才是跟着单位走的升降级标记。顺序固定是为了同时挂两三枚时不会跳来跳去。
+ * 最后是两枚跟着单位走的常驻标记：鸡犬升天的「已进化」和英雄技能的升降级。
+ * 顺序固定是为了同时挂两三枚时不会跳来跳去。
  *
  * 技能牌那一批直接照 `AiInstance.affectedBy` 排，不再各写各的判断：
  * 引擎那边只要往那个字段记一笔，这里就挂得出角标（文案见 SKILL_EFFECT_MARKS）。
@@ -69,10 +80,17 @@ function markOf(text: string, modifier: string): TileMark {
 export function tileMarksOf(ai: AiInstance, shielded: boolean): TileMark[] {
   const marks: TileMark[] = []
   for (const cardId of ai.affectedBy ?? []) {
+    if (PERSISTENT_MARK_CARDS.has(cardId)) continue
     const mark = SKILL_EFFECT_MARKS[cardId] ?? { text: '被影响', modifier: '' }
     marks.push(markOf(mark.text, mark.modifier))
   }
   if (shielded) marks.push(markOf('金钟罩', 'battle__tile-mark--safe'))
+  // 鸡犬升天升上来的：升了几次就写几次（「已进化」/「已进化 ×2」），一直挂到这个单位下场。
+  // 排在英雄技能那一枚前面，因为它更常见（一张牌能一口气升一片）。
+  const evolved = ai.evolvedTimes ?? 0
+  if (evolved > 0) {
+    marks.push(markOf(evolved > 1 ? `已进化 ×${evolved}` : '已进化', 'battle__tile-mark--up'))
+  }
   const shift = ai.levelShift ?? 0
   if (shift > 0) marks.push(markOf('已升级', 'battle__tile-mark--up'))
   else if (shift < 0) marks.push(markOf('已降级', 'battle__tile-mark--down'))

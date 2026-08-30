@@ -4725,6 +4725,50 @@ body:has(.battle) {
 }
 
 /*
+ * 「鸡犬升天」进化那一下罩在小卡上的绿光（由 ui/playSummonFx.ts 的 playEvolveFx 现建现删）。
+ *
+ * 盖住整张卡而不是只描一圈边：这张牌一次能升一片单位，要的就是"哪几格亮了"隔着屏幕也数得清。
+ * 颜色跟角标的绿走（.battle__tile-mark--up），玩家看到绿光再看到绿角标是同一件事。
+ * 不吃指针事件，也不进 DOM 常驻——透明度全程由 GSAP 写，这里只定型。
+ */
+.battle__tile-evolve-glow {
+  position: absolute;
+  inset: -4px;
+  border: 2px solid rgb(169 220 184 / 85%);
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 55%, rgb(169 220 184 / 32%), transparent 72%);
+  box-shadow:
+    0 0 18px rgb(169 220 184 / 55%),
+    inset 0 0 14px rgb(169 220 184 / 35%);
+  pointer-events: none;
+}
+
+/*
+ * 进化时从卡上飘出来的「↑ 升级」。
+ *
+ * 定在卡的上沿正中、再靠 transform 往上飘（飘的距离见 playEvolveFx 的 EVOLVE_LABEL_RISE），
+ * 所以飘起来之后它在卡的外面，不压住卡面上的模型名。
+ * 水平居中那一半（xPercent: -50）由 GSAP 一起写：transform 全程归它管，
+ * 这里再写一个 translateX 会被它当场覆盖。
+ * z-index 压过角标那一列：两者都在卡的上半部分，浮字只出现不到一秒，那一下该它在最前面。
+ */
+.battle__tile-evolve-label {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 3;
+  color: #b9ecc8;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / 75%),
+    0 0 12px rgb(169 220 184 / 70%);
+  pointer-events: none;
+}
+
+/*
  * 被技能牌罚下时留在特效层里的那份复制品（见 ui/playSummonFx.ts 的 playRemovalFx）。
  *
  * 位置由 JS 逐个写在 style 上（left / top，舞台内像素），尺寸沿用 .battle__tile 自己的宽高。

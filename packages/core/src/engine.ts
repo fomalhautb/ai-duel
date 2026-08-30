@@ -97,11 +97,10 @@ const RNG_SEED_MAX = 0x7fffffff
  * 客户端的"打不起就变灰"和引擎的扣费校验必须用同一个数，所以这个函数导出给 client 用——
  * 两边各算一遍的话，玩家会遇到"看着能打，点下去说 Token 不够"。
  *
- * 金钟罩期间返回卡面原价：那张牌的口径是字面全挡，对自己有利的减费也一样挡在外面
+ * 金钟罩管不着这里：罩子挡的是落在场上单位身上的效果，而减费改的是"这张牌打出去要花多少"
  * （完整口径见 types.ts 的 `PlayerState.shielded`）。
  */
-export function effectivePlayCost(state: GameState, playerId: PlayerId, card: HandCard): number {
-  if (state.players[playerId].shielded === true) return card.tokenCost
+export function effectivePlayCost(state: GameState, card: HandCard): number {
   return Math.max(1, card.tokenCost - state.costReduction)
 }
 
@@ -305,7 +304,7 @@ function playCard(
 
   const instance = player.hand[handIndex]!
   const card = getCard(instance.cardId)
-  const cost = effectivePlayCost(next, playerId, card)
+  const cost = effectivePlayCost(next, card)
 
   // 费用排在选目标之前：Token 不够的话这张牌根本不该进"指定目标"那一步，
   // 否则客户端会先让玩家挑完目标、再回一句打不起，白挑一次。
@@ -407,14 +406,13 @@ function denyReason(
   const player = state.players[playerId]
   const foe = state.players[other(playerId)]
 
-  // 金钟罩「字面全挡」的一半在这里：这三档目标的效果全部落在打出方自己身上，
+  // 金钟罩罩的是人和他场上的 AI，这两档目标都落在自己场上的单位身上，
   // 自己正罩着的时候打出去必定一点作用都没有，与其让玩家白花 Token，不如当场拒掉。
-  // 另一半（群体牌跳过被罩的一方、被罩的一方不吃减费）分别在 applySkillEffect
-  // 和 effectivePlayCost 里。
-  const selfTargeted =
-    card.target === 'own-ai' || card.target === 'own-affected-ai' || card.target === 'own-hand-ai'
+  // 'own-hand-ai'（模型蒸馏）刻意不在这里：它动的是手牌，够不着场上单位，所以罩着也能打。
+  // 挡的另一半（群体牌结算时跳过被罩的一方）在 applySkillEffect 里。
+  const selfTargeted = card.target === 'own-ai' || card.target === 'own-affected-ai'
   if (selfTargeted && player.shielded === true) {
-    return '金钟罩生效中，本轮技能牌也影响不到你自己'
+    return '金钟罩生效中，本轮技能牌也影响不到你自己场上的 AI'
   }
   // 金钟罩自己是全挡口径唯一的例外（否则第一张就把自己挡住、这张牌永远打不出去），
   // 所以要单独拦住"再打一张"：第二张什么都不会改变，纯属白扔 7 点。

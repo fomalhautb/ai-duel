@@ -2167,11 +2167,10 @@ function BattleField({
    *
    * 卡面印的永远是原价（`tokenCost`），核电站开着时真正扣的是打折价，两者可能差好几点。
    * 所以这里问的是引擎那个函数（core 的 `effectivePlayCost`）而不是自己减一遍：
-   * 最低封底 1 点、金钟罩罩着的一方不吃减费，这些边界只写在那一处，
-   * 客户端另算一份迟早会和引擎的扣费对不上。
+   * 最低封底 1 点这类边界只写在那一处，客户端另算一份迟早会和引擎的扣费对不上。
    */
   const myPlayCostOf = (card: HandCardData): number =>
-    effectivePlayCost(state, mySeat, getCard(card.definitionId ?? card.id))
+    effectivePlayCost(state, getCard(card.definitionId ?? card.id))
 
   // ---------- 发牌 ----------
 
@@ -2721,11 +2720,10 @@ function BattleField({
 
           {/*
             「核电站」的减费提示，常驻挂到本轮结束（进下一轮 costReduction 清零，它自己就没了）。
-            减费是双方共享的一份全局计数，但金钟罩罩着的那一方不吃这份便宜
-            （见 core 的 effectivePlayCost），对他来说这条提示是句错话，所以那时不挂。
-            手牌变灰的判据也是同一个函数，两边永远说的是同一件事。
+            减费是双方共享的一份全局计数，谁都吃得到（金钟罩也挡不住，见 core 的
+            effectivePlayCost）。手牌变灰的判据也是同一个函数，两边永远说的是同一件事。
           */}
-          {state.costReduction > 0 && me.shielded !== true ? (
+          {state.costReduction > 0 ? (
             <div className="battle__cost-cut">核电站生效：本轮出牌费用 -{state.costReduction}</div>
           ) : null}
 

@@ -1004,30 +1004,40 @@ describe('金钟罩', () => {
     expect(board(shielded, 1)[0]!.interference).toBeUndefined()
   })
 
-  it('自己也打不出玉净瓶/保送/模型蒸馏这类只作用于自己的牌', () => {
-    // 用户拍板的口径是字面全挡：对自己有利的效果也一起挡在外面。
+  it('自己也打不出玉净瓶/保送这类作用于自己场上单位的牌', () => {
+    // 口径是字面全挡：罩着的时候连对自己有利的效果也一起挡在外面。
     // 先让乙干扰一下甲的 AI，玉净瓶才有个合法目标可选（不然会先被"没有可移除的效果"拦掉）。
     const base = deploy(skillGame(), 0, ['gpt-2'])
     const mine = board(base, 0)[0]!
     const hit = playSkill(base, 1, 'fixed-answer', mine.instanceId).state
     const shielded = playSkill(hit, 0, 'golden-bell-shield').state
-    // 12 - 1（AI）- 3（金钟罩）= 8，下面三张都还买得起，被拒的原因只可能是罩子。
+    // 12 - 1（AI）- 3（金钟罩）= 8，下面两张都还买得起，被拒的原因只可能是罩子。
     expect(shielded.players[0].tokens).toBe(SKILL_TEST_TOKENS - 1 - 3)
 
-    const blocked = '金钟罩生效中，本轮技能牌也影响不到你自己'
+    const blocked = '金钟罩生效中，本轮技能牌也影响不到你自己场上的 AI'
     expect(rejection(playSkill(shielded, 0, 'jade-purification-vase', mine.instanceId))).toBe(
       blocked,
     )
     expect(rejection(playSkill(shielded, 0, 'safe-pass', mine.instanceId))).toBe(blocked)
-    const withAi = give(shielded, 0, 'gpt-2')
-    expect(
-      rejection(playSkill(withAi.state, 0, 'model-distillation', withAi.instanceId)),
-    ).toBe(blocked)
+  })
+
+  it('罩着照样能打模型蒸馏：它弃的是手牌，够不着场上的 AI', () => {
+    const shielded = playSkill(skillGame(), 0, 'golden-bell-shield').state
+    const withAi = give(shielded, 0, 'gpt-4o')
+    const result = playSkill(withAi.state, 0, 'model-distillation', withAi.instanceId)
+    expect(rejection(result)).toBeUndefined()
+    // 12 - 3（金钟罩）- 2（蒸馏）+ 4（gpt-4o 的印刷费用）= 11
+    expect(result.state.players[0].tokens).toBe(
+      SKILL_TEST_TOKENS -
+        getCard('golden-bell-shield').tokenCost -
+        getCard('model-distillation').tokenCost +
+        getCard('gpt-4o').tokenCost,
+    )
+    expect(result.state.players[0].hand.some((c) => c.instanceId === withAi.instanceId)).toBe(false)
   })
 
   it('第二张金钟罩被拒（罩子自己是全挡口径唯一的例外）', () => {
-    // 两张金钟罩要 14 点，比这批用例发的 SKILL_TEST_TOKENS 还多，得先用模型蒸馏把额度顶上去
-    // ——蒸馏作用于自己，必须赶在罩子立起来之前打。
+    // 两张金钟罩要 14 点，比这批用例发的 SKILL_TEST_TOKENS 还多，得先用模型蒸馏把额度顶上去。
     // 费用那道闸排在这条检查之前（见 playCard），钱不够的话报的会是"Token 不够"。
     const state = skillGame()
     const fodder = give(state, 0, 'chatgpt-5-6-sol')
@@ -1050,16 +1060,15 @@ describe('金钟罩', () => {
     expect(result.events.filter((e) => e.type === 'AI_REMOVED').map((e) => e.owner)).toEqual([1])
   })
 
-  it('被罩的一方不吃核电站的减费', () => {
+  it('被罩的一方照吃核电站的减费：减的是出牌费用，不是场上单位', () => {
     const state = playSkill(skillGame(), 1, 'nuclear-power-station').state
     const shielded = playSkill(state, 0, 'golden-bell-shield').state
     expect(shielded.costReduction).toBe(1)
-    // 减费对没被罩的乙照常生效，对甲一点不生效。
-    expect(effectivePlayCost(shielded, 0, getCard('gpt-4o'))).toBe(getCard('gpt-4o').tokenCost)
-    expect(effectivePlayCost(shielded, 1, getCard('gpt-4o'))).toBe(getCard('gpt-4o').tokenCost - 1)
-
-    // 金钟罩自己那一张是按减价付的：付款那一刻罩子还没立起来。
-    expect(shielded.players[0].tokens).toBe(SKILL_TEST_TOKENS - (getCard('golden-bell-shield').tokenCost - 1))
+    expect(effectivePlayCost(shielded, getCard('gpt-4o'))).toBe(getCard('gpt-4o').tokenCost - 1)
+    // 金钟罩自己那一张也是按减价付的。
+    expect(shielded.players[0].tokens).toBe(
+      SKILL_TEST_TOKENS - (getCard('golden-bell-shield').tokenCost - 1),
+    )
   })
 
   it('被英雄技能抵消时罩子不生效', () => {
@@ -1084,9 +1093,8 @@ describe('核电站', () => {
   it('打出后双方后续的牌都便宜 1 点', () => {
     const state = playSkill(skillGame(), 0, 'nuclear-power-station').state
     expect(state.costReduction).toBe(1)
-    // 减的是双方的费用，也包括打出方自己后面的牌。
-    expect(effectivePlayCost(state, 0, getCard('gpt-4o'))).toBe(3)
-    expect(effectivePlayCost(state, 1, getCard('gpt-4o'))).toBe(3)
+    // 减免是全局一份，双方共用，也包括打出方自己后面的牌。
+    expect(effectivePlayCost(state, getCard('gpt-4o'))).toBe(3)
 
     const played = deploy(state, 1, ['gpt-4o'])
     expect(played.players[1].tokens).toBe(SKILL_TEST_TOKENS - 3)
@@ -1099,7 +1107,7 @@ describe('核电站', () => {
     const second = playSkill(first, 0, 'nuclear-power-station').state
 
     expect(second.costReduction).toBe(2)
-    expect(effectivePlayCost(second, 0, getCard('gpt-4o'))).toBe(2)
+    expect(effectivePlayCost(second, getCard('gpt-4o'))).toBe(2)
     // 第二张自己也吃了第一张的减免：3 点的牌先花 3 再花 2。
     expect(second.players[0].tokens).toBe(SKILL_TEST_TOKENS - 3 - 2)
   })
@@ -1108,7 +1116,7 @@ describe('核电站', () => {
     const state = playSkill(playSkill(skillGame(), 0, 'nuclear-power-station').state, 0, 'nuclear-power-station').state
     expect(state.costReduction).toBe(2)
     // GPT-2 卡面就 1 点，减 2 也还是 1，不会变成 0 或负数。
-    expect(effectivePlayCost(state, 0, getCard('gpt-2'))).toBe(1)
+    expect(effectivePlayCost(state, getCard('gpt-2'))).toBe(1)
     const played = deploy(state, 0, ['gpt-2'])
     expect(played.players[0].tokens).toBe(state.players[0].tokens - 1)
   })
@@ -1120,7 +1128,7 @@ describe('核电站', () => {
     const next = confirmBoth(settle).state
 
     expect(next.costReduction).toBe(0)
-    expect(effectivePlayCost(next, 0, getCard('gpt-4o'))).toBe(4)
+    expect(effectivePlayCost(next, getCard('gpt-4o'))).toBe(4)
   })
 })
 

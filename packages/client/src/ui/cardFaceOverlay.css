@@ -1,22 +1,50 @@
 /* 共用 /design 的纸张、纸纹和色板；装饰线只在这里定义，换卡不重新生成图片。 */
+/*
+ * 字色和框线色读的是 --paper-ink / --paper-line-dark，不是随面翻转的 --ink / --line-dark：
+ * 卡面本身永远是米色纸，可它会被摆进深色面板里（组卡页的卡池就把 --ink 翻成了浅色，
+ * 见 screens/deck.css 的 .deck-pool），跟着翻的话纸上的卡名就变成一片看不清的浅色。
+ */
 .card-overlay {
-  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--line-dark));
+  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--paper-line-dark));
   --card-metal-light: color-mix(in srgb, var(--paper) 76%, var(--c-gold));
-  --card-ink: color-mix(in srgb, var(--card-accent) 30%, var(--ink));
+  --card-ink: color-mix(in srgb, var(--card-accent) 30%, var(--paper-ink));
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
 /* .grain 会设置 position: relative；这里提高选择器优先级，保证公共纸纹晚加载也不会挪动图层。 */
+/*
+ * 圆心由 CardCostBadge 逐张传进来（AI 牌出处 aiModelFace.ts、技能牌出处 skillCardFace.ts）：
+ * 这枚章是盖在原画上的——AI 牌盖角上那枚星章，技能牌盖原画自己印的费用章——
+ * 而两边的位置都不是张张一样。这里用"圆心 + 位移半个自己"定位。
+ * 兜底值取技能牌原画那枚的位置：24 张里 20 张都落在这儿，只有四张要单独给。
+ *
+ * 直径 20.8% 是全场统一的：技能牌原画上印的那枚实测是卡宽的 16%，这里取它的 1.3 倍，
+ * 让费用在缩成手牌时也一眼看得见。因此这枚章会盖出原画那圈金环之外一点——
+ * 盖住比露出两枚章好看，两种牌也才是同一枚章。
+ *
+ * 盘底色默认按插画主色调（AI 牌），技能牌另传 --cost-fill：那是从原画那枚章的盘心采下来的
+ * 颜色，盖上去才接得住原画外圈那道金环。
+ */
 .card-overlay__cost.grain {
+  /*
+   * 金属描边的两个颜色在这儿也定义一份：技能牌上这枚圆章不套 .card-overlay
+   *（那一层是给铭牌用的），只挂在卡面下，取不到定义在 .card-overlay 上的那份。
+   * pointer-events 同理——.card-overlay 关了指针，这枚章单独挂时得自己关，
+   * 不然它会把卡面上的拖拽吃掉一块。
+   */
+  --card-metal: color-mix(in srgb, var(--c-gold) 35%, var(--paper-line-dark));
+  --card-metal-light: color-mix(in srgb, var(--paper) 76%, var(--c-gold));
+  pointer-events: none;
   position: absolute;
-  top: 2.8%;
-  left: 3.8%;
-  width: 18.5%;
+  top: var(--cost-y, 9.2%);
+  left: var(--cost-x, 13.9%);
+  width: 20.8%;
   aspect-ratio: 1;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--card-accent) 52%, var(--ink));
+  background: var(--cost-fill, color-mix(in srgb, var(--card-accent) 52%, var(--paper-ink)));
   box-shadow: 0 1px 3px rgb(43 34 21 / 40%);
   color: var(--paper);
 }

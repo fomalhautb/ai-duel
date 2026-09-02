@@ -16,8 +16,8 @@ export const CARD_ART_PLACEHOLDERS = [
   '/cards/placeholder-4.webp',
 ] as const
 
-/** /card 图鉴里所有 AI 牌共用的背面图，英雄牌和技能牌仍显示带说明文字的详情背面。 */
-export const AI_CARD_BACK_ART = '/cards/card-back-v4-relaxed-ornament.png'
+/** 卡组页放大查看时所有 AI 牌共用的背面图，英雄牌和技能牌仍显示带说明文字的详情背面。 */
+export const AI_CARD_BACK_ART = '/cards/card-back-v4-relaxed-ornament.webp'
 
 /**
  * 按 id 稳定地挑一张占位图：同一个 id 永远拿到同一张。
@@ -41,7 +41,7 @@ export function placeholderArtFor(seed: string): string {
 /**
  * 一张卡该画哪张插画：有专属原画就用原画，没有的才退回占位图。
  *
- * 卡面、图鉴、首页预加载都走这一个函数。要是各处自己判断，
+ * 卡面、卡组页、首页预加载都走这一个函数。要是各处自己判断，
  * 预加载等的图和卡面真正显示的图就会对不上，玩家会先看到空白再看到图闪出来。
  */
 export function cardArtFor(cardId: string): string {

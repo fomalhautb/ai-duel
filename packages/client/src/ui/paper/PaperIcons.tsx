@@ -105,16 +105,19 @@ export function PaperIconDefs() {
 }
 
 /**
- * rough 编号 → HandDrawnFilterDefs 里的滤镜 id。
+ * rough 编号 → styles.css 里那几个滤镜引用变量。
  *
  * 四个滤镜参数完全一样、只有 seed 不同，编号本身没有语义，作用是让同屏相邻的
  * 图标各歪各的：都用同一个 seed 的话，一排图标会歪成一模一样的形状，反而更假。
+ *
+ * 走变量而不是直接写 url(#id)：触屏档要把整套手绘滤镜关掉，而这里是内联样式、
+ * 媒体查询覆盖不掉，只有把值本身交给变量才关得动（来龙去脉见 styles.css 的 :root）。
  */
-const ROUGH_FILTER_ID: Record<Exclude<PaperIconRough, 'none'>, string> = {
-  1: 'ai-duel-rough-icon',
-  2: 'ai-duel-rough-button',
-  3: 'ai-duel-rough-frame',
-  4: 'ai-duel-rough-alt',
+const ROUGH_FILTER_VAR: Record<Exclude<PaperIconRough, 'none'>, string> = {
+  1: 'var(--rough-icon)',
+  2: 'var(--rough-button)',
+  3: 'var(--rough-frame)',
+  4: 'var(--rough-alt)',
 }
 
 /** 尺寸档 → 修饰类。lg 是基准 48px，不需要额外类。 */
@@ -136,7 +139,7 @@ export type PaperIconProps = {
 /**
  * 引用 PaperIconDefs 里的一个图标。
  *
- * 用之前必须保证页面上已经渲染了 <PaperIconDefs /> 和 <HandDrawnFilterDefs />，
+ * 用之前必须保证页面上已经渲染了 <PaperIconDefs />（手绘滤镜由 App 全局挂，不用管），
  * 否则 <use> 找不到 symbol（图标整个不显示）、filter 找不到定义（在 Chrome 上
  * 会把元素当成滤镜失败直接不画）。
  */
@@ -145,7 +148,7 @@ export function PaperIcon({ name, size = 'lg', rough = 1, className = '' }: Pape
   return (
     <svg
       className={`paper-ico ${sizeClass} ${className}`.replace(/\s+/g, ' ').trim()}
-      style={rough === 'none' ? undefined : { filter: `url(#${ROUGH_FILTER_ID[rough]})` }}
+      style={rough === 'none' ? undefined : { filter: ROUGH_FILTER_VAR[rough] }}
       aria-hidden="true"
     >
       <use href={`#ai-duel-i-${name}`} />

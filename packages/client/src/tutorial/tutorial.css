@@ -1,0 +1,357 @@
+/*
+ * 教程引导层。挂在 .battle 里面，坐标全是舞台内坐标（见 TutorialOverlay 的文件头）。
+ */
+
+/*
+ * 整层不吃指针事件：洞里的真实 UI 要照常点得到、拖得动。
+ * z-index 1000 夹在对局常规 UI（顶栏 70、结算 90）之上、全屏过场（1100）之下——
+ * 过场演的时候提示自动让位，不跟抛硬币 / 答题揭晓抢画面。
+ * position: fixed 的包含块是 .battle-scaler（它有 transform），所以 inset: 0 正好是整块舞台。
+ */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* 压暗块。四周拼起来正好是"舞台减去洞"，洞区一个像素都不盖（见 overlayGeometry.ts）。
+   颜色偏冷深蓝，和战场底色同一族，压下去像是灯暗了而不是蒙了层灰。 */
+.tutorial-overlay__shade {
+  position: absolute;
+  background: rgba(9, 14, 24, 0.58);
+}
+
+/*
+ * 洞的描边。只画边不画底，中间必须是透明的——底下就是玩家要操作的那个元素。
+ * 呼吸由 GSAP 补间 opacity（见 TutorialOverlay），这里不写 @keyframes，
+ * 免得和补间抢同一个属性。
+ */
+.tutorial-overlay__ring {
+  position: absolute;
+  border: 2px solid #f2c66b;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px rgba(242, 198, 107, 0.18),
+    0 0 26px rgba(242, 198, 107, 0.35);
+}
+
+/*
+ * 「点任意处继续」的点击捕获层。
+ *
+ * 只在纯讲解那几步铺出来（Overlay 收到 onNext 时），铺满整块舞台。
+ * 那几步界面本来就锁死，玩家没有别的可点，所以整层吃掉指针事件不会挡到任何操作。
+ * z-index 压过压暗块、又在气泡之下：气泡里的「下一步」按钮不能被它盖住。
+ */
+.tutorial-overlay__catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/*
+ * 提示气泡。位置由 JS 现算（贴着第一个洞放），这里只管长相。
+ * 用纸面配色和对局界面的匾额保持一族；字号偏大，一句话一眼看完。
+ */
+.tutorial-overlay__tip {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  padding: 16px 22px;
+  box-sizing: border-box;
+  border: 2px solid #b9a06a;
+  border-radius: 12px;
+  background: #f4eede;
+  color: #2b2c35;
+  /* 气泡跟着对局舞台一起缩，手机上 21px 落到屏幕上不到 9px，正是最该读清的一句话。
+     宽度由 JS 定死 430（TutorialOverlay 的 TIP_WIDTH），字大了只是多折一行，不会溢出。 */
+  font-size: calc(21px * var(--fs-mid-scale));
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: 0 10px 26px rgba(6, 10, 18, 0.45);
+}
+
+.tutorial-overlay__text {
+  margin: 0;
+}
+
+/*
+ * 「下一步」。和捕获层是两条同样的路：点它和点屏幕任意处效果一样，
+ * 留着这颗是为了把"要点一下才继续"这件事明说出来，也给键盘用户一个焦点。
+ * 气泡整层不吃指针事件，这颗要单独开。
+ */
+.tutorial-overlay__next {
+  display: block;
+  margin: 12px auto 0;
+  padding: 7px 20px;
+  border: 1px solid #b9a06a;
+  border-radius: 999px;
+  background: rgb(185 160 106 / 18%);
+  color: #4a3b22;
+  font-family: inherit;
+  font-size: calc(16px * var(--fs-mid-scale));
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.18s ease;
+}
+
+.tutorial-overlay__next:hover {
+  background: rgb(185 160 106 / 34%);
+}
+
+/*
+ * 「这一步不许点这个」的一句话提示（TutorialBlockTip）。
+ *
+ * 和上面那个提示气泡分开：那句说"现在该做什么"，一直挂着；这句说"刚才那一下不行"，
+ * 说完就消失。摆在舞台顶部居中，不跟着任何元素走——被拒的操作可能发生在页面任何角落，
+ * 提示固定在同一个位置反而更容易被看到。
+ * 层级比引导层再高一档：它偶尔要压在引导层的气泡上面。
+ */
+.tutorial-block-tip {
+  position: fixed;
+  top: 26px;
+  left: 50%;
+  z-index: 1010;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 20px;
+  border: 2px solid #c8a35a;
+  border-radius: 999px;
+  background: rgb(24 18 12 / 92%);
+  color: #f6e7c4;
+  /* 同上面的提示气泡：这一层也在缩放的对局舞台里。药丸是内容撑开的，放大不会挤破。 */
+  font-size: calc(17px * var(--fs-mid-scale));
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgb(6 10 18 / 45%);
+  /* 整条不吃指针事件：它只是一句话，不该挡住底下刚被点到的那个元素。 */
+  pointer-events: none;
+}
+
+/* ============================================================
+   过渡提示页 / 教程完成页（TutorialOutro）
+   ============================================================ */
+
+/*
+ * 两块纯文字页面共用的纸面板。
+ *
+ * 不套 16:9 舞台：这两屏只有几行字加一颗按钮，锁进设计稿比例只会在大屏上凭空留一圈边。
+ * 尺寸用 min() 夹一下，窄窗口时跟着缩，宽窗口时不至于把一行字拉成一整屏宽。
+ */
+.tutorial-page {
+  /* 静音钮按这一层定位（.tutorial-page__mute）。 */
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+
+/*
+ * 这三屏的静音钮，摆在整页的右上角。
+ *
+ * 它排在「跳过教程」的正下方（那颗在 top: 16px，高 34px），两个出口叠在同一条竖线上；
+ * 层级用不着抬：这几屏没有浮层，纸面本身也不会盖到它。
+ */
+.tutorial-page__mute {
+  --mute-size: 34px;
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  z-index: 1;
+  color: var(--ink, #2e2e38);
+}
+
+.tutorial-page__inner {
+  width: min(640px, 84vw);
+}
+
+.tutorial-panel {
+  padding: 46px 40px 40px;
+  text-align: center;
+}
+
+/* 过渡提示的第一句，比正文重一档：它是这一屏真正要说的话。 */
+.tutorial-panel__lead {
+  margin: 0 0 14px;
+  color: var(--navy);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.tutorial-panel__text {
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+/* 匾额按钮默认宽 224px，「开始真正的对战」六个字加上 0.25em 字距塞不下会折成两行。
+   选择器多带一级 .tutorial-page 是为了压过 styles.css 里 .plaque-button 那条同名属性
+   （同 deck.css 里 .deck-page .deck-confirm 的做法）。 */
+.tutorial-page .tutorial-panel__cta {
+  width: min(320px, 100%);
+  margin-top: 34px;
+  white-space: nowrap;
+}
+
+/* 完成页的比分。整屏最大的一块，规格 §14 要求突出的就是它。 */
+.tutorial-score {
+  margin-top: 26px;
+}
+
+.tutorial-score__label {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-lg);
+  letter-spacing: 0.16em;
+}
+
+.tutorial-score__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  margin: 6px 0 0;
+  color: var(--navy);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* 中间那个冒号比数字小一号、颜色也淡一档，读起来才是「3 比 0」而不是三个并排的字符。 */
+.tutorial-score__value i {
+  color: var(--ink-2);
+  font-size: 34px;
+  font-style: normal;
+}
+
+/* ============================================================
+   跳过教程（TutorialSkip）
+   ============================================================ */
+
+/*
+ * 右上角那颗不显眼的出口。
+ *
+ * position: fixed 写的是**视口坐标**，不跟任何舞台走：教学对战、组牌、选英雄三屏各有各的
+ * 缩放层，跟着谁都会在别的屏上跑偏。层级压过对局界面的全屏过场（1100），
+ * 否则抛硬币、答题揭晓演着的时候它会被盖掉，而这颗按钮任何时候都该点得到。
+ *
+ * 原来右边要给全站常驻的静音钮让位，现在那颗钮改由各页画进自己的版式里
+ *（教学对战在顶栏，纸面三屏在下面一行），这里直接贴边就行。
+ *
+ * 按钮本体是全站的八角匾额（PlaqueButton），这里只管落位，尺寸在下面 .tutorial-skip__plaque。
+ * 选择器多带一级 .plaque-button：不加的话和 styles.css 里那份特异性相同，
+ * 谁生效就取决于两份样式表谁后加载（实测是 styles.css 赢，按钮直接落到页面左下角去了）。
+ */
+.plaque-button.tutorial-skip,
+.tutorial-skip {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+}
+
+/*
+ * 匾额改小一档。默认那副尺寸（224×68、24px 字）是给「结束出牌」这种主按钮的，
+ * 摆到屏幕角上会比页面标题还抢眼，而这颗按钮的本意正相反。
+ *
+ * 只改盒子不改画法：匾额的框线是一张按 preserveAspectRatio="none" 拉满的 SVG，
+ * 高宽比变了之后切角和描边跟着一起压扁，仍然是同一副手绘线条。
+ */
+.plaque-button.tutorial-skip__plaque {
+  width: auto;
+  height: 34px;
+  padding: 0 16px;
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+}
+
+/*
+ * 确认条：一行「跳过教程？」加确定 / 取消两颗小匾额。
+ *
+ * 底下垫一块墨色：这三屏底色深浅不一（教学对战是夜色，组牌和选英雄是浅纸），
+ * 问句是浅色字，没有这块垫底在纸面那两屏上根本读不出来。
+ * 切角照匾额那套八角走，不用圆角——整套界面里没有圆角胶囊这种东西。
+ */
+.tutorial-skip--confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: rgb(20 17 12 / 78%);
+  /* 八角：四个角各切掉 8px，和匾额同一副轮廓（那边按百分比切，这里高度固定，写死更准）。 */
+  clip-path: polygon(
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px),
+    0 8px
+  );
+  color: #f3ead6;
+  font-size: var(--fs-lg);
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+
+.tutorial-skip__ask {
+  /* 问句也挂手绘抖动，和旁边匾额上的字是一套笔迹（滤镜由 App 全局挂）。 */
+  filter: url('#ai-duel-rough-icon');
+}
+
+/*
+ * 画进对局顶栏那一格时的落位：把上面那套视口固定定位整个撤掉，交给顶栏的 flex 排。
+ *
+ * 选择器带两级 .plaque-button.tutorial-skip 才压得住上面那条同样两级的规则
+ *（同分时靠后的赢，而这条就写在它后面），确认条那份是单类，一级就够。
+ */
+.plaque-button.tutorial-skip.tutorial-skip--inbar,
+.tutorial-skip--inbar {
+  position: static;
+  z-index: auto;
+}
+
+/* 顶栏里那颗比悬在角上时再矮一档：它是一块文字匾额，和旁边 51px 的图标等高会显得很重。 */
+.plaque-button.tutorial-skip__plaque.tutorial-skip--inbar {
+  height: 30px;
+  padding: 0 14px;
+}
+
+/*
+ * 教程的对局顶栏右端不是"静音 + 离开"，而是"静音 + 跳过教程"这块匾额，整簇更宽。
+ * 回合结算层的轮次和比分按这个变量让位（见 styles.css 的 .settle__meta），
+ * 不改的话答题那一屏上会被匾额压住。
+ * 26px 右边距 + 51px 静音 + 14px 间隙 + 匾额（四个字 14px 加左右各 14px 内边距，约 91px）。
+ */
+.battle:has(.tutorial-skip--inbar) {
+  --battle-actions-w: 185px;
+}
+
+/* 移动端档字号整体放大（--fs-scale 1.6），匾额跟着变宽到约 129px。 */
+@media (pointer: coarse) {
+  .battle:has(.tutorial-skip--inbar) {
+    --battle-actions-w: 220px;
+  }
+}
+
+/* 确认条里的两颗比外面那颗再小一档：它们是这一小块里的次级操作。 */
+.plaque-button.tutorial-skip__btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: var(--fs-base);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-overlay__next {
+    transition-duration: 1ms;
+  }
+}

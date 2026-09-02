@@ -17,7 +17,6 @@
 
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { HandDrawnFilterDefs } from '../ui/HandDrawnFilterDefs'
 import { PlaqueButton } from '../ui/PlaqueButton'
 import {
   ManaMeter,
@@ -99,9 +98,8 @@ export function DesignScreen() {
 
   return (
     <div className="design-page paper-page grain">
-      {/* 全页共用的 SVG 定义，各挂一次：少了 <use> 找不到 symbol、
-          CSS 里的 url(#…) 找不到滤镜。两者都是 0 尺寸，不占布局。 */}
-      <HandDrawnFilterDefs />
+      {/* 纸面组件的 <use> 要在同一个文档里找得到 symbol，每页各挂一次（0 尺寸，不占布局）。
+          手绘滤镜不用管，App 已经全局挂了一份。 */}
       <PaperIconDefs />
 
       <PaperTuner />
@@ -127,11 +125,11 @@ export function DesignScreen() {
             一团 170px、numOctaves 2）当高度场，交给 <code>feDiffuseLighting</code> 打一束斜光
             （surfaceScale 15、方位角 45°、仰角 56°）。光是照在噪声的起伏上，出来的是纸纤维的凹凸浮雕，
             比把噪声直接当灰度铺上去「纸」得多。<code>feComponentTransfer</code> 把打光结果线性压到
-            0.89～1.0，并且故意让上四分之一顶到 1.0 被截断：受光面就是底色本身，只有背光的纤维才真的压暗。
+            0.539～1.0，并且故意让上四分之一顶到 1.0 被截断：受光面就是底色本身，只有背光的纤维才真的压暗。
             不截断的话整张纸会均匀发灰，看着像皮革；截断后平均只掉 2% 亮度，纸色不跑掉。
-            三个通道斜率不同（B 最陡）所以暗部偏暖，像旧纸的黄斑。 这一层整体只叠 70%（
+            这一层整体只叠 70%（
             <code>--mottle-alpha</code>）：浮雕本身够重，全量压上去纸会显得「起皱」。
-            <br />③ <b>细颗粒</b>：高频噪声（baseFrequency 0.63 / numOctaves 3）压到 0.87～1.0，
+            <br />③ <b>细颗粒</b>：高频噪声（baseFrequency 0.63 / numOctaves 3）压到 0.83～1.0，
             截断点落在中位数上，颗粒只往下压不往上提，补 1～5px 的纸面粗糙度。
             这个尺度上光影就是噪点本身，不需要再打光。它只是薄薄一层砂面，所以几乎全留（0.92）。
             <br />④ <b>暗角</b>：一层超大范围的 radial-gradient（rgba 浓度 0.189），
@@ -145,6 +143,14 @@ export function DesignScreen() {
             <code>border-radius: inherit</code> 自动贴合宿主圆角。
             因为宿主的两个伪元素都被纹理占用了，卡牌 / 卡背的内框只能改成真实子元素
             <code>&lt;i class="paper-card__frame"&gt;</code>。
+            <br />
+            两层都是普通叠加，<b>没有</b> <code>mix-blend-mode</code>：非 normal 的混合模式会让浏览器
+            把这一层单独提出来、读回背景再离屏合成，而组卡页一屏四十来张牌就是一百多层这样的开销。
+            改法是把「该压掉多少」直接烘进纹理的 alpha 通道——
+            <code>multiply(底, 纹理)</code> 按强度 a 叠等于黑色按 <code>a×(1−纹理)</code> 叠，
+            深色面那档的 <code>invert + screen</code> 同理等于白色按同一个 alpha 叠，
+            所以每层各烘黑白两份（<code>--tex-*-ink</code> / <code>--tex-*-glow</code>），画面逐像素不变。
+            代价只有一处：这个等式只对灰度纹理成立，斑驳图原来三通道斜率不同带来的那点暖色暗部没有了。
             <br />
             整页外壳是 <code>.paper-page</code>（纸底色 + 暗角）配 <code>.grain</code>，
             demo 里这套写在 <code>body</code> 上，现在搬到一个普通 div：app 的 html / body
@@ -322,7 +328,7 @@ export function DesignScreen() {
             上排是 4～6 字技能简称，下排是卡名；<code>cost / skillName / name / accent</code> 都可单独传入。
             费用章保持正圆，铭牌按卡宽缩放，手牌和原图同为 2:3，使用同一套布局。
             配色沿用本页色板，纸面复用 <code>.grain</code>，文字不套滤镜以保留小尺寸可读性。
-            Token 数值仅作原设计展示，不改变当前答题制规则。<a href="/card">打开卡牌图鉴</a>
+            Token 数值仅作原设计展示，不改变当前答题制规则。
           </p>
         </section>
 
@@ -344,8 +350,8 @@ export function DesignScreen() {
             的同心圆 + 十字刻度 + 斜向短刻度 + 中央四角星， 全部 <code>currentColor</code>（米色），套{' '}
             <code>#ai-duel-rough-compass</code>（scale 2.0，比图标小，因为线更长、更细，位移放大后容易断）。
             <br />
-            实体卡背叠 <code>.grain.on-dark</code>：同样两张纹理图先 <code>invert</code> 再{' '}
-            <code>screen</code>，压暗的纤维翻成微微发亮的丝缕，墨蓝底上才不会出现一块块黑斑。
+            实体卡背叠 <code>.grain.on-dark</code>：换成同一条曲线预烘的提亮那一份（
+            <code>--tex-*-glow</code>），压暗的纤维翻成微微发亮的丝缕，墨蓝底上才不会出现一块块黑斑。
             空槽不叠纹理——它本来就该淡到几乎不存在，再加纹理只会变脏。
           </p>
         </section>

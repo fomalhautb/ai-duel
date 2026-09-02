@@ -9,9 +9,10 @@
    ------------------------------------------------------------
    视觉件全是切片素材
    ------------------------------------------------------------
-   除了文字、状态点和输入框里那层淡底，画面上看得见的东西都是 <img>：
-   返回箭头、书本、标题花饰、面板双线框、房间码匾、复制框、分隔线、输入框、
+   除了文字、状态点、返回箭头和输入框里那层淡底，画面上看得见的东西都是 <img>：
+   书本、标题花饰、面板双线框、房间码匾、复制框、分隔线、输入框、
    加入按钮、两块横幅、底部装饰。
+   （返回箭头原来也是切片，现在改用公共组件 ui/BackButton 里画的那把细描边箭头。）
 
    素材来源是一张去掉了背景和文字的整图 assets/room-ui-sheet.png，
    用 assets/slice-room-ui.py 切成一张张 webp 放进 public/room/。
@@ -78,7 +79,7 @@
   /* 纸纹是宿主 .room 的 ::before / ::after，其中 ::after 排在所有子元素之后、
      默认会盖住舞台。把舞台抬一级，整块画面就压到两层纹理之上（首页、hero 同一处理）。 */
   z-index: 1;
-  width: min(100vw, 100vh * 1672 / 941);
+  width: min(var(--vp-w, 100vw), var(--vp-h, 100dvh) * 1672 / 941);
   aspect-ratio: 1672 / 941;
 }
 
@@ -86,7 +87,6 @@
    每张的具体 width / height 都写死成 cqi 或 %，不用 auto——auto 要等图解码完才知道，
    中间会有一帧版面是错的。 */
 .room__bg,
-.room__back-arrow,
 .room__book,
 .room__flourish,
 .room__substar,
@@ -139,66 +139,53 @@
 /*
  * 两块都是「图标 + 文字」的一行。定位锚的是图标：素材上箭头画在
  * (115,110)-(204,188)、书本画在 (2842,115)-(2948,194)，折算成舞台是
- * 箭头 left 3.44cqi / top 5.84%、书本 left 84.99cqi / top 6.11%。
+ * 箭头 left 3.44cqi / top 5.84%（高 2.33cqi）、书本 left 84.99cqi / top 6.11%。
  * 这里的 left / top 是把 padding 减掉之后的值（padding 是为了把点击区从
  * 「只有那两个字」撑到一个手指按得中的方块，纯视觉位置不该跟着 padding 挪）：
  * 横向减 0.5cqi，纵向减 0.4cqi（= 0.71% 的舞台高）。
  *
  * 教程那块也用 left 锚定而不是像以前那样 right 锚定：书本在素材里的位置是定死的，
  * 从右边推过去还得把文字宽度算进来，直接锚图标最省事。
+ *
+ * 返回按钮的 DOM 是公共组件 ui/BackButton.tsx（.ui-back）：箭头长什么样、怎么摆、
+ * hover 时箭头左移、整颗套手绘抖动，全在 styles.css 的「可复用返回按钮」一节，
+ * 这儿只补定位、字号和配色。原来那张切片素材 public/room/back-arrow.webp 是个粗实心箭头，
+ * 换成公共组件后是细描边的那一把（换的理由见 BackButton.tsx），图和它在 ROOM_ASSETS 里的
+ * 预加载条目都已经删掉。
+ *
+ * 因此返回这一行的 top 不能照上面那条「素材 top 减 0.4cqi」算：新箭头只有 0.78cqi 高，
+ * 撑起按钮的是文字行盒（1.15cqi），按钮比原来那块 2.33cqi 的图矮了一截。
+ * 改成按中心对齐反推——素材里箭头的纵向中心在 5.84% + 2.33cqi/2 ≈ 7.91%，
+ * 按钮高 = 1.15cqi 行盒 + 上下各 0.4cqi = 1.95cqi ≈ 3.47% 的舞台高，
+ * 所以 top = 7.91% - 3.47%/2 ≈ 6.17%。横向不受影响：箭头左边缘仍落在 3.44cqi。
  */
-.room__back,
-.room__tutorial {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 1.04cqi;
-  padding: 0.4cqi 0.5cqi;
-  border: none;
-  background: none;
-  color: var(--room-ink);
-  font-size: 1.15cqi;
-  letter-spacing: 0.1em;
-  line-height: 1;
-}
-
 .room__back {
-  top: 5.13%;
+  position: absolute;
+  top: 6.17%;
   left: 2.94cqi;
-  cursor: pointer;
-  /* 只有返回按钮会变色，所以过渡也只写在它身上（教程那块不响应 hover，见下）。 */
+  padding: 0.4cqi 0.5cqi;
+  color: var(--room-ink);
+  font-size: var(--fs-cqi-lg);
+  letter-spacing: 0.1em;
   transition: color 0.18s ease;
 }
 
-.room__tutorial {
+/*
+ * 静音钮，和左上角的返回对角摆在右上角。尺寸用 cqi，同这一页其余元素。
+ * top 比返回按钮小一点，理由同 hero.css 里那条：一边是文字、一边是方块。
+ */
+.room__mute {
+  --mute-size: 2.4cqi;
+  position: absolute;
   top: 5.4%;
-  left: 84.49cqi;
-  /* 教程页已经删掉还没重做（见 HomeScreen.tsx 文件头），这块只有「能读」没有「能按」：
-     光标保持默认，也不给 hover 变色——悬停有反馈是最明显的「可点」暗示。
-     它在 HTML 里也是 span 不是 button。 */
-  cursor: default;
+  right: 2.94cqi;
+  z-index: 2;
 }
 
-.room__back:hover {
+/* 返回键的箭头描边取 currentColor，所以只改这一处，文字和箭头一起变亮。 */
+.room__back:hover,
+.room__tutorial:hover {
   color: var(--room-ink-lit);
-}
-
-/* 箭头单独一层，hover 时只有它左移 + 提亮。
-   箭头是张图，没法跟着 currentColor 走，用 brightness 顶上去当「变亮」。
-   transform 写在这里不违反「transform 归 GSAP」那条：GSAP 只碰 .room__back 本身，
-   父子各自一套 transform 互不覆盖。 */
-.room__back-arrow {
-  width: 2.66cqi;
-  /* 高度用 cqi 不用 %：这张图的父元素是高度自适应的按钮，% 算不出来。 */
-  height: 2.33cqi;
-  transition:
-    transform 0.18s ease,
-    filter 0.18s ease;
-}
-
-.room__back:hover .room__back-arrow {
-  transform: translateX(-0.3cqi);
-  filter: brightness(1.25);
 }
 
 .room__back:focus-visible {
@@ -206,9 +193,40 @@
   outline-offset: 0.2cqi;
 }
 
+/* 教程那块排版自己写一份：它和返回按钮长得像，但图标是书本不是箭头，
+   而返回按钮的样式已经搬进公共组件（见上面那段注释），两边不再共用一条规则。
+
+   left 从设计稿的 84.49cqi 往左挪了 4.4cqi：右上角那块地方现在归静音钮
+   （.room__mute，全站各页都把它摆在这个角上），不挪的话两者会挤在一起。 */
+.room__tutorial {
+  position: absolute;
+  top: 5.4%;
+  left: 80.09cqi;
+  display: flex;
+  align-items: center;
+  gap: 1.04cqi;
+  padding: 0.4cqi 0.5cqi;
+  border: none;
+  background: none;
+  color: var(--room-ink);
+  font-size: var(--fs-cqi-lg);
+  letter-spacing: 0.1em;
+  line-height: 1;
+  /* 教程页已经做回来了，这块是真能点的 button（见 RoomScreen 里的 /tutorial）：
+     光标给手型，hover 时文字变色、书本提亮，和返回按钮一套反馈。 */
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
 .room__book {
   width: 3.17cqi;
   height: 2.36cqi;
+  /* 书本是张图，跟不了 currentColor，hover 时和返回箭头一样用 brightness 当「变亮」。 */
+  transition: filter 0.18s ease;
+}
+
+.room__tutorial:hover .room__book {
+  filter: brightness(1.25);
 }
 
 /* ============================================================
@@ -230,6 +248,14 @@
   right: 0;
   left: 0;
   text-align: center;
+  /*
+   * 同 .hero__head：标题块横跨整个舞台（right/left 都是 0），而它在 DOM 里排在
+   * 返回和「新手教程」之后，两颗按钮的下半截正好落在标题的盒子里、点不动——
+   * 返回按钮会变成"只有上半边能按"，「新手教程」整颗更是被盖得严严实实。
+   * 这里就两行纯文字，本来也没有任何交互，直接让它不吃指针事件，
+   * 比给两颗按钮各加一个 z-index 干净（这个舞台里一处 z-index 都没有，见文件头）。
+   */
+  pointer-events: none;
 }
 
 .room__title {
@@ -256,7 +282,7 @@
   margin: 0.61cqi 0 0 0;
   margin-right: -0.35em;
   color: var(--room-sub);
-  font-size: 1.55cqi;
+  font-size: calc(1.55cqi * var(--fs-mid-scale));
   /* 300 是引进来的最细一档，副标题要明显比标题轻。 */
   font-weight: 300;
   letter-spacing: 0.35em;
@@ -367,6 +393,7 @@
 .room__hint,
 .room__status,
 .room__connect-error,
+.room__notice,
 .room__error {
   position: absolute;
   right: 0;
@@ -439,7 +466,7 @@
 .room__code-pending {
   margin-right: -0.2em;
   color: rgb(60 56 44 / 70%);
-  font-size: 1.6cqi;
+  font-size: calc(1.6cqi * var(--fs-mid-scale));
   letter-spacing: 0.2em;
   line-height: 1;
 }
@@ -482,7 +509,7 @@
 }
 
 .room__copy-label {
-  font-size: 1cqi;
+  font-size: var(--fs-cqi-sm);
   font-weight: 600;
   line-height: 1;
   /* 「已复制」比「复制」宽一个字，框窄，不许折行。 */
@@ -492,7 +519,7 @@
 .room__hint {
   top: 15.9cqi;
   color: var(--room-sub);
-  font-size: 1.05cqi;
+  font-size: var(--fs-cqi-md);
   font-weight: 300;
   line-height: 1;
 }
@@ -503,7 +530,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.6cqi;
-  font-size: 1.1cqi;
+  font-size: var(--fs-cqi-md-plus);
   line-height: 1;
 }
 
@@ -556,9 +583,24 @@
   margin-right: auto;
   margin-left: auto;
   color: #c9847a;
-  font-size: 1.05cqi;
+  font-size: var(--fs-cqi-md);
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+/*
+ * 「对手已离开房间，已重新开了一间新房」那行，位置和 room__connect-error 完全一样
+ * （两者不会同时出现，见 RoomScreen 里那处三目）。区别只在颜色：这不是出错，
+ * 只是件需要知道一声的事，所以用和 room__hint 同一档的暗金，别抢走状态行的注意力。
+ */
+.room__notice {
+  top: 20cqi;
+  max-width: 32cqi;
+  margin-right: auto;
+  margin-left: auto;
+  color: var(--room-sub);
+  font-size: var(--fs-cqi-md);
+  line-height: 1.35;
 }
 
 /* 起止都停在 1，循环首尾接得上，不会每轮开头顿一下。 */
@@ -610,7 +652,7 @@
   background: rgb(8 13 20 / 35%);
   /* styles.css 已经统一把表单控件的 font-family 收回来了，但字号还是浏览器自带的那一档，
      这里必须自己写死，否则输入框里的字和整页的尺度对不上。 */
-  font-size: 1.3cqi;
+  font-size: calc(1.3cqi * var(--fs-mid-scale));
   color: var(--room-title);
   letter-spacing: 0.15em;
 }
@@ -675,7 +717,7 @@
   /* 末字后面那格字距照例收掉。 */
   margin-right: -0.08em;
   color: var(--room-plaque-ink);
-  font-size: 1.5cqi;
+  font-size: calc(1.5cqi * var(--fs-mid-scale));
   font-weight: 600;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -686,7 +728,7 @@
 .room__error {
   top: 18.1cqi;
   color: #c9847a;
-  font-size: 1.05cqi;
+  font-size: var(--fs-cqi-md);
   line-height: 1.3;
 }
 
@@ -915,7 +957,7 @@
   border: none;
   background: none;
   color: rgb(160 146 116 / 45%);
-  font-size: 0.95cqi;
+  font-size: var(--fs-cqi-xs);
   letter-spacing: 0.1em;
   line-height: 1;
   cursor: pointer;
@@ -934,8 +976,8 @@
     animation: none;
   }
 
+  /* 返回箭头的位移不在这儿列：它归公共的 .ui-back__arrow 管，styles.css 里已经压过了。 */
   .room__back,
-  .room__back-arrow,
   .room__copy,
   .room__join,
   .room__banner,
@@ -944,7 +986,63 @@
     transition-duration: 1ms;
   }
 
-  .room__dot {
+  .room__dot,
+  .room-waiting__dot {
     animation: none;
   }
+}
+
+/* ============================================================
+   等待对手锁定
+   ------------------------------------------------------------
+   房主锁完自己的卡组和英雄、还没收到客人 loadout 时的一屏（见 RoomScreen 的 WaitingStage）。
+   只有几秒钟，所以不搭舞台也不用素材：底色和字色照抄大厅，切过来只是内容变了。
+   尺寸全用 rem 不用 cqi——这里没有 container-type 的祖先，cqi 会掉回按视口算，
+   窗口一宽字就跟着变大。
+   ============================================================ */
+
+.room-waiting {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  /* 和 .room 同一个留边底色，从大厅切到这里不会闪一下背景。 */
+  background-color: #12161a;
+  user-select: none;
+}
+
+.room-waiting__line {
+  /* 抬一级压住 .grain 的 ::after 那层纹理，否则文字会被它盖在底下（同 .room__stage 的处理）。 */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin: 0;
+  /* 和 .room__status--waiting 同色：它就是「等待对手加入」那行字的下一步。 */
+  color: #97b487;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+}
+
+/* 同 .room__dot：外环 + 内芯，只改透明度不改大小，免得右边的字跟着重排抖动。 */
+.room-waiting__dot {
+  position: relative;
+  width: 0.55em;
+  height: 0.55em;
+  border: 0.05em solid currentcolor;
+  border-radius: 50%;
+  flex: none;
+  animation: room-dot-breathe 2s ease-in-out infinite;
+}
+
+.room-waiting__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.26em;
+  height: 0.26em;
+  margin: -0.13em 0 0 -0.13em;
+  border-radius: 50%;
+  background: currentcolor;
 }

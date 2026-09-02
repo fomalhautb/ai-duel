@@ -1,6 +1,10 @@
 /**
- * 战场小卡身上的两种落点特效：卡牌上场（playSummonFx）和技能命中（playSkillHitFx）。
- * 两者共用同一圈金色追光，轻重靠"还叠了什么"拉开，写在一处才不会各自跑偏。
+ * 战场小卡身上的四种特效：卡牌上场（playSummonFx）、技能命中（playSkillHitFx）、
+ * 被技能牌罚下（playRemovalFx）、进化变身（playEvolveFx）。
+ *
+ * 四者共用同一圈金色追光和同一把烟尘，轻重靠"还叠了什么"拉开
+ * （上场最重：震屏 + 扬尘 + 追光；命中和进化各只多一小下抖 / 弹；罚下只有尘和沉下去），
+ * 写在一处才不会各自跑偏。
  *
  * 卡牌上场的"上场特效"，三样叠在一起放：震屏、烟尘扑腾、金色边缘追光。
  *
@@ -36,6 +40,26 @@ const EDGE_DUR = 0.5
 /** 追光的淡入 / 淡出时长。淡入要快到几乎看不见过程，亮弧才像是"一下子亮起来就跑了"。 */
 const EDGE_IN = 0.08
 const EDGE_OUT = 0.16
+
+/** 被技能牌罚下时那张卡沉下去多少（舞台内像素）和演多久。往下沉是"塌掉"，不是"飞走"。 */
+const REMOVAL_DROP = 26
+const REMOVAL_DUR = 0.45
+
+/** 进化时卡先大这么多再弹回原尺寸，全程这么长。幅度只有 16%：小卡本来就只有 110×165。 */
+const EVOLVE_POP_SCALE = 1.16
+const EVOLVE_POP_DUR = 0.42
+/** 进化时那圈绿光从亮到灭的时长，和上面的弹跳同时起，稍微长一点好让人看清是"这一格"在升。 */
+const EVOLVE_GLOW_DUR = 0.7
+/** 「↑ 升级」浮字往上飘多少像素、飘多久。飘到卡的上沿之外，不挡卡面上的名字。 */
+const EVOLVE_LABEL_RISE = 34
+const EVOLVE_LABEL_DUR = 0.9
+/**
+ * 同一批进化之间错开多久。
+ *
+ * 「鸡犬升天」常常一口气升好几个单位，全部同时闪就成了一次整屏的亮，
+ * 分不清到底升了几个；错开一点点，玩家能一格一格数过来。
+ */
+export const EVOLVE_STAGGER = 0.16
 
 /**
  * 播一次上场特效。
@@ -77,7 +101,8 @@ export function playSummonFx(tile: HTMLElement) {
  * 往上面写位移会被它当场覆盖。tile 自己的 transform 只有 Flip 飞行会用，
  * 而命中发生时目标格早就落定了，两者碰不上。
  *
- * 同一个 tile 不会被连播两次：被干扰过的 AI 不能再当干扰技能的目标（见 core 的 playCard）。
+ * 同一张小卡一轮里可能被打中好几次（比如先被保送、又被对方干扰），但两次之间隔着一整套
+ * 出牌演出（出牌那把锁要等亮相和命中都演完才放开），不会有两条抖动补间同时写这个 transform。
  *
  * 和 playSummonFx 一样必须在 useGSAP 的 context 里调用（延迟回调要 contextSafe 包一层）。
  */
@@ -96,6 +121,149 @@ export function playSkillHitFx(tile: HTMLElement) {
 }
 
 /**
+ * 播一次"被技能牌罚下"的消失（「内存紧缺」「国产替代」）。
+ *
+ * 和答错罚下不一样：那一档整个被回合结算层盖着，跳变没人看得见；这一档发生在出牌阶段，
+ * 场上少一张卡是玩家正盯着的画面，无声无息地消失会让人以为是界面出了 bug。
+ *
+ * 演的是一个**幽灵**而不是那张小卡本身：事件送到时快照还没提交，格子确实还在，
+ * 但下一次提交它就被 React 摘掉了，补间会挂在一个脱离文档的节点上，画面什么都看不到。
+ * 所以趁它还在，原地复制一份塞进特效层（那一层不吃指针事件），让副本沉下去化掉。
+ *
+ * 复制品必须摘掉两个定位属性：战场里好几处按 data-flip-id / data-ai-id 查元素
+ *（tileOf、落场飞行的落点、进场动画），留着的话它们会抓到这个正在淡出的幽灵。
+ *
+ * 和另外两种特效一样，必须在 useGSAP 的 context 里调用（事件回调要 contextSafe 包一层）。
+ */
+export function playRemovalFx(tile: HTMLElement) {
+  const board = tile.closest<HTMLElement>('.battle__board')
+  const layer = board?.querySelector<HTMLElement>('.battle__smoke-layer') ?? null
+  if (layer === null) return
+
+  // 两个 rect 是缩放之后的屏幕像素，而写回去的 left / top 是舞台内像素，所以要除一次 scale
+  //（对局界面整体缩放的口径见 ui/battleStage.ts）。
+  const { scale } = battleStageMetrics()
+  const layerRect = layer.getBoundingClientRect()
+  const rect = tile.getBoundingClientRect()
+
+  const ghost = tile.cloneNode(true) as HTMLElement
+  ghost.removeAttribute('data-flip-id')
+  ghost.removeAttribute('data-ai-id')
+  // 幽灵不是控件：留着 role / tabindex 会让它进无障碍树，也会被 Tab 停一下。
+  ghost.removeAttribute('role')
+  ghost.removeAttribute('tabindex')
+  // 原格子身上可能还挂着选目标态的那几个类（亮橙圈、抬层级），甚至是"正被放大查看"的隐藏态。
+  // 幽灵只该是一张正在化掉的卡，这些状态一个都不该跟过来。
+  ghost.classList.remove(
+    'battle__tile--targetable',
+    'battle__tile--target-lift',
+    'battle__tile--held',
+  )
+  ghost.classList.add('battle__tile--ghost')
+  ghost.style.left = `${(rect.left - layerRect.left) / scale}px`
+  ghost.style.top = `${(rect.top - layerRect.top) / scale}px`
+  layer.appendChild(ghost)
+
+  // 脚下扬一把灰，和卡牌上场用的是同一套烟尘——上场是砸出来的，罚下是塌下去带起来的。
+  const cx = (rect.left + rect.width / 2 - layerRect.left) / scale
+  const cy = (rect.bottom - layerRect.top) / scale
+  spawnSmoke(layer, cx, cy)
+
+  gsap.to(ghost, {
+    y: REMOVAL_DROP,
+    scale: 0.72,
+    rotation: -8,
+    autoAlpha: 0,
+    duration: REMOVAL_DUR,
+    ease: 'power2.in',
+    // 一次性道具，演完必须从 DOM 里拿掉，否则一局下来会攒一堆看不见的卡。
+    onComplete: () => ghost.remove(),
+  })
+}
+
+/**
+ * 播一次"进化"（「鸡犬升天」）：边缘追光扫一圈、罩一层绿光、卡从大一号弹回原尺寸，
+ * 再从卡上飘出一行「↑ 升级」。
+ *
+ * 比上场特效轻（不震屏不扬尘：进化是同一个单位换了身份，不是新卡砸到场上），
+ * 但比只弹一下重得多——这张牌一次能升一片单位，光靠"弹一下 + 换张图"玩家根本数不清
+ * 到底哪几个升了。绿光和浮字都是专给它用的颜色和字，和金色的上场、命中分得开。
+ *
+ * `delay` 给同一批的多个单位错开用（见 EVOLVE_STAGGER）。
+ *
+ * 调用时机是**新快照提交之后**（见 MatchStage 的 evolveQueueRef）：卡面这时已经是进化后的
+ * 那一张，弹的才是新样子；在事件回调里当场演的话，闪的是即将被换掉的旧卡面。
+ *
+ * 弹的是 tile 自己的 scale，不碰倾斜层——那一层归 cardTilt 每帧改写（架构 5.7），
+ * 写上去会被当场覆盖。收尾 clearProps 把 transform 整个抹掉，理由同 playSkillHitFx。
+ */
+export function playEvolveFx(tile: HTMLElement, delay = 0) {
+  const edge = tile.querySelector<HTMLElement>('.battle__tile-edge')
+
+  // 绿光和浮字都是一次性道具：现建、演完就从 DOM 里拿掉，免得一局下来在每张卡上攒一堆。
+  // 挂在 tile 上而不是特效层里，这样它们跟着这一格走（战场重排、卡跟着窗口缩放都不用管）。
+  const glow = document.createElement('div')
+  glow.className = 'battle__tile-evolve-glow'
+  glow.setAttribute('aria-hidden', 'true')
+  const label = document.createElement('span')
+  label.className = 'battle__tile-evolve-label'
+  label.setAttribute('aria-hidden', 'true')
+  label.textContent = '↑ 升级'
+  tile.append(glow, label)
+
+  gsap
+    .timeline({
+      delay,
+      onComplete: () => {
+        gsap.set(tile, { clearProps: 'transform' })
+        glow.remove()
+        label.remove()
+      },
+    })
+    // 追光排进时间线而不是当场就跑：整段要能被 delay 一起推后，不然错开的只有弹跳。
+    .add(() => {
+      if (edge !== null) runEdgeLight(edge)
+    }, 0)
+    .fromTo(
+      tile,
+      { scale: EVOLVE_POP_SCALE },
+      { scale: 1, duration: EVOLVE_POP_DUR, ease: 'back.out(2)', overwrite: 'auto' },
+      0,
+    )
+    .fromTo(
+      glow,
+      { autoAlpha: 0 },
+      { autoAlpha: 1, duration: EVOLVE_GLOW_DUR * 0.25, ease: 'power2.out' },
+      0,
+    )
+    .to(glow, { autoAlpha: 0, duration: EVOLVE_GLOW_DUR * 0.75, ease: 'power2.in' })
+    .fromTo(
+      label,
+      { autoAlpha: 0, xPercent: -50, y: 0, scale: 0.7 },
+      {
+        autoAlpha: 1,
+        xPercent: -50,
+        y: -EVOLVE_LABEL_RISE * 0.45,
+        scale: 1,
+        duration: 0.28,
+        ease: 'back.out(2)',
+      },
+      0.05,
+    )
+    .to(
+      label,
+      {
+        autoAlpha: 0,
+        xPercent: -50,
+        y: -EVOLVE_LABEL_RISE,
+        duration: EVOLVE_LABEL_DUR - 0.28,
+        ease: 'power1.in',
+      },
+      0.33,
+    )
+}
+
+/**
  * 整屏抖 2~3px，约 0.3 秒。
  *
  * 抖的是 .battle 根元素，有两个副作用值得记一笔（都不影响观感，但改这里之前要知道）：
@@ -107,12 +275,30 @@ export function playSkillHitFx(tile: HTMLElement) {
  *
  * 收尾必须 clearProps 把 transform 整个抹掉，只把 x / y 归零是不够的：
  * 留着一个 translate(0, 0) 的 transform，上面两条副作用就会一直生效。
+ *
+ * 抖之前要临时打开 will-change: transform，理由是性能而不是观感。
+ * GSAP 是每帧往行内样式里写 transform 的，浏览器不会因此自动把这棵树提成合成层
+ *（那套自动提升只认 CSS 动画 / 过渡）。不提层的话这 0.3 秒里每一帧都要把整棵 .battle
+ * 重新栅格化一遍，而对局页同屏挂着的手绘滤镜（feTurbulence + feDisplacementMap，WebKit 在
+ * CPU 上逐像素算）里，光是雕花框那几条边加起来就有几万像素——每出一张牌就要重算十几遍。
+ * 提成合成层之后抖动只是移动一张已经画好的位图，一帧都不用重画。
+ *
+ * 结束后必须摘掉：will-change 挂着就意味着那张位图一直占着显存（1672×941 再乘设备像素比），
+ * 而抖动只在出牌那一下发生。
  */
 function shakeScreen(root: HTMLElement) {
   // 连着落两张牌时，旧的抖动要让位，不然两条补间抢同一个 transform 会把幅度叠出去。
+  // 上一轮要是被这样掐断，它的 onComplete 就不会跑、will-change 留在那儿；
+  // 下面紧接着又设一遍，最后由这一轮的 onComplete 统一摘掉，不会漏。
   gsap.killTweensOf(root)
+  root.style.willChange = 'transform'
   gsap
-    .timeline({ onComplete: () => gsap.set(root, { clearProps: 'transform' }) })
+    .timeline({
+      onComplete: () => {
+        gsap.set(root, { clearProps: 'transform' })
+        root.style.removeProperty('will-change')
+      },
+    })
     .to(root, { x: 3, y: -2, duration: SHAKE_STEP, ease: 'power1.inOut' })
     .to(root, { x: -2.5, y: 2, duration: SHAKE_STEP, ease: 'power1.inOut' })
     .to(root, { x: 2, y: 1.5, duration: SHAKE_STEP, ease: 'power1.inOut' })

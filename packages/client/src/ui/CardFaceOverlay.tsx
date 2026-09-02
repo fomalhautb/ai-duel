@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { CardCostBadge } from './CardCostBadge'
 import './cardFaceOverlay.css'
 
 export interface CardFaceOverlayProps {
@@ -7,6 +8,11 @@ export interface CardFaceOverlayProps {
   name: string
   /** 使用插画的主色；可传十六进制颜色或 /design 的 CSS 色板变量。 */
   accent?: string
+  /**
+   * 费用圆章的圆心（百分比，见 aiModelFace.ts 的 costBadge）。直径全场统一，不由这里给。
+   * 不传就按 CSS 里的默认位置摆，用于没有专属原画的场合（比如 /design 的样例卡）。
+   */
+  costBadge?: { x: number; y: number }
 }
 
 /** 让长名称完整留在铭牌内，不依赖测量 DOM，也不在手牌动画期间重新排版。 */
@@ -19,20 +25,16 @@ function nameWidth(name: string): number {
  * 与插画分离的正面图层。费用章单独保持正圆，铭牌按卡宽缩放，兼容 2:3 的手牌和原图。
  * 只装饰边框，不给文字套手绘滤镜，缩成手牌时仍能辨认费用和名称。
  */
-export function CardFaceOverlay({ cost, skillName, name, accent = 'var(--c-green)' }: CardFaceOverlayProps) {
+export function CardFaceOverlay({
+  cost,
+  skillName,
+  name,
+  accent = 'var(--c-green)',
+  costBadge,
+}: CardFaceOverlayProps) {
   return (
     <div className="card-overlay" style={{ '--card-accent': accent } as CSSProperties}>
-      <div className="card-overlay__cost grain on-dark" aria-label={`消耗 ${cost} Token`}>
-        <svg className="card-overlay__cost-art" viewBox="0 0 100 100" aria-hidden="true">
-          <circle className="card-overlay__rim" cx="50" cy="50" r="48" strokeWidth="2.5" />
-          <circle className="card-overlay__rim-light" cx="50" cy="50" r="44" strokeWidth="1" />
-          <circle className="card-overlay__rim" cx="50" cy="50" r="40.5" strokeWidth="0.6" />
-          <path className="card-overlay__rim-light" d="M22 16Q50 0 78 16M22 84Q50 100 78 84" />
-          <text className="card-overlay__cost-number" x="50" y="62" textAnchor="middle"
-            fontSize={String(cost).length > 1 ? 48 : 60} aria-hidden="true">{cost}</text>
-          <text className="card-overlay__cost-unit" x="50" y="80" textAnchor="middle" aria-hidden="true">TOKEN</text>
-        </svg>
-      </div>
+      <CardCostBadge cost={cost} center={costBadge} />
 
       <div className="card-overlay__plaque">
         <div className="card-overlay__paper grain" aria-hidden="true" />

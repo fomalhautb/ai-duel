@@ -1,8 +1,10 @@
 {
   "version": "0.0.1",
+  "note": "本地联调要同时起 client 和 relay 两个进程；前端还需在 packages/client/.env.local 里设 VITE_SERVER_URL=http://127.0.0.1:8787 才连得到转发器（线上是同一个 Worker，不需要）。",
   "configurations": [
     {
       "name": "client",
+      "note": "前端 Vite dev server；连本地转发器需要 packages/client/.env.local 里的 VITE_SERVER_URL=http://127.0.0.1:8787。",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "dev"
@@ -12,6 +14,7 @@
     },
     {
       "name": "relay",
+      "note": "转发器：wrangler dev 起本地 Cloudflare Worker，负责房间消息转发。",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "dev:server"

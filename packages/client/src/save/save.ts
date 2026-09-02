@@ -1,12 +1,15 @@
 /**
- * 浏览器本地存档：记录玩家的卡牌收藏和胜场。
+ * 浏览器本地存档：记录玩家的卡牌收藏、胜场，以及上次确认的英雄。
  *
  * 只有 localStorage 这一层，不做账号、不上服务器——换个浏览器就是新号。
  * core 里的收藏逻辑是纯函数，所有 IO 和随机数都集中在这个文件里。
+ *
+ * 牌组不在这里：玩家可以存多套牌组、还要能改名删除，那份数据自己一个 key，
+ * 见 save/deckStore.ts。这边只剩"一次性的选择结果"这一类。
  */
 
-import { CARD_POOL, drawNewCard, INITIAL_COLLECTION } from '@ai-duel/core'
-import type { CardId } from '@ai-duel/core'
+import { CARD_POOL, drawNewCard, HEROES, INITIAL_COLLECTION } from '@ai-duel/core'
+import type { CardId, HeroId } from '@ai-duel/core'
 
 /**
  * key 带版本号。存档结构要改时直接换成下一个版本号：旧数据读不到就回落成新号，
@@ -14,35 +17,63 @@ import type { CardId } from '@ai-duel/core'
  * v2 → v3 删掉了 tutorialDone（新手教程整个下线了）。
  * v3 → v4 是卡池整个换了一批（模型卡/提示卡 → AI 牌/技能牌），旧存档里的卡 id 一个都不剩。
  * v4 → v5 卡 id 全部换名（agent-* → ai-*），术语统一为英雄牌/AI 牌/技能牌，旧存档直接作废。
- * 存的卡 id 全部来自当前卡池（AI 牌 + 技能牌两类，见 core 的 CARDS）；
- * 英雄牌不进牌组也不进收藏，所以这里不存英雄。
+ * v5 → v6 新增 savedHero（匹配后确认的英雄，下次进流程时预填），旧档直接作废。
+ * v6 → v7 新增 tutorialDone（新手教程走完没有，首页「开始游戏」照它分流），旧档直接作废。
+ * ownedCards 里的卡 id 全部来自当前卡池（AI 牌 + 技能牌两类，见 core 的 CARDS）；
+ * 英雄牌不进牌组也不进收藏，所以英雄只以 savedHero 这一个选择结果的形式存在。
  */
-const SAVE_KEY = 'ai-duel-save-v5'
+const SAVE_KEY = 'ai-duel-save-v7'
 
 export interface SaveData {
   /** 已拥有的卡牌定义 id。 */
   ownedCards: CardId[]
   /** 累计胜场。 */
   wins: number
+  /** 上次确认的英雄；没确认过是 null。 */
+  savedHero: HeroId | null
+  /**
+   * 新手教程走完了没有。
+   *
+   * 只影响首页「开始游戏」去哪：false 进 /tutorial，true 进 /room。
+   * 匹配房里的「新手教程」是重玩入口，不看这个字段——已经走完也随时能再进一遍。
+   */
+  tutorialDone: boolean
 }
 
 function initialSave(): SaveData {
-  return { ownedCards: [...INITIAL_COLLECTION], wins: 0 }
+  return { ownedCards: [...INITIAL_COLLECTION], wins: 0, savedHero: null, tutorialDone: false }
 }
 
 /** 解析存档字符串，任何一处对不上就返回 null，由调用方回落到初始收藏。 */
 function parseSave(raw: string): SaveData | null {
   const data: unknown = JSON.parse(raw)
   if (typeof data !== 'object' || data === null) return null
-  const { ownedCards, wins } = data as Partial<SaveData>
+  const { ownedCards, wins, savedHero, tutorialDone } = data as Partial<SaveData>
   if (!Array.isArray(ownedCards) || typeof wins !== 'number') return null
 
   // 卡池随时可能删卡，存档里残留的卡 id 必须丢掉，否则渲染时 getCard 会抛错。
   const owned = ownedCards.filter((id) => typeof id === 'string' && CARD_POOL.includes(id))
   // 一张都不剩说明这份存档已经和当前卡池对不上了，当作新号处理。
   if (owned.length === 0) return null
-  // 基础收藏始终可用，存档只决定额外解锁的卡；更新默认牌组不会清掉胜场。
-  return { ownedCards: [...new Set([...owned, ...INITIAL_COLLECTION])], wins }
+
+  // 英雄表也可能改名或删人，对不上就当没选过。
+  // 技能还没实装的几位（core 里标着 comingSoon）同样按无效处理：选英雄界面已经把她们置灰禁选，
+  // 存档里留着的话，下次进流程预填的就是一位现在选不了的英雄，对局里也确实没有技能效果。
+  // 用 Object.hasOwn 而不是 `in`：`in` 连原型链一起查，手改过的存档写个 "toString"
+  // 也会判成有效，接着 HEROES[savedHero] 取到的是 Object 原型上的东西，一路带进对局。
+  const heroValid =
+    typeof savedHero === 'string' &&
+    Object.hasOwn(HEROES, savedHero) &&
+    !HEROES[savedHero].comingSoon
+
+  // 基础收藏始终可用，存档只决定额外解锁的卡；换英雄不会清掉胜场。
+  return {
+    ownedCards: [...new Set([...owned, ...INITIAL_COLLECTION])],
+    wins,
+    savedHero: heroValid ? savedHero : null,
+    // 写坏或缺字段时按"没走过教程"算：多放一次教程比把新手直接丢进匹配房好。
+    tutorialDone: tutorialDone === true,
+  }
 }
 
 /** 读存档。读不到、解析失败、浏览器不让读，一律回落到初始收藏。 */
@@ -88,6 +119,45 @@ function grantCard(save: SaveData): { save: SaveData; drawn: CardId | null } {
 export function recordWin(): { save: SaveData; drawn: CardId | null } {
   const current = loadSave()
   return grantCard({ ...current, wins: current.wins + 1 })
+}
+
+/**
+ * 记下这次确认的英雄。
+ *
+ * 牌组没有对应的函数：选牌页每加减一张就自己写 deckStore 了，
+ * 到"确认"这一步已经没有需要落盘的东西（见 save/deckStore.ts）。
+ */
+export function saveHero(hero: HeroId): void {
+  persist({ ...loadSave(), savedHero: hero })
+}
+
+/**
+ * 记下卡池的新排列。
+ *
+ * ownedCards 本来就是个有序数组，组牌页把牌从牌组拖回卡池时可以指定放在哪一格
+ * （见 screens/DeckScreen.tsx 的 movePoolCard），落盘的就是那一下之后的顺序。
+ *
+ * 参数里混着的其它 id（组牌页会把"即将上线 / 暂未接入"那两类拼在卡池末尾展示）在这儿滤掉：
+ * 它们不在 CARD_POOL 里，写进去也会被下次 parseSave 丢掉，不如根本不写。
+ * 这个顺序不影响任何玩法，读存档时也不做校正——只是玩家自己摆的架子。
+ */
+export function saveOwnedOrder(order: readonly CardId[]): void {
+  const current = loadSave()
+  const kept = order.filter((id) => current.ownedCards.includes(id))
+  // 漏了谁就按原来的顺序补在后面：调用方给的清单和存档对不上时（比如两个页面同时开着），
+  // 宁可让顺序不完全如意，也不能把卡弄丢。
+  const missing = current.ownedCards.filter((id) => !kept.includes(id))
+  persist({ ...current, ownedCards: [...kept, ...missing] })
+}
+
+/**
+ * 记下新手教程已经走完。
+ *
+ * 两条路径都会调它：走到教程完成页，以及中途点「跳过教程」——
+ * 对首页分流来说这两种是一回事，玩家都不该再被自动送进教程。
+ */
+export function markTutorialDone(): void {
+  persist({ ...loadSave(), tutorialDone: true })
 }
 
 /** 清空存档，回到新号状态。给演示和调试用（首页有入口）。 */

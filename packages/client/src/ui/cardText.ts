@@ -1,10 +1,9 @@
 /**
  * 卡牌上那些 core 里没有、得由客户端现拼的文案。
  *
- * core 的 Card 只存卡面要印的那几项，翻面要看的那段说明没有对应字段
- * （见 HandCardData.backText）。对局（ui/MatchStage）和图鉴页（dev/CardGallery）
- * 都要显示同一段话，所以拼法只留这一份：图鉴页的用处就是照着对局的真实文案检查排版，
- * 两边各抄一份的话，改了一边图鉴就开始骗人。
+ * AI 和英雄的技能说明直接存于 core；其他牌翻面要看的补充说明没有统一字段
+ * （见 HandCardData.backText）。对局（ui/MatchStage）和牌组页（screens/DeckScreen）
+ * 都要显示同一段话，所以拼法只留这一份：两边各抄一份的话，改了一边另一边就开始骗人。
  */
 
 import type { Card } from '@ai-duel/core'
@@ -12,23 +11,26 @@ import type { Card } from '@ai-duel/core'
 /**
  * 卡牌翻到背面时的补充说明。
  *
- * 正面版面太小，只放得下卡名、一句描述和底部那行标识；背面补的是"这张牌打出去会怎样"
- * ——这条规则卡面上印不下，可玩家每一轮都要据此决定出不出。
+ * 技能牌正反两面说的是同一段话（core 的 `SkillCard.text`）：卡面正面印的是原画里
+ * 烤死的那句设计稿文案，DOM 里根本没有第二处可写，而牌组页放大查看的背面
+ * （DeckScreen 的 SkillCardBack）本来就直接读 `card.text`。这里再手写一份"卡背专用"文案，
+ * 结果就是同一张牌翻面和放大看到两句不一样的话，所以只留 `text` 这一份，
+ * 边界条件（选谁当目标、只活本轮、会不会误伤自己）都写进它里面。
  *
  * 英雄牌也走这里：它不进牌组、打不出去，但正反两面用的是同一套卡面组件，
  * 背面同样得有话说（正面印技能，背面就补人物本身）。
  */
 export function cardBackText(card: Card): string {
   if (card.kind === 'ai') {
-    return `模型：${card.model}。打出后留在场上，每轮跟着一起答题，答错才被罚下。`
+    return card.skillText
   }
   if (card.kind === 'hero') {
     return `${card.enName}。${card.text}英雄牌不占牌组的 20 张，开局就在场上。`
   }
-  // 要选目标的技能牌背面必须自己说清楚"打出后要点谁"，不能跟着无目标技能一起说"没有任何效果"
-  // ——它确实会改场上的状态（目标被标成已干扰，之后不能再被干扰），只是还不影响答题。
-  if (card.target === 'foe-ai') {
-    return '技能牌：打出时要点对方场上一个还没被干扰过的 AI。命中后它会被标成「已干扰」，本迭代还不影响它怎么答题。'
+  // 效果还没接进引擎的那些（core 的 SKILL_DESIGN_CARDS 里仍带 plannedEffect 的）。设计效果
+  // 后面必须紧跟一句"还没实装"——它现在打出去只是亮个相，光印效果会让人以为真会发生什么。
+  if (card.plannedEffect !== undefined) {
+    return `${card.text}这个效果还没接进规则引擎，本迭代打出后只是亮个相就进弃牌堆。`
   }
-  return '技能牌：打出后亮个相就进弃牌堆，本迭代还没有任何实际效果。'
+  return card.text
 }

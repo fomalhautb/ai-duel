@@ -23,10 +23,19 @@
   --paper-shade:  #e4ddc9;   /* 纸面暗部：凹槽、次级底 */
   /* 线 */
   --line:         #b9b19e;   /* 常规细线 / 内框 */
-  --line-dark:    #8a8270;   /* 外框、需要咬住视线的线 */
+  --line-dark:    var(--paper-line-dark);   /* 外框、需要咬住视线的线 */
   /* 字 */
-  --ink:          #2e2e38;
+  --ink:          var(--paper-ink);
   --ink-2:        #6b6a5f;   /* 次级文字、说明文字 */
+
+  /*
+   * 上面两条的原始值另存一份。
+   * --ink / --line-dark 是「当前这块面上的字色和框线色」，深色面板会就地翻成浅色
+   *（见 screens/deck.css 的 .deck-pool）；而画在纸上的东西（卡面，见 ui/cardFaceOverlay.css）
+   * 不管被摆在哪块面上都还是纸，得始终读这两份不翻转的值。
+   */
+  --paper-ink:       #2e2e38;
+  --paper-line-dark: #8a8270;
   /* 深色面 */
   --night:        #323d57;   /* 战场底 / 头像框内的星空 */
   --navy:         #232f4b;   /* 卡背、按钮的墨蓝 */
@@ -41,40 +50,63 @@
   /* ------------------------------------------------------------
      纸纹：两层噪声，都烘焙成 data URI 背景图
      ------------------------------------------------------------
-     两张图都是「接近白的灰度图」，靠 multiply 压在底色上：
-     值 1.0 = 完全不改变底色，值越低压得越暗。这样同一张图
-     换个混合模式就能用在深色面上（见 .grain.on-dark）。
+     两张图都是「纯色 + 逐像素 alpha」的遮罩：alpha 就是这一点该压掉多少，
+     所以普通的 source-over 叠上去就是纸纹，**不需要 mix-blend-mode**。
+
+     为什么不用 multiply（这是从 multiply 改过来的，别改回去）：非 normal 的混合模式会让
+     浏览器无条件把这一层单独提出来、读回背景、离屏合成一遍。而每张卡牌上就挂着两个
+     .grain 宿主（铭牌那块纸 + 费用圆章），组卡页一屏四十来张牌时是一百多层常驻的离屏合成，
+     滚动和拖拽都要为它买单。
+
+     换成 alpha 遮罩之后画面是**逐像素相等**的，不是"看着差不多"，两档各有一条恒等式：
+       浅色面  multiply(底, 纹理) 按强度 a 叠 = 底 × (1 − a×(1−纹理))
+               黑色按 α 叠在底上            = 底 × (1 − α)          → α = a×(1−纹理)
+       深色面  screen(底, 1−纹理) 按 a 叠    = 底 + a×(1−纹理)×(1−底)
+               白色按 α 叠在底上            = 底 + α×(1−底)         → α = a×(1−纹理)
+     两档的 alpha 曲线完全一样，差别只在叠的颜色一黑一白，所以每层各烘两份
+     （--tex-*-ink 给浅色面，--tex-*-glow 给深色面），深色面也就不用再套 filter: invert(1)。
+     强度 a 仍然是 .grain 上的 opacity，滑条照旧只改 --mottle-alpha / --fiber-alpha。
+
+     唯一的取舍：恒等式只对**灰度**纹理成立。斑驳图原本三个通道斜率不同
+     （B 最陡，暗部偏暖、像旧纸的黄斑），压成一条灰度曲线之后这点暖色调没有了。
+     取的是原来三条的平均（slope 0.53 / intercept 0.539），亮度曲线和"上四分之一顶到 1.0
+     被截断"那个拐点分毫不差，只有最暗那几个百分点的像素少了几个色阶的冷暖差，
+     再乘 0.70 的强度基本看不出来。细颗粒那张本来就是灰度的，转换是精确的。
 
      两层各自铺在一个独立的叠加层上（.grain::before / .grain::after），
      而不是塞进同一个 background-image 列表里。原因是每层要有独立的
-     不透明度：multiply + opacity = 「以 alpha 的比例混入相乘结果」，
-     这正是我们要的强度调节；而同一个元素上的多个 background
-     图层没法各自设 opacity。代价是 .grain 宿主的 ::before 被占用，
-     所以卡牌 / 卡背的内框改成真实的 <i class="paper-card__frame">；
-     切角更复杂的按钮则用内联 SVG 画框。
+     不透明度，而同一个元素上的多个 background 图层没法各自设 opacity。
+     代价是 .grain 宿主的 ::before 被占用，所以卡牌 / 卡背的内框改成真实的
+     <i class="paper-card__frame">；切角更复杂的按钮则用内联 SVG 画框。
 
-     第 1 层 --tex-mottle：大尺度纸浆斑驳。
+     第 1 层 --tex-mottle-*：大尺度纸浆斑驳。
      低频柏林噪声（baseFrequency 0.0059 ≈ 170px 一团）当高度场，
      feDiffuseLighting 打一束斜光，把高度差转成明暗——这是纸纤维
      凹凸浮雕感的来源，比直接把噪声当灰度铺上去「纸」得多。
      打光很贵，所以整块 rect 连 filter 一起烘进 data URI，
      浏览器只在首次解码时算一次，之后就是一张普通位图。
-     feComponentTransfer 把打光结果线性拉到 0.89~1.0，并且故意让
+     feComponentTransfer 把打光结果线性拉到 0.539~1.0，并且故意让
      上四分之一顶到 1.0 被截断——受光面就是底色本身，只有背光的
      纤维才真的压暗。这一步很关键：不截断的话整张纸会均匀发灰，
      看着像皮革而不是纸；截断后平均只掉 2% 亮度，纸色不跑掉。
-     三个通道斜率不同（B 最陡），所以暗部偏暖，像旧纸的黄斑。
+     末尾那条 feColorMatrix 就是上面说的转换：RGB 定成黑或白，
+     alpha 写成 1 − R（打光是白光，所以三通道相等，取 R 即可）。
      图块 900px：太小会看出平铺网格；stitchTiles 让噪声在图块
      边界首尾相接，接缝处不会突然断开。 */
-  --tex-mottle: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'900'%20height%3D'900'%3E%3Cfilter%20id%3D'm'%20x%3D'0'%20y%3D'0'%20width%3D'900'%20height%3D'900'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.0059'%20numOctaves%3D'2'%20seed%3D'17'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20lighting-color%3D'%23ffffff'%20surfaceScale%3D'15'%20diffuseConstant%3D'1'%3E%3CfeDistantLight%20azimuth%3D'45'%20elevation%3D'56'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.47'%20intercept%3D'0.591'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.52'%20intercept%3D'0.548'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.60'%20intercept%3D'0.478'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'900'%20height%3D'900'%20filter%3D'url(%23m)'%2F%3E%3C%2Fsvg%3E");
+  --tex-mottle-ink: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'900'%20height%3D'900'%3E%3Cfilter%20id%3D'm'%20x%3D'0'%20y%3D'0'%20width%3D'900'%20height%3D'900'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.0059'%20numOctaves%3D'2'%20seed%3D'17'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20lighting-color%3D'%23ffffff'%20surfaceScale%3D'15'%20diffuseConstant%3D'1'%3E%3CfeDistantLight%20azimuth%3D'45'%20elevation%3D'56'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.53'%20intercept%3D'0.539'%2F%3E%3C%2FfeComponentTransfer%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20-1%200%200%200%201'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'900'%20height%3D'900'%20filter%3D'url(%23m)'%2F%3E%3C%2Fsvg%3E");
 
-  /* 第 2 层 --tex-fiber：细颗粒，补 1~5px 的纸面粗糙度。
+  --tex-mottle-glow: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'900'%20height%3D'900'%3E%3Cfilter%20id%3D'm'%20x%3D'0'%20y%3D'0'%20width%3D'900'%20height%3D'900'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.0059'%20numOctaves%3D'2'%20seed%3D'17'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20lighting-color%3D'%23ffffff'%20surfaceScale%3D'15'%20diffuseConstant%3D'1'%3E%3CfeDistantLight%20azimuth%3D'45'%20elevation%3D'56'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.53'%20intercept%3D'0.539'%2F%3E%3C%2FfeComponentTransfer%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%20-1%200%200%200%201'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'900'%20height%3D'900'%20filter%3D'url(%23m)'%2F%3E%3C%2Fsvg%3E");
+
+  /* 第 2 层 --tex-fiber-*：细颗粒，补 1~5px 的纸面粗糙度。
      高频噪声不需要打光（那个尺度上光影就是噪点本身），
-     feColorMatrix 把 RGB 三通道平均成灰、alpha 填满，
-     再线性压到 0.87~1.0，截断点正好落在中位数上：一半颗粒不改变
+     第一条 feColorMatrix 把 RGB 三通道平均成灰、alpha 填满，
+     再线性压到 0.83~1.0，截断点正好落在中位数上：一半颗粒不改变
      底色，另一半往下压，颗粒因此只表现为暗点，不会把纸洗白。
+     末尾那条 feColorMatrix 同上，把灰度翻成 alpha。
      图块 240px 就够，颗粒太细看不出重复。 */
-  --tex-fiber: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%3E%3Cfilter%20id%3D'f'%20x%3D'0'%20y%3D'0'%20width%3D'240'%20height%3D'240'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.63'%20numOctaves%3D'3'%20seed%3D'5'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200%200%200%200%201'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'240'%20height%3D'240'%20filter%3D'url(%23f)'%2F%3E%3C%2Fsvg%3E");
+  --tex-fiber-ink: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%3E%3Cfilter%20id%3D'f'%20x%3D'0'%20y%3D'0'%20width%3D'240'%20height%3D'240'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.63'%20numOctaves%3D'3'%20seed%3D'5'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200%200%200%200%201'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3C%2FfeComponentTransfer%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0%200%200%200%200%200%200%200%200%200%200%200%200%200%200%20-1%200%200%200%201'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'240'%20height%3D'240'%20filter%3D'url(%23f)'%2F%3E%3C%2Fsvg%3E");
+
+  --tex-fiber-glow: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'240'%20height%3D'240'%3E%3Cfilter%20id%3D'f'%20x%3D'0'%20y%3D'0'%20width%3D'240'%20height%3D'240'%20filterUnits%3D'userSpaceOnUse'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.63'%20numOctaves%3D'3'%20seed%3D'5'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200.34%200.33%200.33%200%200%200%200%200%200%201'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'0.34'%20intercept%3D'0.83'%2F%3E%3C%2FfeComponentTransfer%3E%3CfeColorMatrix%20type%3D'matrix'%20values%3D'0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%20-1%200%200%200%201'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'240'%20height%3D'240'%20filter%3D'url(%23f)'%2F%3E%3C%2Fsvg%3E");
 
   /* 两层各自的强度。1 = 图像原样相乘，0 = 完全不起作用。
      PaperTuner 拖不透明度滑条时只改这两个变量，
@@ -98,9 +130,13 @@
    给任何元素加 .grain 即可，两个伪元素各铺一层。
    ::before 排在宿主的子元素之前，所以大斑驳压在内容底下；
    ::after 排在之后，细颗粒盖在文字上——正是想要的层次。
-   isolation: isolate 把 multiply 关在宿主内部——否则它会一路乘到
-   页面背景上，卡片边缘会出现一圈比周围深的「影子」。
+   两层都是普通的 source-over 叠加，没有混合模式，理由见上面纸纹变量那段。
    border-radius: inherit 让它跟随宿主圆角，不会漏出直角。
+
+   isolation: isolate 是从 multiply 那一版留下来的。混合模式没了之后它对画面
+   已经没有作用，但**别顺手删**：它给每个宿主建了一个层叠上下文，撤掉会让宿主里
+   带 z-index 的子元素重新参与外面的排序，而挂 .grain 的宿主里有整页的页面根
+   （.paper-page / .hero / .room）。留着的代价只是一个层叠上下文，很便宜。
 
    注意：用了 .grain 的元素不能再自己占用 ::before / ::after，
    简单内框改用真实的子元素，复杂轮廓改用内联 SVG。
@@ -114,23 +150,17 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  mix-blend-mode: multiply;
   pointer-events: none;
 }
-.grain::before { background-image: var(--tex-mottle); opacity: var(--mottle-alpha); }
-.grain::after  { background-image: var(--tex-fiber);  opacity: var(--fiber-alpha); }
+.grain::before { background-image: var(--tex-mottle-ink); opacity: var(--mottle-alpha); }
+.grain::after  { background-image: var(--tex-fiber-ink);  opacity: var(--fiber-alpha); }
 
-/* 深色面（墨蓝按钮、卡背）：同样两张图，先 invert 再 screen。
-   screen 只能提亮，于是原本压暗的纤维反过来变成微微发亮的丝缕，
+/* 深色面（墨蓝按钮、卡背）：换成同一条 alpha 曲线的白色那一份。
+   压暗改成提亮，于是原本压暗的纤维反过来变成微微发亮的丝缕，
    深色底上就不会出现一块块黑斑。再乘 0.55，
-   因为反相后的图有个不为 0 的均值，直接叠会把墨蓝整体洗淡。 */
-.grain.on-dark::before,
-.grain.on-dark::after {
-  filter: invert(1);
-  mix-blend-mode: screen;
-}
-.grain.on-dark::before { opacity: calc(var(--mottle-alpha) * 0.55); }
-.grain.on-dark::after  { opacity: calc(var(--fiber-alpha)  * 0.55); }
+   因为提亮那份有个不为 0 的均值，直接叠会把墨蓝整体洗淡。 */
+.grain.on-dark::before { background-image: var(--tex-mottle-glow); opacity: calc(var(--mottle-alpha) * 0.55); }
+.grain.on-dark::after  { background-image: var(--tex-fiber-glow);  opacity: calc(var(--fiber-alpha)  * 0.55); }
 
 /* 只想要其中一层时用的修饰类（纹理分层演示在用）：
    直接把另一层的伪元素关掉。 */
@@ -202,7 +232,7 @@
   flex: none;
 }
 .paper-orn-title__tx { flex: none; white-space: nowrap; text-indent: 0.16em; }
-.paper-orn-title--sm { font-size: 15px; letter-spacing: 0.2em; }
+.paper-orn-title--sm { font-size: var(--fs-xl); letter-spacing: 0.2em; }
 .paper-orn-title--sm .paper-orn-title__tx { text-indent: 0.2em; }
 
 /* ============================================================
@@ -389,7 +419,7 @@
   border-radius: 6px;
   background: var(--navy);
   color: var(--paper);
-  font-size: 14px; letter-spacing: .14em; text-indent: .14em;
+  font-size: var(--fs-lg); letter-spacing: .14em; text-indent: .14em;
   border: 1px solid var(--line-dark);
   white-space: nowrap;
 }
@@ -521,14 +551,14 @@
    这样它缩成右上角一个小标签，不会继续压住页面内容。 */
 .paper-tuner--collapsed { width: auto; }
 .paper-tuner--collapsed .paper-tuner__hd { border-bottom: none; }
-.paper-tuner__title { font-size: 14px; font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
+.paper-tuner__title { font-size: var(--fs-lg); font-weight: 600; letter-spacing: .14em; text-indent: .14em; }
 .paper-tuner__bd { overflow-y: auto; padding: 4px 12px 12px; }
 /* 收起用 display: none 而不是把节点拆掉：滑条的滚动位置能留住，
    标题栏那个按钮的 aria-controls 也才有东西可指。 */
 .paper-tuner--collapsed .paper-tuner__bd { display: none; }
 
 .paper-tuner__group {
-  font-size: 11.5px; letter-spacing: .12em;
+  font-size: var(--fs-sm-plus); letter-spacing: .12em;
   color: var(--ink-2);
   margin: 14px 0 6px;
   padding-bottom: 4px;
@@ -537,20 +567,20 @@
 .paper-tuner__row { margin: 7px 0; }
 .paper-tuner__lb {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 12px; letter-spacing: .02em; color: var(--ink-2);
+  font-size: var(--fs-md); letter-spacing: .02em; color: var(--ink-2);
 }
-.paper-tuner__val { color: var(--ink); font-weight: 600; font-size: 12.5px; }
+.paper-tuner__val { color: var(--ink); font-weight: 600; font-size: var(--fs-md-plus); }
 .paper-tuner__row input[type=range] {
   width: 100%; margin: 2px 0 0; height: 16px;
   accent-color: var(--c-rust);   /* 够用了，不值得为一个调参工具重写滑条样式 */
   cursor: pointer;
 }
 .paper-tuner__seed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
-.paper-tuner__seed span { font-size: 12px; color: var(--ink-2); }
+.paper-tuner__seed span { font-size: var(--fs-md); color: var(--ink-2); }
 
 .paper-tbtn {
   font: inherit;
-  font-size: 12.5px; letter-spacing: .08em;
+  font-size: var(--fs-md-plus); letter-spacing: .08em;
   color: var(--ink);
   background: var(--paper-shade);
   border: 1px solid var(--line-dark);
@@ -562,13 +592,13 @@
 .paper-tbtn:hover { background: #d8d0b9; }
 .paper-tbtn--primary { background: var(--navy); color: var(--paper); border-color: var(--navy); }
 .paper-tbtn--primary:hover { background: #2a3856; color: #e8c9ae; }
-.paper-tbtn--sm { padding: 2px 8px; font-size: 11.5px; }
+.paper-tbtn--sm { padding: 2px 8px; font-size: var(--fs-sm-plus); }
 
 /* 参数摘要：要能整段选中复制，所以保留换行的纯文本块 */
 .paper-tuner__summary {
   margin-top: 14px;
   padding: 8px 9px;
-  font-size: 11px; line-height: 1.7; letter-spacing: .01em;
+  font-size: var(--fs-sm); line-height: 1.7; letter-spacing: .01em;
   color: var(--ink-2);
   background: rgba(138,130,112,.12);
   border-radius: 4px;
@@ -582,7 +612,7 @@
    提示出现和消失时下面的内容不会跟着跳。 */
 .paper-tuner__toast {
   margin-top: 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm-plus);
   min-height: 16px;
 }
 .paper-tuner__toast--ok   { color: var(--c-green); }

@@ -72,13 +72,37 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
   autopilot.observe(opening.state)
 
   room.onRelay((message) => {
+    if (message.type === 'match:urge') {
+      core.emitUrge(message.id)
+      return
+    }
     if (message.type !== 'match:command') return
     // 客人只会发自己的指令；就算它伪造成房主的座位，execute 也只是照常判断轮次，
     // 不做额外校验是刻意的——这局不防作弊（架构文档 4.1）。
     apply(message.command)
   })
 
-  room.onPeerLeft(() => {
+  /*
+   * 链路一恢复就重发一份完整局面，这是整套断线恢复的收口。
+   *
+   * 断线期间发出去的 match:sync 全都丢了（转发器不缓存，对端不在就直接扔掉），
+   * 但那些消息一条也不用补——每条 sync 带的都是**完整** state，
+   * 后一条天然覆盖前一条，所以只要重发最新的一份，客人就对齐了。
+   * 这也是为什么房主这边不需要重发队列，只有客人的指令才需要（见 socket.ts）。
+   *
+   * events 故意留空：它是"从上一个局面到这个局面的过程"，用来播动画的。
+   * 断线期间的过程已经没法完整重放了，硬塞一批对不上的事件只会让动画错乱，
+   * 不如让客人直接跳到最新局面——状态正确比动画连贯重要。
+   */
+  room.onLinkChange((up) => {
+    if (disposed) return
+    core.patch({ link: up ? 'ok' : 'down' })
+    if (!up) return
+    const { state } = core.getSnapshot()
+    if (state) room.relay({ type: 'match:sync', state, events: [] })
+  })
+
+  room.onLinkLost(() => {
     if (disposed) return
     core.patch({ status: 'aborted', abortReason: '对手断开了连接' })
   })
@@ -88,6 +112,16 @@ export function createHostDriver({ room, setup }: HostDriverOptions): MatchDrive
     getSnapshot: core.getSnapshot,
     subscribeEvents: core.subscribeEvents,
     send: apply,
+    subscribeUrge: core.subscribeUrge,
+
+    // 本地先响，再发给对面：喊话和局面无关，不用等房主那套"执行完再广播"的流程，
+    // 自己这一下当场出声，对面慢一个来回也没关系。
+    urge(id) {
+      if (disposed) return
+      core.emitUrge(id)
+      room.relay({ type: 'match:urge', id })
+    },
+
     dispose() {
       disposed = true
       // 定时器要和连接一起清：界面卸载之后它还会往一局已经没人看的对局里发指令。

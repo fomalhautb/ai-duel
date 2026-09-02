@@ -1,7 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent } from 'react'
+import type { ButtonHTMLAttributes, PointerEvent as ReactPointerEvent, Ref } from 'react'
 
-export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
+export type PlaqueButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  /**
+   * 新手教程的语义锚点（引导层照它查要高亮的元素，见 tutorial/steps.ts）。
+   *
+   * 得单独列出来：`data-*` 属性只有写在原生标签上时 TS 才放行，
+   * 经过一层组件就要求属性类型里真的有这一项。
+   */
+  'data-tutorial-anchor'?: string
+  /**
+   * 新手教程挖洞时要把这颗按钮并进宿主元素的矩形里（见 tutorial/TutorialOverlay.tsx）。
+   * 和上面那条一样，得单独列出来 TS 才认。
+   */
+  'data-tutorial-extend'?: string
+  /**
+   * 拿到按钮节点。React 19 里 ref 就是普通 prop，跟着下面的展开一起传给 <button>，
+   * 但 ButtonHTMLAttributes 不含它，得在这儿补一条类型（同 ui/BackButton.tsx）。
+   * 对局的「退出」按钮用它在关掉确认弹窗后把焦点收回来。
+   */
+  ref?: Ref<HTMLButtonElement>
+}
 
 /** 再快的点击也至少完整显示这么久的压入姿态，避免反馈强度取决于用户按键速度。 */
 const MIN_PRESS_MS = 70

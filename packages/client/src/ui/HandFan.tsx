@@ -1,14 +1,22 @@
 /**
  * 炉石式扇形手牌：纯 DOM + GSAP，没有画布。
  *
- * 组件只管"一排牌怎么摆、怎么 hover、怎么拖"，不关心牌从哪来、打出去之后发生什么。
- * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者直接点一下
- * （按下、原地松手，没有拖动过阈值）——两条路殊途同归，都在松手那一刻喊一声 onPlay，
- * 组件自己不区分是哪种触发的。打出的卡要飞到哪个容器由父组件决定
+ * 组件只管"一排牌怎么摆、怎么抬、怎么拖"，不关心牌从哪来、打出去之后发生什么。
+ * 出牌有两条路：把牌拖进 dropZoneRef 指的那块区域再松手，或者原地轻点一下
+ * （按下松开，没走过拖拽阈值）。两条路最后都是喊一声 onPlay，组件自己不区分是哪种触发的，
+ * 只把是哪一种（via: 'drag' | 'tap'）一起报上去。打出的卡要飞到哪个容器由父组件决定
  * （见 MatchStage 里的 Flip 用法），因为跨容器的 FLIP 必须由同时看得见
  * "手牌"和"战场"的那一层来做。
  *
- * 只面向电脑浏览器 + 鼠标：拖拽走原生 pointer 事件，不做触屏和多指适配。
+ * 鼠标和触屏共用同一套指针事件，只有四处按 pointerType 分开，都写在各自的代码旁边：
+ *
+ * 1. **轻点的后果不同**（见 handleTap）：鼠标点一下就打出；触屏点一下只是把牌**选中**，
+ *    牌抬起放大、顶上冒出一颗「打出」，再点那颗才真的打出。手指划过屏幕太容易蹭出一次点击，
+ *    而出牌不可撤销，所以触屏多一步确认；鼠标点哪儿是哪儿，多一步只是拖慢节奏。
+ * 2. 触屏按住即抬起放大——不用特意做，浏览器在按下时就发 pointerenter。
+ * 3. 触屏拖拽时把牌抬到手指上方，免得手指盖住卡面（见 dragTargetOf 和 TOUCH_DRAG_LIFT）。
+ * 4. 卡面的倾斜跟随和高光在触屏上整个关掉（见 ui/cardTilt.ts），问号从"移入翻面"
+ *    换成"点一下翻面"（见 handleHelpToggle）。
  *
  * 一张牌的 transform 拆成三层，每层只管一件事（详见下面 JSX 里的注释）：
  * slot 管扇形摆位和拖拽跟随（x / y / rotation / scale），
@@ -17,8 +25,8 @@
  *
  * 新牌进场是"从侧栏那摞牌堆飞到自己的扇形槽位"：起点由父组件通过 getDealOrigin 给，
  * 飞行本身就是那张牌的第一次布局补间（位移 + 从牌堆那么小放大到手牌尺寸）。
- * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这里是玩家主动翻牌时看到的背面，
- * AI 牌显示统一美术图，其他牌显示详情文字；两者都不是牌堆或对手手牌的隐藏牌背。
+ * 拿不到起点时退回原来的"从基准位下方淡入"。飞行途中不翻面：这里的背面是玩家主动翻牌才看到的
+ * 详情面——AI 牌是名称加专属技能，技能牌是效果说明——不是牌堆或对手手牌的隐藏牌背。
  *
  * 扇形的布局数学（fanTransform 和那一批常量）在 ui/fanMath.ts，翻面在 ui/flipCard.ts——
  * 两样都和对手的倒扇形 OpponentFan / 强制展示层共用，不要在这里另抄一份。
@@ -31,18 +39,23 @@
  * frozen 是整排手牌彻底冻住，连 hover 和问号翻面都不接，给父组件在出牌演出期间用；
  * lockReason 是 disabled 加上一句"为什么"——它自带禁用，另外还把理由画出来
  *（灰墨态 + 点击摇头 + 小字提示）。
- * 「这一张打不起」是另一条线：传 tokens 之后逐张按卡面费用判，只压暗那几张，
+ * 「这一张现在打不出去」是另一条线：传 tokens 之后逐张判，只压暗那几张，
  * 见 HandFanProps.tokens。
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, RefObject } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { AI_CARD_BACK_ART, cardArtFor } from './cardArt'
+import { cardArtFor } from './cardArt'
+import { midFor } from './cardArtThumb'
+import { CardHelpMark } from './CardHelpMark'
+import { SKILL_CARD_FACE } from './skillCardFace'
 import { isIllustratedSkillCard } from './skillCardArt'
 import { AI_MODEL_FACE } from './aiModelFace'
+import { CardCostBadge } from './CardCostBadge'
 import { CardFaceOverlay } from './CardFaceOverlay'
+import { PlaqueButton } from './PlaqueButton'
 import { attachCardTilt } from './cardTilt'
 import type { CardTiltHandle } from './cardTilt'
 import { flipTo } from './flipCard'
@@ -73,7 +86,8 @@ gsap.registerPlugin(useGSAP)
  * 目前场上的 AI 单位没有会变的数值，所以战场小卡直接读卡牌定义就够了；
  * 哪天单位上有了"被增益/削弱"的属性，这里要改成传实例的当前值，否则小卡会永远显示原始数值。
  *
- * backText 是非 AI 牌翻面时的补充说明，core 里没有对应字段，由调用方自己拼文案。
+ * AI 牌的 skillName / skillText 来自 core，正面铭牌和详情背面必须共用；
+ * backText 是其他牌翻面时的补充说明，由调用方自己拼文案。
  */
 export interface HandCardData {
   id: string
@@ -81,15 +95,19 @@ export interface HandCardData {
   definitionId?: string
   name: string
   /**
-   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和图鉴里当一张小卡画出来，
+   * 卡种。'hero' 是英雄牌：它不进牌组、不进手牌，只在对局侧栏和首页橱窗里当一张小卡画出来，
    * 借的是同一份卡面排版（见 ui/heroCard.ts）。
    */
   kind: 'ai' | 'skill' | 'hero'
   /** AI 牌印在卡面上的模型名，纯展示。技能牌和英雄牌没有这一项。 */
   model?: string
+  /** AI 牌的专属技能名；技能牌和英雄牌不用这两个字段。 */
+  skillName?: string
+  /** AI 牌的专属技能效果。 */
+  skillText?: string
   /** 卡面正面的描述文案。 */
   text: string
-  /** 非 AI 牌翻到背面时展示的补充说明；AI 牌使用统一美术背面。 */
+  /** 非 AI 牌翻到背面时展示的补充说明。 */
   backText: string
   /**
    * 打出这张牌要花的 Token，卡面左上角那枚费用章画的就是它。
@@ -103,23 +121,30 @@ export interface HandCardData {
 }
 
 /**
- * 这次出牌是怎么触发的：拖进落点区松手，还是原地点了一下。
+ * 这次出牌是怎么触发的：拖进落点区松手，还是点出来的（鼠标轻点 / 触屏选中后点「打出」）。
  *
  * 组件自己不区分这两条路（对它来说都是"打出去了"），但父组件可能要区分：
- * 要选目标的技能牌拖出去是"松手落在谁身上就打谁"，点一下则是进选目标态等玩家再点一次。
- * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪。
+ * 要选目标的技能牌拖出去是"松手落在谁身上就打谁"，点出来则是进选目标态等玩家再点一次。
+ * 拖拽那条路调 onPlay 时牌正停在松手位置，父组件可以就地量它落在哪；
+ * 'tap' 那条路牌还停在扇形里被抬起的位置，一步都没挪过。
+ * 触屏那颗「打出」不单开一档 via：对父组件来说它和鼠标轻点是同一件事，
+ * 多一档只会让每个判 via 的地方都要多写一个分支。
  */
 export type CardPlayVia = 'drag' | 'tap'
 
 /**
  * 手牌被锁住的原因，也就是"为什么现在出不了牌"。
  *
- * 只收那些会持续一整段时间、玩家会盯着看的等待（轮到对方、AI 在答题），
+ * 只收那些会持续一整段时间、玩家会盯着看的等待（轮到对方、AI 在答题、正在发牌），
  * 不收 disabled 里那些一闪而过的瞬态锁（等回包、牌正在飞、展示层演着）——
  * 那些锁在自己回合里也会反复开关，跟着它们把整排手牌染灰再恢复就是在闪。
- * 判据由父组件给（见 MatchStage 的 waitingForFoe / quizWait）。
+ * 判据由父组件给（见 MatchStage 的 waitingForFoe / quizWait / dealing）。
+ *
+ * 'deal' 比另外两档短（开局约 1 秒、每轮补牌约半秒），但它不是瞬态锁：
+ * 发牌是强制过场，一轮只发生一次，而且时机固定——开局那次从挂载就亮着，
+ * 每轮那次直接从 'quiz' 接过来（灰墨态一路不断，落地才一起解开），不会一闪一闪。
  */
-export type HandLockReason = 'foe-turn' | 'quiz'
+export type HandLockReason = 'foe-turn' | 'quiz' | 'deal'
 
 export interface HandFanProps {
   cards: HandCardData[]
@@ -139,7 +164,7 @@ export interface HandFanProps {
    */
   returnZoneRef?: RefObject<HTMLElement | null>
   /**
-   * 玩家打出了某张牌（拖进落点区松手，或者原地点一下）。父组件负责把这张牌从手牌里移走。
+   * 玩家打出了某张牌（拖进落点区松手，或者点出来的）。父组件负责把这张牌从手牌里移走。
    *
    * 同步受理（当场改手牌数组）的话最省心：这张牌立刻从 DOM 里消失，什么都不用管。
    *
@@ -177,8 +202,8 @@ export interface HandFanProps {
    */
   frozen?: boolean
   /**
-   * 现在出不了牌是因为"在等一段别人的流程"（轮到对方、AI 在答题），非空即进入灰墨态：
-   * 整排下沉褪色、光标收回箭头、点一下会摇头并弹一条小字提示。
+   * 现在出不了牌是因为"在等一段流程走完"（轮到对方、AI 在答题、正在发牌），
+   * 非空即进入灰墨态：整排下沉褪色、光标收回箭头、点一下会摇头并弹一条小字提示。
    *
    * 传了 lockReason 就等于同时传了 disabled：组件内部把两者并起来用，不指望调用方
    * 记得两个都给——否则漏给 disabled 就会得到一排画成灰墨态、却照样拖得动的牌。
@@ -193,9 +218,31 @@ export interface HandFanProps {
    * 和 lockReason 那种"整排一起锁"是两回事，两者可以同时成立：轮到自己出牌时整排是亮的，
    * 但最贵的那一两张仍可能打不出。判断逐张做，其余的牌照常能拖。
    *
-   * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，图鉴也没有额度可言）。
+   * 传 null / 不传就是**不做费用判断**（对手的倒扇形只负责显示张数，牌组页也没有额度可言）。
    */
   tokens?: number | null
+  /**
+   * 这张牌现在**实际**要扣多少 Token，只影响上面那条"打不起"的判断。
+   *
+   * 卡面印的 `tokenCost` 是原价（减费不改这个圆章上的数字），而局面里可能有减费
+   * （自己打过的「核电站」让本轮后续每张牌便宜 1 点、可叠加），
+   * 两者能差好几点。变灰的判据必须和引擎扣费用同一个口径，否则玩家会看到
+   * "明明还剩 3 点、卡面写 4 点的牌却是灰的"，而那张牌其实打得出去。
+   *
+   * 不传就按卡面原价判：对局之外的地方（牌组页、演示页）没有局面可问。
+   */
+  playCostOf?: (card: HandCardData) => number
+  /**
+   * 调用方额外锁上的几张牌：**牌的 id（对局里就是手牌实例 id）** → 点它时弹的那句提示。
+   *
+   * 现在只有新手教程用：教学的前两轮只放行指定的那一两张牌，其余的一律锁住
+   * （规格 §15）。挂进下面那张 blocked 表就自动获得和「Token 不够」同一套压暗 + 摇头 + 弹提示，
+   * 不用另写一条锁的画法，也不会出现"点了没反应"。
+   *
+   * 优先级排在规则判据之前：一张牌既被教程锁着又刚好买不起时，玩家该看到的是
+   * "这一步不该打它"，而不是"钱不够"。
+   */
+  extraBlocked?: ReadonlyMap<string, string> | null
   /**
    * 已经点出去、正在等玩家指定目标的那张牌（父组件的"选目标态"，见 MatchStage 的 targeting）。
    *
@@ -226,8 +273,9 @@ export interface HandFanProps {
   /**
    * 为 true 时新牌先压在卡堆上不动，变回 false 才依次飞出去。
    *
-   * 只给开局用：抛硬币过场是一整层盖住屏幕的遮罩（z-index 1100），
-   * 这时候发牌等于发给遮罩看，玩家一张都瞧不见。
+   * 给"屏幕正被一整层全屏过场（z-index 1100）盖着"的时刻用，这时候发牌等于发给遮罩看，
+   * 玩家一张都瞧不见。现在有两处：开局等抛硬币演完、每轮结算的补牌等答题揭晓层退场
+   *（见 MatchStage 的 dealHeld）。
    */
   dealHold?: boolean
   /**
@@ -237,6 +285,17 @@ export interface HandFanProps {
    *（见 MatchStage 的 dealPending）。不关心这件事的调用方不传即可。
    */
   onDealPendingChange?: (count: number) => void
+  /**
+   * "进场动画还没全部落地"这件事变了（只在变化沿通知，不是每帧报）。
+   *
+   * 和上面那个 onDealPendingChange 是**两个不同的信号**，别混：那个在牌起飞的瞬间就销账
+   *（卡堆上的数字必须那时候减），而这个要等最后一张真的落进扇形槽位才变回 false。
+   * 父组件拿它锁住整段发牌期间的操作（见 MatchStage 的 dealBusy / actionsLocked）——
+   * 牌还在半空中时就能出牌的话，手牌会一边飞一边被打出去。
+   *
+   * 被 dealHold 压着的牌也算 busy：牌已经进了 cards、只是还没开始演。
+   */
+  onDealBusyChange?: (busy: boolean) => void
 }
 
 /**
@@ -308,6 +367,20 @@ const LEAVE_DELAY_MS = 50
 const HOVER_TILT_DEG = 10
 
 /**
+ * 触屏拖拽时把牌整体往上抬多少（舞台内像素），让手指托在卡的下边缘而不是压在卡脸上。
+ *
+ * 取"拖拽尺寸下的半张卡高"，也就是手指正好落在卡的下沿：再少一点手指就开始盖住卡面，
+ * 再多一点牌会飘得离手太远、瞄准全靠猜。鼠标不抬——光标只有几个像素，挡不住什么。
+ *
+ * 抬起来之后有一处连带影响要知道：落点判定看的是**指针**在不在战场矩形里
+ * （useCardDrag 那边），而选目标的命中判定看的是**牌自己的中心**（MatchStage 的 dropTargetOf）。
+ * 于是触屏上"手指还在战场里、牌已经压在对手那张小卡上"是正常状态，也正是想要的——
+ * 玩家瞄的是牌，不是自己的指尖。战场落点区下沿离屏幕底边还有 250px（--battle-hand-zone-h），
+ * 比这里抬的距离宽裕，手指够得进去。
+ */
+const TOUCH_DRAG_LIFT = (DRAG_SCALE * CARD_HEIGHT) / 2
+
+/**
  * 选目标期间，除正在施放的那张之外整排手牌压到这个不透明度。
  *
  * 走 opacity 而不是 CSS 的 filter / 外面盖一层：slot 的 opacity 本来就归 GSAP 管
@@ -345,6 +418,7 @@ const LOCK_TIP_HOLD_MS = 1100
 const LOCK_TIP_TEXT: Record<HandLockReason, string> = {
   'foe-turn': '对方出牌中',
   quiz: 'AI 答题中',
+  deal: '发牌中…',
 }
 /** 这一轮剩下的 Token 买不起这张牌时弹的小字。 */
 const UNAFFORDABLE_TIP_TEXT = 'Token 不够'
@@ -367,26 +441,34 @@ type LayoutMode = 'hover' | 'reflow'
 /**
  * 扇形可以铺开多宽。
  *
- * 不能拿舞台宽了事：对局界面两侧是不透明的侧栏，而且 z-index 30 压在手牌（20）之上，
- * 手牌一多，扇形两端就整片钻到侧栏底下去了。所以量的是中间那栏（.battle__battlefield）。
- * 这栏并不严格居中（左右侧栏宽度差十来个像素），而扇形是以舞台中线为对称轴摊开的，
- * 所以取"中线到左右两边距离里较小的那个"再翻倍——按窄的那侧算，宽的那侧自然也放得下。
+ * 不能拿舞台宽、也不能直接拿战场那一栏的宽了事：扇形两侧各压着一块 z-index 30 的 UI，
+ * 都画在手牌（20）之上，手牌一多，扇形那一端就整片钻到它底下去——
+ * 左边是整条不透明的侧栏（战场左沿就是它的右沿），右边是悬在右下角的「结束出牌」按钮。
+ *
+ * 扇形以锚点 .hand-fan 的中线为对称轴摊开，而锚点已经在 CSS 里让开侧栏、对着战场居中了，
+ * 所以这里量的是"中线到左右两个障碍物的距离"，取较小的那个再翻倍：
+ * 按窄的那侧算，宽的那侧自然也放得下。设计尺寸下右侧是窄的那边——
+ * 中线在 x=989，到战场左沿 306 有 683，到按钮左沿 1456 只有 467，可用宽度因此是 934。
  *
  * 返回值是舞台内坐标（和 fanMath 的那套像素同一口径），所以量到的视口矩形要除以 scale
- * 换算回来，见 ui/battleStage.ts。量不到中栏（比如手牌被搬到别的页面上用）就退回舞台宽，
- * 那种情况下 battleStage 会给出"没有舞台"的口径，也就是视口宽。
+ * 换算回来，见 ui/battleStage.ts。量不到锚点或战场（比如手牌被搬到别的页面上用）
+ * 就退回舞台宽，那种情况下 battleStage 会给出"没有舞台"的口径，也就是视口宽。
  */
-function fanAreaWidth(): number {
+function fanAreaWidth(anchor: DOMRect | null): number {
   const stageWidth = battleStageWidth()
   const field = document.querySelector('.battle__battlefield')
-  if (field === null) return stageWidth
+  if (anchor === null || field === null) return stageWidth
 
-  const rect = field.getBoundingClientRect()
-  if (rect.width === 0) return stageWidth
+  const fieldRect = field.getBoundingClientRect()
+  if (fieldRect.width === 0) return stageWidth
 
-  const metrics = battleStageMetrics()
-  const center = metrics.left + (stageWidth * metrics.scale) / 2
-  return (Math.min(center - rect.left, rect.right - center) * 2) / metrics.scale
+  // 按钮在别的页面上没有；量不到就只受战场右沿约束，也就是"右边没人挡"。
+  const endTurn = document.querySelector('.battle__end-turn')?.getBoundingClientRect()
+  const rightEdge =
+    endTurn === undefined || endTurn.width === 0 ? fieldRect.right : endTurn.left
+
+  const center = anchor.left + anchor.width / 2
+  return (Math.min(center - fieldRect.left, rightEdge - center) * 2) / battleStageMetrics().scale
 }
 
 /**
@@ -402,7 +484,8 @@ function fanAreaWidth(): number {
  *
  * 原点取**现量的锚点矩形**，而不是"舞台底边中点"那个理论值：.hand-fan 自己身上有一份
  * CSS transform——灰墨态那一下整排下沉 12px（见 styles.css 的 [data-locked]）。
- * 拿理论值算的话，轮到对方出牌时整排正好沉着，牌的起飞点会比卡堆低 12px。
+ * 拿理论值算的话，牌的起飞点会比卡堆低 12px；而发牌本身就是一档灰墨态
+ *（lockReason 的 'deal'），整段飞行里整排一直是沉着的，这一笔必然踩上。
  * 而 slot 的 x / y 本来就是锚点局部坐标（fanTransform 算出来的也是），
  * 照锚点当场在哪儿来算，无论锚点被谁挪过都对得上。
  *
@@ -457,6 +540,8 @@ export function HandFan({
   onPlay,
   disabled = false,
   tokens = null,
+  playCostOf,
+  extraBlocked = null,
   frozen = false,
   lockReason = null,
   castingId = null,
@@ -464,6 +549,7 @@ export function HandFan({
   getDealOrigin,
   dealHold = false,
   onDealPendingChange,
+  onDealBusyChange,
 }: HandFanProps) {
   /**
    * 组件内部真正用的"出不了牌"：lockReason 非空自带禁用，不指望调用方另外把 disabled 也打开。
@@ -473,19 +559,31 @@ export function HandFan({
    */
   const effectiveDisabled = disabled || lockReason !== null
   /**
-   * 这一轮买不起的那几张牌的 id。
+   * 这一刻打不出去的那几张牌：id → 点它时该弹的那句提示。
    *
-   * 用 Set 而不是每处现算：canDrag 和渲染两条路都要问同一个问题，
-   * 而 tokens 一变（每出一张牌都会变）整排都要重判一次。
+   * 判据只剩「Token 不够」一条（AI 牌和技能牌都不限张数），但仍然收进一张表里：
+   * canDrag 和渲染两条路问的是同一个问题「这张现在能不能打」，只是一个要理由、一个只要压暗。
+   * 用 Map 而不是每处现算：tokens 每出一张牌就变，整排都要重判一次。
+   *
+   * 调用方给的 extraBlocked 排在最前面，理由见那个 prop 的说明。
    */
-  const unaffordable = useMemo(() => {
-    const ids = new Set<string>()
-    if (tokens === null) return ids
+  const blocked = useMemo(() => {
+    const tips = new Map<string, string>()
     for (const card of cards) {
-      if (card.tokenCost !== undefined && card.tokenCost > tokens) ids.add(card.id)
+      const extra = extraBlocked?.get(card.id)
+      if (extra !== undefined) {
+        tips.set(card.id, extra)
+      } else if (tokens !== null && card.tokenCost !== undefined) {
+        // 没给 playCostOf 就按卡面印的原价判（牌组页、演示页这类没有减费概念的地方）。
+        const cost = playCostOf === undefined ? card.tokenCost : playCostOf(card)
+        if (cost > tokens) tips.set(card.id, UNAFFORDABLE_TIP_TEXT)
+      }
     }
-    return ids
-  }, [cards, tokens])
+    return tips
+    // 刻意不把 playCostOf 列进依赖：它每次渲染都是个新函数，列了等于每次都重算一遍。
+    // 它读的那份局面（剩余额度、核电站的减免）一变，tokens 必然跟着变
+    // ——减免和金钟罩都是打出一张牌才会变的，而打牌就要扣 Token，靠 tokens 当变化沿够用。
+  }, [cards, tokens, extraBlocked])
   const rootRef = useRef<HTMLDivElement>(null)
   const slotsRef = useRef(new Map<string, HTMLDivElement>())
   /** 灰墨态下点牌弹出来的那条小字提示。整排共用这一个节点，位置按被点的牌现算。 */
@@ -494,6 +592,16 @@ export function HandFan({
   const lockTipTimerRef = useRef<number | null>(null)
   /** 当前被 hover 的牌。放在 ref 里而不是 state，避免每次移入移出都重渲染整排手牌。 */
   const hoverRef = useRef<string | null>(null)
+  /**
+   * 触屏轻点选中的那张牌：它一直保持抬起放大，顶上挂着一颗「打出」，点了才真出牌。
+   * 鼠标那条路点一下就直接打出，永远不会走到这里，所以桌面上这一份恒为 null。
+   *
+   * 这一份不能像 hover 那样只放 ref——按钮是要渲染出来的，得有 state 来触发重渲染。
+   * 同时又必须留一份 ref：applyLayout 常常是上一次渲染留下的闭包（理由见 frozenRef），
+   * 读 state 会读到过期的值。两份永远一起改，统一走 setSelected。
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedIdRef = useRef<string | null>(null)
   /** 已经摆过位置的牌；不在这里面的是新加入的，要先放到起始位再补间进场。 */
   const placedRef = useRef(new Set<string>())
   /**
@@ -522,8 +630,13 @@ export function HandFan({
   const castingIdRef = useRef(castingId)
   castingIdRef.current = castingId
   /**
-   * 发牌那三个 prop 的最新值。理由同 frozenRef：applyLayout 常常是上一次渲染留下的闭包，
-   * 而 dealHold 变化时 cards 没变、闭包不会刷新；两个回调则会被延迟很久才调到。
+   * 发牌那几个 prop 的最新值。理由同 frozenRef：applyLayout 常常是上一次渲染留下的闭包，
+   * 而 dealHold 变化时 cards 没变、闭包不会刷新；几个回调则会被延迟很久才调到。
+   *
+   * dealHoldRef 必须在**渲染期间**就写好（不能挪进 effect）：父组件是把 dealHold 和新手牌
+   * 放在同一次提交里送过来的（回合末补牌就是这样），而下面那个 useGSAP 是 layout effect，
+   * 它跑 applyLayout 时读的就是这一份。写进 passive effect 的话它会晚一步，
+   * applyLayout 拿到的还是上一次的 false，牌会在遮罩后面白飞一趟。
    */
   const dealHoldRef = useRef(dealHold)
   dealHoldRef.current = dealHold
@@ -531,6 +644,8 @@ export function HandFan({
   dealOriginRef.current = getDealOrigin
   const dealPendingRef = useRef(onDealPendingChange)
   dealPendingRef.current = onDealPendingChange
+  const dealBusyRef = useRef(onDealBusyChange)
+  dealBusyRef.current = onDealBusyChange
   /**
    * 还压在卡堆上、没起飞的新牌。进场时加进来，补间真的开跑（或者这张牌离开手牌）时移走，
    * size 就是报给父组件的张数。
@@ -544,11 +659,34 @@ export function HandFan({
    * 把已经摆回扇形的牌又拽回卡堆。
    */
   const dealTweensRef = useRef(new Map<string, gsap.core.Tween>())
+  /**
+   * 进场动画还没演完的牌（含还压在卡堆上等放行的）。
+   *
+   * 和 dealQueueRef 的分界线不一样，两份都要留着：那一份在牌**起飞**时就销账
+   *（卡堆上的数字得那时候减），这一份要等牌真的**落位**才销账，父组件靠它锁操作。
+   */
+  const dealBusySetRef = useRef(new Set<string>())
+  /** 上一次报给父组件的 busy，用来只在变化沿通知（不然每次布局都会白惊动一次）。 */
+  const dealBusyReportedRef = useRef(false)
   /** 给 resize 监听和延迟回位用：它们要拿到最新一次渲染的布局函数。 */
   const layoutRef = useRef<(mode: LayoutMode) => void>(() => {})
 
   /** 把"还压着几张"报给父组件。没人关心时什么都不做。 */
   const reportDealPending = () => dealPendingRef.current?.(dealQueueRef.current.size)
+
+  /** 把"进场动画演完没有"报给父组件，只在变化沿报一次。 */
+  const reportDealBusy = () => {
+    const busy = dealBusySetRef.current.size > 0
+    if (busy === dealBusyReportedRef.current) return
+    dealBusyReportedRef.current = busy
+    dealBusyRef.current?.(busy)
+  }
+
+  /** 这张牌的进场动画演完了（或者不会再演了）。重复调用是安全的。 */
+  const finishDealBusy = (id: string) => {
+    if (!dealBusySetRef.current.delete(id)) return
+    reportDealBusy()
+  }
 
   /**
    * 这张牌不再压在卡堆上了：起飞（进场补间开跑）时调一次，牌被打出去/被弃掉时也调一次。
@@ -563,14 +701,15 @@ export function HandFan({
   const innerOf = (id: string) =>
     slotsRef.current.get(id)?.querySelector<HTMLElement>('.hand-fan__inner') ?? null
   /**
-   * 问号的全部零件：一个透明热区（.hand-fan__help，只管交互）
-   * 加正反两面各一个的问号圆圈（.hand-fan__help-mark，只管样子）。
-   * 它们必须一起淡入淡出，否则会出现"看得见问号但点不动"或者反过来的错位。
+   * 问号那块只管交互的透明热区（.hand-fan__help）。看得见的圆章（.hand-fan__help-mark）
+   * 是常驻的，不在这里面：问号要当"这张牌能翻面"的常驻提示，只有热区跟着放大与否开关，
+   * 所以没放大的牌上问号是看得见、点不动的（理由写在 styles.css 的 .hand-fan__help-mark）。
+   * 拿不到槽位（牌刚被打出去）时返回空数组，调用方都先判了长度。
    */
-  const helpPartsOf = (id: string): HTMLElement[] => {
+  const helpHotspotsOf = (id: string): HTMLElement[] => {
     const slot = slotsRef.current.get(id)
     if (!slot) return []
-    return Array.from(slot.querySelectorAll<HTMLElement>('.hand-fan__help, .hand-fan__help-mark'))
+    return Array.from(slot.querySelectorAll<HTMLElement>('.hand-fan__help'))
   }
 
   /**
@@ -581,7 +720,10 @@ export function HandFan({
    * 已经打出、正在等结果的牌（playedRef）同样不参与，原因见下面 laid 那里。
    */
   const applyLayout = (mode: LayoutMode) => {
-    const areaWidth = fanAreaWidth()
+    // 锚点这一份矩形两处都要：一处是扇形摊多宽（fanAreaWidth 拿它的中线当对称轴），
+    // 一处是发牌飞行的起点（灰墨态下整排是沉着的，见 dealStartVars）。量不到锚点就都退回兜底。
+    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
+    const areaWidth = fanAreaWidth(anchorRect)
     // 走 ref 不走闭包：这个函数常常是上一次渲染留下的那一份（见 castingIdRef）。
     const casting = castingIdRef.current
     const ids = new Set(cards.map((card) => card.id))
@@ -591,8 +733,6 @@ export function HandFan({
      */
     const reduce = prefersReducedMotion()
     const dealOriginRect = reduce ? null : (dealOriginRef.current?.() ?? null)
-    // 起点要按锚点当场的位置算（灰墨态下整排是沉着的，见 dealStartVars），量不到锚点就不飞。
-    const anchorRect = rootRef.current?.getBoundingClientRect() ?? null
     const dealStart =
       dealOriginRect === null || anchorRect === null
         ? null
@@ -616,6 +756,13 @@ export function HandFan({
       // 注意 reflow 也会被 resize 触发，所以这里不能把整份记录一股脑清空：
       // 拖一下窗口就把防重复的记录抹掉，同一张牌会被打出两次。
       if (hoverRef.current !== null && !ids.has(hoverRef.current)) hoverRef.current = null
+      // 选中的那张牌离开了手牌（打出去了、或者被测试面板弃掉了）：选中状态跟着作废，
+      // 否则那颗「打出」会挂在一张已经不存在的牌的位置上。
+      // 这里直接写两份而不是调 setSelected：重排本来就正在进行，不用再触发一次。
+      if (selectedIdRef.current !== null && !ids.has(selectedIdRef.current)) {
+        selectedIdRef.current = null
+        setSelectedId(null)
+      }
       for (const id of placedRef.current) if (!ids.has(id)) placedRef.current.delete(id)
       for (const id of playedRef.current) if (!ids.has(id)) playedRef.current.delete(id)
       // 还没起飞就离开手牌的（憋着发牌时被测试面板弃掉了）：补间得亲手掐掉，
@@ -643,10 +790,18 @@ export function HandFan({
     )
     const count = laid.length
 
+    // 只有会被排布到的牌才可能有进场补间在跑；离开手牌、被拖起来、已经打出去等结果的牌
+    // 这一轮不会拿到任何补间，也就再没有谁替它们销账，留在账上会把父组件的锁挂死。
+    const laidIds = new Set(laid.map((card) => card.id))
+    for (const id of dealBusySetRef.current) if (!laidIds.has(id)) dealBusySetRef.current.delete(id)
+
     // 冻结期间一律按"没有 hover"排布。下面那个 frozen 的 layout effect 会把 hoverRef 清掉，
     // 但重排的入口不止一处（resize、手牌增减都会走到这里），冻结和清空之间隔着一次提交；
     // 中间这次重排要是照旧读 hoverRef，就会把那张牌又补间回放大位。
-    const hoveredId = frozenRef.current ? null : hoverRef.current
+    // 选中的那张牌即便指针早就离开也要一直抬着：它顶上挂着「打出」，落回扇形就点不到了。
+    // hover 排在前面不会和选中打架——指针进到别的牌上时 handleEnter 会先把选中清掉，
+    // 所以这两份最多只可能同时指着同一张牌。
+    const hoveredId = frozenRef.current ? null : (hoverRef.current ?? selectedIdRef.current)
     const hoverIndex = hoveredId === null ? -1 : laid.findIndex((card) => card.id === hoveredId)
     // 邻牌要让到 hover 那张牌放大后的轮廓之外；放大不改 x，所以让位量只跟基准位有关，
     // 全部在 neighborPushes 里按几何算好。
@@ -654,7 +809,11 @@ export function HandFan({
 
     laid.forEach((card, index) => {
       const slot = slotsRef.current.get(card.id)
-      if (!slot) return
+      if (!slot) {
+        // 没有节点就没有补间，也就不会有 onComplete 来销账；不在这儿清掉的话锁会一直挂着。
+        finishDealBusy(card.id)
+        return
+      }
 
       const base = fanTransform(index, count, areaWidth, PLAYER_FAN)
       const isCasting = card.id === casting
@@ -665,6 +824,7 @@ export function HandFan({
       if (isNew) {
         placedRef.current.add(card.id)
         dealQueueRef.current.add(card.id)
+        dealBusySetRef.current.add(card.id)
         dealAdded += 1
         // 拿得到卡堆位置就从那儿起飞，拿不到退回原来的"从基准位下方淡入"。
         //
@@ -689,9 +849,10 @@ export function HandFan({
       /** 这张牌还在发牌队里：要么正压着卡堆等放行，要么这一轮该给它排一次起飞。 */
       const dealing = dealQueueRef.current.has(card.id)
       if (dealing && dealHoldRef.current) {
-        // 过场（开局抛硬币）还盖着屏幕，这张牌先原地压在卡堆上，这一轮不给它任何补间。
-        // 上一轮万一已经排过起飞——开局事件比第一次布局晚一拍到，就会这样——
-        // 那条补间还没跑过，得亲手掐掉并把牌退回卡堆位，否则它会在过场演着的时候自己跑起来。
+        // 全屏过场（开局抛硬币 / 回合末的答题揭晓）还盖着屏幕，这张牌先原地压在卡堆上，
+        // 这一轮不给它任何补间。上一轮万一已经排过起飞——开局事件比第一次布局晚一拍到，
+        // 就会这样——那条补间还没跑过，得亲手掐掉并把牌退回卡堆位，
+        // 否则它会在过场演着的时候自己跑起来。
         const scheduled = dealTweensRef.current.get(card.id)
         if (scheduled !== undefined) {
           scheduled.kill()
@@ -738,14 +899,18 @@ export function HandFan({
         // 起飞才算离开卡堆：延迟那段时间里牌还压在堆上，数字不能提前减。
         vars.onStart = () => finishDeal(card.id)
       }
+      // 进场还没落地的牌：这条补间跑完就算落地了。收尾要挂在**每一条**补间上，不能只挂进场那条——
+      // 飞到一半来一次重排（hover、resize、手牌增减）时，旧补间会被 overwrite: 'auto' 掐掉，
+      // 它的 onComplete 再也不会跑，账只能由接管它的这条新补间来销，否则父组件的锁永远解不开。
+      if (dealBusySetRef.current.has(card.id)) vars.onComplete = () => finishDealBusy(card.id)
       const tween = gsap.to(slot, vars)
       if (dealing) dealTweensRef.current.set(card.id, tween)
 
-      const helpParts = helpPartsOf(card.id)
+      const helpHotspots = helpHotspotsOf(card.id)
       // autoAlpha 到 0 会顺手把 visibility 关掉，那个透明热区跟着就不再吃指针事件——
       // 没被放大的手牌上，指针扫过右上角不会莫名其妙触发翻面。
-      if (helpParts.length > 0) {
-        gsap.to(helpParts, { autoAlpha: isHovered ? 1 : 0, duration: 0.2, overwrite: 'auto' })
+      if (helpHotspots.length > 0) {
+        gsap.to(helpHotspots, { autoAlpha: isHovered ? 1 : 0, duration: 0.2, overwrite: 'auto' })
       }
 
       const inner = innerOf(card.id)
@@ -757,6 +922,8 @@ export function HandFan({
 
     // 新排上队的牌攒到这儿一次报完：一张一张报的话，开局那 5 张会白白惊动父组件 5 次。
     if (dealAdded > 0) reportDealPending()
+    // busy 是个布尔，上面加加减减完统一看一眼变没变（reportDealBusy 自己只在变化沿通知）。
+    reportDealBusy()
   }
 
   /**
@@ -820,6 +987,10 @@ export function HandFan({
         for (const tween of dealTweensRef.current.values()) tween.kill()
         dealTweensRef.current.clear()
         dealQueueRef.current.clear()
+        // busy 反过来必须报最后一次：父组件拿它锁着操作，只卸载这一排扇形（对局还在）时
+        // 不报的话锁就永远挂在那儿了。父组件也在卸载的话这一次 setState 是空转，无害。
+        dealBusySetRef.current.clear()
+        reportDealBusy()
       }
     },
     { scope: rootRef, dependencies: [cards] },
@@ -841,6 +1012,38 @@ export function HandFan({
     leaveTimerRef.current = null
   }
 
+  /**
+   * 换掉当前选中的那张牌（传 null 就是取消选中），顺手重排一次。
+   *
+   * ref 和 state 一起写：排布读 ref（applyLayout 常是上一次渲染的闭包），按钮的渲染读 state。
+   * 重排走 layoutRef 而不是直接调 applyLayout，理由同 returnToFan——
+   * 这个函数也会在事件回调之外被调到（几个 effect、document 上那个"点别处取消"的监听）。
+   */
+  const setSelected = (id: string | null) => {
+    if (selectedIdRef.current === id) return
+    selectedIdRef.current = id
+    setSelectedId(id)
+    layoutRef.current('hover')
+  }
+
+  /**
+   * 发牌进场演完之前一律不动 hover 状态。
+   *
+   * 发牌期间父组件只给 disabled、不给 frozen（frozen 一变就要重排，重排会亲手掐掉
+   * 正在飞的进场补间），所以上面那道 frozenRef 的闸拦不住 hover。而 hover 会调
+   * applyLayout('hover')，那一下正好把发牌搅烂：正在飞的牌被改判成放大姿态，半空里弹一下；
+   * 还在等 stagger 的牌被 kill 重排，dealSeq 从头数，剩下几张的延迟一起塌掉，
+   * duration 也被压成更短的 HOVER_DUR。
+   *
+   * 以前碰不到是因为发牌全程藏在全屏过场后面，指针够不着；现在发牌特意等到过场退场才飞，
+   * 而揭晓层退场那一瞬玩家的鼠标往往正落回手牌区，扇形重排也会把牌滑到静止的光标底下，
+   * 两种都会实打实地发出 pointerenter。
+   *
+   * 落地之后不主动补一次抬牌：浏览器不会为"指针原本就停在那儿"补发 pointerenter，
+   * 玩家动一下鼠标就恢复了，和 frozen 关掉时的处理是同一个口径。
+   */
+  const dealAnimating = () => dealBusySetRef.current.size > 0
+
   const handleEnter = contextSafe((id: string) => {
     // 只要鼠标还按着（不管进没进入拖拽，所以判的是 pressedId 而不是 draggingId）就不接 hover：
     // 指针被 capture 之后，各浏览器发不发、什么时候发边界事件并不统一，
@@ -850,8 +1053,16 @@ export function HandFan({
     // 冻结期间连抬牌都不接（见 frozen）。注意不能靠 pressedId 那道闸代劳：
     // 冻结时 useCardDrag 在 pointerdown 就返回了，pressedId 恒为 null，那道闸形同虚设。
     if (frozenRef.current) return
+    if (dealAnimating()) return
     cancelLeaveTimer()
     if (hoverRef.current === id) return
+    // 指针进到另一张牌上 = 玩家改主意了，上一张的选中（连同那颗「打出」）当场作废。
+    // 不然屏幕上会同时有两张抬起来的牌，而按钮还挂在其中一张的头上。
+    // 直接写两份不走 setSelected：下面紧接着就要重排，不用为它单独再排一次。
+    if (selectedIdRef.current !== null && selectedIdRef.current !== id) {
+      selectedIdRef.current = null
+      setSelectedId(null)
+    }
     hoverRef.current = id
     applyLayout('hover')
   })
@@ -859,6 +1070,9 @@ export function HandFan({
   const handleLeave = contextSafe((id: string) => {
     // 同 handleEnter：按着的时候一律不动 hover 状态。
     if (cardDrag.pressedId() !== null) return
+    // 同 handleEnter：发牌演完之前不动 hover。这里也要挡——进场那一下没被受理，
+    // 对应的 leave 再去排一次缩回补间就是凭空多出来一次重排。
+    if (dealAnimating()) return
     if (hoverRef.current !== id) return
     cancelLeaveTimer()
     leaveTimerRef.current = window.setTimeout(() => {
@@ -882,6 +1096,25 @@ export function HandFan({
   const handleHelpLeave = contextSafe((id: string) => {
     const inner = innerOf(id)
     if (inner) flipTo(inner, 0, 0.4)
+  })
+
+  /**
+   * 触屏点一下问号：正面翻过去，再点一下翻回来。
+   *
+   * 触屏没有 hover 可用——按下发 pointerenter、抬手发 pointerleave，照着 hover 那套做
+   * 就成了"按住才看得见背面"，手一松就翻回正面，字都没读完。所以这边改成点一次翻一次。
+   * 翻回来另有一条兜底：牌不再被抬起时 applyLayout 会把它转正（见那里），
+   * 所以取消选中、或者指针挪到别的牌上，都不会留下一张背面朝上的牌。
+   *
+   * 判"现在是哪一面"读的是元素当前的实际角度，和 flipTo 内部的口径一致：
+   * 翻到一半再点也能接着往回转，不用另记一份状态。
+   */
+  const handleHelpToggle = contextSafe((id: string) => {
+    if (frozenRef.current) return
+    const inner = innerOf(id)
+    if (inner === null) return
+    const facingBack = Number(gsap.getProperty(inner, 'rotationY')) >= 90
+    flipTo(inner, facingBack ? 0 : 180, 0.4)
   })
 
   const clearLockTipTimer = () => {
@@ -942,10 +1175,15 @@ export function HandFan({
    * z 轴空着；slot 层的扇形摆位和 hover 放大则完全不碰，摇完牌还停在原处。
    * frozen 期间不摇（屏幕上正演着别的东西，再抖一下只是添乱），但小字提示照给——
    * 只要有话要说，玩家就该知道现在是怎么回事。tip 传 null 表示只摇头不说话。
+   *
+   * 唯一整个跳过的是"这张牌自己还在飞"：小字提示的位置是按牌当场的矩形算死的，
+   * 牌接着飞走，那句话就孤零零地停在半路上；对一张正在飞的牌摇头也不知道在摇什么。
+   * 只看被按的这一张——同一次发牌里先落地的那几张已经停稳了，照常给反馈。
    */
   const refusePlay = contextSafe((id: string, tip: string | null) => {
     const slot = slotsRef.current.get(id)
     if (slot === undefined) return
+    if (dealBusySetRef.current.has(id)) return
     const tilt = slot.querySelector<HTMLElement>('.hand-fan__tilt')
     if (tilt !== null && !frozen && !prefersReducedMotion()) {
       gsap.to(tilt, {
@@ -963,9 +1201,33 @@ export function HandFan({
     if (tip !== null) showLockTip(slot, tip)
   })
 
-  /** 整排锁着的时候按下了某张牌（被 useCardDrag 的 enabled 挡掉的那一记）。 */
-  const handleLockedPress = (id: string) =>
-    refusePlay(id, lockReason === null ? null : LOCK_TIP_TEXT[lockReason])
+  /**
+   * 整排锁着的时候按下了某张牌（被 useCardDrag 的 enabled 挡掉的那一记）。两种输入分两条路。
+   *
+   * 鼠标：摇头加小字提示。桌面上想看清一张牌把指针移上去就行（见 styles.css 里
+   * [data-locked] 那条 :hover 恢复本色），所以这时候点下去只可能是"我想出这张"，该被拒绝。
+   *
+   * 触屏：改判成"点开看牌"，和自己回合里点牌选中走同一条路——牌抬起放大、
+   * 右上角的问号跟着淡入（问号热区归 ignoreSelector 单独放行，锁着也能点着翻面）。
+   * 触屏没有 hover 可用，不给这条路的话轮到对方时手机上就完全看不清自己手里是什么牌。
+   * 这里的选中只有"看"这一层意思：那颗「打出」判了 effectiveDisabled，锁着时不会渲染。
+   *
+   * 选中发生在按下那一刻（钩子本身就挂在 pointerdown 上），而自己回合里的选中是松手才算
+   *（走 onTap）。两边差这一拍是可以接受的：锁着时误选最多是牌白抬一下，
+   * 点别处或再点一次就收，绝不会误出牌。
+   */
+  const handleLockedPress = (id: string, pointerType: string) => {
+    if (pointerType === 'mouse') {
+      refusePlay(id, lockReason === null ? null : LOCK_TIP_TEXT[lockReason])
+      return
+    }
+    // frozen 期间不受理：屏幕上正演着别的东西，这时抬起一张牌只是添乱
+    //（frozen 那个 layout effect 也会立刻把选中态收掉，抬起来也留不住）。
+    if (frozen) return
+    // 已经打出、正在等父组件受理的牌不该再被抬起来，和 handleTap 那边同一条闸。
+    if (playedRef.current.has(id)) return
+    setSelected(selectedIdRef.current === id ? null : id)
+  }
 
   /** 解锁那一下整排牌的回弹，从左到右挨个来。传进来的是每张牌的 tilt 层，顺序即扇形从左到右。 */
   const playWake = contextSafe((tilts: HTMLElement[]) => {
@@ -992,11 +1254,29 @@ export function HandFan({
    * 指针给的 clientX / clientY 却是缩放之后的屏幕像素。不换算的话窗口一旦不是设计尺寸，
    * 牌就会离光标越来越远（换算口径见 ui/battleStage.ts）。
    */
-  const dragTargetOf = (clientX: number, clientY: number) => {
-    const point = toStagePoint(clientX, clientY)
+  const dragTargetOf = (clientX: number, clientY: number, drag: CardDragInfo) => {
+    const metrics = battleStageMetrics()
+    const point = toStagePoint(clientX, clientY, metrics)
+    const anchor = rootRef.current?.getBoundingClientRect()
+    /*
+     * 原点的横坐标是锚点的横向中线，它不等于舞台中线：锚点让开了左侧栏、对着战场居中
+     *（见 styles.css 的 .hand-fan），设计尺寸下在 x=989 而不是 836。
+     *
+     * 只现量横向、纵向照旧用舞台底边那个理论值，是有意的：锚点身上那份 CSS transform
+     * 只写 translateY（灰墨态整排下沉 12px，见 styles.css 的 .hand-fan[data-locked]），
+     * 还带 0.45s 过渡，纵向现量会在过渡那几百毫秒里给出一个正在移动的原点，拖着的牌跟着漂。
+     * 横向那一维没人动过，现量是安全的。
+     */
+    const originX =
+      anchor === undefined || anchor.width === 0
+        ? battleStageWidth() / 2
+        : (anchor.left + anchor.width / 2 - metrics.left) / metrics.scale
+    // 触屏再往上抬半张卡：手指本身有一指宽，压在卡中心就把要看的东西全挡住了，
+    // 抬完手指托在卡的下沿，牌整个露在指尖上方（推导和连带影响见 TOUCH_DRAG_LIFT）。
+    const lift = drag.pointerType === 'mouse' ? 0 : TOUCH_DRAG_LIFT
     return {
-      x: point.x - battleStageWidth() / 2,
-      y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2,
+      x: point.x - originX,
+      y: point.y - battleStageHeight() + (DRAG_SCALE * CARD_HEIGHT) / 2 - lift,
     }
   }
 
@@ -1016,6 +1296,10 @@ export function HandFan({
   const handleDragStart = (drag: CardDragInfo) => {
     // 先告诉父组件"这张牌被拖起来了"：要选目标的技能牌一离手，场上的合法目标就该亮起来。
     onDragStateChange?.(drag.id)
+    // 选中态和拖拽是两条互斥的出牌路：牌已经在手上了，那颗「打出」没有存在的意义，
+    // 留着还会跟着牌一起满屏飞。直接写两份不走 setSelected：这个函数末尾本来就要重排一次。
+    selectedIdRef.current = null
+    setSelectedId(null)
     // hover 的放大补间和延迟缩回都得让位，不然它们会和拖拽姿态抢同一批属性。
     cancelLeaveTimer()
     // 清掉 hover 还顺手关掉了这张牌的倾斜跟随：attachCardTilt 的 enabled 回调判的就是
@@ -1030,10 +1314,12 @@ export function HandFan({
     // 归零能压住跟随，靠的是 cardTilt 在 settle 里先把跟随补间停掉（原因见那里）。
     tiltsRef.current.get(drag.id)?.reset()
 
-    // 问号淡出：拖着的牌不需要它。热区和正反两面的圆圈必须一起淡（见 helpPartsOf），
-    // autoAlpha 到 0 顺手关掉 visibility，热区也就不吃指针事件了。
-    const helpParts = helpPartsOf(drag.id)
-    if (helpParts.length > 0) gsap.to(helpParts, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
+    // 热区关掉：拖着的牌不需要翻面。autoAlpha 到 0 顺手关掉 visibility，热区也就不吃指针事件了。
+    // 看得见的那枚圆章仍然留着——它是常驻的，跟着牌一起被拖走（见 helpHotspotsOf）。
+    const helpHotspots = helpHotspotsOf(drag.id)
+    if (helpHotspots.length > 0) {
+      gsap.to(helpHotspots, { autoAlpha: 0, duration: 0.2, overwrite: 'auto' })
+    }
     // 从背面直接拖出去的话，落点上飞出来的小卡画的是正面，会闪一下，所以先转回正面。
     // 必须走 flipTo（ui/flipCard.ts）：正反两面谁可见是它按角度切 opacity 决定的，
     // 裸补一个 rotationY 只会把卡转回来、opacity 还停在"显示背面"，画面就一直是背面。
@@ -1059,8 +1345,13 @@ export function HandFan({
    * （闭包里的 disabled 是松手那一刻的旧值，父组件是在 onPlay 里才改的），
    * 之后由 disabled 关掉时的 layout effect 接手决定送不送回去。
    *
-   * settle 只有拖拽那条路要开：牌被挪到落点上了，得补间回扇形；
-   * 点击那条路压根没挪过 slot，原地就是正确位置。
+   * settle 问的是"这次出牌有没有把牌挪离它在扇形里该在的位置"，三个调用点各自回答：
+   *
+   * - 拖拽：牌停在松手的落点上，要 true；
+   * - 触屏那颗「打出」：牌被抬起放大着，而且这时它已经进了 playedRef、排布会整个跳过它，
+   *   没人替它回位，也要 true。触屏尤其不能省——那边没有 pointerleave，
+   *   指望玩家挪一下指针把牌"蹭"回去是不成立的；
+   * - 鼠标轻点：slot 一步没挪过（还停在 hover 抬起的位置，指针也还压在上面），false。
    */
   const restoreIfRejected = (id: string, settle: boolean) => {
     requestAnimationFrame(() => {
@@ -1090,17 +1381,45 @@ export function HandFan({
   }
 
   /**
-   * 按下之后原地松手（没走过拖拽阈值），等价于直接打出这张牌——不用真的拖进战场。
+   * 真正把一张牌打出去。鼠标轻点和触屏那颗「打出」共用这一段。
    *
-   * 这时 slot 还停在点击前的扇形/hover 位置，onPlay 里查 DOM 拿到的就是这个位置当飞行起点，
-   * 不需要专门归位，也不存在"落在别处"的取消场景。
-   * disabled 期间走不到这里：useCardDrag 那边已经挡掉了。
+   * 顺序是有讲究的——先记进 playedRef（防重复），再清选中态，最后才 onPlay：
+   * 清选中态会重排一次，而这时这张牌已经在 playedRef 里，排布会把它整个跳过（见 laid 那里），
+   * 于是它一动不动地留在原处，正好当父组件 Flip 飞行的起点；同排其余的牌趁这一下先合拢。
+   * 反过来先 onPlay 的话，父组件在回调里同步改的状态会先带来一次重渲染，
+   * 那颗按钮多留一帧，看着像点了没反应。没有选中态时 setSelected 直接返回，不多排一次。
+   *
+   * 这里不判 disabled / frozen：两条调用路各自已经挡过了（鼠标那条由 useCardDrag 的 enabled 挡，
+   * 按钮那条根本不会被渲染出来）。
    */
-  const handleTap = (id: string) => {
+  const playCard = (id: string, settle: boolean) => {
     if (playedRef.current.has(id)) return
     playedRef.current.add(id)
+    setSelected(null)
     onPlay(id, 'tap')
-    restoreIfRejected(id, false)
+    restoreIfRejected(id, settle)
+  }
+
+  /**
+   * 按下之后原地松手（没走过拖拽阈值）。**鼠标和触屏在这里分道扬镳**，出牌这条路上仅此一处：
+   *
+   * - 鼠标：直接打出。光标是尖的、点哪儿是哪儿，误点概率低，再插一步确认只是拖慢节奏。
+   * - 触屏：只是**选中**——牌抬起放大不再落回去，顶上冒出一颗「打出」，点那颗才真出牌。
+   *   手指划过屏幕太容易在牌上蹭出一次点击，而出牌不可撤销，这一步确认是必须的。
+   *   再点一次同一张就是取消选中：手指已经在这张牌上了，想收回来最顺手的就是再点一下。
+   *
+   * 判据用这次按下的 pointerType 而不是设备类型：带触屏的笔记本用鼠标时走的仍是鼠标那条。
+   * disabled / frozen 期间两条都走不到：useCardDrag 那边已经挡掉了。
+   */
+  const handleTap = (id: string, drag: CardDragInfo) => {
+    // 鼠标那条不用 settle：slot 一步没挪过（还停在 hover 抬起的位置），原地就是正确位置。
+    if (drag.pointerType === 'mouse') {
+      playCard(id, false)
+      return
+    }
+    // 已经打出、正在等父组件受理的牌不该再被选中：那颗按钮会让人以为还能再打一次。
+    if (playedRef.current.has(id)) return
+    setSelected(selectedIdRef.current === id ? null : id)
   }
 
   /**
@@ -1122,15 +1441,17 @@ export function HandFan({
     targetOf: dragTargetOf,
     // slot 的盒子已经按 HOVER_SCALE 放大过了，写给 GSAP 的 scale 得折算回去（见 slotScale）。
     dragScale: slotScale(DRAG_SCALE),
-    // 问号热区上按下不算抓牌，它只管翻面。
-    ignoreSelector: '.hand-fan__help',
+    // 这两块小控件上按下都不算抓牌：问号只管翻面，「打出」只管出牌。
+    // 不排掉的话，按在按钮上会先起一次拖拽/选中，click 还没来选中态就被自己翻掉了。
+    ignoreSelector: '.hand-fan__help, .hand-fan__play',
     // 两道各自的闸：已经打出、正在等父组件受理的牌不能再抓（防重复出牌），
-    // 这一轮买不起的牌也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
+    // 这一刻打不出去的牌（见 blocked）也抓不起来。后者要给反馈，所以在这里就地摇头弹提示——
     // canDrag 挡掉的按下不会走 onLockedPress（见 UseCardDragOptions 那边的说明）。
     canDrag: (id) => {
       if (playedRef.current.has(id)) return false
-      if (unaffordable.has(id)) {
-        refusePlay(id, UNAFFORDABLE_TIP_TEXT)
+      const tip = blocked.get(id)
+      if (tip !== undefined) {
+        refusePlay(id, tip)
         return false
       }
       return true
@@ -1158,7 +1479,15 @@ export function HandFan({
    */
   useLayoutEffect(() => {
     disabledRef.current = effectiveDisabled
-    if (effectiveDisabled) return
+    if (effectiveDisabled) {
+      // 现在出不了牌了（轮到对方、正在发牌、指令发出去等回包…）：那颗「打出」点了也没用，
+      // 选中态一起收掉，牌落回扇形。等能出牌了玩家再点一次就是了。
+      setSelected(null)
+      return
+    }
+    // 反过来解锁那一下也要收：锁着时的选中是"点开看牌"（见 handleLockedPress），
+    // 留着的话轮到自己时它会凭空长出一颗「打出」，变成玩家没点过的待出牌状态。
+    setSelected(null)
     for (const id of playedRef.current) {
       // 牌已经不在手牌里 = 父组件受理了这次出牌，没什么要收拾的
       // （playedRef 里的记录由 applyLayout 的 reflow 清理）。
@@ -1190,9 +1519,13 @@ export function HandFan({
     if (!frozen) return
     cancelLeaveTimer()
     const hovered = hoverRef.current
-    if (hovered === null) return
+    const selected = selectedIdRef.current
+    if (hovered === null && selected === null) return
     hoverRef.current = null
-    tiltsRef.current.get(hovered)?.reset()
+    selectedIdRef.current = null
+    setSelectedId(null)
+    // 倾斜只有被 hover 的那张才挂着；靠选中抬起来的那张指针早就不在上面，没有倾斜要收。
+    if (hovered !== null) tiltsRef.current.get(hovered)?.reset()
     layoutRef.current('hover')
   }, [frozen])
 
@@ -1208,17 +1541,45 @@ export function HandFan({
   useLayoutEffect(() => {
     cancelLeaveTimer()
     hoverRef.current = null
+    // 选中态也一起清：这张牌已经打出去了（正在等玩家指目标），它顶上不该还挂着一颗「打出」。
+    selectedIdRef.current = null
+    setSelectedId(null)
     layoutRef.current('hover')
   }, [castingId])
+
+  /**
+   * 选中期间点到手牌以外的任何地方 = 取消选中。
+   *
+   * 触屏上这是唯一顺手的"我不打了"：手指没有 hover，牌只要不落回去就会一直举在那儿。
+   * 挂在 document 上而不是某块遮罩上——选中态刻意不压暗也不拦指针（玩家常常要一边举着牌
+   * 一边看战场），所以根本没有一块现成的层能接这一下。
+   * 用 pointerdown 而不是 click：按下那一刻就该收，等 click 的话手指按住不放期间牌还举着。
+   * 只在真选中了什么的时候才挂监听，平时 document 上什么都不留。
+   */
+  useEffect(() => {
+    if (selectedId === null) return
+    const onOutsidePress = (event: PointerEvent) => {
+      const root = rootRef.current
+      if (root !== null && event.target instanceof Node && root.contains(event.target)) return
+      setSelected(null)
+    }
+    document.addEventListener('pointerdown', onOutsidePress)
+    return () => document.removeEventListener('pointerdown', onOutsidePress)
+  }, [selectedId])
 
   /** 上一次的 dealHold，用来认出"憋着的发牌被放开"这一个瞬间（React 不给上一次的 props）。 */
   const prevDealHoldRef = useRef(dealHold)
   /**
-   * 开局的抛硬币演完了：重排一次，把压在卡堆上的那几张牌依次放出去。
+   * 盖着屏幕的那层过场演完了（开局是抛硬币，回合末是答题揭晓）：
+   * 重排一次，把压在卡堆上的那几张牌依次放出去。
    *
    * 只在这个值真的变了才动手。挂载那一次不用管：useGSAP 的回调已经跑过一遍布局，
    * 这里再跑一次只会把刚排好的进场补间掐掉重排一遍，白忙一趟。
    * 用 layout effect 而不是 useEffect：起飞和这一帧一起发生，不会先空一帧再开始飞。
+   *
+   * 反方向（false → true）也会走到这里再排一次，同样是必要的：回合末那次 hold 和新手牌
+   * 是同一次提交送来的，上面 useGSAP 那一遍已经按 dealHold 压住了，这里只是白排一遍；
+   * 但万一父组件分两次提交送过来（先来牌、后来 hold），就靠这一遍把已经排出去的进场补间收回。
    */
   useLayoutEffect(() => {
     if (prevDealHoldRef.current === dealHold) return
@@ -1231,18 +1592,25 @@ export function HandFan({
   /**
    * 锁一变就收掉小字提示；从"锁着"变成"解开"时再让整排牌醒一下。
    *
-   * 提示说的是"现在在等什么"，等的事情一换（对方回合 → 答题）它就过期了，
+   * 提示说的是"现在在等什么"，等的事情一换（对方回合 → 答题 → 发牌）它就过期了，
    * 留在屏幕上会指向一件已经结束的事。
    *
    * 醒一下是从左到右挨个轻弹，只为把"能出牌了"这件事送进余光里——玩家这段时间多半在看战场，
    * 手牌那排恢复彩色是个静态变化，不动一下很容易整轮都没注意到。
    * 弹的是 tilt 层的 y：slot 层归扇形摆位和拖拽管，碰了就会和它们的补间打架。
    *
+   * 判据是"由非空变 null"，不认具体是哪一档：轮到自己那一下现在多半是从 'deal' 解开的
+   *（每轮都是「答题中」→「发牌中」→ 解开，中间灰墨态一路不断），开局也一样，
+   * 于是这一弹正好落在最后一张牌飞进扇形之后。
+   *
    * 但"锁清空"不等于"能出牌了"，所以还要再看一眼 effectiveDisabled 和 frozen，有一个真就不弹：
    * 一是对局打完或中断（status 变 finished / aborted），那时 lockReason 跟着清空，
    * 可 actionsLocked 仍然是真，这时候说"能出牌了"是句假话；
    * 二是演出还没收尾（frozen），屏幕上正演着别的东西，再抖一排牌只是添乱
    *（和 handleLockedPress 里不摇头是同一个道理）。
+   * 这一条要求父组件把两件事放在同一次提交里松开——发牌那档就是这么办的
+   *（MatchStage 的 actionsLocked 和 handLockReason 读的是同一个 dealing）。
+   * 差一次提交的话，这里读到的 effectiveDisabled 还是旧的真值，这一弹就白丢了。
    */
   useEffect(() => {
     const prev = prevLockReasonRef.current
@@ -1270,31 +1638,57 @@ export function HandFan({
     //（同排其余的靠上面那份 opacity 自己压暗）。不接指针那件事归 frozen 管，不写在 CSS 里。
     // data-locked 是灰墨态的总开关（整排下沉、牌面褪色、光标收回箭头），全在 CSS 里做，
     // 走的属性（根节点的 transform、卡面的 filter）GSAP 一个都不碰，不会和补间抢。
-    // 它和 data-casting 不会同时出现：选目标只发生在自己回合，那时 lockReason 必是 null。
+    // 它和 data-casting 不会同时出现，这一条由调用方保证：选目标只发生在自己回合的出牌段，
+    //「对方回合 / 答题」两档天然撞不上，「发牌」那档 MatchStage 显式排掉了选目标态
+    //（测试房的 DevPanel 能在选目标途中凭空加一张手牌，不排就会同时打上两个）。
     <div
       className="hand-fan"
       ref={rootRef}
+      // 教程用的语义锚点（见 tutorial/steps.ts 的 TutorialAnchorName）。
+      // 写死在这里是安全的：这个组件只有对局界面在用，别处用的是 HandCardFace 或 OpponentFan。
+      data-tutorial-anchor="hand"
       data-casting={castingId === null ? undefined : 'true'}
       data-locked={lockReason === null ? undefined : lockReason}
       style={{ '--hand-card-zoom': HOVER_SCALE } as CSSProperties}
     >
       {cards.map((card) => {
         const dragBindings = cardDrag.bind(card.id)
+        /*
+         * 能不能翻面。AI 牌不能：正面已经把要看的都印全了，翻过去没有新东西，
+         * 问号只是白点一下（卡组页同一条口径，见 screens/DeckScreen.tsx 的 flippable）。
+         * 问号、热区和背面整层一起不渲染——热区留着还会盖在卡右上角吃掉指针。
+         */
+        const flippable = card.kind !== 'ai'
         return (
           <div
             key={card.id}
             className="hand-fan__slot"
             data-flip-id={card.id}
-            /* 这一轮的 Token 买不起这张牌：只画成压暗 + 禁止光标，位置和层级一概不动
+            /* 这张牌现在打不出去（Token 不够，或者本轮已经派过 AI 了）：
+               只画成压暗 + 禁止光标，位置和层级一概不动
                （CSS 里只写 filter 和 cursor，都是 GSAP 碰不到的属性，见 [data-locked] 那段）。
                拖不动点不出那件事归上面 canDrag 管，不写在 CSS 里。 */
-            data-unaffordable={unaffordable.has(card.id) ? 'true' : undefined}
+            data-unplayable={blocked.has(card.id) ? 'true' : undefined}
+            /* 触屏点开看的那张牌。只有一处样式用它：灰墨态下把这张恢复本色
+               （见 styles.css [data-locked] 那节），效果和桌面 :hover 那条对齐。
+               抬起放大不归它管，那是 applyLayout 按 selectedId 排的。 */
+            data-selected={selectedId === card.id ? 'true' : undefined}
             ref={(el) => {
               if (el) slotsRef.current.set(card.id, el)
               else slotsRef.current.delete(card.id)
             }}
-            onPointerEnter={() => handleEnter(card.id)}
-            onPointerLeave={() => handleLeave(card.id)}
+            /* 抬牌只给鼠标。触屏上手指划过手牌会一路发 enter，牌被一张张抬起来，
+               看着像自己选了一堆；而真正的触屏选牌是点一下（见 handleTap），
+               走的是 selectedId 那条路，和 hoverRef 无关，拦掉这里什么都不少。
+               判据用这次事件的 pointerType 而不是设备类型：带触屏的笔记本用鼠标时照常抬牌。 */
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleEnter(card.id)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== 'mouse') return
+              handleLeave(card.id)
+            }}
             {...dragBindings}
             /*
             指针已经在牌上、却没抬起来的那些情况，全靠 move 补一次 hover：
@@ -1306,6 +1700,7 @@ export function HandFan({
           */
             onPointerMove={(event) => {
               dragBindings.onPointerMove(event)
+              if (event.pointerType !== 'mouse') return
               handleEnter(card.id)
             }}
           >
@@ -1319,45 +1714,33 @@ export function HandFan({
             两面身上的 data-flip-face 就是给 flipTo 认人用的契约，别删。
             问号拆成两半分挂在两层里：看得见的圆圈在 inner 里（跟着倾斜也跟着翻面），
             触发翻面的透明热区在 inner 外（只跟倾斜、绝不跟翻面）。原因见下面两处注释。
+            AI 牌这三样（两个圆圈 + 热区）和背面整层都不渲染，见上面的 flippable。
           */}
             <div className="hand-fan__tilt">
               <div className="hand-fan__inner">
                 <div className="hand-fan__face hand-fan__face--front" data-flip-face="front">
                   <HandCardFace card={card} />
-                  {/* 看得见的问号圆圈之一。放在这里而不是 HandCardFace 里面：
+                  {/* 看得见的问号圆章之一。放在这里而不是 HandCardFace 里面：
                     那个组件被战场小卡复用，而小卡没有翻面这回事，不该跟着长出一个问号。 */}
-                  <span className="hand-fan__help-mark" aria-hidden="true">
-                    ?
-                  </span>
+                  {flippable ? <CardHelpMark className="hand-fan__help-mark" /> : null}
                 </div>
-                <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
-                  <div className={card.kind === 'ai' ? 'card-back card-back--ai-art' : 'card-back'}>
-                    {card.kind === 'ai' ? (
-                      <img
-                        className="card-back__art"
-                        src={AI_CARD_BACK_ART}
-                        alt="AI 牌统一卡牌背面"
-                        draggable={false}
-                      />
-                    ) : (
-                      <>
-                        <span className="card-back__title">{card.name}</span>
-                        <p className="card-back__text">{card.backText}</p>
-                      </>
-                    )}
-                    {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
-                      这一层和正面共用 --glare-x / --glare-y，位置是对的：
-                      .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
-                      而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
-                    <div className="card-glare" />
-                    {/* 背面同一个角上的问号圆圈：翻过去之后指针底下仍然压着一个问号，
-                      看起来就是"同一个问号跟着卡转到了背面"。
-                      排在高光层后面，免得被那层 soft-light 混得发灰。 */}
-                    <span className="hand-fan__help-mark" aria-hidden="true">
-                      ?
-                    </span>
+                {flippable ? (
+                  <div className="hand-fan__face hand-fan__face--back" data-flip-face="back">
+                    <div className={cardBackClassName(card.kind)}>
+                      <span className="card-back__title">{card.name}</span>
+                      <p className="card-back__text">{card.backText}</p>
+                      {/* 背面也要有高光层，否则翻过去之后反光会凭空消失。
+                        这一层和正面共用 --glare-x / --glare-y，位置是对的：
+                        .hand-fan__face--back 自带的 rotateY(180deg) 单看是镜像，
+                        而背面只有在 inner 也转过 90° 之后才显示，两个 180° 正好抵消。 */}
+                      <div className="card-glare" />
+                      {/* 背面同一个角上的问号圆章：翻过去之后指针底下仍然压着一个问号，
+                        看起来就是"同一个问号跟着卡转到了背面"。
+                        排在高光层后面，免得被那层 soft-light 混得发灰。 */}
+                      <CardHelpMark className="hand-fan__help-mark" />
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
               {/*
               问号的触发热区：完全透明，只管交互（hover 翻面、拦住在它身上按下时抓起牌，
@@ -1370,15 +1753,57 @@ export function HandFan({
 
               与之配套，卡面那一整棵子树在 CSS 里是 pointer-events: none（见 .hand-fan__inner），
               翻面途中转动的卡面抢不走指针。别给卡面加指针事件，加了这条抖动就会回来。
+
+              翻不了的牌（AI 牌）整个不挂它：那一块是盖在卡右上角的透明按钮，
+              留着只会白吃掉指针，翻面还什么都不会发生。
             */}
-              <button
-                type="button"
-                className="hand-fan__help"
-                aria-label="查看卡牌详情"
-                onPointerEnter={() => handleHelpEnter(card.id)}
-                onPointerLeave={() => handleHelpLeave(card.id)}
-              />
+              {flippable ? (
+                <button
+                  type="button"
+                  className="hand-fan__help"
+                  aria-label="查看卡牌详情"
+                  /* 移入翻过去、移出翻回来只给鼠标。触屏走下面的 pointerup 点一次翻一次，
+                     理由见 handleHelpToggle。 */
+                  onPointerEnter={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    handleHelpEnter(card.id)
+                  }}
+                  onPointerLeave={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    handleHelpLeave(card.id)
+                  }}
+                  onPointerUp={(event) => {
+                    if (event.pointerType === 'mouse') return
+                    handleHelpToggle(card.id)
+                  }}
+                />
+              ) : null}
             </div>
+            {/*
+              触屏轻点选中之后，浮在牌顶上方的「打出」。鼠标点一下就直接打出，
+              永远不会有牌处在选中态，所以桌面上这一段一次都不会渲染。
+
+              只有"这张牌被选中"且"现在真能出牌"时才渲染：锁上的那一刻选中态会被
+              effectiveDisabled 那个 effect 清掉，这里再判一次是防两者差一帧——
+              渲染的时机永远比 effect 早一拍。
+
+              挂在 slot 里而不是整排共用一个（像 lock-tip 那样现算位置）：slot 就是这张牌，
+              牌抬起来、被推开、跟着窗口缩放，按钮全都自动跟着走，一行定位代码都不用写。
+              放在倾斜层**外面**是必须的：那一层有 zoom（见 CSS），按钮会跟着被放大 1.9 倍。
+              这时 slot 的 scale 正好是 1（被抬起的牌就是放大到顶那一档），所以按钮是原尺寸。
+            */}
+            {selectedId === card.id && !effectiveDisabled && !frozen ? (
+              <PlaqueButton
+                className="hand-fan__play"
+                /* 新手教程给这张牌挖洞时要把这颗按钮一起圈进去：它浮在卡的上方、
+                   在 slot 的矩形之外，不圈进去就会被压暗层盖灰、还会被引导气泡整个压住
+                   （气泡贴着洞的上沿放）。见 tutorial/TutorialOverlay.tsx 的 anchorRect。 */
+                data-tutorial-extend="true"
+                onClick={() => playCard(card.id, true)}
+              >
+                打出
+              </PlaqueButton>
+            ) : null}
           </div>
         )
       })}
@@ -1405,8 +1830,21 @@ export function HandFan({
  * 具名 AI 叠加原设计的 Token 圆章、技能简称和模型铭牌；完整技能牌原画直接展示；
  * 没有专属原画的卡继续使用渐变信息层。
  * 圆章上那个数字是引擎真扣的费用（card.tokenCost，出处在 core 的卡牌定义），
- * 技能简称和主色才是这边 AI_MODEL_FACE 的装饰配置。
+ * 主色来自 AI_MODEL_FACE；技能名来自 core，和背面技能详情共用同一份。
  */
+/**
+ * 一张牌翻到背面时那层容器该带哪些 class。
+ *
+ * 两处（对局手牌、卡池 / 牌组格子）画的是同一面背面，class 各写一份的话，
+ * 加了新卡种的样式总会漏掉其中一处，玩家就会看到同一张牌在两个页面长得不一样。
+ * AI 牌铺满整张美术卡背，技能牌铺星象边框底图再压文字，英雄牌沿用默认的深色底。
+ */
+export function cardBackClassName(kind: HandCardData['kind']): string {
+  if (kind === 'ai') return 'card-back card-back--ai-art'
+  if (kind === 'skill') return 'card-back card-back--skill'
+  return 'card-back'
+}
+
 export function HandCardFace({ card }: { card: HandCardData }) {
   const definitionId = card.definitionId ?? card.id
   // 两样缺一不可：非具名 AI 查不到装饰配置，英雄牌没有费用，任缺一样都退回下面的渐变信息层。
@@ -1417,19 +1855,49 @@ export function HandCardFace({ card }: { card: HandCardData }) {
     <div
       className={`card-face card-face--${card.kind}`}
       role={illustratedSkill ? 'img' : undefined}
-      aria-label={illustratedSkill ? `${card.name}。${card.text}` : undefined}
+      /* 原画里那枚费用章是画上去的旧价，朗读时报的是现在真扣的那个数（下面盖上去的那枚同源）。 */
+      aria-label={
+        illustratedSkill
+          ? `${card.name}。${cost === undefined ? '' : `消耗 ${cost} Token。`}${card.text}`
+          : undefined
+      }
     >
       {/* 普通插画的信息由文字层提供；完整技能牌的烘焙文字通过外层 aria-label 朗读。
-          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。 */}
+          draggable 关掉是因为原生图片拖拽会把出牌的拖拽整个截走。
+
+          图一律过 midFor：这个组件是全站唯一画卡面的地方（手牌、战场小卡、强制展示、
+          回合结算、牌库放大查看都是它），而这些场合里卡最大也只到 524 个设备像素，
+          600 宽那一档全盖得住。铺原画（1024×1536）的话每张卡都要解码 157 万像素再降采样，
+          手机上是掉帧的主因之一。卡牌自带的外部图（card.art 可以是任意 URL）
+          midFor 会原样放行，不用在这儿判。 */}
       <img
         className="card-face__art"
-        src={card.art ?? cardArtFor(definitionId)}
+        src={midFor(card.art ?? cardArtFor(definitionId))}
         alt=""
         draggable={false}
       />
       {face !== undefined && cost !== undefined ? (
-        <CardFaceOverlay cost={cost} skillName={face.skillName} name={card.name} accent={face.accent} />
-      ) : illustratedSkill ? null : (
+        <CardFaceOverlay
+          cost={cost}
+          skillName={card.skillName ?? '技能待定'}
+          name={card.name}
+          accent={face.accent}
+          costBadge={face.costBadge}
+        />
+      ) : illustratedSkill ? (
+        /*
+         * 技能牌的原画连费用圆章一起烘焙在图里，费用一调数字就成了旧价，
+         * 所以照原样再画一枚盖上去（颜色和位置见 ui/skillCardFace.ts）。
+         * 卡名和效果仍然用原画印的那份，只有这个数字是现取的。
+         */
+        cost === undefined ? null : (
+          <CardCostBadge
+            cost={cost}
+            center={SKILL_CARD_FACE[definitionId]?.center}
+            fill={SKILL_CARD_FACE[definitionId]?.fill}
+          />
+        )
+      ) : (
         <div className="card-face__body">
           <div className="card-face__name">{card.name}</div>
           <p className="card-face__text">{card.text}</p>

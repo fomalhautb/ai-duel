@@ -12,52 +12,125 @@ import { useEffect } from 'react'
 import { Route, Switch, useLocation } from 'wouter'
 import { MatchSessionProvider } from './match/MatchSession'
 import { startBackgroundPreload } from './ui/backgroundPreload'
-import { TouchDeviceNotice } from './ui/TouchDeviceNotice'
+import { OrientationNotice } from './ui/OrientationNotice'
+import { FullscreenEntry } from './ui/FullscreenEntry'
+import { HandDrawnFilterDefs } from './ui/HandDrawnFilterDefs'
 import { HomeScreen } from './screens/HomeScreen'
+import { InfoScreen } from './screens/InfoScreen'
 import { HeroScreen } from './screens/HeroScreen'
 import { RoomScreen } from './screens/RoomScreen'
 import { MatchScreen } from './screens/MatchScreen'
+import { TutorialScreen } from './screens/TutorialScreen'
 import { DesignScreen } from './screens/DesignScreen'
 import { DeckScreen } from './screens/DeckScreen'
-import { CardGallery } from './dev/CardGallery'
+import { GenerationScreen } from './screens/GenerationScreen'
+import { SettleTestScreen } from './screens/SettleTestScreen'
 import { DevIndex } from './dev/DevIndex'
 import { LoaderDemo } from './dev/LoaderDemo'
+import { LoadingBarDemo } from './dev/LoadingBarDemo'
+import { ResultDemo } from './dev/ResultDemo'
+import { loadSave, saveHero } from './save/save'
+import { useBackgroundMusic } from './ui/backgroundMusic'
+import { useGlobalButtonSound } from './ui/soundEffects'
 
 /** 没有 requestIdleCallback 时的退让时长：等这么久再开始后台加载。 */
 const IDLE_FALLBACK_MS = 1000
 
 export function App() {
   useBackgroundPreload()
+  useGlobalButtonSound()
 
   return (
     <MatchSessionProvider>
-      {/* 触屏设备的一次性提示，盖在所有页面之上（自己判定要不要显示）。 */}
-      <TouchDeviceNotice />
+      {/*
+       * 全站共用的手绘抖动滤镜定义，整个文档挂这一份。
+       *
+       * 原来是每个页面各挂一次，因为 CSS 里的 filter: url(#ai-duel-rough-*) 只找得到
+       * 同一个文档里的定义，缺了它 Chrome 上整颗按钮都不画。现在右上角那颗静音钮是全局的、
+       * 也用同一套滤镜，各页各挂就漏了没挂的那几页（/loader、/dev 等），
+       * 干脆提到这里来——id 是文档级的，挂一次全站都能引用，而且不会再出现重复 id。
+       * 本身是 0 尺寸的 svg，不占布局。
+       */}
+      <HandDrawnFilterDefs />
+      {/* 竖屏时盖在所有页面之上的「请横屏」提示，自己判定要不要显示。 */}
+      <OrientationNotice />
+      {/* 手机上常驻的全屏入口：画面边上那颗小按钮，iOS 上还带一份「添加到主屏幕」引导。
+          和上面一样自己判定要不要显示，桌面上不出现。 */}
+      <FullscreenEntry />
       <Switch>
         <Route path="/" component={HomeScreen} />
-        {/* 选择英雄界面：照设计稿复原的纯 UI demo，选中态和动画都在，但没接对局——
-            点「确认英雄」只播一段光效，不跳转也不落任何状态。首页的「英雄」导航项仍是敬请期待。 */}
-        <Route path="/hero" component={HeroScreen} />
+        {/* 关于本作：黑客松出处、团队名单、外链。首页导航「信息」那一项进来。 */}
+        <Route path="/info" component={InfoScreen} />
+        {/* 选择英雄的独立入口，见下面 HeroRoute。对局流程里的那一步在 /room 里，不走这条路由。 */}
+        <Route path="/hero" component={HeroRoute} />
+        {/* 匹配房。整条「匹配 → 选卡组 → 选英雄 → 开局」都在这一个组件里，
+            因为选择期间房间连接必须一直活着，换路由就等于换房间码（见 RoomScreen 文件头）。 */}
         <Route path="/room" component={RoomScreen} />
         {/* 联机对局和 dev 测试房共用这一个路由，区别只在 MatchSession 里放的是哪种 driver。 */}
         <Route path="/match" component={MatchScreen} />
+        {/* 新手教程的教学对战。自己建 driver、自己收，不进 MatchSession，也不记胜场
+            （教学局是写死结局的剧本）。组牌 / 选英雄 / 完成页是后面接的另一段。 */}
+        <Route path="/tutorial" component={TutorialScreen} />
         {/* 开发页导航，集中收录调试入口。 */}
         <Route path="/dev" component={DevIndex} />
         {/* 设计参考页，纸面元素的样板间。 */}
         <Route path="/design" component={DesignScreen} />
-        {/* 组建牌组的交互 demo 页：卡池用的是 screens/deckDemoCards.ts 里那批假卡，
-            选出来的牌组不落盘也进不了对局，只用来跑通选卡的手势和版式。真卡池落地后重做。 */}
-        <Route path="/deck" component={DeckScreen} />
-        {/* 卡牌图鉴 / 卡面调试页：左栏列出全部卡牌的缩略卡面，右栏是选中那张的真实尺寸正反面
-            加卡面之外的字段，改卡面排版时用来对照，也方便和协作的 AI 隔着屏幕指同一张卡。 */}
-        <Route path="/card" component={CardGallery} />
+        {/* 组建牌组的独立入口，见下面 DeckRoute。 */}
+        <Route path="/deck" component={DeckRoute} />
         {/* 加载动画的演示/调参页：各档 size、speed、颜色和浅色底一起摆开对比。
             没跟着放进 /dev：这个 loader 是要给真实加载场景用的，
             短路径方便随手打开对着看，也方便之后直接当"正在加载"的空页复用。 */}
         <Route path="/loader" component={LoaderDemo} />
+        {/* 加载进度条的调试页：手动拖百分比、自动模拟一遍、极端值对照，
+            还能挑一份真实素材清单绕开缓存真下一遍，看进度条在真实节奏下怎么走。
+            和上面的 /loader 分工：那里调 loader 动画本身，这里调它下面那条进度条。 */}
+        <Route path="/loading-bar" component={LoadingBarDemo} />
+        {/* 回合结算界面的独立测试页：把结算层单独放进对局舞台里，
+            按钮直接摆出各种结果分支（答对数取胜 / 消耗决胜 / 打平 / 对方赢 / 空场），
+            不用打完整一局就能反复看那一整套动画。 */}
+        <Route path="/test" component={SettleTestScreen} />
+        {/* 终局结算界面调试页：胜/负/平/中断四种结果加可改的比分，套在和对局同样的 16:9 舞台里，
+            省得为了调结算版式真去打完一局。和上面的 /test 分工：这里调"整局打完"的底板，
+            那里调"每一轮答完"的结算层。 */}
+        <Route path="/result" component={ResultDemo} />
+        {/* 预生成答题结果对照页：把离线跑好的「模型 × 题目 × 技能」结果摊成一张表，
+            用来看哪张技能卡真的把模型带偏了。数据是构建期生成的静态 JSON，不联网。 */}
+        <Route path="/generation" component={GenerationScreen} />
         <Route component={NotFound} />
       </Switch>
     </MatchSessionProvider>
+  )
+}
+
+/*
+ * /deck 和 /hero 这两条路由是**独立入口**：首页导航的「牌组」「英雄」进的就是这里，
+ * 敲短地址也能单独打开这一页调样式，不用先凑够两台机器匹配上。
+ * 正式流程里的选卡组 / 选英雄不经过这里，它们是 RoomScreen 的两个阶段
+ *（那边就地切阶段是为了不断开房间连接，界面本身是同一套）。
+ *
+ * 两个页面本身都是受控组件（不导航），所以这两条薄包装负责把它们接回首页。
+ *
+ * 两页的存档口径不一样：选牌页每改一张牌就自己写 save/deckStore.ts，所以这里确认时无事可做，
+ * 只管跳转；选英雄页不写存档，确认后由这里 saveHero，下次匹配时 RoomScreen 拿它预填。
+ */
+function DeckRoute() {
+  const [, navigate] = useLocation()
+  useBackgroundMusic('cardsSelecting')
+  return <DeckScreen onConfirm={() => navigate('/')} onBack={() => navigate('/')} />
+}
+
+function HeroRoute() {
+  const [, navigate] = useLocation()
+  useBackgroundMusic('cardsSelecting')
+  return (
+    <HeroScreen
+      initialHeroId={loadSave().savedHero}
+      onConfirm={(hero) => {
+        saveHero(hero)
+        navigate('/')
+      }}
+      onBack={() => navigate('/')}
+    />
   )
 }
 

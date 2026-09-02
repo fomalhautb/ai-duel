@@ -3163,6 +3163,15 @@ function BattleField({
 
       {finished ? (
         <MatchResult
+          variant={
+            view.status === 'aborted'
+              ? 'victory'
+              : state.winner === 'draw'
+                ? 'draw'
+                : state.winner === mySeat
+                  ? 'victory'
+                  : 'defeat'
+          }
           title={resultTitleOf(view, state, mySeat)}
           score={view.status === 'aborted' ? null : { mine: me.score, foe: foe.score }}
           actions={resultActions}

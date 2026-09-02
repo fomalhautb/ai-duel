@@ -52,6 +52,7 @@ export function ResultDemo() {
         <div className="battle-stage">
           <div className="battle-scaler stage-scaler" ref={scalerRef}>
             <MatchResult
+              variant={outcome === 'lose' ? 'defeat' : outcome === 'draw' ? 'draw' : 'victory'}
               title={title}
               score={score}
               actions={

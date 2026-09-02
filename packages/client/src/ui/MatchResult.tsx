@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react'
 
 export interface MatchResultProps {
+  variant?: 'victory' | 'defeat' | 'draw'
   /** 大标题，例如「你赢了」。中断局传中断原因。 */
   title: string
   /** 最终比分。对局中断时没有比分可言，传 null 就整行不渲染。 */
@@ -18,10 +19,10 @@ export interface MatchResultProps {
   actions?: ReactNode
 }
 
-export function MatchResult({ title, score, actions }: MatchResultProps) {
+export function MatchResult({ variant = 'victory', title, score, actions }: MatchResultProps) {
   return (
     <div className="battle__result">
-      <div className="battle__result-panel">
+      <div className={`battle__result-panel battle__result-panel--${variant}`}>
         <div className="battle__result-content">
           <p className="battle__result-title">{title}</p>
           {score === null ? null : (

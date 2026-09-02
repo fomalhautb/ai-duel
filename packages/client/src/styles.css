@@ -3218,6 +3218,14 @@ body:has(.battle) {
     drop-shadow(0 0 30px rgb(224 177 99 / 12%));
 }
 
+.battle__result-panel--defeat::before {
+  background-image: url('/battle/final-defeat-bg.png');
+}
+
+.battle__result-panel--draw::before {
+  background-image: url('/battle/final-draw-bg.png');
+}
+
 /* 文字区按底图留白定位：标题在放射纹中心，比分完整落到中央装饰线下方。 */
 .battle__result-content {
   position: absolute;

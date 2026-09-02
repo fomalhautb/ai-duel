@@ -2434,7 +2434,15 @@ function BattleField({
 
       {finished ? (
         <div className="battle__result">
-          <div className="battle__result-panel">
+          <div
+            className={
+              state.winner === 'draw'
+                ? 'battle__result-panel battle__result-panel--draw'
+                : view.status === 'finished' && state.winner !== mySeat
+                  ? 'battle__result-panel battle__result-panel--defeat'
+                  : 'battle__result-panel'
+            }
+          >
             <div className="battle__result-content">
               <p className="battle__result-title">{resultTitleOf(view, state, mySeat)}</p>
               {view.status === 'aborted' ? null : (
